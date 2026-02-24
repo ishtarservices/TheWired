@@ -1,0 +1,11 @@
+export { buildNip98Header } from "./nip98";
+export { api, setApiBaseUrl, getApiBaseUrl, ApiRequestError } from "./client";
+export { listSpaces, getSpace } from "./spaces";
+export { createInvite, getInvite, revokeInvite } from "./invites";
+export { search } from "./search";
+export { getTrending, getPersonalized } from "./feeds";
+export { getProfile, batchProfiles } from "./profiles";
+export { subscribePush, unsubscribePush } from "./push";
+export { getSpaceAnalytics } from "./analytics";
+export { pinMessage, scheduleMessage } from "./content";
+export { uploadAudio, uploadCoverArt, getTrendingTracks, getTrendingAlbums, searchMusic } from "./music";

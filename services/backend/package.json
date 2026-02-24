@@ -1,0 +1,37 @@
+{
+  "name": "@thewired/backend",
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "dev": "tsx watch src/index.ts",
+    "build": "tsc",
+    "start": "node dist/index.js",
+    "typecheck": "tsc --noEmit",
+    "db:generate": "drizzle-kit generate",
+    "db:migrate": "drizzle-kit migrate"
+  },
+  "dependencies": {
+    "@fastify/cors": "^11.0.0",
+    "@fastify/multipart": "^9.4.0",
+    "@fastify/static": "^9.0.0",
+    "@noble/curves": "^1.9.7",
+    "@noble/hashes": "^1.8.0",
+    "@thewired/shared-types": "workspace:*",
+    "drizzle-orm": "^0.38.4",
+    "fastify": "^5.2.1",
+    "ioredis": "^5.4.2",
+    "meilisearch": "^0.46.0",
+    "nostr-tools": "^2.23.1",
+    "pino": "^9.6.0",
+    "postgres": "^3.4.5",
+    "web-push": "^3.6.7",
+    "zod": "^3.24.2"
+  },
+  "devDependencies": {
+    "@types/node": "^22.12.0",
+    "@types/web-push": "^3.6.4",
+    "drizzle-kit": "^0.30.4",
+    "tsx": "^4.19.2",
+    "typescript": "^5.9.3"
+  }
+}

@@ -1,0 +1,23 @@
+{
+  "name": "thewired-monorepo",
+  "private": true,
+  "scripts": {
+    "dev:client": "pnpm --filter @thewired/client dev",
+    "dev:backend": "pnpm --filter @thewired/backend dev",
+    "dev:gateway": "cd services/gateway && go run cmd/gateway/main.go",
+    "dev:relay": "cd services/relay && cargo run",
+    "dev:infra": "docker compose up postgres redis meilisearch -d",
+    "dev:services": "docker compose up -d",
+    "build": "pnpm -r build",
+    "typecheck": "pnpm -r typecheck"
+  },
+  "pnpm": {
+    "onlyBuiltDependencies": [
+      "esbuild"
+    ]
+  },
+  "devDependencies": {
+    "concurrently": "^9.1.0"
+  },
+  "packageManager": "pnpm@10.29.3"
+}

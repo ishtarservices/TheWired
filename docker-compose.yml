@@ -1,0 +1,95 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    ports:
+      - "${POSTGRES_PORT:-5432}:5432"
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-thewired}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}
+      POSTGRES_DB: ${POSTGRES_DB:-thewired}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-thewired}"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "${REDIS_PORT:-6380}:6379"
+    command: redis-server --maxmemory 256mb --maxmemory-policy allkeys-lru
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  meilisearch:
+    image: getmeili/meilisearch:v1.6
+    ports:
+      - "${MEILI_PORT:-7700}:7700"
+    environment:
+      MEILI_MASTER_KEY: ${MEILI_MASTER_KEY:?Set MEILI_MASTER_KEY in .env}
+      MEILI_ENV: ${MEILI_ENV:-development}
+    volumes:
+      - meilidata:/meili_data
+
+  relay:
+    build:
+      context: ./services/relay
+      dockerfile: Dockerfile
+    ports:
+      - "${RELAY_PORT:-7777}:7777"
+    environment:
+      DATABASE_URL: postgres://${POSTGRES_USER:-thewired}:${POSTGRES_PASSWORD:?err}@postgres:5432/${POSTGRES_DB:-thewired}
+      RELAY_PORT: 7777
+      RELAY_NAME: ${RELAY_NAME:-The Wired Relay}
+      RUST_LOG: ${RUST_LOG:-info,thewired_relay=debug}
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  backend:
+    build:
+      context: .
+      dockerfile: services/backend/Dockerfile
+    ports:
+      - "${BACKEND_PORT:-3002}:3002"
+    environment:
+      DATABASE_URL: postgres://${POSTGRES_USER:-thewired}:${POSTGRES_PASSWORD:?err}@postgres:5432/${POSTGRES_DB:-thewired}
+      REDIS_URL: redis://redis:6379
+      MEILISEARCH_URL: http://meilisearch:7700
+      MEILISEARCH_KEY: ${MEILI_MASTER_KEY:?err}
+      RELAY_URL: ws://relay:7777
+      PORT: 3002
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      relay:
+        condition: service_started
+      meilisearch:
+        condition: service_started
+
+  gateway:
+    build:
+      context: ./services/gateway
+      dockerfile: Dockerfile
+    ports:
+      - "${GATEWAY_PORT:-9080}:9080"
+    environment:
+      GATEWAY_PORT: 9080
+      BACKEND_URL: http://backend:3002
+      REDIS_URL: redis://redis:6379
+    depends_on:
+      backend:
+        condition: service_started
+      redis:
+        condition: service_healthy
+
+volumes:
+  pgdata:
+  meilidata:

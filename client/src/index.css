@@ -1,0 +1,302 @@
+@import "tailwindcss";
+
+/* ═══════════════════════════════════════════════════
+   Design Tokens – registered as Tailwind v4 colors
+   Dark mode is default. Light mode overrides below.
+   ═══════════════════════════════════════════════════ */
+
+@theme {
+  /* Backgrounds */
+  --color-backdrop: #06070D;
+  --color-panel: #0B0F1A;
+  --color-card: #141B2D;
+  --color-card-hover: #1A2238;
+  --color-field: #0E1322;
+
+  /* Text */
+  --color-heading: #F1F5F9;
+  --color-body: #CBD5E1;
+  --color-soft: #94A3B8;
+  --color-muted: #64748B;
+  --color-faint: #475569;
+
+  /* Neon accent – electric cyan */
+  --color-neon: #00F0FF;
+  --color-neon-soft: #67F7FF;
+
+  /* Pulse accent – violet */
+  --color-pulse: #7C3AED;
+  --color-pulse-soft: #A78BFA;
+
+  /* Borders */
+  --color-edge: #162032;
+  --color-edge-light: #1E2D45;
+}
+
+/* ═══════════════════════════════════════════════════
+   Light Mode Overrides
+   ═══════════════════════════════════════════════════ */
+
+:root[data-theme="light"] {
+  --color-backdrop: #F8FAFC;
+  --color-panel: #FFFFFF;
+  --color-card: #F1F5F9;
+  --color-card-hover: #E2E8F0;
+  --color-field: #EEF2F7;
+
+  --color-heading: #0F172A;
+  --color-body: #334155;
+  --color-soft: #64748B;
+  --color-muted: #94A3B8;
+  --color-faint: #CBD5E1;
+
+  --color-neon: #0891B2;
+  --color-neon-soft: #06B6D4;
+
+  --color-pulse: #7C3AED;
+  --color-pulse-soft: #8B5CF6;
+
+  --color-edge: #E2E8F0;
+  --color-edge-light: #CBD5E1;
+}
+
+/* ═══════════════════════════════════════════════════
+   Base Styles
+   ═══════════════════════════════════════════════════ */
+
+:root {
+  font-family: Inter, system-ui, Avenir, Helvetica, Arial, sans-serif;
+  line-height: 1.5;
+  font-weight: 400;
+  color: var(--color-body);
+  background-color: var(--color-backdrop);
+  font-synthesis: none;
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+body {
+  margin: 0;
+  min-width: 320px;
+  min-height: 100vh;
+}
+
+#root {
+  height: 100vh;
+  overflow: hidden;
+}
+
+/* ═══════════════════════════════════════════════════
+   Non-color Theme Variables
+   ═══════════════════════════════════════════════════ */
+
+:root {
+  /* Glass */
+  --glass-bg: rgba(11, 15, 26, 0.75);
+  --glass-border: rgba(0, 240, 255, 0.07);
+
+  /* Glows */
+  --glow-neon: 0 0 12px rgba(0, 240, 255, 0.2);
+  --glow-neon-strong: 0 0 20px rgba(0, 240, 255, 0.3), 0 0 40px rgba(0, 240, 255, 0.08);
+  --glow-accent: 0 0 12px rgba(124, 58, 237, 0.25);
+
+  /* Ambient */
+  --ambient-1: rgba(0, 240, 255, 0.06);
+  --ambient-2: rgba(124, 58, 237, 0.05);
+  --ambient-3: rgba(0, 240, 255, 0.03);
+
+  /* Grid */
+  --grid-color: rgba(0, 240, 255, 0.035);
+
+  /* Silver gradient */
+  --gradient-from: #F1F5F9;
+  --gradient-mid: #64748B;
+  --gradient-to: #F1F5F9;
+
+  /* Neon border */
+  --neon-border: rgba(0, 240, 255, 0.12);
+  --neon-border-hover: rgba(0, 240, 255, 0.25);
+}
+
+:root[data-theme="light"] {
+  --glass-bg: rgba(255, 255, 255, 0.85);
+  --glass-border: rgba(0, 0, 0, 0.08);
+
+  --glow-neon: 0 0 10px rgba(8, 145, 178, 0.15);
+  --glow-neon-strong: 0 0 14px rgba(8, 145, 178, 0.25);
+  --glow-accent: 0 0 10px rgba(124, 58, 237, 0.15);
+
+  --ambient-1: rgba(8, 145, 178, 0.04);
+  --ambient-2: rgba(124, 58, 237, 0.03);
+  --ambient-3: rgba(8, 145, 178, 0.02);
+
+  --grid-color: rgba(0, 0, 0, 0.04);
+
+  --gradient-from: #0F172A;
+  --gradient-mid: #64748B;
+  --gradient-to: #0F172A;
+
+  --neon-border: rgba(8, 145, 178, 0.15);
+  --neon-border-hover: rgba(8, 145, 178, 0.3);
+}
+
+/* ═══════════════════════════════════════════════════
+   Glass Morphism
+   ═══════════════════════════════════════════════════ */
+
+.glass {
+  background: var(--glass-bg);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+}
+
+.glass-panel {
+  background: var(--glass-bg);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  border: 1px solid var(--glass-border);
+}
+
+/* ═══════════════════════════════════════════════════
+   Glow Effects
+   ═══════════════════════════════════════════════════ */
+
+.glow-neon {
+  box-shadow: var(--glow-neon);
+}
+
+.glow-neon-strong {
+  box-shadow: var(--glow-neon-strong);
+}
+
+.glow-accent {
+  box-shadow: var(--glow-accent);
+}
+
+/* ═══════════════════════════════════════════════════
+   Ambient Background
+   ═══════════════════════════════════════════════════ */
+
+.bg-ambient {
+  background-color: var(--color-backdrop);
+  background-image:
+    radial-gradient(ellipse 80% 60% at 10% 90%, var(--ambient-1) 0%, transparent 70%),
+    radial-gradient(ellipse 60% 50% at 85% 15%, var(--ambient-2) 0%, transparent 70%),
+    radial-gradient(ellipse 50% 40% at 50% 50%, var(--ambient-3) 0%, transparent 70%);
+}
+
+/* ═══════════════════════════════════════════════════
+   Grid Background
+   ═══════════════════════════════════════════════════ */
+
+.bg-grid {
+  background-image:
+    linear-gradient(var(--grid-color) 1px, transparent 1px),
+    linear-gradient(90deg, var(--grid-color) 1px, transparent 1px);
+  background-size: 40px 40px;
+}
+
+/* ═══════════════════════════════════════════════════
+   Silver / Dark Gradient Text
+   ═══════════════════════════════════════════════════ */
+
+.text-silver-gradient {
+  background: linear-gradient(135deg, var(--gradient-from) 0%, var(--gradient-mid) 50%, var(--gradient-to) 100%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
+
+/* ═══════════════════════════════════════════════════
+   Neon Active Bar (sidebar active items)
+   ═══════════════════════════════════════════════════ */
+
+.neon-bar-left {
+  position: relative;
+}
+
+.neon-bar-left::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 20%;
+  bottom: 20%;
+  width: 2px;
+  background: var(--color-neon);
+  border-radius: 1px;
+  box-shadow: 0 0 8px var(--color-neon);
+}
+
+/* ═══════════════════════════════════════════════════
+   Neon Border Utility
+   ═══════════════════════════════════════════════════ */
+
+.border-neon-glow {
+  border: 1px solid var(--neon-border);
+}
+
+.border-neon-glow:hover {
+  border-color: var(--neon-border-hover);
+}
+
+/* ═══════════════════════════════════════════════════
+   Animations
+   ═══════════════════════════════════════════════════ */
+
+@keyframes pulse-glow {
+  0%, 100% { opacity: 0.5; }
+  50% { opacity: 1; }
+}
+
+.animate-pulse-glow {
+  animation: pulse-glow 2s ease-in-out infinite;
+}
+
+@keyframes neon-breathe {
+  0%, 100% { box-shadow: 0 0 8px rgba(0, 240, 255, 0.12); }
+  50% { box-shadow: 0 0 18px rgba(0, 240, 255, 0.28); }
+}
+
+.animate-neon-breathe {
+  animation: neon-breathe 3s ease-in-out infinite;
+}
+
+/* ═══════════════════════════════════════════════════
+   Micro-interactions
+   ═══════════════════════════════════════════════════ */
+
+.hover-lift {
+  transition: transform 150ms ease-out, box-shadow 150ms ease-out;
+}
+
+.hover-lift:hover {
+  transform: translateY(-1px);
+}
+
+/* ═══════════════════════════════════════════════════
+   Custom Scrollbar
+   ═══════════════════════════════════════════════════ */
+
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: var(--color-edge-light);
+  border-radius: 3px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: var(--color-soft);
+}
+
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--color-edge-light) transparent;
+}

@@ -1,0 +1,45 @@
+{
+  "name": "@thewired/client",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc -b && vite build",
+    "typecheck": "tsc --noEmit",
+    "preview": "vite preview",
+    "tauri": "tauri"
+  },
+  "dependencies": {
+    "@noble/curves": "^1.9.7",
+    "@noble/hashes": "^1.8.0",
+    "@reduxjs/toolkit": "^2.11.2",
+    "@tauri-apps/api": "^2.10.1",
+    "@tauri-apps/plugin-shell": "^2.3.5",
+    "clsx": "^2.1.1",
+    "date-fns": "^4.1.0",
+    "hls.js": "^1.6.15",
+    "idb": "^8.0.3",
+    "lru-cache": "^11.2.6",
+    "lucide-react": "^0.564.0",
+    "nanoid": "^5.1.6",
+    "nostr-tools": "^2.23.1",
+    "react": "^19.2.4",
+    "react-dom": "^19.2.4",
+    "react-markdown": "^9.1.0",
+    "react-redux": "^9.2.0",
+    "react-router-dom": "^7.13.0",
+    "rehype-highlight": "^7.0.2",
+    "remark-gfm": "^4.0.1"
+  },
+  "devDependencies": {
+    "@tailwindcss/vite": "^4.1.18",
+    "@tauri-apps/cli": "^2.10.0",
+    "@types/react": "^19.2.14",
+    "@types/react-dom": "^19.2.3",
+    "@vitejs/plugin-react": "^4.7.0",
+    "tailwindcss": "^4.1.18",
+    "typescript": "^5.9.3",
+    "vite": "^6.4.1"
+  }
+}
