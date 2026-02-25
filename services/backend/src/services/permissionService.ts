@@ -1,7 +1,8 @@
 import { db } from "../db/connection.js";
 import { memberRoles } from "../db/schema/members.js";
 import { spaceRoles, rolePermissions, channelOverrides } from "../db/schema/permissions.js";
-import { eq, and } from "drizzle-orm";
+import { bans, timedMutes } from "../db/schema/moderation.js";
+import { eq, and, gt, or, isNull } from "drizzle-orm";
 
 export const permissionService = {
   async check(
@@ -10,6 +11,50 @@ export const permissionService = {
     permission: string,
     channelId?: string,
   ): Promise<{ allowed: boolean; reason?: string }> {
+    // Check bans first — auto-deny ALL permissions if banned
+    const now = Math.floor(Date.now() / 1000);
+    const activeBan = await db
+      .select()
+      .from(bans)
+      .where(
+        and(
+          eq(bans.spaceId, spaceId),
+          eq(bans.pubkey, pubkey),
+          or(isNull(bans.expiresAt), gt(bans.expiresAt, now)),
+        ),
+      )
+      .limit(1);
+
+    if (activeBan.length > 0) {
+      return { allowed: false, reason: "Banned" };
+    }
+
+    // Check mutes — auto-deny SEND_MESSAGES if muted
+    if (permission === "SEND_MESSAGES") {
+      const activeMute = await db
+        .select()
+        .from(timedMutes)
+        .where(
+          and(
+            eq(timedMutes.spaceId, spaceId),
+            eq(timedMutes.pubkey, pubkey),
+            gt(timedMutes.expiresAt, now),
+          ),
+        )
+        .limit(1);
+
+      if (activeMute.length > 0) {
+        // Space-wide mute (no channelId) always applies
+        if (!activeMute[0].channelId) {
+          return { allowed: false, reason: "Muted" };
+        }
+        // Channel-specific mute applies if matching
+        if (channelId && activeMute[0].channelId === channelId) {
+          return { allowed: false, reason: "Muted in channel" };
+        }
+      }
+    }
+
     // Get member's roles
     const roles = await db
       .select({ roleId: memberRoles.roleId })

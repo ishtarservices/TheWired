@@ -13,12 +13,6 @@ export function Layout() {
   const [sidebarExpanded, setSidebarExpanded] = useState(true);
   const memberListVisible = useAppSelector((s) => s.ui.memberListVisible);
   const activeSpaceId = useAppSelector((s) => s.spaces.activeSpaceId);
-  const connectedCount = useAppSelector(
-    (s) =>
-      Object.values(s.relays.connections).filter(
-        (r) => r.status === "connected",
-      ).length,
-  );
   const hasTrack = useAppSelector((s) => !!s.music?.player.currentTrackId);
 
   const showRightPanel = !!activeSpaceId && memberListVisible;
@@ -28,7 +22,6 @@ export function Layout() {
       <TopBar
         sidebarExpanded={sidebarExpanded}
         onToggleSidebar={() => setSidebarExpanded((v) => !v)}
-        relayCount={connectedCount}
         memberListVisible={memberListVisible}
         onToggleMemberList={() => dispatch(toggleMemberList())}
         hasActiveSpace={!!activeSpaceId}

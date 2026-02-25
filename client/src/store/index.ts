@@ -6,6 +6,7 @@ import { eventsSlice } from "./slices/eventsSlice";
 import { uiSlice } from "./slices/uiSlice";
 import { feedSlice } from "./slices/feedSlice";
 import { musicSlice } from "./slices/musicSlice";
+import { spaceConfigSlice } from "./slices/spaceConfigSlice";
 
 export const store = configureStore({
   reducer: {
@@ -16,6 +17,7 @@ export const store = configureStore({
     ui: uiSlice.reducer,
     feed: feedSlice.reducer,
     music: musicSlice.reducer,
+    spaceConfig: spaceConfigSlice.reducer,
   },
 });
 

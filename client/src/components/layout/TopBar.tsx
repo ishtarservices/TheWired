@@ -1,14 +1,14 @@
-import { PanelLeftClose, PanelLeftOpen, PanelRightClose, PanelRightOpen, Wifi, WifiOff, Sun, Moon } from "lucide-react";
+import { PanelLeftClose, PanelLeftOpen, PanelRightClose, PanelRightOpen, Sun, Moon } from "lucide-react";
 import { Button } from "../ui/Button";
 import { useTheme } from "../../contexts/ThemeContext";
 import { SearchInput } from "../../features/music/SearchInput";
+import { UserSearchInput } from "../../features/search/UserSearchInput";
 import { useAppSelector } from "../../store/hooks";
 
 interface TopBarProps {
   sidebarExpanded: boolean;
   onToggleSidebar: () => void;
   channelName?: string;
-  relayCount?: number;
   memberListVisible?: boolean;
   onToggleMemberList?: () => void;
   hasActiveSpace?: boolean;
@@ -18,7 +18,6 @@ export function TopBar({
   sidebarExpanded,
   onToggleSidebar,
   channelName,
-  relayCount = 0,
   memberListVisible,
   onToggleMemberList,
   hasActiveSpace,
@@ -27,7 +26,7 @@ export function TopBar({
   const sidebarMode = useAppSelector((s) => s.ui.sidebarMode);
 
   return (
-    <div className="flex h-12 items-center border-b border-edge glass px-3">
+    <div className="relative z-10 flex h-12 items-center border-b border-edge glass px-3">
       <Button variant="ghost" size="sm" onClick={onToggleSidebar}>
         {sidebarExpanded ? (
           <PanelLeftClose size={18} />
@@ -39,13 +38,10 @@ export function TopBar({
         {channelName ?? "The Wired"}
       </h2>
 
-      {sidebarMode === "music" && (
-        <div className="ml-4">
-          <SearchInput />
-        </div>
-      )}
-
       <div className="ml-auto flex items-center gap-3">
+        {/* Mode-aware search */}
+        {sidebarMode === "music" ? <SearchInput /> : <UserSearchInput />}
+
         {/* Theme toggle */}
         <button
           onClick={toggleTheme}
@@ -54,18 +50,6 @@ export function TopBar({
         >
           {theme === "dark" ? <Sun size={15} /> : <Moon size={15} />}
         </button>
-
-        {/* Relay indicator */}
-        <div className="flex items-center gap-2 text-xs text-soft">
-          {relayCount > 0 ? (
-            <Wifi size={14} className="text-green-500 animate-pulse-glow" />
-          ) : (
-            <WifiOff size={14} className="text-red-500" />
-          )}
-          <span>
-            {relayCount} relay{relayCount !== 1 ? "s" : ""}
-          </span>
-        </div>
 
         {/* Right panel toggle */}
         {hasActiveSpace && onToggleMemberList && (

@@ -1,55 +1,75 @@
+import { useState } from "react";
 import { useNavigate, useLocation } from "react-router-dom";
 import clsx from "clsx";
-import { MessageSquare, FileText, Image, BookOpen, Music } from "lucide-react";
+import { MessageSquare, FileText, Image, BookOpen, Music, Plus } from "lucide-react";
 import { useSpace } from "./useSpace";
+import { useSpaceChannels } from "./useSpaceChannels";
+import { useAppSelector } from "../../store/hooks";
+import { usePermissions } from "./usePermissions";
+import { CreateChannelModal } from "./CreateChannelModal";
 import type { SpaceChannelType } from "../../types/space";
 
-interface ChannelDef {
-  type: SpaceChannelType;
-  label: string;
-  icon: typeof MessageSquare;
-  requiresReadWrite: boolean;
-}
-
-const channelDefs: ChannelDef[] = [
-  { type: "chat", label: "#chat", icon: MessageSquare, requiresReadWrite: true },
-  { type: "notes", label: "#notes", icon: FileText, requiresReadWrite: false },
-  { type: "media", label: "#media", icon: Image, requiresReadWrite: false },
-  { type: "articles", label: "#articles", icon: BookOpen, requiresReadWrite: false },
-  { type: "music", label: "#music", icon: Music, requiresReadWrite: false },
-];
+const CHANNEL_ICONS: Record<SpaceChannelType, typeof MessageSquare> = {
+  chat: MessageSquare,
+  notes: FileText,
+  media: Image,
+  articles: BookOpen,
+  music: Music,
+};
 
 export function ChannelList() {
   const { activeSpace, activeChannelId, selectChannel } = useSpace();
+  const { channels } = useSpaceChannels(activeSpace?.id ?? null);
   const navigate = useNavigate();
   const location = useLocation();
+  const currentPubkey = useAppSelector((s) => s.identity.pubkey);
+  const { can } = usePermissions(activeSpace?.id ?? null);
+  const [createModalOpen, setCreateModalOpen] = useState(false);
 
   if (!activeSpace) return null;
 
-  const handleSelectChannel = (channelType: string) => {
-    selectChannel(channelType);
+  // Use backend permissions if available, fall back to local admin check
+  const isAdmin = can("MANAGE_CHANNELS") || (!!currentPubkey && activeSpace.adminPubkeys.includes(currentPubkey));
+
+  const handleSelectChannel = (channelId: string) => {
+    selectChannel(channelId);
     if (location.pathname !== "/") {
       navigate("/");
     }
   };
 
-  const visibleChannels = channelDefs.filter(
-    (ch) => !ch.requiresReadWrite || activeSpace.mode === "read-write",
+  const sortedChannels = [...channels].sort((a, b) => a.position - b.position);
+
+  // Filter channels: read-write spaces show all, read-only hides chat
+  const visibleChannels = sortedChannels.filter(
+    (ch) => ch.type !== "chat" || activeSpace.mode === "read-write",
   );
 
   return (
     <div className="space-y-0.5 p-2">
-      <div className="mb-1 px-2 text-[10px] font-semibold uppercase tracking-wider text-muted">
-        Channels
+      <div className="mb-1 flex items-center justify-between px-2">
+        <span className="text-[10px] font-semibold uppercase tracking-wider text-muted">
+          Channels
+        </span>
+        {isAdmin && (
+          <button
+            onClick={() => setCreateModalOpen(true)}
+            className="rounded p-0.5 text-muted hover:bg-card/50 hover:text-heading transition-colors"
+            title="Create channel"
+          >
+            <Plus size={14} />
+          </button>
+        )}
       </div>
       {visibleChannels.map((ch) => {
-        const channelId = `${activeSpace.id}:${ch.type}`;
-        const isActive = channelId === activeChannelId;
+        const channelActiveId = `${activeSpace.id}:${ch.id}`;
+        const isActive = channelActiveId === activeChannelId;
+        const Icon = CHANNEL_ICONS[ch.type] ?? MessageSquare;
 
         return (
           <button
-            key={ch.type}
-            onClick={() => handleSelectChannel(ch.type)}
+            key={ch.id}
+            onClick={() => handleSelectChannel(ch.id)}
             className={clsx(
               "flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-sm transition-all duration-150",
               isActive
@@ -57,11 +77,23 @@ export function ChannelList() {
                 : "text-soft hover:bg-card/30 hover:text-heading",
             )}
           >
-            <ch.icon size={16} />
+            <Icon size={16} />
             <span>{ch.label}</span>
+            {ch.slowModeSeconds > 0 && (
+              <span className="ml-auto text-[10px] text-muted" title={`Slow mode: ${ch.slowModeSeconds}s`}>
+                🐢
+              </span>
+            )}
           </button>
         );
       })}
+
+      <CreateChannelModal
+        open={createModalOpen}
+        onClose={() => setCreateModalOpen(false)}
+        spaceId={activeSpace.id}
+        existingChannels={channels}
+      />
     </div>
   );
 }

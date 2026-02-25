@@ -8,6 +8,15 @@ export async function putProfile(
   profile: Kind0Profile,
 ): Promise<void> {
   const db = await getDB();
+
+  // Freshness guard: skip write if incoming is older than existing
+  if (profile.created_at) {
+    const existing = await db.get("profiles", pubkey);
+    if (existing?.created_at && profile.created_at < existing.created_at) {
+      return;
+    }
+  }
+
   await db.put("profiles", {
     pubkey,
     ...profile,
@@ -36,6 +45,7 @@ export async function getProfile(
     nip05: stored.nip05,
     lud16: stored.lud16,
     website: stored.website,
+    created_at: stored.created_at,
   };
 }
 

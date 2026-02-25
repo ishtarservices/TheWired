@@ -29,7 +29,20 @@ export type ChannelType =
   | "live";
 
 /** Channel types available in client-defined spaces */
-export type SpaceChannelType = "chat" | "notes" | "media" | "articles";
+export type SpaceChannelType = "chat" | "notes" | "media" | "articles" | "music";
+
+/** A backend-managed channel within a space */
+export interface SpaceChannel {
+  id: string;
+  spaceId: string;
+  type: SpaceChannelType;
+  label: string;
+  categoryId?: string;
+  position: number;
+  isDefault: boolean;
+  adminOnly: boolean;
+  slowModeSeconds: number;
+}
 
 /** Channel route configuration */
 export interface ChannelRoute {

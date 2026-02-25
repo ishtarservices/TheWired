@@ -12,18 +12,20 @@ import type { NostrEvent } from "../../types/nostr";
 
 type Tab = "notes" | "following" | "followers";
 
+const PAGE_SIZE = 50;
+
 interface ProfilePageProps {
   pubkey: string;
 }
 
 export function ProfilePage({ pubkey }: ProfilePageProps) {
-  const { profile, loading } = useProfile(pubkey);
-  const { notes, loading: notesLoading } = useProfileNotes(pubkey);
-  const { following, followers, loading: followLoading } = useFollowData(pubkey);
+  const { profile } = useProfile(pubkey);
   const [activeTab, setActiveTab] = useState<Tab>("notes");
+  const { notes, loading: notesLoading, eoseReceived } = useProfileNotes(pubkey);
+  const { following, followers, followingLoading, followersLoading } = useFollowData(pubkey, activeTab);
   const navigate = useNavigate();
 
-  if (loading && !profile) {
+  if (!profile) {
     return (
       <div className="flex flex-1 items-center justify-center">
         <Spinner size="lg" />
@@ -34,10 +36,10 @@ export function ProfilePage({ pubkey }: ProfilePageProps) {
   const displayName =
     profile?.display_name || profile?.name || pubkey.slice(0, 12) + "...";
 
-  const tabs: { id: Tab; label: string; count: number }[] = [
-    { id: "notes", label: "Notes", count: notes.length },
-    { id: "following", label: "Following", count: following.length },
-    { id: "followers", label: "Followers", count: followers.length },
+  const tabs: { id: Tab; label: string; count: string }[] = [
+    { id: "notes", label: "Notes", count: String(notes.length) },
+    { id: "following", label: "Following", count: followingLoading ? "—" : String(following.length) },
+    { id: "followers", label: "Followers", count: activeTab === "followers" || followers.length > 0 ? String(followers.length) : "—" },
   ];
 
   return (
@@ -111,10 +113,14 @@ export function ProfilePage({ pubkey }: ProfilePageProps) {
           <span className="font-semibold text-heading">{notes.length}</span> Notes
         </span>
         <span className="text-soft">
-          <span className="font-semibold text-heading">{following.length}</span> Following
+          <span className="font-semibold text-heading">
+            {followingLoading ? "—" : following.length}
+          </span> Following
         </span>
         <span className="text-soft">
-          <span className="font-semibold text-heading">{followers.length}</span> Followers
+          <span className="font-semibold text-heading">
+            {activeTab === "followers" || followers.length > 0 ? followers.length : "—"}
+          </span> Followers
         </span>
       </div>
 
@@ -138,21 +144,30 @@ export function ProfilePage({ pubkey }: ProfilePageProps) {
       {/* Tab content */}
       <div className="flex-1 px-6 py-4">
         {activeTab === "notes" && (
-          <NotesTab notes={notes} loading={notesLoading} />
+          <NotesTab notes={notes} loading={notesLoading} eoseReceived={eoseReceived} />
         )}
         {activeTab === "following" && (
-          <FollowTab pubkeys={following} loading={followLoading} emptyText="Not following anyone" />
+          <FollowTab pubkeys={following} loading={followingLoading} emptyText="Not following anyone" />
         )}
         {activeTab === "followers" && (
-          <FollowTab pubkeys={followers} loading={followLoading} emptyText="No followers yet" />
+          <FollowTab pubkeys={followers} loading={followersLoading} emptyText="No followers yet" />
         )}
       </div>
     </div>
   );
 }
 
-function NotesTab({ notes, loading }: { notes: NostrEvent[]; loading: boolean }) {
-  if (loading) {
+function NotesTab({
+  notes,
+  loading,
+  eoseReceived,
+}: {
+  notes: NostrEvent[];
+  loading: boolean;
+  eoseReceived: boolean;
+}) {
+  // Show full spinner only when we have no notes and are still loading
+  if (loading && notes.length === 0) {
     return (
       <div className="flex justify-center py-8">
         <Spinner size="md" />
@@ -160,7 +175,7 @@ function NotesTab({ notes, loading }: { notes: NostrEvent[]; loading: boolean })
     );
   }
 
-  if (notes.length === 0) {
+  if (notes.length === 0 && eoseReceived) {
     return (
       <p className="py-8 text-center text-sm text-muted">No notes yet</p>
     );
@@ -171,12 +186,27 @@ function NotesTab({ notes, loading }: { notes: NostrEvent[]; loading: boolean })
       {notes.map((event) => (
         <NoteCard key={event.id} event={event} />
       ))}
+      {!eoseReceived && (
+        <div className="flex justify-center py-4">
+          <Spinner size="sm" />
+        </div>
+      )}
     </div>
   );
 }
 
-function FollowTab({ pubkeys, loading, emptyText }: { pubkeys: string[]; loading: boolean; emptyText: string }) {
-  if (loading) {
+function FollowTab({
+  pubkeys,
+  loading,
+  emptyText,
+}: {
+  pubkeys: string[];
+  loading: boolean;
+  emptyText: string;
+}) {
+  const [visibleCount, setVisibleCount] = useState(PAGE_SIZE);
+
+  if (loading && pubkeys.length === 0) {
     return (
       <div className="flex justify-center py-8">
         <Spinner size="md" />
@@ -190,11 +220,29 @@ function FollowTab({ pubkeys, loading, emptyText }: { pubkeys: string[]; loading
     );
   }
 
+  const visible = pubkeys.slice(0, visibleCount);
+  const hasMore = visibleCount < pubkeys.length;
+
   return (
-    <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
-      {pubkeys.map((pk) => (
-        <FollowCard key={pk} pubkey={pk} />
-      ))}
+    <div className="flex flex-col gap-2">
+      <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+        {visible.map((pk) => (
+          <FollowCard key={pk} pubkey={pk} />
+        ))}
+      </div>
+      {hasMore && (
+        <button
+          onClick={() => setVisibleCount((c) => c + PAGE_SIZE)}
+          className="mx-auto mt-2 rounded-lg bg-surface px-4 py-2 text-sm text-soft transition-colors hover:bg-edge hover:text-heading"
+        >
+          Show more ({pubkeys.length - visibleCount} remaining)
+        </button>
+      )}
+      {loading && (
+        <div className="flex justify-center py-4">
+          <Spinner size="sm" />
+        </div>
+      )}
     </div>
   );
 }

@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Plus, Trash2 } from "lucide-react";
+import { Plus, Trash2, Wifi, WifiOff } from "lucide-react";
 import { Button } from "../../components/ui/Button";
 import { Spinner } from "../../components/ui/Spinner";
 import { RelayStatusBadge } from "../relay/RelayStatusBadge";
@@ -127,8 +127,25 @@ export function RelaySettingsTab() {
     }
   };
 
+  const connectedCount = Object.values(connections).filter(
+    (c) => c.status === "connected",
+  ).length;
+  const totalCount = Object.keys(connections).length;
+
   return (
     <div className="mx-auto w-full max-w-lg space-y-4">
+      {/* Connection status banner */}
+      <div className="flex items-center gap-2 rounded-lg border border-edge bg-panel px-4 py-3">
+        {connectedCount > 0 ? (
+          <Wifi size={16} className="text-green-500" />
+        ) : (
+          <WifiOff size={16} className="text-red-500" />
+        )}
+        <span className="text-sm text-heading">
+          {connectedCount} of {totalCount} relay{totalCount !== 1 ? "s" : ""} connected
+        </span>
+      </div>
+
       <div className="rounded-lg border border-edge bg-panel p-4">
         <h3 className="mb-3 text-sm font-semibold text-heading">
           Relay List

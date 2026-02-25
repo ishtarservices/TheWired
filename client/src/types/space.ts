@@ -31,6 +31,68 @@ export type ChannelType =
 /** Channel types available in client-defined spaces */
 export type SpaceChannelType = "chat" | "notes" | "media" | "articles" | "music";
 
+/** A backend-managed channel within a space */
+export interface SpaceChannel {
+  id: string;
+  spaceId: string;
+  type: SpaceChannelType;
+  label: string;
+  categoryId?: string;
+  position: number;
+  isDefault: boolean;
+  adminOnly: boolean;
+  slowModeSeconds: number;
+}
+
+/** Role within a space */
+export interface SpaceRole {
+  id: string;
+  spaceId: string;
+  name: string;
+  position: number;
+  color?: string;
+  isDefault: boolean;
+  isAdmin: boolean;
+  permissions: string[];
+}
+
+/** Member with roles */
+export interface SpaceMember {
+  pubkey: string;
+  roles: SpaceRole[];
+  joinedAt: number;
+}
+
+/** Channel-level permission override */
+export interface ChannelPermissionOverride {
+  roleId: string;
+  channelId: string;
+  allow: string[];
+  deny: string[];
+}
+
+/** Ban record */
+export interface Ban {
+  id: string;
+  spaceId: string;
+  pubkey: string;
+  reason?: string;
+  bannedBy: string;
+  expiresAt?: number;
+  createdAt: string;
+}
+
+/** Mute record */
+export interface Mute {
+  id: string;
+  spaceId: string;
+  pubkey: string;
+  channelId?: string;
+  mutedBy: string;
+  expiresAt: number;
+  createdAt: string;
+}
+
 /** Channel route configuration */
 export interface ChannelRoute {
   kinds: number[];

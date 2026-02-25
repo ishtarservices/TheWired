@@ -35,7 +35,15 @@ const CHANNEL_COMPONENTS: Record<string, React.ComponentType> = {
 
 export function ChannelPanel() {
   const activeChannelId = useAppSelector((s) => s.spaces.activeChannelId);
-  const channelType = activeChannelId?.split(":").pop() ?? "";
+  const activeSpaceId = useAppSelector((s) => s.spaces.activeSpaceId);
+  const channels = useAppSelector(
+    (s) => (activeSpaceId ? s.spaces.channels[activeSpaceId] : undefined) ?? [],
+  );
+
+  // Resolve channel type from channel ID
+  const channelIdPart = activeChannelId?.split(":").slice(1).join(":") ?? "";
+  const channel = channels.find((c) => c.id === channelIdPart);
+  const channelType = channel?.type ?? channelIdPart; // Legacy fallback
 
   // Track which channels have been visited so we can lazily mount them
   const visitedRef = useRef(new Set<string>());

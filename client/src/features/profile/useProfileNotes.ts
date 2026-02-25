@@ -1,19 +1,18 @@
 import { useEffect, useState, useMemo } from "react";
 import { useAppSelector } from "../../store/hooks";
-import { eventsSelectors } from "../../store/slices/eventsSlice";
 import { subscriptionManager } from "../../lib/nostr/subscriptionManager";
 import { buildNotesFilter } from "../../lib/nostr/filterBuilder";
 import type { NostrEvent } from "../../types/nostr";
 
 export function useProfileNotes(pubkey: string) {
-  const [loading, setLoading] = useState(true);
+  const [eoseReceived, setEoseReceived] = useState(false);
 
   useEffect(() => {
-    setLoading(true);
+    setEoseReceived(false);
 
     const subId = subscriptionManager.subscribe({
       filters: [buildNotesFilter(pubkey)],
-      onEOSE: () => setLoading(false),
+      onEOSE: () => setEoseReceived(true),
     });
 
     return () => {
@@ -24,15 +23,18 @@ export function useProfileNotes(pubkey: string) {
   const noteIds = useAppSelector(
     (s) => s.events.notesByAuthor[pubkey],
   );
-  const events = useAppSelector((s) => s.events);
+  const entities = useAppSelector((s) => s.events.entities);
 
   const notes = useMemo(() => {
     if (!noteIds) return [];
     return noteIds
-      .map((id) => eventsSelectors.selectById(events, id))
+      .map((id) => entities[id])
       .filter((e): e is NostrEvent => !!e)
       .sort((a, b) => b.created_at - a.created_at);
-  }, [noteIds, events]);
+  }, [noteIds, entities]);
 
-  return { notes, loading };
+  // Show loading only when we have no notes yet AND EOSE hasn't arrived
+  const loading = notes.length === 0 && !eoseReceived;
+
+  return { notes, loading, eoseReceived };
 }

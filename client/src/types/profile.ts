@@ -8,6 +8,7 @@ export interface Kind0Profile {
   nip05?: string;
   lud16?: string;
   website?: string;
+  created_at?: number;
 }
 
 /** Profile with metadata */

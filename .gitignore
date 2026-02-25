@@ -62,6 +62,9 @@ WixTools/
 # Claude Code
 .claude/
 
+# Reference codebases (local only, not committed)
+reference/
+
 # Test coverage
 coverage/
 .nyc_output/

@@ -19,6 +19,10 @@ interface EventsExtraState {
   spaceFeeds: Record<string, string[]>; // `${spaceId}:${channelType}` -> eventId[]
   musicTracks: Record<string, string[]>; // contextId -> eventId[]
   musicAlbums: Record<string, string[]>; // contextId -> eventId[]
+  reactions: Record<string, string[]>; // targetEventId -> reaction eventIds
+  replies: Record<string, string[]>; // parentEventId -> reply eventIds
+  reposts: Record<string, string[]>; // targetEventId -> repost eventIds
+  quotes: Record<string, string[]>; // targetEventId -> quote eventIds
 }
 
 const initialState = eventsAdapter.getInitialState<EventsExtraState>({
@@ -30,6 +34,10 @@ const initialState = eventsAdapter.getInitialState<EventsExtraState>({
   spaceFeeds: {},
   musicTracks: {},
   musicAlbums: {},
+  reactions: {},
+  replies: {},
+  reposts: {},
+  quotes: {},
 });
 
 /** Max events per feed index to prevent unbounded memory growth */
@@ -150,6 +158,46 @@ export const eventsSlice = createSlice({
         action.payload.eventId,
       );
     },
+    indexReaction(
+      state,
+      action: PayloadAction<{ targetEventId: string; eventId: string }>,
+    ) {
+      pushToIndex(
+        state.reactions,
+        action.payload.targetEventId,
+        action.payload.eventId,
+      );
+    },
+    indexReply(
+      state,
+      action: PayloadAction<{ parentEventId: string; eventId: string }>,
+    ) {
+      pushToIndex(
+        state.replies,
+        action.payload.parentEventId,
+        action.payload.eventId,
+      );
+    },
+    indexRepost(
+      state,
+      action: PayloadAction<{ targetEventId: string; eventId: string }>,
+    ) {
+      pushToIndex(
+        state.reposts,
+        action.payload.targetEventId,
+        action.payload.eventId,
+      );
+    },
+    indexQuote(
+      state,
+      action: PayloadAction<{ targetEventId: string; eventId: string }>,
+    ) {
+      pushToIndex(
+        state.quotes,
+        action.payload.targetEventId,
+        action.payload.eventId,
+      );
+    },
   },
 });
 
@@ -168,4 +216,8 @@ export const {
   clearSpaceFeed,
   indexMusicTrack,
   indexMusicAlbum,
+  indexReaction,
+  indexReply,
+  indexRepost,
+  indexQuote,
 } = eventsSlice.actions;

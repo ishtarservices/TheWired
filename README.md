@@ -334,7 +334,49 @@ Full music library, playback, upload, search, and discovery system.
 - NIP-57 zap integration + NIP-47 Nostr Wallet Connect
 - NIP-22 comments on videos/tracks/articles
 
-### Phase 4: Discovery and Scale -- TODO
+### Phase 4: Spaces & Channels Enhancement -- COMPLETE
+
+Custom channels, roles/permissions, moderation tools, Space Settings UI.
+
+**Backend (3 new route modules, 3 new services):**
+- Channel CRUD: `spaceChannels` table + `channelService` (list, create, update, delete, reorder, seed defaults)
+- Role CRUD: `roleService` (list, create, update, delete, reorder, assign, remove, seed defaults, channel overrides, effective permissions)
+- Moderation CRUD: `moderationService` (ban, unban, mute, unmute, kick, list active bans/mutes)
+- `permissionService` updated: checks bans (auto-deny all) and mutes (auto-deny SEND_MESSAGES) before role permissions
+- Routes registered under `/spaces/:spaceId/channels`, `/spaces/:spaceId/roles`, `/spaces/:spaceId/moderation`
+- Design constraint: feed-type channels (notes, media, articles, music) limited to one per space; chat channels allow multiples
+
+**Client -- Channels:**
+- Dynamic channel list from backend (replaces hardcoded 5 channels)
+- `useSpaceChannels` hook with backend fetch, IndexedDB caching, and offline fallback
+- `CreateChannelModal` with type selection (disables existing feed types), admin-only toggle, slow mode
+- Redux `spacesSlice` extended with `channels` and `channelsLoading` state
+- Event pipeline dual-indexes with both `{spaceId}:{channelId}` and legacy `{spaceId}:{type}` format
+- `ChannelPanel` resolves channel type from channels array with legacy fallback
+- `ChannelHeader` displays channel label and slow mode badge
+
+**Client -- Roles & Permissions:**
+- `spaceConfigSlice` for roles, members, permissions, bans, mutes state
+- `usePermissions` hook: fetches effective permissions, `can(permission)` check with admin bypass
+- `useRoles` hook: CRUD operations for roles
+- `useMemberRoles` hook: assign/remove roles from members
+- Permission gating: "+" channel button, settings gear, member management gated by backend permissions with local admin fallback
+
+**Client -- Space Settings Modal:**
+- Tabbed modal (General, Channels, Roles, Members, Moderation) with glass-panel styling
+- General: edit name, description, picture URL
+- Channels: ordered list with inline edit, delete (not defaults), add channel button
+- Roles: expandable role cards with name, color picker, permission checkboxes grouped (General/Moderation/Admin)
+- Members: list with avatar, filter, role management
+- Moderation: active bans (with unban) and active mutes (with unmute)
+
+**Client -- Moderation Tools:**
+- `useModeration` hook: ban, unban, mute, unmute, kick with Redux state sync
+- `MemberContextMenu` popover: View Profile, Mute (5m/15m/1h/24h), Kick (with confirmation), Ban (with reason + confirmation)
+- Member list shows "..." context menu button on hover, admin crown icon
+- Slow mode display in channel header
+
+### Phase 5: Discovery and Scale -- TODO
 
 Ranking UI, search UI, spam filtering, live streaming.
 
@@ -343,8 +385,16 @@ Ranking UI, search UI, spam filtering, live streaming.
 - Search UI (local + Meilisearch API + NIP-50 federated relay search)
 - NIP-77 Negentropy sync for efficient reconnection
 - NIP-53 live streaming + live chat
-- Full NIP-29 moderation tools
-- Sub-spaces, active members sidebar
+- Channel categories (collapsible section headers)
+- Invite system UI (create/share/redeem invite links)
+- Pinned messages panel per channel
+- Audit log (track all moderation/admin actions)
+- Welcome screen / rules onboarding for new members
+- Announcement channels (admin-only posting enforcement on relay)
+- Auto-mod (keyword filters, spam detection)
+- Anti-raid protection
+- Custom emoji reactions per server
+- Forum-style threads
 
 **Backend:**
 - `spamService` reputation model and rate anomaly detection

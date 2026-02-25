@@ -40,6 +40,7 @@ import { parseTrackEvent } from "../../features/music/trackParser";
 import { parseAlbumEvent } from "../../features/music/albumParser";
 import { parsePlaylistEvent } from "../../features/music/playlistParser";
 import { BOOTSTRAP_RELAYS } from "./constants";
+import { profileCache } from "./profileCache";
 
 let currentSigner: NostrSigner | null = null;
 
@@ -107,7 +108,10 @@ function subscribeUserData(
         case EVENT_KINDS.METADATA: {
           try {
             const profile = JSON.parse(event.content) as Kind0Profile;
-            store.dispatch(setProfile(profile));
+            profile.created_at = event.created_at;
+            store.dispatch(setProfile({ profile, createdAt: event.created_at }));
+            // Keep profile cache in sync
+            profileCache.handleProfileEvent(event);
           } catch {
             // Invalid profile JSON
           }
@@ -117,7 +121,7 @@ function subscribeUserData(
           const follows = event.tags
             .filter((t) => t[0] === "p" && t[1])
             .map((t) => t[1]);
-          store.dispatch(setFollowList(follows));
+          store.dispatch(setFollowList({ follows, createdAt: event.created_at }));
           saveUserState("follow_list", follows);
           break;
         }
@@ -128,7 +132,7 @@ function subscribeUserData(
               type: MUTE_TAG_MAP[t[0]],
               value: t[1],
             }));
-          store.dispatch(setMuteList(mutes));
+          store.dispatch(setMuteList({ mutes, createdAt: event.created_at }));
           saveUserState("mute_list", mutes);
           break;
         }
@@ -173,7 +177,8 @@ export async function performLogin(
   // Step 5: Load cached user data from IndexedDB for instant UI
   const cachedRelayList = await getUserState<RelayListEntry[]>("relay_list");
   if (cachedRelayList) {
-    store.dispatch(setRelayList(cachedRelayList));
+    // createdAt: 0 so relay data always wins
+    store.dispatch(setRelayList({ entries: cachedRelayList, createdAt: 0 }));
     relayManager.connectFromConfig(cachedRelayList);
   }
 
@@ -184,7 +189,7 @@ export async function performLogin(
     onEvent: (event) => {
       const entries = parseRelayList(event);
       if (entries.length > 0) {
-        store.dispatch(setRelayList(entries));
+        store.dispatch(setRelayList({ entries, createdAt: event.created_at }));
         saveUserState("relay_list", entries);
         // Connect to user's relays
         relayManager.connectFromConfig(entries);
@@ -304,6 +309,7 @@ export async function tryRestoreSession(): Promise<boolean> {
 /** Logout */
 export function performLogout(): void {
   currentSigner = null;
+  profileCache.clear();
   relayManager.disconnectAll();
   saveUserState("session", null);
 }

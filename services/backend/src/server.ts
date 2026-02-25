@@ -16,6 +16,9 @@ import { analyticsRoutes } from "./routes/analytics.js";
 import { contentRoutes } from "./routes/content.js";
 import { profilesRoutes } from "./routes/profiles.js";
 import { musicRoutes } from "./routes/music.js";
+import { channelsRoutes } from "./routes/channels.js";
+import { rolesRoutes } from "./routes/roles.js";
+import { moderationRoutes } from "./routes/moderation.js";
 import { authContext } from "./middleware/authContext.js";
 import { errorHandler } from "./middleware/errorHandler.js";
 
@@ -53,6 +56,9 @@ export async function createServer() {
   await server.register(contentRoutes, { prefix: "/content" });
   await server.register(profilesRoutes, { prefix: "/profiles" });
   await server.register(musicRoutes, { prefix: "/music" });
+  await server.register(channelsRoutes, { prefix: "/spaces" });
+  await server.register(rolesRoutes, { prefix: "/spaces" });
+  await server.register(moderationRoutes, { prefix: "/spaces" });
 
   return server;
 }

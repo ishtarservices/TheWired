@@ -1,13 +1,12 @@
 import { useEffect, useState } from "react";
 import type { Kind0Profile } from "../../types/profile";
-import { relayManager } from "../../lib/nostr/relayManager";
-import { parseProfile } from "./profileParser";
-import { getProfile, putProfile } from "../../lib/db/profileStore";
+import { profileCache } from "../../lib/nostr/profileCache";
 
-/** Cache-first profile fetching for any pubkey */
+/** Cache-first profile fetching for any pubkey, using the global profile cache */
 export function useProfile(pubkey: string | null) {
-  const [profile, setProfile] = useState<Kind0Profile | null>(null);
-  const [loading, setLoading] = useState(false);
+  const [profile, setProfile] = useState<Kind0Profile | null>(
+    () => (pubkey ? profileCache.getCached(pubkey) : null),
+  );
 
   useEffect(() => {
     if (!pubkey) {
@@ -15,40 +14,19 @@ export function useProfile(pubkey: string | null) {
       return;
     }
 
-    let cancelled = false;
-    let subId: string | null = null;
-    setLoading(true);
+    // Sync check for immediate render
+    const cached = profileCache.getCached(pubkey);
+    if (cached) {
+      setProfile(cached);
+    }
 
-    // Try cache first
-    getProfile(pubkey).then((cached) => {
-      if (cancelled) return;
-      if (cached) {
-        setProfile(cached);
-        setLoading(false);
-      }
-
-      // Fetch fresh from relays
-      subId = relayManager.subscribe({
-        filters: [{ kinds: [0], authors: [pubkey], limit: 1 }],
-        onEvent: (event) => {
-          if (cancelled) return;
-          const parsed = parseProfile(event);
-          if (parsed) {
-            setProfile(parsed);
-            putProfile(pubkey, parsed);
-          }
-        },
-        onEOSE: () => {
-          if (!cancelled) setLoading(false);
-        },
-      });
+    // Subscribe — handles IDB load, batched relay fetch, and freshness guards
+    const unsub = profileCache.subscribe(pubkey, (p) => {
+      setProfile(p);
     });
 
-    return () => {
-      cancelled = true;
-      if (subId) relayManager.closeSubscription(subId);
-    };
+    return unsub;
   }, [pubkey]);
 
-  return { profile, loading };
+  return { profile };
 }

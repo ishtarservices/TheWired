@@ -4,17 +4,19 @@ import { User } from "lucide-react";
 interface AvatarProps {
   src?: string | null;
   alt?: string;
-  size?: "sm" | "md" | "lg";
+  size?: "xs" | "sm" | "md" | "lg";
   className?: string;
 }
 
 const sizeStyles = {
+  xs: "h-4 w-4",
   sm: "h-6 w-6",
   md: "h-8 w-8",
   lg: "h-12 w-12",
 };
 
 const iconSizes = {
+  xs: 8,
   sm: 12,
   md: 16,
   lg: 24,

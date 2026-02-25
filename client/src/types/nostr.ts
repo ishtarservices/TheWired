@@ -51,6 +51,7 @@ export const EVENT_KINDS = {
   METADATA: 0,
   SHORT_TEXT: 1,
   FOLLOW_LIST: 3,
+  REPOST: 6,
   REACTION: 7,
   CHAT_MESSAGE: 9,
   PICTURE: 20,

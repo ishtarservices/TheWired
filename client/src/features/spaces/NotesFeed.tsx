@@ -1,7 +1,7 @@
-import { useState, useMemo, useEffect, memo } from "react";
+import { useState, useMemo, useEffect, useCallback, memo } from "react";
 import { ChevronDown, ChevronUp, ImageIcon, Film } from "lucide-react";
 import { useAppSelector } from "../../store/hooks";
-import { selectSpaceNotes } from "./spaceSelectors";
+import { selectSpaceRootNotes, selectSpaceRootNoteIds } from "./spaceSelectors";
 import { Avatar } from "../../components/ui/Avatar";
 import { useProfile } from "../profile/useProfile";
 import {
@@ -14,6 +14,14 @@ import { useScrollRestore } from "../../hooks/useScrollRestore";
 import { useFeedPagination } from "./useFeedPagination";
 import { FeedToolbar } from "./FeedToolbar";
 import { LoadMoreButton } from "./LoadMoreButton";
+import { useNoteEngagement } from "./useNoteEngagement";
+import { useNoteActions } from "./useNoteActions";
+import { useNoteEngagementSub } from "./useNoteEngagementSub";
+import { parseQuoteRef } from "./noteParser";
+import { NoteActionBar } from "./notes/NoteActionBar";
+import { QuotedNote } from "./notes/QuotedNote";
+import { ReplyComposer } from "./notes/ReplyComposer";
+import { ThreadView } from "./notes/ThreadView";
 import type { NostrEvent } from "../../types/nostr";
 
 function InlineImage({ url }: { url: string }) {
@@ -76,6 +84,13 @@ function MediaPreview({ media }: { media: ExtractedMedia[] }) {
 const NoteCard = memo(function NoteCard({ event }: { event: NostrEvent }) {
   const { profile } = useProfile(event.pubkey);
   const [showMedia, setShowMedia] = useState(false);
+  const [showReplyComposer, setShowReplyComposer] = useState(false);
+  const [threadExpanded, setThreadExpanded] = useState(false);
+
+  const engagement = useNoteEngagement(event.id);
+  const actions = useNoteActions(event);
+
+  const quoteRef = useMemo(() => parseQuoteRef(event), [event]);
 
   const name =
     profile?.display_name || profile?.name || event.pubkey.slice(0, 8) + "...";
@@ -110,6 +125,39 @@ const NoteCard = memo(function NoteCard({ event }: { event: NostrEvent }) {
   const imageCount = media.filter((m) => m.type === "image").length;
   const videoCount = media.filter((m) => m.type === "video").length;
 
+  const handleReply = useCallback(() => {
+    setShowReplyComposer((v) => !v);
+  }, []);
+
+  const handleRepost = useCallback(() => {
+    actions.repost();
+  }, [actions]);
+
+  const handleLike = useCallback(() => {
+    actions.like();
+  }, [actions]);
+
+  const handleQuote = useCallback(() => {
+    // For now, toggle reply composer -- future: dedicated quote modal
+    setShowReplyComposer((v) => !v);
+  }, []);
+
+  const handleSendReply = useCallback(
+    (content: string) => {
+      actions.reply(content);
+      setShowReplyComposer(false);
+    },
+    [actions],
+  );
+
+  const handleCancelReply = useCallback(() => {
+    setShowReplyComposer(false);
+  }, []);
+
+  const handleToggleThread = useCallback(() => {
+    setThreadExpanded((v) => !v);
+  }, []);
+
   return (
     <div className="rounded-lg border-neon-glow bg-card p-4 hover-lift transition-all duration-150 hover:glow-neon">
       <div className="mb-2 flex items-center gap-2">
@@ -123,6 +171,8 @@ const NoteCard = memo(function NoteCard({ event }: { event: NostrEvent }) {
           {cleanText}
         </p>
       )}
+
+      {quoteRef && <QuotedNote eventId={quoteRef.eventId} />}
 
       {media.length > 0 && (
         <div className="mt-2">
@@ -151,15 +201,48 @@ const NoteCard = memo(function NoteCard({ event }: { event: NostrEvent }) {
           {showMedia && <MediaPreview media={media} />}
         </div>
       )}
+
+      <NoteActionBar
+        engagement={engagement}
+        canInteract={actions.canInteract}
+        canWrite={actions.canWrite}
+        onReply={handleReply}
+        onRepost={handleRepost}
+        onLike={handleLike}
+        onQuote={handleQuote}
+      />
+
+      {showReplyComposer && (
+        <ReplyComposer
+          targetPubkey={event.pubkey}
+          onSend={handleSendReply}
+          onCancel={handleCancelReply}
+        />
+      )}
+
+      {engagement.replyCount > 0 && (
+        <ThreadView
+          eventId={event.id}
+          expanded={threadExpanded}
+          onToggle={handleToggleThread}
+        />
+      )}
     </div>
   );
 });
 
 export function NotesFeed() {
-  const notes = useAppSelector(selectSpaceNotes);
+  const notes = useAppSelector(selectSpaceRootNotes);
+  const noteIds = useAppSelector(selectSpaceRootNoteIds);
   const activeChannelId = useAppSelector((s) => s.spaces.activeChannelId);
+  const activeSpace = useAppSelector((s) => {
+    const id = s.spaces.activeSpaceId;
+    return id ? s.spaces.list.find((sp) => sp.id === id) : undefined;
+  });
   const scrollRef = useScrollRestore(activeChannelId);
   const { meta, refresh, loadMore } = useFeedPagination("notes");
+
+  useNoteEngagementSub(noteIds, activeSpace?.hostRelay);
 
   return (
     <div className="flex flex-1 flex-col overflow-hidden">

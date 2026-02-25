@@ -17,6 +17,7 @@ export function parseProfile(event: NostrEvent): Kind0Profile | null {
       nip05: typeof data.nip05 === "string" ? data.nip05 : undefined,
       lud16: typeof data.lud16 === "string" ? data.lud16 : undefined,
       website: typeof data.website === "string" ? data.website : undefined,
+      created_at: event.created_at,
     };
   } catch {
     return null;

@@ -9,3 +9,6 @@ export { subscribePush, unsubscribePush } from "./push";
 export { getSpaceAnalytics } from "./analytics";
 export { pinMessage, scheduleMessage } from "./content";
 export { uploadAudio, uploadCoverArt, getTrendingTracks, getTrendingAlbums, searchMusic } from "./music";
+export { fetchChannels, createChannel, updateChannel, deleteChannel, reorderChannels } from "./channels";
+export { fetchRoles, createRole, updateRole, deleteRole, reorderRoles, fetchMemberRoles, assignRole, removeRoleFromMember, fetchChannelOverrides, setChannelOverrides, fetchMyPermissions } from "./roles";
+export { fetchBans, banMember, unbanMember, fetchMutes, muteMember, unmuteMember, kickMember } from "./moderation";

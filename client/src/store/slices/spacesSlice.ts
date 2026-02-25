@@ -1,11 +1,13 @@
 import { createSlice, type PayloadAction } from "@reduxjs/toolkit";
-import type { Space } from "../../types/space";
+import type { Space, SpaceChannel } from "../../types/space";
 
 interface SpacesState {
   list: Space[];
   activeSpaceId: string | null;
   activeChannelId: string | null;
   subscriptions: Record<string, string>; // channelId -> subId
+  channels: Record<string, SpaceChannel[]>; // spaceId -> channels
+  channelsLoading: Record<string, boolean>;
 }
 
 const initialState: SpacesState = {
@@ -13,6 +15,8 @@ const initialState: SpacesState = {
   activeSpaceId: null,
   activeChannelId: null,
   subscriptions: {},
+  channels: {},
+  channelsLoading: {},
 };
 
 export const spacesSlice = createSlice({
@@ -60,12 +64,44 @@ export const spacesSlice = createSlice({
         state.activeSpaceId = null;
         state.activeChannelId = null;
       }
+      delete state.channels[action.payload];
+      delete state.channelsLoading[action.payload];
     },
     updateSpace(state, action: PayloadAction<Space>) {
       const idx = state.list.findIndex((s) => s.id === action.payload.id);
       if (idx >= 0) {
         state.list[idx] = action.payload;
       }
+    },
+    // Channel management
+    setChannels(state, action: PayloadAction<{ spaceId: string; channels: SpaceChannel[] }>) {
+      state.channels[action.payload.spaceId] = action.payload.channels;
+    },
+    addChannelToList(state, action: PayloadAction<SpaceChannel>) {
+      const channels = state.channels[action.payload.spaceId];
+      if (channels) {
+        channels.push(action.payload);
+      } else {
+        state.channels[action.payload.spaceId] = [action.payload];
+      }
+    },
+    updateChannelInList(state, action: PayloadAction<SpaceChannel>) {
+      const channels = state.channels[action.payload.spaceId];
+      if (!channels) return;
+      const idx = channels.findIndex((c) => c.id === action.payload.id);
+      if (idx >= 0) {
+        channels[idx] = action.payload;
+      }
+    },
+    removeChannelFromList(state, action: PayloadAction<{ spaceId: string; channelId: string }>) {
+      const channels = state.channels[action.payload.spaceId];
+      if (!channels) return;
+      state.channels[action.payload.spaceId] = channels.filter(
+        (c) => c.id !== action.payload.channelId,
+      );
+    },
+    setChannelsLoading(state, action: PayloadAction<{ spaceId: string; loading: boolean }>) {
+      state.channelsLoading[action.payload.spaceId] = action.payload.loading;
     },
   },
 });
@@ -80,4 +116,9 @@ export const {
   updateSpaceMembers,
   removeSpace,
   updateSpace,
+  setChannels,
+  addChannelToList,
+  updateChannelInList,
+  removeChannelFromList,
+  setChannelsLoading,
 } = spacesSlice.actions;

@@ -5,6 +5,7 @@ import { Modal } from "../../components/ui/Modal";
 import { MemberInput } from "./MemberInput";
 import { useAppSelector } from "../../store/hooks";
 import { BOOTSTRAP_RELAYS } from "../../lib/nostr/constants";
+import { api } from "../../lib/api/client";
 import type { Space } from "../../types/space";
 
 interface CreateSpaceModalProps {
@@ -51,6 +52,10 @@ export function CreateSpaceModal({
     };
 
     onCreate(space);
+
+    // Seed default roles on backend (best-effort)
+    api(`/spaces/${space.id}/roles/seed`, { method: "POST" }).catch(() => {});
+
     setName("");
     setAbout("");
     setPicture("");
