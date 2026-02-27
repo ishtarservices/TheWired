@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { X, Settings, Hash, Shield, Users, Gavel } from "lucide-react";
-import clsx from "clsx";
+import { cn } from "@/lib/utils";
 import { Modal } from "../../../components/ui/Modal";
 import { GeneralTab } from "./GeneralTab";
 import { ChannelsTab } from "./ChannelsTab";
@@ -42,10 +42,10 @@ export function SpaceSettingsModal({ open, onClose, spaceId }: SpaceSettingsModa
 
   return (
     <Modal open={open} onClose={onClose}>
-      <div className="flex w-full max-w-2xl rounded-xl glass-panel shadow-2xl glow-neon overflow-hidden" style={{ height: "min(80vh, 600px)" }}>
+      <div className="flex w-full max-w-2xl rounded-2xl card-glass shadow-2xl overflow-hidden" style={{ height: "min(80vh, 600px)" }}>
         {/* Tab navigation */}
-        <div className="flex w-44 shrink-0 flex-col border-r border-edge bg-surface/50">
-          <div className="flex items-center justify-between px-4 py-3 border-b border-edge">
+        <div className="flex w-44 shrink-0 flex-col border-r border-white/[0.04] bg-surface/50">
+          <div className="flex items-center justify-between px-4 py-3 border-b border-white/[0.04]">
             <h2 className="text-sm font-bold text-heading">Settings</h2>
             <button
               onClick={onClose}
@@ -59,11 +59,11 @@ export function SpaceSettingsModal({ open, onClose, spaceId }: SpaceSettingsModa
               <button
                 key={tab.id}
                 onClick={() => setActiveTab(tab.id)}
-                className={clsx(
-                  "flex w-full items-center gap-2 rounded-md px-3 py-2 text-sm transition-all duration-150",
+                className={cn(
+                  "flex w-full items-center gap-2 rounded-xl px-3 py-2 text-sm transition-all duration-150",
                   activeTab === tab.id
-                    ? "bg-neon/10 text-neon"
-                    : "text-soft hover:bg-card/30 hover:text-heading",
+                    ? "bg-pulse/10 text-pulse"
+                    : "text-soft hover:bg-white/[0.04] hover:text-heading",
                 )}
               >
                 <tab.icon size={16} />

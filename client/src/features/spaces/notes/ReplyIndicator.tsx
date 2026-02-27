@@ -10,7 +10,7 @@ export function ReplyIndicator({ pubkey }: ReplyIndicatorProps) {
   const name = profile?.display_name || profile?.name || pubkey.slice(0, 8) + "...";
 
   return (
-    <div className="mb-1 flex items-center gap-1 text-xs text-muted">
+    <div className="mb-1.5 flex items-center gap-1.5 text-xs text-muted/70">
       <CornerDownRight size={12} />
       <span>Replying to</span>
       <span className="text-neon">{name}</span>

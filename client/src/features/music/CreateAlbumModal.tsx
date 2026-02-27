@@ -185,7 +185,7 @@ export function CreateAlbumModal({ open, onClose, album }: CreateAlbumModalProps
 
   return (
     <Modal open={open} onClose={onClose}>
-      <div className="w-full max-w-md max-h-[85vh] overflow-y-auto rounded-xl border border-edge bg-panel p-6 shadow-xl">
+      <div className="w-full max-w-md max-h-[85vh] overflow-y-auto rounded-2xl border border-white/[0.04] card-glass p-6 shadow-xl">
         <div className="mb-4 flex items-center justify-between">
           <h2 className="text-lg font-semibold text-heading">
             {isEditing ? "Edit Project" : "Create Project"}
@@ -202,7 +202,7 @@ export function CreateAlbumModal({ open, onClose, album }: CreateAlbumModalProps
               type="text"
               value={title}
               onChange={(e) => setTitle(e.target.value)}
-              className="w-full rounded-md border border-edge bg-field px-3 py-1.5 text-sm text-heading outline-none focus:border-heading/50"
+              className="w-full rounded-xl border border-white/[0.04] bg-white/[0.04] px-3 py-1.5 text-sm text-heading outline-none focus:border-pulse/30"
               placeholder="Project title"
             />
           </div>
@@ -212,7 +212,7 @@ export function CreateAlbumModal({ open, onClose, album }: CreateAlbumModalProps
               type="text"
               value={artist}
               onChange={(e) => setArtist(e.target.value)}
-              className="w-full rounded-md border border-edge bg-field px-3 py-1.5 text-sm text-heading outline-none focus:border-heading/50"
+              className="w-full rounded-xl border border-white/[0.04] bg-white/[0.04] px-3 py-1.5 text-sm text-heading outline-none focus:border-pulse/30"
             />
           </div>
           <div>
@@ -221,7 +221,7 @@ export function CreateAlbumModal({ open, onClose, album }: CreateAlbumModalProps
               type="text"
               value={genre}
               onChange={(e) => setGenre(e.target.value)}
-              className="w-full rounded-md border border-edge bg-field px-3 py-1.5 text-sm text-heading outline-none focus:border-heading/50"
+              className="w-full rounded-xl border border-white/[0.04] bg-white/[0.04] px-3 py-1.5 text-sm text-heading outline-none focus:border-pulse/30"
             />
           </div>
 
@@ -230,7 +230,7 @@ export function CreateAlbumModal({ open, onClose, album }: CreateAlbumModalProps
             <select
               value={projectType}
               onChange={(e) => setProjectType(e.target.value as ProjectType)}
-              className="w-full rounded-md border border-edge bg-field px-3 py-1.5 text-sm text-heading outline-none focus:border-heading/50"
+              className="w-full rounded-xl border border-white/[0.04] bg-white/[0.04] px-3 py-1.5 text-sm text-heading outline-none focus:border-pulse/30"
             >
               <option value="album">Album</option>
               <option value="ep">EP</option>
@@ -273,11 +273,11 @@ export function CreateAlbumModal({ open, onClose, album }: CreateAlbumModalProps
           {userTracks.length > 0 && (
             <div>
               <label className="mb-1 block text-xs font-medium text-soft">Tracks</label>
-              <div className="max-h-40 overflow-y-auto rounded-md border border-edge bg-field p-2">
+              <div className="max-h-40 overflow-y-auto rounded-xl border border-white/[0.04] bg-white/[0.04] p-2">
                 {userTracks.map((track) => (
                   <label
                     key={track.addressableId}
-                    className="flex cursor-pointer items-center gap-2 rounded px-2 py-1 text-sm text-heading hover:bg-card-hover/30"
+                    className="flex cursor-pointer items-center gap-2 rounded-lg px-2 py-1 text-sm text-heading hover:bg-white/[0.03]"
                   >
                     <input
                       type="checkbox"
@@ -307,7 +307,7 @@ export function CreateAlbumModal({ open, onClose, album }: CreateAlbumModalProps
             <button
               type="button"
               onClick={() => trackInputRef.current?.click()}
-              className="flex w-full items-center gap-2 rounded-lg border border-dashed border-edge px-4 py-2 text-sm text-soft transition-colors hover:border-heading hover:text-heading"
+              className="flex w-full items-center gap-2 rounded-xl border border-dashed border-white/[0.04] px-4 py-2 text-sm text-soft transition-colors hover:border-pulse/40 hover:text-heading"
             >
               <Upload size={16} />
               <span>Choose audio files</span>
@@ -322,7 +322,7 @@ export function CreateAlbumModal({ open, onClose, album }: CreateAlbumModalProps
                       onChange={(e) =>
                         setNewTrackTitles((prev) => ({ ...prev, [file.name]: e.target.value }))
                       }
-                      className="flex-1 rounded-md border border-edge bg-field px-2 py-1 text-xs text-heading outline-none focus:border-heading/50"
+                      className="flex-1 rounded-xl border border-white/[0.04] bg-white/[0.04] px-2 py-1 text-xs text-heading outline-none focus:border-pulse/30"
                       placeholder="Track title"
                     />
                     <button
@@ -351,7 +351,7 @@ export function CreateAlbumModal({ open, onClose, album }: CreateAlbumModalProps
           <button
             onClick={handleSubmit}
             disabled={!title.trim() || submitting || (visibility === "space" && !spaceId)}
-            className="w-full rounded-md bg-heading py-2 text-sm font-medium text-backdrop transition-opacity hover:opacity-90 disabled:opacity-50"
+            className="w-full rounded-xl bg-gradient-to-r from-pulse to-pulse-soft py-2 text-sm font-medium text-white transition-opacity hover:opacity-90 press-effect disabled:opacity-50"
           >
             {submitting
               ? isEditing ? "Saving..." : "Creating..."

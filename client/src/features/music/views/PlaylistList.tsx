@@ -19,7 +19,7 @@ export function PlaylistList() {
     <div className="flex-1 overflow-y-auto p-4">
       <div className="mb-3 flex items-center justify-between">
         <h2 className="text-lg font-semibold text-heading">Playlists</h2>
-        <button className="flex items-center gap-1.5 rounded-md border border-edge px-3 py-1.5 text-sm text-soft transition-colors hover:border-heading hover:text-heading">
+        <button className="flex items-center gap-1.5 rounded-xl border border-white/[0.04] px-3 py-1.5 text-sm text-soft transition-colors hover:border-white/[0.08] hover:text-heading press-effect">
           <Plus size={14} />
           <span>Create</span>
         </button>
@@ -42,7 +42,7 @@ export function PlaylistList() {
                   }),
                 )
               }
-              className="flex w-full items-center gap-3 rounded-md px-3 py-2 text-sm transition-colors hover:bg-card-hover/30"
+              className="flex w-full items-center gap-3 rounded-lg px-3 py-2 text-sm transition-colors hover:bg-white/[0.03]"
             >
               {pl.imageUrl ? (
                 <img

@@ -17,18 +17,18 @@ export function ChatMessage({ event, onReply }: ChatMessageProps) {
   });
 
   return (
-    <div className="group flex gap-3 px-4 py-1.5 hover:bg-card/30 transition-colors duration-100">
+    <div className="group flex gap-3.5 px-5 py-2 hover:bg-white/[0.02] transition-colors duration-100">
       <Avatar src={profile?.picture} alt={displayName} size="sm" className="mt-0.5 shrink-0" />
       <div className="min-w-0 flex-1">
         <div className="flex items-baseline gap-2">
-          <span className="text-sm font-medium text-neon">
+          <span className="text-sm font-semibold text-pulse-soft">
             {displayName}
           </span>
           <span className="text-xs text-muted">{timeAgo}</span>
           {onReply && (
             <button
               onClick={() => onReply(event.id, event.pubkey)}
-              className="ml-auto text-xs text-muted opacity-0 transition-opacity hover:text-neon group-hover:opacity-100"
+              className="ml-auto text-xs text-muted opacity-0 transition-opacity hover:text-pulse-soft group-hover:opacity-100"
             >
               Reply
             </button>

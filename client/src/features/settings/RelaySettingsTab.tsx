@@ -135,7 +135,7 @@ export function RelaySettingsTab() {
   return (
     <div className="mx-auto w-full max-w-lg space-y-4">
       {/* Connection status banner */}
-      <div className="flex items-center gap-2 rounded-lg border border-edge bg-panel px-4 py-3">
+      <div className="card-glass flex items-center gap-2 rounded-xl px-4 py-3">
         {connectedCount > 0 ? (
           <Wifi size={16} className="text-green-500" />
         ) : (
@@ -146,7 +146,7 @@ export function RelaySettingsTab() {
         </span>
       </div>
 
-      <div className="rounded-lg border border-edge bg-panel p-4">
+      <div className="card-glass rounded-xl p-4">
         <h3 className="mb-3 text-sm font-semibold text-heading">
           Relay List
         </h3>
@@ -160,7 +160,7 @@ export function RelaySettingsTab() {
               return (
                 <div
                   key={relay.url}
-                  className={`flex items-center gap-2 rounded-md border border-edge-light/50 bg-field px-3 py-2 transition-opacity ${isDisabled ? "opacity-50" : ""}`}
+                  className={`flex items-center gap-2 rounded-xl border border-white/[0.04] bg-white/[0.04] px-3 py-2 transition-opacity ${isDisabled ? "opacity-50" : ""}`}
                 >
                   <button
                     role="switch"
@@ -168,7 +168,7 @@ export function RelaySettingsTab() {
                     onClick={() => toggleDisabled(relay.url)}
                     title={isDisabled ? "Enable relay" : "Disable relay"}
                     className={`relative inline-flex h-4 w-7 shrink-0 items-center rounded-full transition-colors ${
-                      isDisabled ? "bg-faint" : "bg-neon"
+                      isDisabled ? "bg-faint" : "bg-pulse"
                     }`}
                   >
                     <span
@@ -193,7 +193,7 @@ export function RelaySettingsTab() {
                       changeMode(relay.url, e.target.value as RelayMode)
                     }
                     disabled={isDisabled}
-                    className="rounded border border-edge-light bg-field px-1.5 py-0.5 text-xs text-soft focus:border-neon focus:outline-none disabled:opacity-50"
+                    className="rounded-xl border border-white/[0.04] bg-white/[0.04] px-1.5 py-0.5 text-xs text-soft focus:border-neon focus:outline-none disabled:opacity-50"
                   >
                     <option value="read+write">read+write</option>
                     <option value="read">read</option>
@@ -213,7 +213,7 @@ export function RelaySettingsTab() {
         )}
       </div>
 
-      <div className="rounded-lg border border-edge bg-panel p-4">
+      <div className="card-glass rounded-xl p-4">
         <h3 className="mb-3 text-sm font-semibold text-heading">
           Add Relay
         </h3>
@@ -226,7 +226,7 @@ export function RelaySettingsTab() {
               setError(null);
             }}
             placeholder="wss://relay.example.com"
-            className="flex-1 rounded-md border border-edge-light bg-field px-3 py-2 text-sm text-heading placeholder:text-faint focus:border-neon focus:outline-none transition-colors"
+            className="flex-1 rounded-xl border border-white/[0.04] bg-white/[0.04] px-3 py-2 text-sm text-heading placeholder:text-faint focus:border-neon focus:outline-none transition-colors"
             onKeyDown={(e) => {
               if (e.key === "Enter") addRelay();
             }}
@@ -234,7 +234,7 @@ export function RelaySettingsTab() {
           <select
             value={newMode}
             onChange={(e) => setNewMode(e.target.value as RelayMode)}
-            className="rounded-md border border-edge-light bg-field px-2 py-2 text-xs text-soft focus:border-neon focus:outline-none"
+            className="rounded-xl border border-white/[0.04] bg-white/[0.04] px-2 py-2 text-xs text-soft focus:border-neon focus:outline-none"
           >
             <option value="read+write">read+write</option>
             <option value="read">read</option>

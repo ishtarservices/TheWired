@@ -28,7 +28,7 @@ export function ProfileCard() {
     <>
       <button
         onClick={toggleMenu}
-        className="flex w-full items-center gap-2 rounded-md p-1 transition-colors hover:bg-card-hover/50"
+        className="flex w-full items-center gap-2 rounded-xl p-1 transition-colors hover:bg-white/[0.02]"
       >
         <Avatar src={profile?.picture} alt={displayName} size="sm" />
         <div className="min-w-0 flex-1 text-left">

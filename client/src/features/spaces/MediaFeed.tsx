@@ -89,7 +89,7 @@ function AuthorBadge({ pubkey }: { pubkey: string }) {
   return (
     <div className="flex items-center gap-1.5">
       <Avatar src={profile?.picture} alt={name} size="sm" />
-      <span className="truncate text-xs text-slate-400">{name}</span>
+      <span className="truncate text-xs text-soft">{name}</span>
     </div>
   );
 }
@@ -118,7 +118,7 @@ function CardFooter({
       <AuthorBadge pubkey={item.event.pubkey} />
       {text && (
         <div className="mt-1">
-          <p className="line-clamp-2 text-[11px] leading-relaxed text-slate-400">
+          <p className="line-clamp-2 text-[11px] leading-relaxed text-soft">
             {text}
           </p>
           {isTruncatable && (
@@ -149,14 +149,14 @@ const ImageThumbnail = memo(function ImageThumbnail({
   const [errored, setErrored] = useState(false);
 
   return (
-    <div className="flex flex-col overflow-hidden rounded-lg border border-slate-800 bg-slate-900/50">
+    <div className="flex flex-col overflow-hidden rounded-lg border border-white/[0.04] bg-white/[0.02]">
       <button
         onClick={onClick}
         className="group relative w-full shrink-0"
       >
         {errored ? (
-          <div className="flex aspect-square w-full items-center justify-center bg-slate-900">
-            <ImageIcon size={32} className="text-slate-600" />
+          <div className="flex aspect-square w-full items-center justify-center bg-surface">
+            <ImageIcon size={32} className="text-muted" />
           </div>
         ) : (
           <img
@@ -184,12 +184,12 @@ const VideoThumbnail = memo(function VideoThumbnail({
   const thumb = useVideoThumbnail(item.url, item.thumbnailUrl);
 
   return (
-    <div className="flex flex-col overflow-hidden rounded-lg border border-slate-800 bg-slate-900/50">
+    <div className="flex flex-col overflow-hidden rounded-lg border border-white/[0.04] bg-white/[0.02]">
       <button
         onClick={onClick}
         className="group relative w-full shrink-0"
       >
-        <div className="aspect-square w-full bg-slate-900">
+        <div className="aspect-square w-full bg-surface">
           {thumb ? (
             <img
               src={thumb}
@@ -198,8 +198,8 @@ const VideoThumbnail = memo(function VideoThumbnail({
               loading="lazy"
             />
           ) : (
-            <div className="flex h-full w-full items-center justify-center bg-slate-900">
-              <Play size={32} className="text-slate-600" />
+            <div className="flex h-full w-full items-center justify-center bg-surface">
+              <Play size={32} className="text-muted" />
             </div>
           )}
         </div>
@@ -241,9 +241,9 @@ function ExpandedVideoView({
         />
       </div>
       {text && (
-        <div className="mt-4 w-full max-w-4xl rounded-lg border border-slate-800 bg-slate-900/50 p-4">
+        <div className="mt-4 w-full max-w-4xl rounded-lg border border-white/[0.04] bg-white/[0.02] p-4">
           <AuthorBadge pubkey={item.event.pubkey} />
-          <p className="mt-2 whitespace-pre-wrap text-sm leading-relaxed text-slate-300">
+          <p className="mt-2 whitespace-pre-wrap text-sm leading-relaxed text-body">
             {text}
           </p>
         </div>
@@ -263,10 +263,10 @@ function ExpandedImageView({
 
   return (
     <div className="flex flex-1 flex-col overflow-hidden bg-[#0a0a1a]">
-      <div className="flex items-center gap-3 border-b border-slate-800 px-4 py-2">
+      <div className="flex items-center gap-3 border-b border-white/[0.04] px-4 py-2">
         <button
           onClick={onClose}
-          className="rounded-md px-2 py-1 text-xs text-slate-400 hover:bg-slate-800 hover:text-white"
+          className="rounded-md px-2 py-1 text-xs text-soft hover:bg-white/[0.04] hover:text-heading"
         >
           Back
         </button>
@@ -281,8 +281,8 @@ function ExpandedImageView({
         />
       </div>
       {text && (
-        <div className="border-t border-slate-800 px-4 py-3">
-          <p className="whitespace-pre-wrap text-sm text-slate-400">{text}</p>
+        <div className="border-t border-white/[0.04] px-4 py-3">
+          <p className="whitespace-pre-wrap text-sm text-soft">{text}</p>
         </div>
       )}
     </div>
@@ -307,8 +307,8 @@ function TabButton({
       onClick={onClick}
       className={`rounded-md px-2.5 py-1 text-xs font-medium transition-colors ${
         active
-          ? "bg-indigo-500/20 text-indigo-300"
-          : "text-slate-400 hover:bg-slate-800 hover:text-slate-200"
+          ? "bg-pulse/15 text-pulse-soft"
+          : "text-soft hover:bg-white/[0.04] hover:text-heading"
       }`}
     >
       {label}
@@ -414,13 +414,13 @@ export function MediaFeed() {
       <div ref={scrollRef} className="flex-1 overflow-y-auto p-4">
         {filteredItems.length === 0 ? (
           <div className="flex h-full items-center justify-center">
-            <p className="text-sm text-slate-500">
+            <p className="text-sm text-muted">
               No media yet from space members
             </p>
           </div>
         ) : (
           <>
-            <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4">
+            <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-4">
               {filteredItems.map((item) =>
                 item.type === "video" ? (
                   <VideoThumbnail

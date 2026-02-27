@@ -231,7 +231,7 @@ export function EnhancedVideoPlayer({
           <div className="mb-2">
             {title && <p className="text-sm font-medium text-white">{title}</p>}
             {authorName && (
-              <p className="text-xs text-slate-400">{authorName}</p>
+              <p className="text-xs text-soft">{authorName}</p>
             )}
           </div>
         )}
@@ -257,7 +257,7 @@ export function EnhancedVideoPlayer({
           </button>
 
           {/* Time */}
-          <span className="min-w-[80px] text-xs text-slate-300">
+          <span className="min-w-[80px] text-xs text-body">
             {formatTime(currentTime)} / {formatTime(duration)}
           </span>
 
@@ -321,15 +321,15 @@ export function EnhancedVideoPlayer({
               <span>{playbackRate}x</span>
             </button>
             {showSpeedMenu && (
-              <div className="absolute bottom-full right-0 mb-1 rounded-md border border-slate-700 bg-slate-900 py-1 shadow-lg">
+              <div className="absolute bottom-full right-0 mb-1 rounded-xl border border-white/[0.04] card-glass py-1 shadow-lg">
                 {PLAYBACK_SPEEDS.map((speed) => (
                   <button
                     key={speed}
                     onClick={() => { setPlaybackRate(speed); setShowSpeedMenu(false); }}
                     className={`block w-full px-3 py-1 text-left text-xs transition-colors ${
                       speed === playbackRate
-                        ? "bg-indigo-500/20 text-indigo-300"
-                        : "text-slate-300 hover:bg-slate-800"
+                        ? "bg-pulse/15 text-pulse-soft"
+                        : "text-body hover:bg-white/[0.04]"
                     }`}
                   >
                     {speed}x

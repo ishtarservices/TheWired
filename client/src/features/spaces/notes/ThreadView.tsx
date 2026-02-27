@@ -28,7 +28,7 @@ const ThreadReply = memo(function ThreadReply({ event, rootId }: { event: NostrE
   const isNestedReply = threadRef.replyId !== null && threadRef.replyId !== rootId;
 
   return (
-    <div className="border-l-2 border-edge/30 pl-3 py-2">
+    <div className="border-l-2 border-white/[0.04] pl-4 py-2.5">
       {isNestedReply && threadRef.mentionedPubkeys[0] && (
         <ReplyIndicator pubkey={threadRef.mentionedPubkeys[0]} />
       )}
@@ -54,10 +54,10 @@ export const ThreadView = memo(function ThreadView({
   if (replyCount === 0 && !expanded) return null;
 
   return (
-    <div className="mt-2">
+    <div className="mt-3">
       <button
         onClick={onToggle}
-        className="flex items-center gap-1 text-xs text-soft transition-colors hover:text-heading"
+        className="flex items-center gap-1.5 text-xs text-soft transition-colors hover:text-heading"
       >
         {expanded ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
         <span>
@@ -68,7 +68,7 @@ export const ThreadView = memo(function ThreadView({
       </button>
 
       {expanded && replies.length > 0 && (
-        <div className="mt-2 space-y-1">
+        <div className="mt-2.5 space-y-1">
           {replies.map((reply) => (
             <ThreadReply key={reply.id} event={reply} rootId={eventId} />
           ))}

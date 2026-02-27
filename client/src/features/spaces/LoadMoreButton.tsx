@@ -20,7 +20,7 @@ export function LoadMoreButton({ isLoading, hasMore, onLoadMore }: LoadMoreButto
       <button
         onClick={onLoadMore}
         disabled={isLoading}
-        className="flex items-center gap-2 rounded-lg border-neon-glow bg-card/50 px-4 py-2 text-xs font-medium text-body transition-all duration-150 hover:bg-card hover:text-heading hover:glow-neon disabled:opacity-50 hover-lift"
+        className="flex items-center gap-2 rounded-xl bg-white/[0.04] border border-white/[0.04] px-4 py-2 text-xs font-medium text-body transition-all duration-150 hover:bg-white/[0.05] hover:text-heading disabled:opacity-50"
       >
         {isLoading ? (
           <>

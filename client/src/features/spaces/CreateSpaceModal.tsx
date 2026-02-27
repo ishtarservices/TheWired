@@ -66,7 +66,7 @@ export function CreateSpaceModal({
 
   return (
     <Modal open={open} onClose={onClose}>
-      <div className="w-full max-w-md rounded-xl glass-panel p-6 shadow-2xl glow-neon">
+      <div className="w-full max-w-md rounded-2xl card-glass p-8 shadow-2xl">
         <div className="mb-4 flex items-center justify-between">
           <h2 className="text-lg font-bold text-heading">Create Space</h2>
           <button
@@ -87,7 +87,7 @@ export function CreateSpaceModal({
               value={name}
               onChange={(e) => setName(e.target.value)}
               placeholder="My Space"
-              className="w-full rounded-md border border-edge-light bg-field px-3 py-1.5 text-sm text-heading placeholder-muted focus:border-neon focus:outline-none transition-colors"
+              className="w-full rounded-xl bg-white/[0.04] border border-white/[0.04] px-3 py-1.5 text-sm text-heading placeholder-muted focus:border-neon focus:outline-none transition-colors"
             />
           </div>
 
@@ -100,7 +100,7 @@ export function CreateSpaceModal({
               onChange={(e) => setAbout(e.target.value)}
               placeholder="What's this space about?"
               rows={2}
-              className="w-full rounded-md border border-edge-light bg-field px-3 py-1.5 text-sm text-heading placeholder-muted focus:border-neon focus:outline-none transition-colors"
+              className="w-full rounded-xl bg-white/[0.04] border border-white/[0.04] px-3 py-1.5 text-sm text-heading placeholder-muted focus:border-neon focus:outline-none transition-colors"
             />
           </div>
 
@@ -113,7 +113,7 @@ export function CreateSpaceModal({
               value={picture}
               onChange={(e) => setPicture(e.target.value)}
               placeholder="https://..."
-              className="w-full rounded-md border border-edge-light bg-field px-3 py-1.5 text-sm text-heading placeholder-muted focus:border-neon focus:outline-none transition-colors"
+              className="w-full rounded-xl bg-white/[0.04] border border-white/[0.04] px-3 py-1.5 text-sm text-heading placeholder-muted focus:border-neon focus:outline-none transition-colors"
             />
           </div>
 
@@ -124,20 +124,20 @@ export function CreateSpaceModal({
             <div className="flex gap-2">
               <button
                 onClick={() => setMode("read")}
-                className={`flex-1 rounded-md px-3 py-2 text-sm font-medium transition-all duration-150 ${
+                className={`flex-1 rounded-xl px-3 py-2 text-sm font-medium transition-all duration-150 ${
                   mode === "read"
-                    ? "bg-neon/15 text-neon ring-1 ring-neon/30 glow-neon"
-                    : "bg-card text-soft hover:text-heading"
+                    ? "bg-pulse/15 text-pulse-soft ring-1 ring-pulse/30"
+                    : "bg-white/[0.04] text-soft hover:text-heading"
                 }`}
               >
                 Feed (Read-only)
               </button>
               <button
                 onClick={() => setMode("read-write")}
-                className={`flex-1 rounded-md px-3 py-2 text-sm font-medium transition-all duration-150 ${
+                className={`flex-1 rounded-xl px-3 py-2 text-sm font-medium transition-all duration-150 ${
                   mode === "read-write"
-                    ? "bg-neon/15 text-neon ring-1 ring-neon/30 glow-neon"
-                    : "bg-card text-soft hover:text-heading"
+                    ? "bg-pulse/15 text-pulse-soft ring-1 ring-pulse/30"
+                    : "bg-white/[0.04] text-soft hover:text-heading"
                 }`}
               >
                 Community (Read-write)

@@ -28,14 +28,14 @@ export const NoteActionBar = memo(function NoteActionBar({
   onQuote,
 }: NoteActionBarProps) {
   return (
-    <div className="mt-2 flex items-center gap-6">
+    <div className="mt-2 flex items-center gap-8">
       {/* Reply */}
       <button
         onClick={onReply}
         disabled={!canWrite}
         className="group flex items-center gap-1.5 text-xs text-muted transition-colors hover:text-blue-400 disabled:cursor-not-allowed disabled:opacity-40"
       >
-        <MessageCircle size={15} className="group-hover:text-blue-400" />
+        <MessageCircle size={16} className="group-hover:text-blue-400" />
         <span>{formatCount(engagement.replyCount)}</span>
       </button>
 
@@ -49,7 +49,7 @@ export const NoteActionBar = memo(function NoteActionBar({
             : "text-muted hover:text-green-400"
         }`}
       >
-        <Repeat2 size={15} />
+        <Repeat2 size={16} />
         <span>{formatCount(engagement.repostCount)}</span>
       </button>
 
@@ -64,7 +64,7 @@ export const NoteActionBar = memo(function NoteActionBar({
         }`}
       >
         <Heart
-          size={15}
+          size={16}
           fill={engagement.liked ? "currentColor" : "none"}
         />
         <span>{formatCount(engagement.reactionCount)}</span>
@@ -76,7 +76,7 @@ export const NoteActionBar = memo(function NoteActionBar({
         disabled={!canWrite}
         className="group flex items-center gap-1.5 text-xs text-muted transition-colors hover:text-neon disabled:cursor-not-allowed disabled:opacity-40"
       >
-        <Quote size={15} className="group-hover:text-neon" />
+        <Quote size={16} className="group-hover:text-neon" />
         <span>{formatCount(engagement.quoteCount)}</span>
       </button>
     </div>

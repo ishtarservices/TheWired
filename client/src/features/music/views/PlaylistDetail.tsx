@@ -64,7 +64,7 @@ export function PlaylistDetail() {
             <button
               onClick={() => playQueue(queueIds, 0)}
               disabled={queueIds.length === 0}
-              className="flex items-center gap-1.5 rounded-full bg-heading px-4 py-1.5 text-sm font-medium text-backdrop transition-transform hover:scale-105 disabled:opacity-50"
+              className="flex items-center gap-1.5 rounded-full bg-gradient-to-r from-pulse to-pulse-soft px-4 py-1.5 text-sm font-medium text-white transition-transform hover:scale-105 press-effect disabled:opacity-50"
             >
               <Play size={14} fill="currentColor" />
               Play All
@@ -75,7 +75,7 @@ export function PlaylistDetail() {
                 playQueue(shuffled, 0);
               }}
               disabled={queueIds.length === 0}
-              className="flex items-center gap-1.5 rounded-full border border-edge px-4 py-1.5 text-sm text-soft transition-colors hover:border-heading hover:text-heading disabled:opacity-50"
+              className="flex items-center gap-1.5 rounded-full border border-white/[0.04] px-4 py-1.5 text-sm text-soft transition-colors hover:border-white/[0.08] hover:text-heading disabled:opacity-50"
             >
               <Shuffle size={14} />
               Shuffle

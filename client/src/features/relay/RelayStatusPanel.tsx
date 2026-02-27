@@ -27,7 +27,7 @@ export function RelayStatusPanel() {
           {relays.map((relay) => (
             <div
               key={relay.url}
-              className="rounded-lg border-neon-glow bg-card p-3 transition-all duration-150 hover:glow-neon"
+              className="card-glass p-4 rounded-xl hover-lift transition-all duration-150"
             >
               <div className="flex items-center gap-2">
                 <RelayStatusBadge status={relay.status} />

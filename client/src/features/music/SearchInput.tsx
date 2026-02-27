@@ -24,7 +24,7 @@ export function SearchInput() {
 
   return (
     <div ref={containerRef} className="relative">
-      <div className="flex items-center gap-2 rounded-md border border-edge bg-field px-2 py-1 focus-within:border-heading/50">
+      <div className="flex items-center gap-2 rounded-xl bg-white/[0.04] ring-1 ring-white/[0.06] px-2 py-1 focus-within:ring-pulse/30 focus-within:shadow-[0_0_12px_rgba(139,92,246,0.1)] transition-all">
         <Search size={14} className="text-muted" />
         <input
           ref={inputRef}
@@ -46,7 +46,7 @@ export function SearchInput() {
       </div>
 
       {showDropdown && (
-        <div className="absolute left-0 right-0 top-full z-50 mt-1 rounded-lg border border-edge bg-panel shadow-lg">
+        <div className="absolute left-0 right-0 top-full z-50 mt-1 rounded-xl border border-white/[0.04] card-glass shadow-lg">
           {isSearching && (
             <p className="px-3 py-2 text-xs text-muted">Searching...</p>
           )}
@@ -60,7 +60,7 @@ export function SearchInput() {
                 return (
                   <div
                     key={hit.id}
-                    className="flex items-center gap-2 px-3 py-1.5 text-sm text-soft hover:bg-card-hover/30"
+                    className="flex items-center gap-2 px-3 py-1.5 text-sm text-soft hover:bg-white/[0.03]"
                   >
                     <Music size={14} className="shrink-0 text-muted" />
                     <span className="truncate">{title}</span>
@@ -79,7 +79,7 @@ export function SearchInput() {
                 return (
                   <div
                     key={hit.id}
-                    className="flex items-center gap-2 px-3 py-1.5 text-sm text-soft hover:bg-card-hover/30"
+                    className="flex items-center gap-2 px-3 py-1.5 text-sm text-soft hover:bg-white/[0.03]"
                   >
                     <Disc3 size={14} className="shrink-0 text-muted" />
                     <span className="truncate">{title}</span>

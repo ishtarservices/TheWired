@@ -17,14 +17,14 @@ export function VideoCard({ video, onClick }: VideoCardProps) {
   return (
     <button
       onClick={onClick}
-      className="group relative overflow-hidden rounded-lg bg-card hover-lift transition-all duration-150"
+      className="group relative overflow-hidden rounded-xl shadow-[var(--shadow-card)] hover-lift transition-all duration-150"
     >
       <div className="aspect-[9/16] w-full bg-panel">
         {video.thumbnail ? (
           <img
             src={video.thumbnail}
             alt={video.title ?? "Video"}
-            className="h-full w-full object-cover"
+            className="h-full w-full object-cover group-hover:scale-105 transition-transform duration-300"
           />
         ) : (
           <div className="flex h-full w-full items-center justify-center">
@@ -34,8 +34,8 @@ export function VideoCard({ video, onClick }: VideoCardProps) {
       </div>
 
       {/* Neon-tinted overlay on hover */}
-      <div className="absolute inset-0 flex items-center justify-center bg-pulse/30 opacity-0 transition-opacity duration-150 group-hover:opacity-100">
-        <div className="rounded-full bg-white/20 p-3 backdrop-blur-sm">
+      <div className="absolute inset-0 flex items-center justify-center bg-pulse/80 opacity-0 transition-opacity duration-150 group-hover:opacity-100">
+        <div className="rounded-full bg-white/20 p-3 backdrop-blur-sm shadow-[0_0_20px_rgba(139,92,246,0.4)]">
           <Play size={24} className="text-white" fill="white" />
         </div>
       </div>

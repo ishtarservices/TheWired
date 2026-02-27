@@ -18,7 +18,7 @@ export function Layout() {
   const showRightPanel = !!activeSpaceId && memberListVisible;
 
   return (
-    <div className="flex h-screen flex-col overflow-hidden bg-ambient">
+    <div className="flex h-screen flex-col overflow-hidden bg-ambient animate-gradient-shift">
       <TopBar
         sidebarExpanded={sidebarExpanded}
         onToggleSidebar={() => setSidebarExpanded((v) => !v)}

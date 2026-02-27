@@ -27,7 +27,7 @@ export function ReelsView() {
         <div className="relative w-full max-w-md">
           <button
             onClick={() => setActiveVideo(null)}
-            className="absolute right-2 top-2 z-10 rounded-full bg-black/50 p-1 text-white hover:bg-black/70 transition-colors"
+            className="absolute right-2 top-2 z-10 rounded-xl bg-black/50 p-1 text-white hover:bg-black/70 transition-colors"
           >
             <X size={20} />
           </button>
@@ -59,7 +59,7 @@ export function ReelsView() {
           <p className="text-sm text-muted">No videos yet</p>
         </div>
       ) : (
-        <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4">
+        <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-4">
           {reelEvents.map((event) => (
             <VideoCard
               key={event.id}

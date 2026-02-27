@@ -1,6 +1,6 @@
 import { useEffect, useLayoutEffect, useRef, useState, type ReactNode, type RefObject } from "react";
 import { createPortal } from "react-dom";
-import clsx from "clsx";
+import { cn } from "@/lib/utils";
 import { useClickOutside } from "../../hooks/useClickOutside";
 
 interface PopoverMenuProps {
@@ -59,8 +59,8 @@ export function PopoverMenu({ open, onClose, children, position = "above", ancho
   const menuEl = (
     <div
       ref={ref}
-      className={clsx(
-        "w-max min-w-[160px] rounded-lg glass-panel py-1 shadow-xl transition-all duration-150",
+      className={cn(
+        "w-max min-w-[160px] rounded-xl card-glass py-1.5 shadow-xl transition-all duration-150",
         usePortal ? "fixed z-50" : "absolute right-0 z-40",
         !usePortal && (position === "above" ? "bottom-full mb-1" : "top-full mt-1"),
         open
@@ -95,11 +95,11 @@ export function PopoverMenuItem({
   return (
     <button
       onClick={onClick}
-      className={clsx(
-        "flex w-full items-center gap-2 px-3 py-2 text-sm transition-colors",
+      className={cn(
+        "flex w-full items-center gap-2 rounded-lg mx-1 px-3.5 py-2.5 text-sm transition-colors",
         variant === "danger"
           ? "text-red-400 hover:bg-red-500/10"
-          : "text-body hover:bg-card-hover/50 hover:text-heading",
+          : "text-body hover:bg-white/[0.04] hover:text-heading",
       )}
     >
       {icon}
@@ -109,5 +109,5 @@ export function PopoverMenuItem({
 }
 
 export function PopoverMenuSeparator() {
-  return <div className="my-1 border-t border-edge/50" />;
+  return <div className="my-1.5 border-t border-white/[0.04]" />;
 }

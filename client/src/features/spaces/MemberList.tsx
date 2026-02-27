@@ -21,7 +21,7 @@ function MemberItem({ pubkey, spaceId }: { pubkey: string; spaceId: string }) {
   const btnRef = useRef<HTMLButtonElement>(null);
 
   return (
-    <div className="group relative flex w-full items-center gap-2 rounded-md px-2 py-1 transition-colors hover:bg-card/30">
+    <div className="group relative flex w-full items-center gap-2 rounded-xl px-3 py-2 transition-colors hover:bg-white/[0.04]">
       <button
         onClick={() => navigate(`/profile/${pubkey}`)}
         className="flex flex-1 items-center gap-2 text-left min-w-0"
@@ -29,7 +29,7 @@ function MemberItem({ pubkey, spaceId }: { pubkey: string; spaceId: string }) {
         <Avatar src={profile?.picture} alt={name} size="sm" />
         <span className="truncate text-sm text-body">{name}</span>
         {isAdmin && (
-          <span title="Admin"><Crown size={12} className="shrink-0 text-amber-400" /></span>
+          <span title="Admin"><Crown size={12} className="shrink-0 text-amber-400 drop-shadow-[0_0_4px_rgba(251,191,36,0.5)]" /></span>
         )}
       </button>
 
@@ -65,7 +65,7 @@ export function MemberList() {
   const isAdmin = can("MANAGE_MEMBERS") || (!!currentPubkey && activeSpace.adminPubkeys.includes(currentPubkey));
 
   return (
-    <div className="space-y-0.5 p-2">
+    <div className="p-3 space-y-1">
       <div className="mb-1 px-2 text-[10px] font-semibold uppercase tracking-wider text-muted">
         Members ({members.length})
       </div>
@@ -80,7 +80,7 @@ export function MemberList() {
       )}
 
       {isAdmin && (
-        <div className="mt-3 border-t border-edge pt-3 px-1">
+        <div className="mt-3 border-t border-white/[0.04] pt-3 px-1">
           <div className="mb-1.5 text-[10px] font-semibold uppercase tracking-wider text-muted">
             Add Member
           </div>

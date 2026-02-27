@@ -96,14 +96,14 @@ export function FeaturedArtistsInput({
             setError(null);
           }}
           onKeyDown={handleKeyDown}
-          className="flex-1 rounded-md border border-edge bg-field px-3 py-1.5 text-sm text-heading outline-none focus:border-heading/50"
+          className="flex-1 rounded-xl border border-white/[0.04] bg-white/[0.04] px-3 py-1.5 text-sm text-heading outline-none focus:border-pulse/30"
           placeholder={placeholder}
         />
         <button
           type="button"
           onClick={addArtist}
           disabled={!input.trim()}
-          className="rounded-md border border-edge px-3 py-1.5 text-xs text-soft transition-colors hover:text-heading disabled:opacity-40"
+          className="rounded-xl border border-white/[0.04] px-3 py-1.5 text-xs text-soft transition-colors hover:border-white/[0.08] hover:text-heading disabled:opacity-40"
         >
           Add
         </button>

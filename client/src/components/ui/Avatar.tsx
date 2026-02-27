@@ -1,4 +1,4 @@
-import clsx from "clsx";
+import { cn } from "@/lib/utils";
 import { User } from "lucide-react";
 
 interface AvatarProps {
@@ -9,17 +9,17 @@ interface AvatarProps {
 }
 
 const sizeStyles = {
-  xs: "h-4 w-4",
-  sm: "h-6 w-6",
-  md: "h-8 w-8",
-  lg: "h-12 w-12",
+  xs: "h-5 w-5",
+  sm: "h-8 w-8",
+  md: "h-10 w-10",
+  lg: "h-14 w-14",
 };
 
 const iconSizes = {
-  xs: 8,
-  sm: 12,
-  md: 16,
-  lg: 24,
+  xs: 10,
+  sm: 14,
+  md: 18,
+  lg: 28,
 };
 
 export function Avatar({ src, alt, size = "md", className }: AvatarProps) {
@@ -28,8 +28,8 @@ export function Avatar({ src, alt, size = "md", className }: AvatarProps) {
       <img
         src={src}
         alt={alt ?? "avatar"}
-        className={clsx(
-          "rounded-full object-cover",
+        className={cn(
+          "rounded-full object-cover ring-1 ring-white/10",
           sizeStyles[size],
           className,
         )}
@@ -39,8 +39,8 @@ export function Avatar({ src, alt, size = "md", className }: AvatarProps) {
 
   return (
     <div
-      className={clsx(
-        "flex items-center justify-center rounded-full bg-card-hover",
+      className={cn(
+        "flex items-center justify-center rounded-full bg-gradient-to-br from-pulse/20 to-neon/10 ring-1 ring-white/10",
         sizeStyles[size],
         className,
       )}

@@ -1,4 +1,4 @@
-import clsx from "clsx";
+import { cn } from "@/lib/utils";
 
 interface SpinnerProps {
   size?: "sm" | "md" | "lg";
@@ -14,8 +14,8 @@ const sizeStyles = {
 export function Spinner({ size = "md", className }: SpinnerProps) {
   return (
     <div
-      className={clsx(
-        "animate-spin rounded-full border-2 border-edge-light border-t-neon",
+      className={cn(
+        "animate-spin rounded-full border-2 border-pulse/20 border-t-neon",
         sizeStyles[size],
         className,
       )}

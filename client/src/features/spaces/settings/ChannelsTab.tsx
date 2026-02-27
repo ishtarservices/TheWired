@@ -41,7 +41,7 @@ export function ChannelsTab({ spaceId }: ChannelsTabProps) {
         {sorted.map((ch) => (
           <div
             key={ch.id}
-            className="flex items-center gap-2 rounded-md px-2 py-2 hover:bg-card/30 transition-colors group"
+            className="flex items-center gap-2 rounded-xl px-2 py-2 hover:bg-white/[0.04] transition-colors group"
           >
             <GripVertical size={14} className="text-muted shrink-0 cursor-grab" />
 
@@ -52,7 +52,7 @@ export function ChannelsTab({ spaceId }: ChannelsTabProps) {
                 onBlur={() => saveEdit(ch.id)}
                 onKeyDown={(e) => e.key === "Enter" && saveEdit(ch.id)}
                 autoFocus
-                className="flex-1 rounded border border-edge-light bg-field px-2 py-0.5 text-sm text-heading focus:border-neon focus:outline-none"
+                className="flex-1 rounded-xl bg-white/[0.04] border border-white/[0.04] px-2 py-0.5 text-sm text-heading focus:border-neon focus:outline-none"
               />
             ) : (
               <button

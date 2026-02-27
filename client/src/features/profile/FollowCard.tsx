@@ -16,7 +16,7 @@ export function FollowCard({ pubkey }: FollowCardProps) {
   return (
     <button
       onClick={() => navigate(`/profile/${pubkey}`)}
-      className="flex w-full items-center gap-3 rounded-lg border-neon-glow bg-card p-3 text-left transition-all duration-150 hover-lift hover:glow-neon"
+      className="flex w-full items-center gap-3.5 card-glass p-4 rounded-xl text-left transition-all duration-150 hover-lift"
     >
       <Avatar src={profile?.picture} alt={displayName} size="sm" />
       <div className="min-w-0 flex-1">

@@ -1,4 +1,4 @@
-import clsx from "clsx";
+import { cn } from "@/lib/utils";
 import { LayoutGrid, Music2 } from "lucide-react";
 import { useAppSelector, useAppDispatch } from "../../store/hooks";
 import { setSidebarMode } from "../../store/slices/uiSlice";
@@ -6,6 +6,7 @@ import { SpaceList } from "../../features/spaces/SpaceList";
 import { ChannelList } from "../../features/spaces/ChannelList";
 import { MusicSidebar } from "../../features/music/MusicSidebar";
 import { ProfileCard } from "../../features/identity/ProfileCard";
+import { useResizeHandle } from "./useResizeHandle";
 
 interface SidebarProps {
   expanded: boolean;
@@ -16,26 +17,52 @@ export function Sidebar({ expanded }: SidebarProps) {
   const isLoggedIn = useAppSelector((s) => !!s.identity.pubkey);
   const activeSpaceId = useAppSelector((s) => s.spaces.activeSpaceId);
   const sidebarMode = useAppSelector((s) => s.ui.sidebarMode);
+  const { width, isDragging, onMouseDown, onDoubleClick } = useResizeHandle({
+    side: "right",
+  });
 
   return (
     <div
-      className={clsx(
-        "flex flex-col border-r border-edge glass transition-all duration-200",
-        expanded ? "w-60" : "w-0 overflow-hidden",
+      className={cn(
+        "flex shrink-0 flex-col glass relative",
+        !expanded && "w-0 overflow-hidden",
+        !isDragging && "transition-[width] duration-200",
       )}
+      style={expanded ? { width } : undefined}
     >
-      <div className="flex h-12 items-center justify-between border-b border-edge px-4">
-        <span className="text-sm font-bold tracking-widest text-silver-gradient uppercase">
+      {/* Resize handle — right edge */}
+      {expanded && (
+        <div
+          onMouseDown={onMouseDown}
+          onDoubleClick={onDoubleClick}
+          className="group absolute right-0 top-0 bottom-0 z-20 w-1.5 cursor-col-resize"
+        >
+          {/* Decorative gradient edge */}
+          <div className="absolute inset-y-0 right-0 w-px bg-gradient-to-b from-pulse/20 via-edge to-neon/10" />
+          {/* Interactive highlight */}
+          <div
+            className={cn(
+              "absolute inset-y-0 right-0 w-0 transition-all duration-150",
+              isDragging
+                ? "w-[2px] bg-pulse/40"
+                : "group-hover:w-[2px] group-hover:bg-pulse/20",
+            )}
+          />
+        </div>
+      )}
+
+      <div className="flex h-14 items-center justify-between border-b border-white/[0.04] px-5">
+        <span className="text-sm font-bold tracking-[0.2em] text-gradient-accent uppercase">
           The Wired
         </span>
         <div className="flex items-center gap-1">
           <button
             onClick={() => dispatch(setSidebarMode("spaces"))}
-            className={clsx(
-              "rounded p-1 transition-colors",
+            className={cn(
+              "rounded-lg p-1.5 transition-colors",
               sidebarMode === "spaces"
-                ? "bg-card-hover/50 text-heading"
-                : "text-muted hover:text-heading",
+                ? "bg-pulse/15 text-pulse"
+                : "text-muted hover:text-heading hover:bg-white/[0.04]",
             )}
             title="Spaces"
           >
@@ -43,11 +70,11 @@ export function Sidebar({ expanded }: SidebarProps) {
           </button>
           <button
             onClick={() => dispatch(setSidebarMode("music"))}
-            className={clsx(
-              "rounded p-1 transition-colors",
+            className={cn(
+              "rounded-lg p-1.5 transition-colors",
               sidebarMode === "music"
-                ? "bg-card-hover/50 text-heading"
-                : "text-muted hover:text-heading",
+                ? "bg-pulse/15 text-pulse"
+                : "text-muted hover:text-heading hover:bg-white/[0.04]",
             )}
             title="Music"
           >
@@ -60,8 +87,8 @@ export function Sidebar({ expanded }: SidebarProps) {
         {sidebarMode === "spaces" ? (
           <>
             {/* Spaces */}
-            <div className="border-b border-edge pb-2">
-              <div className="px-4 pt-3 text-[10px] font-semibold uppercase tracking-wider text-muted">
+            <div className="border-b border-white/[0.04] pb-2">
+              <div className="px-5 pt-4 pb-2 text-[10px] font-semibold uppercase tracking-[0.15em] text-muted">
                 Spaces
               </div>
               <SpaceList />
@@ -76,7 +103,7 @@ export function Sidebar({ expanded }: SidebarProps) {
       </div>
 
       {/* User profile */}
-      <div className="relative border-t border-edge p-3">
+      <div className="relative border-t border-white/[0.04] p-4">
         {isLoggedIn ? (
           <ProfileCard />
         ) : (

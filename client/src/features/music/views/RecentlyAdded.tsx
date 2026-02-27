@@ -23,7 +23,7 @@ export function RecentlyAdded() {
     <div className="flex-1 overflow-y-auto p-4">
       <h2 className="mb-3 text-lg font-semibold text-heading">Recently Added</h2>
 
-      <div className="grid grid-cols-[2rem_1fr_1fr_4rem] gap-4 border-b border-edge px-3 pb-2 text-xs font-semibold uppercase tracking-wider text-muted">
+      <div className="grid grid-cols-[2rem_1fr_1fr_4rem] gap-4 border-b border-white/[0.04] px-3 pb-2 text-xs font-semibold uppercase tracking-[0.15em] text-muted">
         <span>#</span>
         <span>Title</span>
         <span>Genre</span>

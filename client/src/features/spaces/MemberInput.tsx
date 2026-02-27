@@ -140,13 +140,13 @@ export function MemberInput({ members, onAdd, onRemove }: MemberInputProps) {
               }
             }}
             placeholder="Search by name, npub, or hex..."
-            className="w-full rounded-md border border-edge-light bg-field px-3 py-1.5 text-sm text-heading placeholder-muted focus:border-neon focus:outline-none transition-colors"
+            className="w-full rounded-xl bg-white/[0.04] ring-1 ring-white/[0.06] px-3 py-1.5 text-sm text-heading placeholder-muted focus:ring-pulse/30 focus:outline-none transition-colors"
           />
 
           {showDropdown && dropdownPos && createPortal(
             <div
               ref={dropdownRef}
-              className="fixed z-[9999] rounded-lg border border-edge bg-panel shadow-lg"
+              className="fixed z-[9999] rounded-xl border border-white/[0.04] bg-panel shadow-lg"
               style={{ top: dropdownPos.top, left: dropdownPos.left, width: dropdownPos.width }}
             >
               {isSearching && (

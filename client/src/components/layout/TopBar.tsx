@@ -26,7 +26,7 @@ export function TopBar({
   const sidebarMode = useAppSelector((s) => s.ui.sidebarMode);
 
   return (
-    <div className="relative z-10 flex h-12 items-center border-b border-edge glass px-3">
+    <div className="relative z-10 flex h-14 items-center border-b border-white/[0.04] glass px-3">
       <Button variant="ghost" size="sm" onClick={onToggleSidebar}>
         {sidebarExpanded ? (
           <PanelLeftClose size={18} />
@@ -34,7 +34,7 @@ export function TopBar({
           <PanelLeftOpen size={18} />
         )}
       </Button>
-      <h2 className="ml-3 text-sm font-semibold text-heading">
+      <h2 className="ml-3 text-sm font-semibold tracking-wide text-heading">
         {channelName ?? "The Wired"}
       </h2>
 
@@ -45,7 +45,7 @@ export function TopBar({
         {/* Theme toggle */}
         <button
           onClick={toggleTheme}
-          className="rounded-md p-1.5 text-soft transition-colors hover:bg-card hover:text-heading"
+          className="rounded-xl p-2 text-soft transition-colors hover:bg-white/[0.04] hover:text-heading"
           title={`Switch to ${theme === "dark" ? "light" : "dark"} mode`}
         >
           {theme === "dark" ? <Sun size={15} /> : <Moon size={15} />}

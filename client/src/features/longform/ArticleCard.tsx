@@ -15,7 +15,7 @@ export function ArticleCard({ article, onClick }: ArticleCardProps) {
   return (
     <button
       onClick={onClick}
-      className="flex w-full gap-4 rounded-lg border-neon-glow bg-card p-4 text-left transition-all duration-150 hover-lift hover:glow-neon"
+      className="flex w-full card-glass p-5 rounded-xl gap-5 text-left transition-all duration-150 hover-lift"
     >
       {article.image ? (
         <img
@@ -41,7 +41,7 @@ export function ArticleCard({ article, onClick }: ArticleCardProps) {
           {article.hashtags.slice(0, 3).map((tag) => (
             <span
               key={tag}
-              className="rounded bg-card-hover px-1.5 py-0.5 text-xs text-soft"
+              className="rounded-full bg-pulse/10 px-1.5 py-0.5 text-xs text-pulse-soft"
             >
               #{tag}
             </span>

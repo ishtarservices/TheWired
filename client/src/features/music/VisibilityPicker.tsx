@@ -29,7 +29,7 @@ export function VisibilityPicker({ value, onChange, spaceId, onSpaceIdChange }: 
             <label
               key={opt.value}
               className={`flex cursor-pointer items-center gap-2 rounded-md px-3 py-1.5 text-sm transition-colors ${
-                value === opt.value ? "bg-card text-heading" : "text-soft hover:bg-card-hover/30"
+                value === opt.value ? "bg-pulse/8 text-heading" : "text-soft hover:bg-white/[0.03]"
               }`}
             >
               <input
@@ -51,7 +51,7 @@ export function VisibilityPicker({ value, onChange, spaceId, onSpaceIdChange }: 
         <select
           value={spaceId}
           onChange={(e) => onSpaceIdChange(e.target.value)}
-          className="mt-2 w-full rounded-md border border-edge bg-field px-3 py-1.5 text-sm text-heading outline-none focus:border-heading/50"
+          className="mt-2 w-full rounded-xl border border-white/[0.04] bg-white/[0.04] px-3 py-1.5 text-sm text-heading outline-none focus:border-pulse/30"
         >
           <option value="">Select a space</option>
           {spaces.map((s) => (

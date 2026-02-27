@@ -67,13 +67,13 @@ export function MemberContextMenu({
           <div className="flex gap-2">
             <button
               onClick={() => setConfirmAction(null)}
-              className="flex-1 rounded-md bg-card px-3 py-1.5 text-xs text-soft hover:bg-card-hover"
+              className="flex-1 rounded-lg mx-1 px-3.5 py-2.5 text-xs text-soft hover:bg-white/[0.04]"
             >
               Cancel
             </button>
             <button
               onClick={handleKick}
-              className="flex-1 rounded-md bg-red-500/10 px-3 py-1.5 text-xs text-red-400 hover:bg-red-500/20"
+              className="flex-1 rounded-lg mx-1 px-3.5 py-2.5 text-xs text-red-400 hover:bg-red-500/20"
             >
               Kick
             </button>
@@ -93,18 +93,18 @@ export function MemberContextMenu({
             value={banReason}
             onChange={(e) => setBanReason(e.target.value)}
             placeholder="Reason (optional)"
-            className="w-full rounded-md border border-edge-light bg-field px-2 py-1 text-xs text-heading placeholder-muted focus:border-neon focus:outline-none"
+            className="w-full rounded-md rounded-xl bg-white/[0.04] border border-white/[0.04] px-2 py-1 text-xs text-heading placeholder-muted focus:border-neon focus:outline-none"
           />
           <div className="flex gap-2">
             <button
               onClick={() => { setConfirmAction(null); setBanReason(""); }}
-              className="flex-1 rounded-md bg-card px-3 py-1.5 text-xs text-soft hover:bg-card-hover"
+              className="flex-1 rounded-lg mx-1 px-3.5 py-2.5 text-xs text-soft hover:bg-white/[0.04]"
             >
               Cancel
             </button>
             <button
               onClick={handleBan}
-              className="flex-1 rounded-md bg-red-500/10 px-3 py-1.5 text-xs text-red-400 hover:bg-red-500/20"
+              className="flex-1 rounded-lg mx-1 px-3.5 py-2.5 text-xs text-red-400 hover:bg-red-500/20"
             >
               Ban
             </button>

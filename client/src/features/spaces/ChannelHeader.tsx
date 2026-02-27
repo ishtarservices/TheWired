@@ -21,8 +21,8 @@ export function ChannelHeader() {
   const canManage = can("MANAGE_SPACE") || (!!currentPubkey && activeSpace.adminPubkeys.includes(currentPubkey));
 
   return (
-    <div className="flex h-12 items-center border-b border-edge px-4">
-      <span className="text-sm font-semibold text-heading">
+    <div className="flex h-12 items-center border-b border-white/[0.04] px-5">
+      <span className="text-sm font-semibold tracking-wide text-heading">
         {channelName}
       </span>
       <span className="ml-2 text-xs text-muted">

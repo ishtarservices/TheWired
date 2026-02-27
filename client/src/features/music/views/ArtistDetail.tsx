@@ -59,7 +59,7 @@ export function ArtistDetail() {
       {/* Top tracks */}
       {artistTracks.length > 0 && (
         <section className="px-6 py-4">
-          <h2 className="mb-2 text-sm font-semibold uppercase tracking-wider text-muted">
+          <h2 className="mb-2 text-sm font-semibold uppercase tracking-[0.15em] text-muted">
             Tracks
           </h2>
           {artistTracks.map((track, i) => (
@@ -76,7 +76,7 @@ export function ArtistDetail() {
       {/* Albums */}
       {artistAlbums.length > 0 && (
         <section className="px-6 py-4">
-          <h2 className="mb-2 text-sm font-semibold uppercase tracking-wider text-muted">
+          <h2 className="mb-2 text-sm font-semibold uppercase tracking-[0.15em] text-muted">
             Albums
           </h2>
           <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4">

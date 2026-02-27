@@ -7,12 +7,12 @@ import {
   updateChannelInList,
   setChannelsLoading,
 } from "../../store/slices/spacesSlice";
-import type { SpaceChannel, SpaceChannelType } from "../../types/space";
+import type { Space, SpaceChannel, SpaceChannelType } from "../../types/space";
 import * as channelsApi from "../../lib/api/channels";
 import { saveChannels, loadChannels } from "../../lib/db/channelStore";
 
 /** Hardcoded defaults used when backend is unavailable */
-function makeDefaultChannels(spaceId: string): SpaceChannel[] {
+function makeDefaultChannels(spaceId: string, mode: Space["mode"]): SpaceChannel[] {
   const types: Array<{ type: SpaceChannelType; label: string }> = [
     { type: "chat", label: "#chat" },
     { type: "notes", label: "#notes" },
@@ -20,13 +20,15 @@ function makeDefaultChannels(spaceId: string): SpaceChannel[] {
     { type: "articles", label: "#articles" },
     { type: "music", label: "#music" },
   ];
-  return types.map((ch, i) => ({
+  // Read-only spaces don't have chat
+  const filtered = mode === "read" ? types.filter((t) => t.type !== "chat") : types;
+  return filtered.map((ch, i) => ({
     id: `default-${ch.type}`,
     spaceId,
     type: ch.type,
     label: ch.label,
     position: i,
-    isDefault: true,
+    isDefault: i === 0,
     adminOnly: false,
     slowModeSeconds: 0,
   }));
@@ -39,6 +41,9 @@ export function useSpaceChannels(spaceId: string | null) {
   );
   const isLoading = useAppSelector(
     (s) => (spaceId ? s.spaces.channelsLoading[spaceId] : false) ?? false,
+  );
+  const spaceMode = useAppSelector(
+    (s) => s.spaces.list.find((sp) => sp.id === spaceId)?.mode ?? "read-write",
   );
 
   useEffect(() => {
@@ -66,7 +71,7 @@ export function useSpaceChannels(spaceId: string | null) {
       } catch {
         // Backend unavailable — fall back to defaults if nothing cached
         if (!cancelled && (!cached || cached.length === 0)) {
-          dispatch(setChannels({ spaceId, channels: makeDefaultChannels(spaceId) }));
+          dispatch(setChannels({ spaceId, channels: makeDefaultChannels(spaceId, spaceMode) }));
         }
       } finally {
         if (!cancelled) {

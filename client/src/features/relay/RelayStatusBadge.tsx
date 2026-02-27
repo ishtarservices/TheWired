@@ -1,4 +1,4 @@
-import clsx from "clsx";
+import { cn } from "@/lib/utils";
 import type { RelayStatus } from "../../types/relay";
 
 interface RelayStatusBadgeProps {
@@ -8,14 +8,14 @@ interface RelayStatusBadgeProps {
 const statusColors: Record<RelayStatus, string> = {
   connected: "bg-green-500",
   connecting: "bg-yellow-500",
-  disconnected: "bg-slate-500",
+  disconnected: "bg-muted",
   error: "bg-red-500",
 };
 
 export function RelayStatusBadge({ status }: RelayStatusBadgeProps) {
   return (
     <span
-      className={clsx("inline-block h-2 w-2 rounded-full", statusColors[status])}
+      className={cn("inline-block h-2 w-2 rounded-full", statusColors[status])}
       title={status}
     />
   );

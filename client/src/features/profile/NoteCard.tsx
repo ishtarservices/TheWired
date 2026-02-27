@@ -20,7 +20,7 @@ export function NoteCard({ event }: NoteCardProps) {
   );
 
   return (
-    <div className="rounded-lg border-neon-glow bg-card p-4 transition-all duration-150 hover:glow-neon">
+    <div className="card-glass p-5 rounded-xl hover-lift transition-all duration-150">
       <div className="mb-2 flex items-center gap-2 text-xs text-muted">
         <span>{formatRelativeTime(event.created_at)}</span>
         {isReply && (

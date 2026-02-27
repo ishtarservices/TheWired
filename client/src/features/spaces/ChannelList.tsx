@@ -1,6 +1,6 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useNavigate, useLocation } from "react-router-dom";
-import clsx from "clsx";
+import { cn } from "@/lib/utils";
 import { MessageSquare, FileText, Image, BookOpen, Music, Plus } from "lucide-react";
 import { useSpace } from "./useSpace";
 import { useSpaceChannels } from "./useSpaceChannels";
@@ -26,6 +26,30 @@ export function ChannelList() {
   const { can } = usePermissions(activeSpace?.id ?? null);
   const [createModalOpen, setCreateModalOpen] = useState(false);
 
+  // When channels load and the current activeChannelId is null or doesn't match
+  // any loaded channel (e.g. stale "chat" fallback), auto-select the best default
+  useEffect(() => {
+    if (!activeSpace || channels.length === 0) return;
+
+    const channelIdPart = activeChannelId?.split(":").slice(1).join(":") ?? "";
+    const isValid = channels.some((c) => c.id === channelIdPart);
+
+    if (!isValid) {
+      // Filter: hide chat for read-only spaces
+      const visible =
+        activeSpace.mode === "read"
+          ? channels.filter((c) => c.type !== "chat")
+          : channels;
+      const sorted = [...(visible.length > 0 ? visible : channels)].sort(
+        (a, b) => a.position - b.position,
+      );
+      const best = sorted.find((c) => c.isDefault) ?? sorted[0];
+      if (best) {
+        selectChannel(best.id);
+      }
+    }
+  }, [activeSpace, activeChannelId, channels, selectChannel]);
+
   if (!activeSpace) return null;
 
   // Use backend permissions if available, fall back to local admin check
@@ -46,9 +70,9 @@ export function ChannelList() {
   );
 
   return (
-    <div className="space-y-0.5 p-2">
+    <div className="p-3 space-y-1">
       <div className="mb-1 flex items-center justify-between px-2">
-        <span className="text-[10px] font-semibold uppercase tracking-wider text-muted">
+        <span className="text-[10px] font-semibold uppercase tracking-[0.15em] text-muted">
           Channels
         </span>
         {isAdmin && (
@@ -70,11 +94,11 @@ export function ChannelList() {
           <button
             key={ch.id}
             onClick={() => handleSelectChannel(ch.id)}
-            className={clsx(
-              "flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-sm transition-all duration-150",
+            className={cn(
+              "flex w-full items-center gap-2 rounded-xl px-3 py-2 text-sm transition-all duration-150",
               isActive
-                ? "bg-card-hover/50 text-heading"
-                : "text-soft hover:bg-card/30 hover:text-heading",
+                ? "bg-white/[0.05] text-heading"
+                : "text-soft hover:bg-white/[0.04] hover:text-heading",
             )}
           >
             <Icon size={16} />

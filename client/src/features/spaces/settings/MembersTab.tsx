@@ -25,7 +25,7 @@ function MemberRow({
   const name = profile?.display_name || profile?.name || pubkey.slice(0, 8) + "...";
 
   return (
-    <div className="flex items-center gap-2 rounded-md px-2 py-2 hover:bg-card/30 transition-colors">
+    <div className="flex items-center gap-2 rounded-xl px-2 py-2 hover:bg-white/[0.04] transition-colors">
       <Avatar src={profile?.picture} alt={name} size="sm" />
       <div className="flex-1 min-w-0">
         <div className="truncate text-sm text-heading">{name}</div>
@@ -83,7 +83,7 @@ export function MembersTab({ spaceId }: MembersTabProps) {
         value={filter}
         onChange={(e) => setFilter(e.target.value)}
         placeholder="Filter members..."
-        className="w-full rounded-md border border-edge-light bg-field px-3 py-1.5 text-sm text-heading placeholder-muted focus:border-neon focus:outline-none transition-colors"
+        className="w-full rounded-xl bg-white/[0.04] border border-white/[0.04] px-3 py-1.5 text-sm text-heading placeholder-muted focus:border-neon focus:outline-none transition-colors"
       />
 
       <div className="space-y-0.5 max-h-96 overflow-y-auto">

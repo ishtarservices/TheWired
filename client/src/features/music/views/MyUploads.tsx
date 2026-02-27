@@ -40,14 +40,14 @@ export function MyUploads() {
         <div className="flex gap-2">
           <button
             onClick={() => setAlbumOpen(true)}
-            className="flex items-center gap-1.5 rounded-md border border-edge px-3 py-1.5 text-xs text-soft transition-colors hover:border-heading hover:text-heading"
+            className="flex items-center gap-1.5 rounded-xl border border-white/[0.04] px-3 py-1.5 text-xs text-soft transition-colors hover:border-white/[0.08] hover:text-heading press-effect"
           >
             <Disc3 size={14} />
             Create Project
           </button>
           <button
             onClick={() => setUploadOpen(true)}
-            className="flex items-center gap-1.5 rounded-md bg-heading px-3 py-1.5 text-xs font-medium text-backdrop transition-opacity hover:opacity-90"
+            className="flex items-center gap-1.5 rounded-xl bg-gradient-to-r from-pulse to-pulse-soft px-3 py-1.5 text-xs font-medium text-white transition-opacity hover:opacity-90 press-effect"
           >
             <Upload size={14} />
             Upload Track
@@ -61,7 +61,7 @@ export function MyUploads() {
           <p className="text-sm text-soft">You haven't uploaded any music yet</p>
           <button
             onClick={() => setUploadOpen(true)}
-            className="rounded-md bg-heading px-4 py-2 text-sm font-medium text-backdrop transition-opacity hover:opacity-90"
+            className="rounded-xl bg-gradient-to-r from-pulse to-pulse-soft px-4 py-2 text-sm font-medium text-white transition-opacity hover:opacity-90 press-effect"
           >
             Upload Your First Track
           </button>
@@ -93,7 +93,7 @@ export function MyUploads() {
           {myTracks.length > 0 && (
             <div>
               <h3 className="mb-2 text-sm font-semibold text-soft">Tracks</h3>
-              <div className="grid grid-cols-[2rem_1fr_1fr_4rem_2rem] gap-4 border-b border-edge px-3 pb-2 text-xs font-semibold uppercase tracking-wider text-muted">
+              <div className="grid grid-cols-[2rem_1fr_1fr_4rem_2rem] gap-4 border-b border-white/[0.04] px-3 pb-2 text-xs font-semibold uppercase tracking-[0.15em] text-muted">
                 <span>#</span>
                 <span>Title</span>
                 <span>Genre</span>

@@ -27,7 +27,7 @@ function CollaboratorRow({
   const name = profile?.display_name || profile?.name || pubkey.slice(0, 8) + "...";
 
   return (
-    <div className="flex items-center gap-2 rounded-md px-2 py-1.5 transition-colors hover:bg-card-hover/30">
+    <div className="flex items-center gap-2 rounded-lg px-2 py-1.5 transition-colors hover:bg-white/[0.03]">
       <Avatar src={profile?.picture} alt={name} size="sm" />
       <span className="flex-1 truncate text-sm text-body">{name}</span>
       {isOwner && onRemove && (
@@ -175,7 +175,7 @@ export function AlbumDetail() {
               <button
                 onClick={() => playQueue(queueIds, 0)}
                 disabled={queueIds.length === 0}
-                className="flex items-center gap-1.5 rounded-full bg-heading px-4 py-1.5 text-sm font-medium text-backdrop transition-transform hover:scale-105 disabled:opacity-50"
+                className="flex items-center gap-1.5 rounded-full bg-gradient-to-r from-pulse to-pulse-soft px-4 py-1.5 text-sm font-medium text-white transition-transform hover:scale-105 press-effect disabled:opacity-50"
               >
                 <Play size={14} fill="currentColor" />
                 Play All
@@ -186,7 +186,7 @@ export function AlbumDetail() {
                   playQueue(shuffled, 0);
                 }}
                 disabled={queueIds.length === 0}
-                className="flex items-center gap-1.5 rounded-full border border-edge px-4 py-1.5 text-sm text-soft transition-colors hover:border-heading hover:text-heading disabled:opacity-50"
+                className="flex items-center gap-1.5 rounded-full border border-white/[0.04] px-4 py-1.5 text-sm text-soft transition-colors hover:border-white/[0.08] hover:text-heading disabled:opacity-50"
               >
                 <Shuffle size={14} />
                 Shuffle
@@ -201,7 +201,7 @@ export function AlbumDetail() {
                       setTimeout(() => setCopied(false), 2000);
                     }
                   }}
-                  className="flex items-center gap-1.5 rounded-full border border-edge px-4 py-1.5 text-sm text-soft transition-colors hover:border-heading hover:text-heading"
+                  className="flex items-center gap-1.5 rounded-full border border-white/[0.04] px-4 py-1.5 text-sm text-soft transition-colors hover:border-white/[0.08] hover:text-heading"
                 >
                   <Link2 size={14} />
                   {copied ? "Copied!" : "Copy Link"}
@@ -216,7 +216,7 @@ export function AlbumDetail() {
                       saveAlbum(album.addressableId);
                     }
                   }}
-                  className="flex items-center gap-1.5 rounded-full border border-edge px-4 py-1.5 text-sm text-soft transition-colors hover:border-heading hover:text-heading"
+                  className="flex items-center gap-1.5 rounded-full border border-white/[0.04] px-4 py-1.5 text-sm text-soft transition-colors hover:border-white/[0.08] hover:text-heading"
                 >
                   <Heart
                     size={14}
@@ -230,8 +230,8 @@ export function AlbumDetail() {
                   onClick={() => setShowMembers((v) => !v)}
                   className={`flex items-center gap-1.5 rounded-full border px-4 py-1.5 text-sm transition-colors ${
                     showMembers
-                      ? "border-heading text-heading"
-                      : "border-edge text-soft hover:border-heading hover:text-heading"
+                      ? "border-pulse/40 text-heading"
+                      : "border-white/[0.04] text-soft hover:border-white/[0.08] hover:text-heading"
                   }`}
                 >
                   <Users size={14} />
@@ -261,8 +261,8 @@ export function AlbumDetail() {
 
       {/* Collaborators side panel */}
       {showMembers && (
-        <div className="flex w-64 shrink-0 flex-col border-l border-edge">
-          <div className="flex h-12 items-center border-b border-edge px-4">
+        <div className="flex w-64 shrink-0 flex-col border-l border-white/[0.04]">
+          <div className="flex h-12 items-center border-b border-white/[0.04] px-4">
             <Users size={16} className="mr-2 text-soft" />
             <span className="text-sm font-semibold text-body">Members</span>
             <button
@@ -305,7 +305,7 @@ export function AlbumDetail() {
 
             {/* Add collaborator (owner only) */}
             {isOwner && (
-              <div className="mt-3 border-t border-edge pt-3 px-1">
+              <div className="mt-3 border-t border-white/[0.04] pt-3 px-1">
                 <div className="mb-1.5 flex items-center gap-1 text-[10px] font-semibold uppercase tracking-wider text-muted">
                   <UserPlus size={10} />
                   Add Collaborator
@@ -325,12 +325,12 @@ export function AlbumDetail() {
                       }
                     }}
                     placeholder="npub or hex pubkey..."
-                    className="w-full rounded-md border border-edge-light bg-field px-3 py-1.5 text-sm text-heading placeholder-muted focus:border-neon focus:outline-none transition-colors"
+                    className="w-full rounded-xl border border-white/[0.04] bg-white/[0.04] px-3 py-1.5 text-sm text-heading placeholder-muted focus:border-pulse/40 focus:outline-none transition-colors"
                   />
                   <button
                     onClick={handleAddCollaborator}
                     disabled={!addInput.trim()}
-                    className="w-full rounded-md bg-pulse px-3 py-1.5 text-sm font-medium text-white hover:bg-pulse-soft transition-all duration-150 disabled:opacity-40"
+                    className="w-full rounded-xl bg-gradient-to-r from-pulse to-pulse-soft px-3 py-1.5 text-sm font-medium text-white hover:opacity-90 transition-all duration-150 press-effect disabled:opacity-40"
                   >
                     Add
                   </button>

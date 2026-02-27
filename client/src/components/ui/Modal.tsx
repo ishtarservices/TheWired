@@ -21,7 +21,7 @@ export function Modal({ open, onClose, children }: ModalProps) {
 
   return createPortal(
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm"
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-md animate-fade-in-up"
       onMouseDown={(e) => {
         if (e.target === e.currentTarget) onClose();
       }}

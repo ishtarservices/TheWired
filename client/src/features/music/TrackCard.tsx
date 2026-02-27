@@ -39,7 +39,7 @@ export const TrackCard = memo(function TrackCard({
   return (
     <button
       onClick={handleClick}
-      className="group flex w-full flex-col overflow-hidden rounded-lg border border-edge bg-card/50 transition-colors hover:border-heading/30 hover:bg-card-hover/30"
+      className="group flex w-full flex-col overflow-hidden rounded-xl border border-white/[0.04] card-glass transition-all hover:border-white/[0.08] hover-lift"
     >
       <div className="relative aspect-square w-full">
         {imageUrl ? (
@@ -55,7 +55,7 @@ export const TrackCard = memo(function TrackCard({
           </div>
         )}
         <div className="absolute inset-0 flex items-center justify-center bg-black/0 transition-colors group-hover:bg-black/40">
-          <div className="scale-0 rounded-full bg-heading p-2.5 text-backdrop transition-transform group-hover:scale-100">
+          <div className="scale-0 rounded-full bg-gradient-to-br from-pulse to-pulse-soft p-2.5 text-white transition-transform group-hover:scale-100">
             {isPlaying ? (
               <div className="flex items-center gap-0.5">
                 <span className="block h-3 w-0.5 animate-pulse bg-backdrop" />

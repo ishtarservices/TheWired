@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { useNavigate, useLocation } from "react-router-dom";
-import clsx from "clsx";
+import { cn } from "@/lib/utils";
 import { Plus, Eye, Users } from "lucide-react";
 import { Avatar } from "../../components/ui/Avatar";
 import { useSpace } from "./useSpace";
@@ -21,7 +21,7 @@ export function SpaceList() {
 
   return (
     <>
-      <div className="space-y-1 p-2">
+      <div className="p-3 space-y-1.5">
         {spaces.length === 0 && (
           <div className="p-2 text-center text-xs text-muted">
             No spaces yet
@@ -31,11 +31,11 @@ export function SpaceList() {
           <button
             key={space.id}
             onClick={() => handleSelectSpace(space.id)}
-            className={clsx(
-              "flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-sm transition-all duration-150",
+            className={cn(
+              "flex w-full items-center gap-2 rounded-xl px-3 py-2 text-sm transition-all duration-150",
               space.id === activeSpaceId
-                ? "neon-bar-left bg-neon/10 text-neon glow-neon"
-                : "text-soft hover:bg-card/50 hover:text-heading",
+                ? "bg-pulse/8 text-heading"
+                : "text-soft hover:bg-white/[0.04] hover:text-heading",
             )}
           >
             <Avatar src={space.picture} alt={space.name} size="sm" />
@@ -51,7 +51,7 @@ export function SpaceList() {
         {/* Create button */}
         <button
           onClick={() => setShowCreate(true)}
-          className="flex w-full items-center justify-center gap-1 rounded-md border border-dashed border-edge-light px-2 py-1.5 text-xs text-muted transition-all duration-150 hover:border-neon/40 hover:text-neon hover:glow-neon"
+          className="flex w-full items-center justify-center gap-1 rounded-xl border border-dashed border-white/[0.04] px-3 py-2 text-xs text-muted transition-all duration-150 hover:border-pulse/40 hover:text-pulse hover:bg-pulse/5"
         >
           <Plus size={14} />
           <span>New Space</span>

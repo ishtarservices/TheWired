@@ -32,9 +32,9 @@ export const AlbumCard = memo(function AlbumCard({ album }: AlbumCardProps) {
             setActiveDetailId({ view: "album-detail", id: album.addressableId }),
           )
         }
-        className="group relative flex w-full flex-col rounded-lg border border-edge bg-card/50 transition-colors hover:border-heading/30 hover:bg-card-hover/30"
+        className="group relative flex w-full flex-col rounded-xl border border-white/[0.04] card-glass transition-all hover:border-white/[0.08] hover-lift"
       >
-        <div className="aspect-square w-full overflow-hidden rounded-t-lg">
+        <div className="aspect-square w-full overflow-hidden rounded-t-xl">
           {album.imageUrl ? (
             <img
               src={album.imageUrl}

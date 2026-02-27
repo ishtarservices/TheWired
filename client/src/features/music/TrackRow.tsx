@@ -73,7 +73,7 @@ export const TrackRow = memo(function TrackRow({
   return (
     <div
       onClick={handlePlay}
-      className={`group grid cursor-pointer grid-cols-[2rem_1fr_1fr_4rem_2rem] items-center gap-4 rounded-md px-3 py-1.5 text-sm transition-colors hover:bg-card-hover/30 ${
+      className={`group grid cursor-pointer grid-cols-[2rem_1fr_1fr_4rem_2rem] items-center gap-4 rounded-lg px-3 py-1.5 text-sm transition-colors hover:bg-white/[0.03] ${
         isCurrent ? "text-neon" : "text-soft"
       }`}
     >

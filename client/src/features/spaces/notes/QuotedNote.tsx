@@ -14,7 +14,7 @@ export const QuotedNote = memo(function QuotedNote({ eventId }: QuotedNoteProps)
 
   if (!event) {
     return (
-      <div className="mt-2 rounded-md border border-edge/30 bg-card-hover/30 p-3 text-xs text-muted">
+      <div className="mt-2 card-glass rounded-xl p-3 text-xs text-muted">
         Quoted note not found
       </div>
     );
@@ -26,7 +26,7 @@ export const QuotedNote = memo(function QuotedNote({ eventId }: QuotedNoteProps)
     : event.content;
 
   return (
-    <div className="mt-2 rounded-md border border-edge/30 bg-card-hover/30 p-3">
+    <div className="mt-2 card-glass rounded-xl p-3">
       <div className="mb-1 flex items-center gap-1.5">
         <Avatar src={profile?.picture} alt={name} size="xs" />
         <span className="text-xs font-medium text-heading">{name}</span>

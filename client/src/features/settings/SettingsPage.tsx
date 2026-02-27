@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { Settings, ArrowLeft } from "lucide-react";
-import clsx from "clsx";
+import { cn } from "@/lib/utils";
 import { ProfileSettingsTab } from "./ProfileSettingsTab";
 import { RelaySettingsTab } from "./RelaySettingsTab";
 import { AppSettingsTab } from "./AppSettingsTab";
@@ -32,15 +32,15 @@ export function SettingsPage() {
         <h2 className="text-lg font-bold text-heading">Settings</h2>
       </div>
 
-      <div className="mb-4 flex gap-1 border-b border-edge">
+      <div className="mb-4 flex gap-1 border-b border-white/[0.04]">
         {tabs.map((tab) => (
           <button
             key={tab.id}
             onClick={() => setActiveTab(tab.id)}
-            className={clsx(
+            className={cn(
               "px-4 py-2 text-sm font-medium transition-colors",
               activeTab === tab.id
-                ? "border-b-2 border-neon text-neon"
+                ? "border-b-2 border-pulse text-pulse"
                 : "text-soft hover:text-heading",
             )}
           >

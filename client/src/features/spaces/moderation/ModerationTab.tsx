@@ -15,7 +15,7 @@ function BanItem({ ban, onUnban }: { ban: { pubkey: string; reason?: string; ban
   const modName = moderatorProfile?.display_name || moderatorProfile?.name || ban.bannedBy.slice(0, 8) + "...";
 
   return (
-    <div className="flex items-center gap-3 rounded-md px-3 py-2 hover:bg-card/30 transition-colors">
+    <div className="flex items-center gap-3 card-glass rounded-xl px-3 py-2 transition-colors">
       <Avatar src={profile?.picture} alt={name} size="sm" />
       <div className="flex-1 min-w-0">
         <div className="text-sm text-heading truncate">{name}</div>
@@ -42,7 +42,7 @@ function MuteItem({ mute, onUnmute }: { mute: { id: string; pubkey: string; chan
   const minutes = Math.ceil(remaining / 60);
 
   return (
-    <div className="flex items-center gap-3 rounded-md px-3 py-2 hover:bg-card/30 transition-colors">
+    <div className="flex items-center gap-3 card-glass rounded-xl px-3 py-2 transition-colors">
       <Avatar src={profile?.picture} alt={name} size="sm" />
       <div className="flex-1 min-w-0">
         <div className="text-sm text-heading truncate">{name}</div>

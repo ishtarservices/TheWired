@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { LogIn, Key, AlertCircle, Plus, Download } from "lucide-react";
 import { Button } from "../../components/ui/Button";
+import { ShimmerButton } from "@/components/ui/ShimmerButton";
 import { Spinner } from "../../components/ui/Spinner";
 import { useIdentity } from "./useIdentity";
 
@@ -23,14 +24,14 @@ export function LoginScreen() {
       {/* Ambient glow */}
       <div className="pointer-events-none absolute inset-0 bg-ambient opacity-80" />
 
-      <div className="relative z-10 w-96 rounded-xl border-neon-glow bg-panel p-8 text-center glow-neon">
+      <div className="relative z-10 w-96 rounded-2xl border-gradient card-glass p-10 text-center">
         <div className="mb-6 flex justify-center">
-          <div className="flex h-16 w-16 items-center justify-center rounded-full bg-neon/10 animate-neon-breathe">
-            <Key size={32} className="text-neon" />
+          <div className="flex h-16 w-16 items-center justify-center bg-gradient-to-br from-pulse/20 to-neon/10 rounded-2xl p-4">
+            <Key size={32} className="text-pulse-soft" />
           </div>
         </div>
 
-        <h2 className="mb-2 text-xl font-bold text-silver-gradient tracking-wide">
+        <h2 className="mb-2 text-xl font-bold text-gradient-accent tracking-wide">
           Welcome to The Wired
         </h2>
         <p className="mb-6 text-sm text-soft">
@@ -46,14 +47,14 @@ export function LoginScreen() {
 
         <div className="space-y-3">
           {hasNip07 && (
-            <Button
+            <ShimmerButton
+              className="w-full text-sm"
               onClick={logIn}
               disabled={loading}
-              className="w-full gap-2"
             >
               {loading ? <Spinner size="sm" /> : <LogIn size={16} />}
               Login with Extension
-            </Button>
+            </ShimmerButton>
           )}
 
           {hasTauri && (
@@ -68,7 +69,7 @@ export function LoginScreen() {
                   }}
                   placeholder="nsec1... or hex secret key"
                   disabled={loading}
-                  className="flex-1 rounded-lg border-neon-glow bg-field px-3 py-2 text-sm text-heading placeholder-muted focus:border-neon focus:outline-none"
+                  className="flex-1 rounded-xl bg-white/[0.04] ring-1 ring-white/[0.06] px-3 py-2 text-sm text-heading placeholder-muted focus:ring-pulse/30 focus:shadow-[0_0_12px_rgba(139,92,246,0.1)] focus:outline-none"
                 />
                 <Button
                   onClick={handleImport}

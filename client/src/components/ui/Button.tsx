@@ -1,5 +1,5 @@
 import { type ButtonHTMLAttributes } from "react";
-import clsx from "clsx";
+import { cn } from "@/lib/utils";
 
 type ButtonVariant = "primary" | "secondary" | "ghost" | "neon";
 type ButtonSize = "sm" | "md" | "lg";
@@ -10,16 +10,16 @@ interface ButtonProps extends ButtonHTMLAttributes<HTMLButtonElement> {
 }
 
 const variantStyles: Record<ButtonVariant, string> = {
-  primary: "bg-pulse hover:bg-pulse-soft text-white hover:glow-accent hover-lift",
-  secondary: "bg-card hover:bg-card-hover text-heading hover-lift",
-  ghost: "bg-transparent hover:bg-card/50 text-soft hover:text-heading",
-  neon: "bg-neon/10 text-neon border border-neon/20 hover:bg-neon/20 hover:border-neon/40 hover:glow-neon hover-lift",
+  primary: "bg-gradient-to-r from-pulse to-pulse-soft text-white shadow-[0_0_12px_rgba(139,92,246,0.25)] hover:shadow-[0_0_20px_rgba(139,92,246,0.4)] hover-lift press-effect",
+  secondary: "bg-surface border border-white/[0.06] text-heading hover:bg-surface-hover hover-lift press-effect",
+  ghost: "bg-transparent hover:bg-white/[0.04] text-soft hover:text-heading press-effect",
+  neon: "bg-neon/10 text-neon border border-neon/20 hover:bg-neon/20 hover:border-neon/40 hover:glow-neon hover-lift press-effect",
 };
 
 const sizeStyles: Record<ButtonSize, string> = {
-  sm: "px-2 py-1 text-xs",
-  md: "px-3 py-1.5 text-sm",
-  lg: "px-4 py-2 text-base",
+  sm: "px-2.5 py-1.5 text-xs",
+  md: "px-4 py-2 text-sm",
+  lg: "px-5 py-2.5 text-base",
 };
 
 export function Button({
@@ -32,9 +32,9 @@ export function Button({
 }: ButtonProps) {
   return (
     <button
-      className={clsx(
-        "inline-flex items-center justify-center rounded-md font-medium transition-all duration-150",
-        "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-neon/50",
+      className={cn(
+        "inline-flex items-center justify-center rounded-xl font-medium transition-all duration-150",
+        "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-pulse/50 focus-visible:shadow-[0_0_12px_rgba(139,92,246,0.15)]",
         "disabled:opacity-50 disabled:pointer-events-none",
         variantStyles[variant],
         sizeStyles[size],

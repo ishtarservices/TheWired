@@ -59,7 +59,7 @@ export function ProfileSettingsTab() {
   };
 
   return (
-    <div className="mx-auto w-full max-w-lg rounded-lg border border-edge bg-panel p-4">
+    <div className="mx-auto w-full max-w-lg rounded-xl border border-white/[0.04] bg-panel p-4">
       <h3 className="mb-3 text-sm font-semibold text-heading">
         Profile Information
       </h3>
@@ -72,7 +72,7 @@ export function ProfileSettingsTab() {
               <textarea
                 value={form[key] ?? ""}
                 onChange={(e) => updateField(key, e.target.value)}
-                className="w-full rounded-md border border-edge-light bg-field px-3 py-2 text-sm text-heading focus:border-neon focus:outline-none transition-colors"
+                className="w-full rounded-xl border border-white/[0.04] bg-white/[0.04] px-3 py-2 text-sm text-heading focus:border-neon focus:outline-none transition-colors"
                 rows={3}
               />
             ) : (
@@ -80,7 +80,7 @@ export function ProfileSettingsTab() {
                 type="text"
                 value={form[key] ?? ""}
                 onChange={(e) => updateField(key, e.target.value)}
-                className="w-full rounded-md border border-edge-light bg-field px-3 py-2 text-sm text-heading focus:border-neon focus:outline-none transition-colors"
+                className="w-full rounded-xl border border-white/[0.04] bg-white/[0.04] px-3 py-2 text-sm text-heading focus:border-neon focus:outline-none transition-colors"
               />
             )}
           </div>

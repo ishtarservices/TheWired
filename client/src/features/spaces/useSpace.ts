@@ -19,6 +19,21 @@ import {
 } from "../../lib/db/spaceStore";
 import type { Space, SpaceChannel } from "../../types/space";
 
+/** Pick the best default channel for a space, respecting position and isDefault flag */
+function pickDefaultChannel(
+  channels: SpaceChannel[],
+  mode: Space["mode"],
+): SpaceChannel | undefined {
+  // Hide chat for read-only spaces (matches ChannelList filtering)
+  const visible =
+    mode === "read" ? channels.filter((c) => c.type !== "chat") : channels;
+
+  if (visible.length === 0) return channels[0]; // fallback to any channel
+
+  const sorted = [...visible].sort((a, b) => a.position - b.position);
+  return sorted.find((c) => c.isDefault) ?? sorted[0];
+}
+
 export function useSpace() {
   const dispatch = useAppDispatch();
   const spaces = useAppSelector((s) => s.spaces.list);
@@ -41,21 +56,17 @@ export function useSpace() {
       dispatch(setActiveSpace(spaceId));
       enterClientSpace(space);
 
-      // Default channel: find default chat channel from loaded channels, fallback to type string
+      // Pick best default channel from loaded channels
       const spaceChannels = allChannels[spaceId];
       if (spaceChannels && spaceChannels.length > 0) {
-        const defaultChat = spaceChannels.find((c) => c.type === "chat" && c.isDefault)
-          ?? spaceChannels.find((c) => c.type === "chat")
-          ?? spaceChannels[0];
-        const channelId = `${spaceId}:${defaultChat.id}`;
-        dispatch(setActiveChannel(channelId));
-        switchSpaceChannel(space, defaultChat.type);
+        const best = pickDefaultChannel(spaceChannels, space.mode);
+        if (best) {
+          dispatch(setActiveChannel(`${spaceId}:${best.id}`));
+          switchSpaceChannel(space, best.type);
+        }
       } else {
-        // Channels not loaded yet — fall back to type-based format
-        const defaultChannel = space.mode === "read-write" ? "chat" : "notes";
-        const channelId = `${spaceId}:${defaultChannel}`;
-        dispatch(setActiveChannel(channelId));
-        switchSpaceChannel(space, defaultChannel);
+        // Channels not loaded yet — clear channel; will be set once channels load
+        dispatch(setActiveChannel(null));
       }
     },
     [dispatch, spaces, activeSpaceId, allChannels],

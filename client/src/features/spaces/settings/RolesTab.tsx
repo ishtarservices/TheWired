@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { ChevronDown, ChevronRight, Trash2 } from "lucide-react";
-import clsx from "clsx";
+import { cn } from "@/lib/utils";
 import { Button } from "../../../components/ui/Button";
 import { useRoles } from "../useRoles";
 
@@ -58,10 +58,10 @@ export function RolesTab({ spaceId }: RolesTabProps) {
           const isProtected = role.isDefault || role.isAdmin;
 
           return (
-            <div key={role.id} className="rounded-lg border border-edge/50 overflow-hidden">
+            <div key={role.id} className="card-glass rounded-xl overflow-hidden">
               <button
                 onClick={() => setExpandedId(isExpanded ? null : role.id)}
-                className="flex w-full items-center gap-2 px-3 py-2 text-sm hover:bg-card/30 transition-colors"
+                className="flex w-full items-center gap-2 px-3 py-2 text-sm hover:bg-white/[0.04] transition-colors"
               >
                 {isExpanded ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
                 <span
@@ -78,7 +78,7 @@ export function RolesTab({ spaceId }: RolesTabProps) {
               </button>
 
               {isExpanded && (
-                <div className="border-t border-edge/50 p-3 space-y-3">
+                <div className="border-t border-white/[0.04] p-3 space-y-3">
                   {/* Name */}
                   <div>
                     <label className="mb-1 block text-[10px] font-semibold uppercase tracking-wider text-muted">
@@ -88,7 +88,7 @@ export function RolesTab({ spaceId }: RolesTabProps) {
                       value={role.name}
                       onChange={(e) => updateRole(role.id, { name: e.target.value })}
                       disabled={isProtected}
-                      className="w-full rounded-md border border-edge-light bg-field px-2 py-1 text-sm text-heading focus:border-neon focus:outline-none disabled:opacity-50"
+                      className="w-full rounded-xl bg-white/[0.04] border border-white/[0.04] px-2 py-1 text-sm text-heading focus:border-neon focus:outline-none disabled:opacity-50"
                     />
                   </div>
 
@@ -102,7 +102,7 @@ export function RolesTab({ spaceId }: RolesTabProps) {
                         <button
                           key={color}
                           onClick={() => updateRole(role.id, { color })}
-                          className={clsx(
+                          className={cn(
                             "h-6 w-6 rounded-full transition-transform hover:scale-110",
                             role.color === color && "ring-2 ring-white/50 ring-offset-1 ring-offset-surface",
                           )}
@@ -128,7 +128,7 @@ export function RolesTab({ spaceId }: RolesTabProps) {
                                   type="checkbox"
                                   checked={role.permissions.includes(perm)}
                                   onChange={() => togglePermission(role.id, perm, role.permissions)}
-                                  className="rounded border-edge"
+                                  className="rounded border-white/[0.04]"
                                 />
                                 {perm.replace(/_/g, " ").toLowerCase()}
                               </label>
@@ -166,7 +166,7 @@ export function RolesTab({ spaceId }: RolesTabProps) {
           onChange={(e) => setNewRoleName(e.target.value)}
           placeholder="New role name..."
           onKeyDown={(e) => e.key === "Enter" && handleCreateRole()}
-          className="flex-1 rounded-md border border-edge-light bg-field px-3 py-1.5 text-sm text-heading placeholder-muted focus:border-neon focus:outline-none transition-colors"
+          className="flex-1 rounded-xl bg-white/[0.04] border border-white/[0.04] px-3 py-1.5 text-sm text-heading placeholder-muted focus:border-neon focus:outline-none transition-colors"
         />
         <Button variant="neon" size="md" onClick={handleCreateRole} disabled={!newRoleName.trim()}>
           Add Role

@@ -247,7 +247,7 @@ export function NotesFeed() {
   return (
     <div className="flex flex-1 flex-col overflow-hidden">
       <FeedToolbar isRefreshing={meta.isRefreshing} onRefresh={refresh} />
-      <div ref={scrollRef} className="flex-1 overflow-y-auto p-4">
+      <div ref={scrollRef} className="flex-1 overflow-y-auto p-5">
         {notes.length === 0 ? (
           <div className="flex h-full items-center justify-center">
             <p className="text-sm text-muted">
@@ -255,9 +255,15 @@ export function NotesFeed() {
             </p>
           </div>
         ) : (
-          <div className="space-y-3">
-            {notes.map((event) => (
-              <NoteCard key={event.id} event={event} />
+          <div className="space-y-4">
+            {notes.map((event, index) => (
+              <div
+                key={event.id}
+                className={index < 15 ? "animate-fade-in-up" : undefined}
+                style={index < 15 ? { animationDelay: `${index * 50}ms` } : undefined}
+              >
+                <NoteCard event={event} />
+              </div>
             ))}
             <LoadMoreButton
               isLoading={meta.isLoadingMore}

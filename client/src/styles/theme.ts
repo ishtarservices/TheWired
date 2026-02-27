@@ -17,6 +17,10 @@ export const theme = {
       default: "var(--color-edge)",
       light: "var(--color-edge-light)",
     },
+    surface: {
+      default: "var(--color-surface)",
+      hover: "var(--color-surface-hover)",
+    },
     status: {
       online: "#22c55e",
       connecting: "#eab308",
@@ -24,6 +28,10 @@ export const theme = {
       error: "#ef4444",
     },
     accent: {
+      primary: "var(--color-pulse)",
+      hover: "var(--color-pulse-soft)",
+    },
+    accentSecondary: {
       primary: "var(--color-neon)",
       hover: "var(--color-neon-soft)",
     },

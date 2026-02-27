@@ -43,9 +43,9 @@ export function ProfilePage({ pubkey }: ProfilePageProps) {
   ];
 
   return (
-    <div className="flex flex-1 flex-col overflow-y-auto">
+    <div className="flex min-h-0 flex-1 flex-col overflow-y-auto">
       {/* Banner */}
-      <div className="relative h-40 bg-gradient-to-r from-pulse/60 to-neon/30">
+      <div className="relative h-40 shrink-0 overflow-hidden bg-gradient-to-r from-pulse/40 to-neon/15">
         {profile?.banner && (
           <img
             src={profile.banner}
@@ -63,12 +63,12 @@ export function ProfilePage({ pubkey }: ProfilePageProps) {
       </div>
 
       {/* Profile info */}
-      <div className="relative px-6 pb-4">
+      <div className="relative z-10 px-6 pb-4">
         <div className="-mt-12 mb-4">
-          <Avatar src={profile?.picture} alt={displayName} size="lg" className="h-24 w-24 border-4 border-backdrop" />
+          <Avatar src={profile?.picture} alt={displayName} size="lg" className="h-24 w-24 border-4 border-backdrop ring-2 ring-pulse/20" />
         </div>
 
-        <h1 className="text-2xl font-bold text-heading">{displayName}</h1>
+        <h1 className="text-2xl font-bold tracking-tight text-heading">{displayName}</h1>
 
         {profile?.nip05 && (
           <div className="mt-1 flex items-center gap-1 text-sm text-neon">
@@ -108,7 +108,7 @@ export function ProfilePage({ pubkey }: ProfilePageProps) {
       </div>
 
       {/* Stats bar */}
-      <div className="flex gap-6 border-b border-edge px-6 pb-3 text-sm">
+      <div className="flex gap-8 border-b border-white/[0.04] px-8 pb-3 text-sm">
         <span className="text-soft">
           <span className="font-semibold text-heading">{notes.length}</span> Notes
         </span>
@@ -125,14 +125,14 @@ export function ProfilePage({ pubkey }: ProfilePageProps) {
       </div>
 
       {/* Tab bar */}
-      <div className="flex border-b border-edge">
+      <div className="flex border-b border-white/[0.04]">
         {tabs.map((tab) => (
           <button
             key={tab.id}
             onClick={() => setActiveTab(tab.id)}
             className={`px-6 py-3 text-sm font-medium transition-colors ${
               activeTab === tab.id
-                ? "border-b-2 border-neon text-neon"
+                ? "border-b-2 border-pulse text-pulse"
                 : "text-soft hover:text-heading"
             }`}
           >

@@ -18,7 +18,7 @@ function ArtistItem({ pubkey }: { pubkey: string }) {
       onClick={() =>
         dispatch(setActiveDetailId({ view: "artist-detail", id: pubkey }))
       }
-      className="flex flex-col items-center gap-2 rounded-lg p-3 transition-colors hover:bg-card-hover/30"
+      className="flex flex-col items-center gap-2 rounded-xl p-3 transition-all hover:bg-white/[0.03] hover-lift"
     >
       <Avatar src={profile?.picture} alt={name} size="lg" />
       <p className="truncate text-sm font-medium text-heading">{name}</p>

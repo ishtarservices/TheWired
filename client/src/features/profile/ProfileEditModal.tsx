@@ -52,7 +52,7 @@ export function ProfileEditModal({ onClose }: ProfileEditModalProps) {
 
   return (
     <Modal open onClose={onClose}>
-      <div className="w-full max-w-md rounded-xl glass-panel p-6 glow-neon">
+      <div className="w-full max-w-md rounded-2xl card-glass p-8">
         <div className="mb-4 flex items-center justify-between">
           <h2 className="text-lg font-bold text-heading">Edit Profile</h2>
           <Button variant="ghost" size="sm" onClick={onClose}>
@@ -81,7 +81,7 @@ export function ProfileEditModal({ onClose }: ProfileEditModalProps) {
                 <textarea
                   value={form[field] ?? ""}
                   onChange={(e) => updateField(field, e.target.value)}
-                  className="w-full rounded-md border border-edge-light bg-field px-3 py-2 text-sm text-heading focus:border-neon focus:outline-none transition-colors"
+                  className="w-full rounded-xl border border-white/[0.04] bg-white/[0.04] px-3 py-2 text-sm text-heading focus:border-pulse/30 focus:outline-none transition-colors"
                   rows={3}
                 />
               ) : (
@@ -89,7 +89,7 @@ export function ProfileEditModal({ onClose }: ProfileEditModalProps) {
                   type="text"
                   value={form[field] ?? ""}
                   onChange={(e) => updateField(field, e.target.value)}
-                  className="w-full rounded-md border border-edge-light bg-field px-3 py-2 text-sm text-heading focus:border-neon focus:outline-none transition-colors"
+                  className="w-full rounded-xl border border-white/[0.04] bg-white/[0.04] px-3 py-2 text-sm text-heading focus:border-pulse/30 focus:outline-none transition-colors"
                 />
               )}
             </div>

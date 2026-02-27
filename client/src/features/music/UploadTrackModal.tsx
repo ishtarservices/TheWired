@@ -115,7 +115,7 @@ export function UploadTrackModal({ open, onClose, defaultAlbumRef }: UploadTrack
 
   return (
     <Modal open={open} onClose={onClose}>
-      <div className="w-full max-w-md rounded-xl border border-edge bg-panel p-6 shadow-xl">
+      <div className="w-full max-w-md rounded-2xl border border-white/[0.04] card-glass p-6 shadow-xl">
         <div className="mb-4 flex items-center justify-between">
           <h2 className="text-lg font-semibold text-heading">Upload Track</h2>
           <button onClick={onClose} className="text-soft hover:text-heading">
@@ -138,7 +138,7 @@ export function UploadTrackModal({ open, onClose, defaultAlbumRef }: UploadTrack
             />
             <button
               onClick={() => audioInputRef.current?.click()}
-              className="flex w-full items-center gap-2 rounded-lg border border-dashed border-edge px-4 py-3 text-sm text-soft transition-colors hover:border-heading hover:text-heading"
+              className="flex w-full items-center gap-2 rounded-xl border border-dashed border-white/[0.04] px-4 py-3 text-sm text-soft transition-colors hover:border-pulse/40 hover:text-heading"
             >
               {audioFile ? (
                 <>
@@ -163,7 +163,7 @@ export function UploadTrackModal({ open, onClose, defaultAlbumRef }: UploadTrack
               type="text"
               value={title}
               onChange={(e) => setTitle(e.target.value)}
-              className="w-full rounded-md border border-edge bg-field px-3 py-1.5 text-sm text-heading outline-none focus:border-heading/50"
+              className="w-full rounded-xl border border-white/[0.04] bg-white/[0.04] px-3 py-1.5 text-sm text-heading outline-none focus:border-pulse/30"
               placeholder="Track title"
             />
           </div>
@@ -177,7 +177,7 @@ export function UploadTrackModal({ open, onClose, defaultAlbumRef }: UploadTrack
               type="text"
               value={artist}
               onChange={(e) => setArtist(e.target.value)}
-              className="w-full rounded-md border border-edge bg-field px-3 py-1.5 text-sm text-heading outline-none focus:border-heading/50"
+              className="w-full rounded-xl border border-white/[0.04] bg-white/[0.04] px-3 py-1.5 text-sm text-heading outline-none focus:border-pulse/30"
               placeholder="Artist name"
             />
           </div>
@@ -191,7 +191,7 @@ export function UploadTrackModal({ open, onClose, defaultAlbumRef }: UploadTrack
               type="text"
               value={genre}
               onChange={(e) => setGenre(e.target.value)}
-              className="w-full rounded-md border border-edge bg-field px-3 py-1.5 text-sm text-heading outline-none focus:border-heading/50"
+              className="w-full rounded-xl border border-white/[0.04] bg-white/[0.04] px-3 py-1.5 text-sm text-heading outline-none focus:border-pulse/30"
               placeholder="e.g. Electronic, Rock, Jazz"
             />
           </div>
@@ -204,7 +204,7 @@ export function UploadTrackModal({ open, onClose, defaultAlbumRef }: UploadTrack
             <select
               value={albumRef}
               onChange={(e) => setAlbumRef(e.target.value)}
-              className="w-full rounded-md border border-edge bg-field px-3 py-1.5 text-sm text-heading outline-none focus:border-heading/50"
+              className="w-full rounded-xl border border-white/[0.04] bg-white/[0.04] px-3 py-1.5 text-sm text-heading outline-none focus:border-pulse/30"
             >
               <option value="">None (single)</option>
               {ownAlbums.length > 0 && (
@@ -264,7 +264,7 @@ export function UploadTrackModal({ open, onClose, defaultAlbumRef }: UploadTrack
           <button
             onClick={handleSubmit}
             disabled={!audioFile || !title.trim() || uploading || (visibility === "space" && !spaceId)}
-            className="w-full rounded-md bg-heading py-2 text-sm font-medium text-backdrop transition-opacity hover:opacity-90 disabled:opacity-50"
+            className="w-full rounded-xl bg-gradient-to-r from-pulse to-pulse-soft py-2 text-sm font-medium text-white transition-opacity hover:opacity-90 press-effect disabled:opacity-50"
           >
             {uploading
               ? "Uploading..."

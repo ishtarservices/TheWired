@@ -49,7 +49,7 @@ export function GeneralTab({ spaceId }: GeneralTabProps) {
           type="text"
           value={name}
           onChange={(e) => setName(e.target.value)}
-          className="w-full rounded-md border border-edge-light bg-field px-3 py-1.5 text-sm text-heading placeholder-muted focus:border-neon focus:outline-none transition-colors"
+          className="w-full rounded-xl bg-white/[0.04] border border-white/[0.04] px-3 py-1.5 text-sm text-heading placeholder-muted focus:border-neon focus:outline-none transition-colors"
         />
       </div>
 
@@ -59,7 +59,7 @@ export function GeneralTab({ spaceId }: GeneralTabProps) {
           value={about}
           onChange={(e) => setAbout(e.target.value)}
           rows={3}
-          className="w-full rounded-md border border-edge-light bg-field px-3 py-1.5 text-sm text-heading placeholder-muted focus:border-neon focus:outline-none transition-colors"
+          className="w-full rounded-xl bg-white/[0.04] border border-white/[0.04] px-3 py-1.5 text-sm text-heading placeholder-muted focus:border-neon focus:outline-none transition-colors"
         />
       </div>
 
@@ -70,7 +70,7 @@ export function GeneralTab({ spaceId }: GeneralTabProps) {
           value={picture}
           onChange={(e) => setPicture(e.target.value)}
           placeholder="https://..."
-          className="w-full rounded-md border border-edge-light bg-field px-3 py-1.5 text-sm text-heading placeholder-muted focus:border-neon focus:outline-none transition-colors"
+          className="w-full rounded-xl bg-white/[0.04] border border-white/[0.04] px-3 py-1.5 text-sm text-heading placeholder-muted focus:border-neon focus:outline-none transition-colors"
         />
       </div>
 
