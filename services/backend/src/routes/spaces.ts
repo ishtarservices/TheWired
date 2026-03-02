@@ -1,7 +1,10 @@
 import type { FastifyPluginAsync } from "fastify";
 import { db } from "../db/connection.js";
 import { spaces, spaceTags } from "../db/schema/spaces.js";
+import { spaceMembers } from "../db/schema/members.js";
 import { eq } from "drizzle-orm";
+import { roleService } from "../services/roleService.js";
+import { channelService } from "../services/channelService.js";
 
 export const spacesRoutes: FastifyPluginAsync = async (server) => {
   server.get<{ Querystring: { limit?: string; offset?: string } }>("/", async (request) => {
@@ -20,5 +23,100 @@ export const spacesRoutes: FastifyPluginAsync = async (server) => {
     }
     const tags = await db.select().from(spaceTags).where(eq(spaceTags.spaceId, id));
     return { data: { ...space, tags: tags.map((t) => t.tag) } };
+  });
+
+  /**
+   * POST / — Bootstrap a new space on the backend.
+   * Creates the space record, seeds default channels, seeds default roles,
+   * and registers the creator as a member+admin — all in one call.
+   * This avoids FK issues from multi-step fire-and-forget chains.
+   */
+  server.post("/", async (request, reply) => {
+    const pubkey = (request as any).pubkey as string | undefined;
+    if (!pubkey) return reply.status(401).send({ error: "Authentication required", code: "UNAUTHORIZED" });
+
+    const body = request.body as {
+      id: string;
+      name: string;
+      hostRelay: string;
+      picture?: string;
+      about?: string;
+      category?: string;
+      language?: string;
+      mode?: "read" | "read-write";
+    };
+
+    if (!body.id || !body.name || !body.hostRelay) {
+      return reply.status(400).send({ error: "Missing required fields: id, name, hostRelay", code: "BAD_REQUEST" });
+    }
+
+    const mode = body.mode === "read" ? "read" : "read-write";
+
+    // Step 1: Upsert the space record (FK parent for everything else)
+    await db
+      .insert(spaces)
+      .values({
+        id: body.id,
+        name: body.name,
+        hostRelay: body.hostRelay,
+        picture: body.picture ?? null,
+        about: body.about ?? null,
+        category: body.category ?? null,
+        language: body.language ?? null,
+        mode,
+        memberCount: 1,
+        createdAt: Date.now(),
+      })
+      .onConflictDoUpdate({
+        target: spaces.id,
+        set: {
+          name: body.name,
+          picture: body.picture ?? null,
+          about: body.about ?? null,
+          mode,
+        },
+      });
+
+    // Step 2: Register creator as a space member
+    await db
+      .insert(spaceMembers)
+      .values({ spaceId: body.id, pubkey })
+      .onConflictDoNothing();
+
+    // Step 3: Seed default roles (idempotent — skips if roles already exist)
+    const existingRoles = await roleService.listRoles(body.id);
+    if (existingRoles.length === 0) {
+      await roleService.seedDefaultRoles(body.id, pubkey);
+    }
+
+    // Step 4: Seed default channels (idempotent — listChannels auto-seeds)
+    await channelService.listChannels(body.id);
+
+    return { data: { id: body.id } };
+  });
+
+  /** DELETE /:id — Delete a space (admin only). CASCADE FKs handle related records. */
+  server.delete<{ Params: { id: string } }>("/:id", async (request, reply) => {
+    const pubkey = (request as any).pubkey as string | undefined;
+    if (!pubkey) return reply.status(401).send({ error: "Authentication required", code: "UNAUTHORIZED" });
+
+    const { id } = request.params;
+
+    // Verify space exists
+    const [space] = await db.select().from(spaces).where(eq(spaces.id, id)).limit(1);
+    if (!space) {
+      return reply.status(404).send({ error: "Space not found", code: "NOT_FOUND" });
+    }
+
+    // Check if user has MANAGE_SPACE permission (admins get this implicitly)
+    const perms = await roleService.getEffectivePermissions(id, pubkey);
+    if (!perms.includes("MANAGE_SPACE")) {
+      return reply.status(403).send({ error: "Insufficient permissions", code: "FORBIDDEN" });
+    }
+
+    // Delete space — CASCADE foreign keys clean up channels, members, roles, invites, tags
+    await db.delete(spaces).where(eq(spaces.id, id));
+
+    return { data: { deleted: true } };
   });
 };

@@ -6,6 +6,7 @@ import { useSpace } from "./useSpace";
 import { useSpaceChannels } from "./useSpaceChannels";
 import { useAppSelector } from "../../store/hooks";
 import { usePermissions } from "./usePermissions";
+import { useChannelUnread, useChannelMentions } from "../notifications/useNotifications";
 import { CreateChannelModal } from "./CreateChannelModal";
 import type { SpaceChannelType } from "../../types/space";
 
@@ -91,24 +92,15 @@ export function ChannelList() {
         const Icon = CHANNEL_ICONS[ch.type] ?? MessageSquare;
 
         return (
-          <button
+          <ChannelButton
             key={ch.id}
+            channelId={channelActiveId}
+            label={ch.label}
+            isActive={isActive}
+            slowModeSeconds={ch.slowModeSeconds}
+            Icon={Icon}
             onClick={() => handleSelectChannel(ch.id)}
-            className={cn(
-              "flex w-full items-center gap-2 rounded-xl px-3 py-2 text-sm transition-all duration-150",
-              isActive
-                ? "bg-white/[0.05] text-heading"
-                : "text-soft hover:bg-white/[0.04] hover:text-heading",
-            )}
-          >
-            <Icon size={16} />
-            <span>{ch.label}</span>
-            {ch.slowModeSeconds > 0 && (
-              <span className="ml-auto text-[10px] text-muted" title={`Slow mode: ${ch.slowModeSeconds}s`}>
-                🐢
-              </span>
-            )}
-          </button>
+          />
         );
       })}
 
@@ -119,5 +111,57 @@ export function ChannelList() {
         existingChannels={channels}
       />
     </div>
+  );
+}
+
+/** Channel button with unread/mention badges (separate component for hook rules) */
+function ChannelButton({
+  channelId,
+  label,
+  isActive,
+  slowModeSeconds,
+  Icon,
+  onClick,
+}: {
+  channelId: string;
+  label: string;
+  isActive: boolean;
+  slowModeSeconds: number;
+  Icon: typeof MessageSquare;
+  onClick: () => void;
+}) {
+  const unread = useChannelUnread(channelId);
+  const mentions = useChannelMentions(channelId);
+
+  return (
+    <button
+      onClick={onClick}
+      className={cn(
+        "flex w-full items-center gap-2 rounded-xl px-3 py-2 text-sm transition-all duration-150",
+        isActive
+          ? "bg-white/[0.05] text-heading"
+          : "text-soft hover:bg-white/[0.04] hover:text-heading",
+      )}
+    >
+      <Icon size={16} />
+      <span>{label}</span>
+      <span className="ml-auto flex items-center gap-1.5">
+        {mentions > 0 && (
+          <span className="flex h-4 min-w-4 items-center justify-center rounded-full bg-pulse px-1 text-[10px] font-bold text-white">
+            @{mentions}
+          </span>
+        )}
+        {unread > 0 && mentions === 0 && (
+          <span className="flex h-4 min-w-4 items-center justify-center rounded-full bg-white/20 px-1 text-[10px] font-bold text-white">
+            {unread}
+          </span>
+        )}
+        {slowModeSeconds > 0 && (
+          <span className="text-[10px] text-muted" title={`Slow mode: ${slowModeSeconds}s`}>
+            🐢
+          </span>
+        )}
+      </span>
+    </button>
   );
 }

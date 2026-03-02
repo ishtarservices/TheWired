@@ -1,5 +1,9 @@
+/** The Wired's own relay — guaranteed to accept all event kinds including gift wraps */
+export const APP_RELAY = import.meta.env.VITE_RELAY_URL ?? "ws://localhost:7777";
+
 /** Bootstrap relays used before user's relay list is loaded */
 export const BOOTSTRAP_RELAYS = [
+  APP_RELAY,
   "wss://relay.damus.io",
   "wss://relay.primal.net",
   "wss://nos.lol",

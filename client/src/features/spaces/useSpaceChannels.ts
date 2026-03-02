@@ -1,4 +1,4 @@
-import { useEffect, useCallback } from "react";
+import { useEffect, useCallback, useRef } from "react";
 import { useAppSelector, useAppDispatch } from "../../store/hooks";
 import {
   setChannels,
@@ -46,42 +46,59 @@ export function useSpaceChannels(spaceId: string | null) {
     (s) => s.spaces.list.find((sp) => sp.id === spaceId)?.mode ?? "read-write",
   );
 
+  // Track the last spaceId we fetched from backend to avoid redundant calls
+  // within the same space selection (but allow refetch when switching back)
+  const lastFetchedRef = useRef<string | null>(null);
+
   useEffect(() => {
     if (!spaceId) return;
-    // Already loaded
-    if (channels.length > 0) return;
 
     let cancelled = false;
-    dispatch(setChannelsLoading({ spaceId, loading: true }));
+    const hasCached = channels.length > 0;
+    const needsBackendFetch = lastFetchedRef.current !== spaceId;
+
+    // Show loading only on first load (no cached data)
+    if (!hasCached) {
+      dispatch(setChannelsLoading({ spaceId, loading: true }));
+    }
 
     (async () => {
-      // Try IndexedDB cache first
-      const cached = await loadChannels(spaceId);
-      if (cached && cached.length > 0 && !cancelled) {
-        dispatch(setChannels({ spaceId, channels: cached }));
+      // Serve cached data immediately (from Redux or IndexedDB)
+      if (!hasCached) {
+        const cached = await loadChannels(spaceId);
+        if (cached && cached.length > 0 && !cancelled) {
+          dispatch(setChannels({ spaceId, channels: cached }));
+        }
       }
 
-      // Then try backend
-      try {
-        const fetched = await channelsApi.fetchChannels(spaceId);
-        if (!cancelled) {
-          dispatch(setChannels({ spaceId, channels: fetched }));
-          saveChannels(spaceId, fetched);
+      // Always revalidate from backend when entering a space
+      if (needsBackendFetch) {
+        try {
+          const fetched = await channelsApi.fetchChannels(spaceId);
+          if (!cancelled) {
+            dispatch(setChannels({ spaceId, channels: fetched }));
+            saveChannels(spaceId, fetched);
+            lastFetchedRef.current = spaceId;
+          }
+        } catch {
+          // Backend unavailable — fall back to defaults if nothing cached
+          if (!cancelled && !hasCached) {
+            const cached = await loadChannels(spaceId);
+            if (!cached || cached.length === 0) {
+              dispatch(setChannels({ spaceId, channels: makeDefaultChannels(spaceId, spaceMode) }));
+            }
+          }
         }
-      } catch {
-        // Backend unavailable — fall back to defaults if nothing cached
-        if (!cancelled && (!cached || cached.length === 0)) {
-          dispatch(setChannels({ spaceId, channels: makeDefaultChannels(spaceId, spaceMode) }));
-        }
-      } finally {
-        if (!cancelled) {
-          dispatch(setChannelsLoading({ spaceId, loading: false }));
-        }
+      }
+
+      if (!cancelled) {
+        dispatch(setChannelsLoading({ spaceId, loading: false }));
       }
     })();
 
     return () => { cancelled = true; };
-  }, [spaceId, dispatch, channels.length]);
+  }, [spaceId, dispatch]); // eslint-disable-line react-hooks/exhaustive-deps
+  // Note: channels.length intentionally excluded to avoid infinite loops
 
   const handleCreateChannel = useCallback(
     async (params: { type: string; label: string; adminOnly?: boolean; slowModeSeconds?: number }) => {

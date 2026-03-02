@@ -17,6 +17,7 @@ export function useChat() {
   const dispatch = useAppDispatch();
   const pubkey = useAppSelector((s) => s.identity.pubkey);
   const activeSpaceId = useAppSelector((s) => s.spaces.activeSpaceId);
+  const activeChannelId = useAppSelector((s) => s.spaces.activeChannelId);
   const messages = useAppSelector(selectChatMessages);
   const [pendingMessages, setPendingMessages] = useState<PendingMessage[]>([]);
   const [replyTo, setReplyTo] = useState<{
@@ -25,7 +26,7 @@ export function useChat() {
   } | null>(null);
 
   const sendMessage = useCallback(
-    async (content: string) => {
+    async (content: string, mentionPubkeys?: string[]) => {
       if (!pubkey || !activeSpaceId || !content.trim()) return;
 
       const tempId = `temp_${Date.now()}_${Math.random().toString(36).slice(2)}`;
@@ -37,18 +38,35 @@ export function useChat() {
       ]);
 
       try {
+        // Extract the channel-specific ID (after the "spaceId:" prefix)
+        const channelIdPart = activeChannelId?.split(":").slice(1).join(":") ?? undefined;
+
         const unsigned = buildChatMessage(
           pubkey,
           activeSpaceId,
           content,
           replyTo ?? undefined,
+          channelIdPart,
         );
+
+        // Add p-tags for mentioned pubkeys
+        if (mentionPubkeys && mentionPubkeys.length > 0) {
+          const existingPTags = new Set(
+            unsigned.tags.filter((t) => t[0] === "p").map((t) => t[1]),
+          );
+          for (const pk of mentionPubkeys) {
+            if (!existingPTags.has(pk)) {
+              unsigned.tags.push(["p", pk]);
+            }
+          }
+        }
+
         const signed = await signAndPublish(unsigned);
 
-        // Add to store
+        // Add to store — index by channel composite key for per-channel scoping
         dispatch(addEvent(signed));
         dispatch(
-          indexChatMessage({ groupId: activeSpaceId, eventId: signed.id }),
+          indexChatMessage({ groupId: activeChannelId ?? activeSpaceId, eventId: signed.id }),
         );
 
         // Remove pending, mark as confirmed
@@ -66,7 +84,7 @@ export function useChat() {
 
       setReplyTo(null);
     },
-    [pubkey, activeSpaceId, replyTo, dispatch],
+    [pubkey, activeSpaceId, activeChannelId, replyTo, dispatch],
   );
 
   const retryMessage = useCallback(

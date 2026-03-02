@@ -5,10 +5,23 @@ import { ChatInput } from "./ChatInput";
 import { useChat } from "./useChat";
 import { Spinner } from "../../components/ui/Spinner";
 import { useAppSelector } from "../../store/hooks";
-import { AlertCircle, RefreshCw } from "lucide-react";
+import { useUserPopover } from "../../features/profile/UserPopoverContext";
+import { usePermissions } from "../../features/spaces/usePermissions";
+import { AlertCircle, RefreshCw, Lock } from "lucide-react";
 
 export function ChatView() {
   const isLoggedIn = useAppSelector((s) => !!s.identity.pubkey);
+  const activeSpaceId = useAppSelector((s) => s.spaces.activeSpaceId);
+  const spaceMode = useAppSelector(
+    (s) => s.spaces.list.find((sp) => sp.id === s.spaces.activeSpaceId)?.mode,
+  );
+  const { can, permissions } = usePermissions(activeSpaceId);
+  const isReadOnly = spaceMode === "read";
+  // Allow sending if permissions haven't loaded yet (optimistic) —
+  // the backend will reject unauthorized events anyway
+  const permissionsLoaded = permissions.length > 0;
+  const canSend = isLoggedIn && !isReadOnly && (!permissionsLoaded || can("SEND_MESSAGES"));
+  const { openUserPopover } = useUserPopover();
   const {
     messages,
     pendingMessages,
@@ -46,6 +59,7 @@ export function ChatView() {
                     ? (eventId, pubkey) => setReplyTo({ eventId, pubkey })
                     : undefined
                 }
+                onMentionClick={openUserPopover}
               />
             ))}
             {pendingMessages.map((msg) => (
@@ -78,7 +92,14 @@ export function ChatView() {
         <ChatReply pubkey={replyTo.pubkey} onCancel={() => setReplyTo(null)} />
       )}
 
-      <ChatInput onSend={sendMessage} disabled={!isLoggedIn} />
+      {isReadOnly ? (
+        <div className="flex items-center justify-center gap-2 border-t border-white/[0.04] px-4 py-3 text-muted">
+          <Lock size={14} />
+          <span className="text-xs">This is a read-only space</span>
+        </div>
+      ) : (
+        <ChatInput onSend={sendMessage} disabled={!canSend} />
+      )}
     </div>
   );
 }

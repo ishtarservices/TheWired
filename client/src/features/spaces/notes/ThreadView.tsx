@@ -1,7 +1,9 @@
-import { memo } from "react";
+import { memo, useRef } from "react";
 import { ChevronDown, ChevronUp } from "lucide-react";
 import { Avatar } from "../../../components/ui/Avatar";
+import { RichContent } from "../../../components/content/RichContent";
 import { useProfile } from "../../profile/useProfile";
+import { useUserPopover } from "../../profile/UserPopoverContext";
 import { useNoteThread } from "../useNoteThread";
 import { ReplyIndicator } from "./ReplyIndicator";
 import { parseThreadRef } from "../noteParser";
@@ -15,6 +17,8 @@ interface ThreadViewProps {
 
 const ThreadReply = memo(function ThreadReply({ event, rootId }: { event: NostrEvent; rootId: string }) {
   const { profile } = useProfile(event.pubkey);
+  const { openUserPopover } = useUserPopover();
+  const avatarRef = useRef<HTMLButtonElement>(null);
   const name = profile?.display_name || profile?.name || event.pubkey.slice(0, 8) + "...";
   const date = new Date(event.created_at * 1000);
   const timeStr = date.toLocaleString(undefined, {
@@ -33,13 +37,22 @@ const ThreadReply = memo(function ThreadReply({ event, rootId }: { event: NostrE
         <ReplyIndicator pubkey={threadRef.mentionedPubkeys[0]} />
       )}
       <div className="flex items-center gap-2 mb-1">
-        <Avatar src={profile?.picture} alt={name} size="xs" />
+        <button
+          ref={avatarRef}
+          type="button"
+          onClick={() => {
+            if (avatarRef.current) openUserPopover(event.pubkey, avatarRef.current);
+          }}
+          className="cursor-pointer"
+        >
+          <Avatar src={profile?.picture} alt={name} size="xs" />
+        </button>
         <span className="text-xs font-medium text-heading">{name}</span>
         <span className="text-xs text-muted">{timeStr}</span>
       </div>
-      <p className="whitespace-pre-wrap text-sm leading-relaxed text-body">
-        {event.content}
-      </p>
+      <div className="text-sm leading-relaxed text-body">
+        <RichContent content={event.content} onMentionClick={openUserPopover} />
+      </div>
     </div>
   );
 });

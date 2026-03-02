@@ -3,6 +3,7 @@ import { useAppSelector } from "../../../store/hooks";
 import { eventsSelectors } from "../../../store/slices/eventsSlice";
 import { useProfile } from "../../profile/useProfile";
 import { Avatar } from "../../../components/ui/Avatar";
+import { RichContent } from "../../../components/content/RichContent";
 
 interface QuotedNoteProps {
   eventId: string;
@@ -31,9 +32,9 @@ export const QuotedNote = memo(function QuotedNote({ eventId }: QuotedNoteProps)
         <Avatar src={profile?.picture} alt={name} size="xs" />
         <span className="text-xs font-medium text-heading">{name}</span>
       </div>
-      <p className="line-clamp-3 text-xs leading-relaxed text-body">
-        {truncated}
-      </p>
+      <div className="line-clamp-3 text-xs leading-relaxed text-body">
+        <RichContent content={truncated} />
+      </div>
     </div>
   );
 });

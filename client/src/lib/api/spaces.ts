@@ -25,3 +25,27 @@ export async function listSpaces(opts?: { limit?: number; offset?: number }) {
 export async function getSpace(id: string) {
   return api<Space>(`/spaces/${encodeURIComponent(id)}`);
 }
+
+/** Fetch all members of a space from the backend */
+export async function fetchMembers(spaceId: string) {
+  return api<Array<{ spaceId: string; pubkey: string; joinedAt: string }>>(
+    `/spaces/${encodeURIComponent(spaceId)}/members`,
+  );
+}
+
+/** Register a space in the backend database (must be called before roles/channels/invites) */
+export async function registerSpace(params: {
+  id: string;
+  name: string;
+  hostRelay: string;
+  picture?: string;
+  about?: string;
+  mode?: "read" | "read-write";
+}) {
+  return api<{ id: string }>("/spaces", { method: "POST", body: params });
+}
+
+/** Delete a space from the backend database */
+export async function deleteSpaceApi(id: string) {
+  return api<{ deleted: boolean }>(`/spaces/${encodeURIComponent(id)}`, { method: "DELETE" });
+}

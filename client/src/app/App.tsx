@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { BrowserRouter, Routes, Route, Outlet, useParams } from "react-router-dom";
+import { BrowserRouter, Routes, Route, Outlet, useParams, useNavigate } from "react-router-dom";
 import { Layout } from "./Layout";
 import { useAppSelector } from "../store/hooks";
 import { LoginScreen } from "../features/identity/LoginScreen";
@@ -10,6 +10,8 @@ import { MusicLinkResolver } from "../features/music/MusicLinkResolver";
 import { RelayStatusPanel } from "../features/relay/RelayStatusPanel";
 import { ProfilePage } from "../features/profile/ProfilePage";
 import { SettingsPage } from "../features/settings/SettingsPage";
+import { DMView } from "../features/dm/DMView";
+import { JoinSpaceModal } from "../features/spaces/JoinSpaceModal";
 import { Spinner } from "../components/ui/Spinner";
 import { ThemeProvider } from "../contexts/ThemeContext";
 import { tryRestoreSession } from "../lib/nostr/loginFlow";
@@ -86,11 +88,17 @@ export default function App() {
               <Route index element={<MainContent />} />
               <Route path="relays" element={<RelayStatusPanel />} />
               <Route path="settings" element={<SettingsPage />} />
+              <Route path="dm" element={<DMView />} />
+              <Route path="dm/:pubkey" element={<DMView />} />
               <Route path="music/album/:pubkey/:slug" element={<MusicLinkResolver type="album" />} />
               <Route path="music/track/:pubkey/:slug" element={<MusicLinkResolver type="track" />} />
               <Route
                 path="profile/:pubkey"
                 element={<ProfileRouteWrapper />}
+              />
+              <Route
+                path="invite/:code"
+                element={<InviteRouteWrapper />}
               />
             </Route>
           </Route>
@@ -104,4 +112,20 @@ function ProfileRouteWrapper() {
   const { pubkey } = useParams<{ pubkey: string }>();
   if (!pubkey) return null;
   return <ProfilePage pubkey={pubkey} />;
+}
+
+function InviteRouteWrapper() {
+  const { code } = useParams<{ code: string }>();
+  const navigate = useNavigate();
+  if (!code) return null;
+  return (
+    <>
+      <MainContent />
+      <JoinSpaceModal
+        open
+        onClose={() => navigate("/")}
+        initialCode={code}
+      />
+    </>
+  );
 }

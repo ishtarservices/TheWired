@@ -1,4 +1,5 @@
 mod keystore;
+mod nip44;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
@@ -19,6 +20,8 @@ pub fn run() {
             keystore::keystore_has_key,
             keystore::keystore_delete_key,
             keystore::keystore_import_key,
+            keystore::keystore_nip44_encrypt,
+            keystore::keystore_nip44_decrypt,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

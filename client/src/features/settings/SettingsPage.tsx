@@ -5,12 +5,14 @@ import { cn } from "@/lib/utils";
 import { ProfileSettingsTab } from "./ProfileSettingsTab";
 import { RelaySettingsTab } from "./RelaySettingsTab";
 import { AppSettingsTab } from "./AppSettingsTab";
+import { NotificationSettingsTab } from "./NotificationSettingsTab";
 
-type Tab = "profile" | "relays" | "app";
+type Tab = "profile" | "relays" | "notifications" | "app";
 
 const tabs: { id: Tab; label: string }[] = [
   { id: "profile", label: "Profile" },
   { id: "relays", label: "Relays" },
+  { id: "notifications", label: "Notifications" },
   { id: "app", label: "App" },
 ];
 
@@ -51,6 +53,7 @@ export function SettingsPage() {
 
       {activeTab === "profile" && <ProfileSettingsTab />}
       {activeTab === "relays" && <RelaySettingsTab />}
+      {activeTab === "notifications" && <NotificationSettingsTab />}
       {activeTab === "app" && <AppSettingsTab />}
     </div>
   );

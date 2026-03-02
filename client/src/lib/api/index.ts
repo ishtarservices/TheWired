@@ -1,7 +1,8 @@
 export { buildNip98Header } from "./nip98";
 export { api, setApiBaseUrl, getApiBaseUrl, ApiRequestError } from "./client";
-export { listSpaces, getSpace } from "./spaces";
-export { createInvite, getInvite, revokeInvite } from "./invites";
+export { listSpaces, getSpace, registerSpace } from "./spaces";
+export { createInvite, getInviteWithPreview, redeemInvite, listSpaceInvites, revokeInvite } from "./invites";
+export type { Invite, SpacePreview, InviteWithPreview, RedeemResult } from "./invites";
 export { search } from "./search";
 export { getTrending, getPersonalized } from "./feeds";
 export { getProfile, batchProfiles } from "./profiles";

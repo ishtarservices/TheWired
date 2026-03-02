@@ -6,7 +6,13 @@ use sha2::{Digest, Sha256};
 use std::sync::Mutex;
 
 const SERVICE_NAME: &str = "app.thewired.desktop";
-const ACCOUNT_NAME: &str = "nostr_private_key";
+
+fn get_account_name() -> String {
+    match std::env::var("WIRED_INSTANCE") {
+        Ok(id) if !id.is_empty() && id != "0" => format!("nostr_private_key_{}", id),
+        _ => "nostr_private_key".to_string(),
+    }
+}
 
 /// In-memory cache so we only hit the OS keychain once per session.
 static CACHED_SECRET: Mutex<Option<SecretKey>> = Mutex::new(None);
@@ -18,7 +24,7 @@ fn load_secret_key(generate: bool) -> Result<SecretKey, String> {
         return Ok(sk);
     }
 
-    let entry = Entry::new(SERVICE_NAME, ACCOUNT_NAME).map_err(|e| e.to_string())?;
+    let entry = Entry::new(SERVICE_NAME, &get_account_name()).map_err(|e| e.to_string())?;
 
     let secret_hex = match entry.get_password() {
         Ok(hex) => hex,
@@ -88,7 +94,7 @@ pub fn keystore_has_key() -> Result<bool, String> {
             return Ok(true);
         }
     }
-    let entry = Entry::new(SERVICE_NAME, ACCOUNT_NAME).map_err(|e| e.to_string())?;
+    let entry = Entry::new(SERVICE_NAME, &get_account_name()).map_err(|e| e.to_string())?;
     match entry.get_password() {
         Ok(_) => Ok(true),
         Err(keyring::Error::NoEntry) => Ok(false),
@@ -103,7 +109,7 @@ pub fn keystore_import_key(secret_hex: String) -> Result<String, String> {
     let secret_key =
         SecretKey::from_slice(&secret_bytes).map_err(|e| format!("Invalid secret key: {e}"))?;
 
-    let entry = Entry::new(SERVICE_NAME, ACCOUNT_NAME).map_err(|e| e.to_string())?;
+    let entry = Entry::new(SERVICE_NAME, &get_account_name()).map_err(|e| e.to_string())?;
     entry.set_password(&secret_hex).map_err(|e| e.to_string())?;
 
     // Update cache with the new key
@@ -121,9 +127,29 @@ pub fn keystore_import_key(secret_hex: String) -> Result<String, String> {
 #[tauri::command]
 pub fn keystore_delete_key() -> Result<(), String> {
     invalidate_cache();
-    let entry = Entry::new(SERVICE_NAME, ACCOUNT_NAME).map_err(|e| e.to_string())?;
+    let entry = Entry::new(SERVICE_NAME, &get_account_name()).map_err(|e| e.to_string())?;
     entry.delete_credential().map_err(|e| e.to_string())?;
     Ok(())
+}
+
+/// NIP-44 encrypt plaintext for a recipient.
+/// Uses the stored secret key + recipient's x-only pubkey to derive a conversation key.
+#[tauri::command]
+pub fn keystore_nip44_encrypt(recipient_pubkey: String, plaintext: String) -> Result<String, String> {
+    let secret_key = load_secret_key(false)?;
+    let pubkey = crate::nip44::xonly_to_pubkey(&recipient_pubkey)?;
+    let conversation_key = crate::nip44::get_conversation_key(&secret_key, &pubkey)?;
+    crate::nip44::encrypt(&plaintext, &conversation_key)
+}
+
+/// NIP-44 decrypt a payload from a sender.
+/// Uses the stored secret key + sender's x-only pubkey to derive a conversation key.
+#[tauri::command]
+pub fn keystore_nip44_decrypt(sender_pubkey: String, ciphertext: String) -> Result<String, String> {
+    let secret_key = load_secret_key(false)?;
+    let pubkey = crate::nip44::xonly_to_pubkey(&sender_pubkey)?;
+    let conversation_key = crate::nip44::get_conversation_key(&secret_key, &pubkey)?;
+    crate::nip44::decrypt(&ciphertext, &conversation_key)
 }
 
 #[derive(serde::Serialize)]

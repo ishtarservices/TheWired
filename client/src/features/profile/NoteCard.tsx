@@ -1,4 +1,5 @@
 import { MessageSquare } from "lucide-react";
+import { RichContent } from "../../components/content/RichContent";
 import type { NostrEvent } from "../../types/nostr";
 
 interface NoteCardProps {
@@ -30,8 +31,8 @@ export function NoteCard({ event }: NoteCardProps) {
           </span>
         )}
       </div>
-      <p className="whitespace-pre-wrap break-words text-sm text-heading">
-        {event.content}
+      <p className="text-sm text-heading">
+        <RichContent content={event.content} />
       </p>
     </div>
   );

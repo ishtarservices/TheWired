@@ -1,7 +1,7 @@
 import { nanoid } from "../lib/id.js";
 import { db } from "../db/connection.js";
 import { spaceRoles, rolePermissions, channelOverrides } from "../db/schema/permissions.js";
-import { memberRoles } from "../db/schema/members.js";
+import { memberRoles, spaceMembers } from "../db/schema/members.js";
 import { eq, and, asc } from "drizzle-orm";
 
 interface CreateRoleParams {
@@ -177,6 +177,12 @@ export const roleService = {
     await db.insert(rolePermissions).values(
       DEFAULT_MEMBER_PERMISSIONS.map((p) => ({ roleId: memberId, permission: p })),
     );
+
+    // Register creator as a member of the space
+    await db
+      .insert(spaceMembers)
+      .values({ spaceId, pubkey: creatorPubkey })
+      .onConflictDoNothing();
 
     // Assign Admin role to creator
     await db

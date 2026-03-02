@@ -10,6 +10,7 @@ export const spaces = appSchema.table("spaces", {
   about: text("about"),
   category: text("category"),
   language: text("language"),
+  mode: text("mode").notNull().default("read-write"), // "read" | "read-write"
   memberCount: integer("member_count").notNull().default(0),
   activeMembers24h: integer("active_members_24h").notNull().default(0),
   messagesLast24h: integer("messages_last_24h").notNull().default(0),

@@ -1,17 +1,18 @@
 import { useState, useRef } from "react";
-import { useNavigate } from "react-router-dom";
-import { Crown, MoreHorizontal } from "lucide-react";
+import { Crown, MoreHorizontal, Link2 } from "lucide-react";
 import { Avatar } from "../../components/ui/Avatar";
 import { useProfile } from "../profile/useProfile";
+import { useUserPopover } from "../profile/UserPopoverContext";
 import { useSpace } from "./useSpace";
 import { MemberInput } from "./MemberInput";
 import { useAppSelector } from "../../store/hooks";
 import { usePermissions } from "./usePermissions";
 import { MemberContextMenu } from "./moderation/MemberContextMenu";
+import { InviteGenerateModal } from "./InviteGenerateModal";
 
 function MemberItem({ pubkey, spaceId }: { pubkey: string; spaceId: string }) {
   const { profile } = useProfile(pubkey);
-  const navigate = useNavigate();
+  const { openUserPopover } = useUserPopover();
   const space = useAppSelector((s) => s.spaces.list.find((sp) => sp.id === spaceId));
   const currentPubkey = useAppSelector((s) => s.identity.pubkey);
   const name = profile?.display_name || profile?.name || pubkey.slice(0, 8) + "...";
@@ -19,11 +20,15 @@ function MemberItem({ pubkey, spaceId }: { pubkey: string; spaceId: string }) {
   const isSelf = pubkey === currentPubkey;
   const [menuOpen, setMenuOpen] = useState(false);
   const btnRef = useRef<HTMLButtonElement>(null);
+  const avatarRef = useRef<HTMLButtonElement>(null);
 
   return (
     <div className="group relative flex w-full items-center gap-2 rounded-xl px-3 py-2 transition-colors hover:bg-white/[0.04]">
       <button
-        onClick={() => navigate(`/profile/${pubkey}`)}
+        ref={avatarRef}
+        onClick={() => {
+          if (avatarRef.current) openUserPopover(pubkey, avatarRef.current);
+        }}
         className="flex flex-1 items-center gap-2 text-left min-w-0"
       >
         <Avatar src={profile?.picture} alt={name} size="sm" />
@@ -58,11 +63,13 @@ export function MemberList() {
   const { activeSpace, activeSpaceId, addMember, removeMember } = useSpace();
   const currentPubkey = useAppSelector((s) => s.identity.pubkey);
   const { can } = usePermissions(activeSpaceId);
+  const [showInvite, setShowInvite] = useState(false);
 
   if (!activeSpace || !activeSpaceId) return null;
 
   const members = activeSpace.memberPubkeys;
   const isAdmin = can("MANAGE_MEMBERS") || (!!currentPubkey && activeSpace.adminPubkeys.includes(currentPubkey));
+  const canInvite = can("CREATE_INVITES") || isAdmin;
 
   return (
     <div className="p-3 space-y-1">
@@ -79,6 +86,18 @@ export function MemberList() {
         ))
       )}
 
+      {canInvite && (
+        <div className="mt-3 border-t border-white/[0.04] pt-3 px-1">
+          <button
+            onClick={() => setShowInvite(true)}
+            className="flex w-full items-center justify-center gap-1.5 rounded-xl border border-dashed border-white/[0.04] px-3 py-2 text-xs text-muted transition-all duration-150 hover:border-neon/40 hover:text-neon hover:bg-neon/5"
+          >
+            <Link2 size={13} />
+            <span>Invite People</span>
+          </button>
+        </div>
+      )}
+
       {isAdmin && (
         <div className="mt-3 border-t border-white/[0.04] pt-3 px-1">
           <div className="mb-1.5 text-[10px] font-semibold uppercase tracking-wider text-muted">
@@ -91,6 +110,13 @@ export function MemberList() {
           />
         </div>
       )}
+
+      <InviteGenerateModal
+        open={showInvite}
+        onClose={() => setShowInvite(false)}
+        spaceId={activeSpaceId}
+        spaceName={activeSpace.name}
+      />
     </div>
   );
 }

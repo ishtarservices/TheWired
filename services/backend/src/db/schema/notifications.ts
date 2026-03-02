@@ -1,4 +1,4 @@
-import { text, boolean, timestamp } from "drizzle-orm/pg-core";
+import { text, boolean, timestamp, jsonb } from "drizzle-orm/pg-core";
 import { appSchema } from "./spaces.js";
 
 export const pushSubscriptions = appSchema.table("push_subscriptions", {
@@ -19,4 +19,16 @@ export const notificationQueue = appSchema.table("notification_queue", {
   data: text("data"),
   sent: boolean("sent").notNull().default(false),
   createdAt: timestamp("created_at").defaultNow(),
+});
+
+export const notificationPreferences = appSchema.table("notification_preferences", {
+  pubkey: text("pubkey").primaryKey(),
+  enabled: boolean("enabled").notNull().default(true),
+  mentions: boolean("mentions").notNull().default(true),
+  dms: boolean("dms").notNull().default(true),
+  newFollowers: boolean("new_followers").notNull().default(true),
+  chatMessages: boolean("chat_messages").notNull().default(true),
+  mutedSpaces: jsonb("muted_spaces").default([]),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
 });

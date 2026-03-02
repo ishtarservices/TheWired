@@ -7,6 +7,7 @@ import type { NostrEvent } from "../../types/nostr";
 import { EnhancedVideoPlayer } from "../media/EnhancedVideoPlayer";
 import { parseVideoEvent, selectVideoSource } from "../media/imetaParser";
 import { Avatar } from "../../components/ui/Avatar";
+import { RichContent } from "../../components/content/RichContent";
 import { useProfile } from "../profile/useProfile";
 import { extractMediaUrls, stripMediaUrls } from "../../lib/media/mediaUrlParser";
 import { imageCache } from "../../lib/cache/imageCache";
@@ -243,9 +244,9 @@ function ExpandedVideoView({
       {text && (
         <div className="mt-4 w-full max-w-4xl rounded-lg border border-white/[0.04] bg-white/[0.02] p-4">
           <AuthorBadge pubkey={item.event.pubkey} />
-          <p className="mt-2 whitespace-pre-wrap text-sm leading-relaxed text-body">
-            {text}
-          </p>
+          <div className="mt-2 text-sm leading-relaxed text-body">
+            <RichContent content={text} />
+          </div>
         </div>
       )}
     </div>
@@ -282,7 +283,9 @@ function ExpandedImageView({
       </div>
       {text && (
         <div className="border-t border-white/[0.04] px-4 py-3">
-          <p className="whitespace-pre-wrap text-sm text-soft">{text}</p>
+          <div className="text-sm text-soft">
+            <RichContent content={text} />
+          </div>
         </div>
       )}
     </div>

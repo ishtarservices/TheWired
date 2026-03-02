@@ -19,6 +19,7 @@ import { musicRoutes } from "./routes/music.js";
 import { channelsRoutes } from "./routes/channels.js";
 import { rolesRoutes } from "./routes/roles.js";
 import { moderationRoutes } from "./routes/moderation.js";
+import { notificationsRoutes } from "./routes/notifications.js";
 import { authContext } from "./middleware/authContext.js";
 import { errorHandler } from "./middleware/errorHandler.js";
 
@@ -59,6 +60,7 @@ export async function createServer() {
   await server.register(channelsRoutes, { prefix: "/spaces" });
   await server.register(rolesRoutes, { prefix: "/spaces" });
   await server.register(moderationRoutes, { prefix: "/spaces" });
+  await server.register(notificationsRoutes, { prefix: "/notifications" });
 
   return server;
 }

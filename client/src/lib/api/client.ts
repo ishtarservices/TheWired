@@ -44,9 +44,13 @@ export async function api<T>(path: string, opts: RequestOptions = {}): Promise<A
   const { method = "GET", body, auth = true, signal } = opts;
   const url = `${baseUrl}${path}`;
 
-  const headers: Record<string, string> = {
-    "Content-Type": "application/json",
-  };
+  const headers: Record<string, string> = {};
+
+  // Only set Content-Type when sending a body — Fastify rejects
+  // Content-Type: application/json with an empty body as a parse error (400).
+  if (body !== undefined) {
+    headers["Content-Type"] = "application/json";
+  }
 
   if (auth) {
     try {

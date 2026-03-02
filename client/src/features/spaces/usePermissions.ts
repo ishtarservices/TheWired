@@ -1,4 +1,4 @@
-import { useEffect, useCallback } from "react";
+import { useEffect, useCallback, useRef } from "react";
 import { useAppSelector, useAppDispatch } from "../../store/hooks";
 import { setMyPermissions } from "../../store/slices/spaceConfigSlice";
 import * as rolesApi from "../../lib/api/roles";
@@ -12,9 +12,13 @@ export function usePermissions(spaceId: string | null) {
     (s) => (spaceId ? s.spaceConfig.loading[spaceId] : false) ?? false,
   );
 
+  // Track which spaceId we last fetched for to avoid redundant requests
+  // but still refetch when switching spaces
+  const lastFetchedRef = useRef<string | null>(null);
+
   useEffect(() => {
     if (!spaceId) return;
-    if (permissions.length > 0) return; // Already loaded
+    if (lastFetchedRef.current === spaceId) return; // Already fetched for this space
 
     let cancelled = false;
 
@@ -23,14 +27,20 @@ export function usePermissions(spaceId: string | null) {
         const perms = await rolesApi.fetchMyPermissions(spaceId);
         if (!cancelled) {
           dispatch(setMyPermissions({ spaceId, permissions: perms }));
+          lastFetchedRef.current = spaceId;
         }
       } catch {
-        // Not authenticated or backend unavailable
+        // Not authenticated or backend unavailable — permissions stay empty
+        // which means can() returns false. This is safe: the user just
+        // won't have advanced features but the app still works.
+        if (!cancelled) {
+          lastFetchedRef.current = spaceId;
+        }
       }
     })();
 
     return () => { cancelled = true; };
-  }, [spaceId, dispatch, permissions.length]);
+  }, [spaceId, dispatch]);
 
   const isAdmin = permissions.includes("MANAGE_SPACE") || permissions.includes("MANAGE_ROLES");
 

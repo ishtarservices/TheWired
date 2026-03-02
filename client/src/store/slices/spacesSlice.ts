@@ -1,6 +1,13 @@
 import { createSlice, type PayloadAction } from "@reduxjs/toolkit";
 import type { Space, SpaceChannel } from "../../types/space";
 
+export interface PendingInvite {
+  code: string;
+  spaceId: string;
+  inviterPubkey?: string;
+  timestamp: number;
+}
+
 interface SpacesState {
   list: Space[];
   activeSpaceId: string | null;
@@ -8,6 +15,7 @@ interface SpacesState {
   subscriptions: Record<string, string>; // channelId -> subId
   channels: Record<string, SpaceChannel[]>; // spaceId -> channels
   channelsLoading: Record<string, boolean>;
+  pendingInvites: PendingInvite[];
 }
 
 const initialState: SpacesState = {
@@ -17,6 +25,7 @@ const initialState: SpacesState = {
   subscriptions: {},
   channels: {},
   channelsLoading: {},
+  pendingInvites: [],
 };
 
 export const spacesSlice = createSlice({
@@ -103,6 +112,17 @@ export const spacesSlice = createSlice({
     setChannelsLoading(state, action: PayloadAction<{ spaceId: string; loading: boolean }>) {
       state.channelsLoading[action.payload.spaceId] = action.payload.loading;
     },
+    addPendingInvite(state, action: PayloadAction<PendingInvite>) {
+      if (!state.pendingInvites.some((i) => i.code === action.payload.code)) {
+        state.pendingInvites.push(action.payload);
+      }
+    },
+    removePendingInvite(state, action: PayloadAction<string>) {
+      state.pendingInvites = state.pendingInvites.filter((i) => i.code !== action.payload);
+    },
+    clearSpacePendingInvites(state, action: PayloadAction<string>) {
+      state.pendingInvites = state.pendingInvites.filter((i) => i.spaceId !== action.payload);
+    },
   },
 });
 
@@ -121,4 +141,7 @@ export const {
   updateChannelInList,
   removeChannelFromList,
   setChannelsLoading,
+  addPendingInvite,
+  removePendingInvite,
+  clearSpacePendingInvites,
 } = spacesSlice.actions;

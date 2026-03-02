@@ -1,13 +1,39 @@
-import { useState } from "react";
+import { useState, useCallback, useMemo, useRef } from "react";
 import { useNavigate } from "react-router-dom";
-import { User, Globe, Zap, AtSign, ArrowLeft } from "lucide-react";
+import {
+  User,
+  Globe,
+  Zap,
+  AtSign,
+  ArrowLeft,
+  UserPlus,
+  UserCheck,
+  MessageCircle,
+  Copy,
+  Check,
+  MoreHorizontal,
+  VolumeX,
+  Ban,
+  Flag,
+  HeartHandshake,
+  Clock,
+} from "lucide-react";
+import { npubEncode } from "nostr-tools/nip19";
 import { Avatar } from "../../components/ui/Avatar";
 import { Spinner } from "../../components/ui/Spinner";
 import { useProfile } from "./useProfile";
 import { useProfileNotes } from "./useProfileNotes";
 import { useFollowData } from "./useFollowData";
+import { useMutualFollow } from "./useMutualFollow";
 import { NoteCard } from "./NoteCard";
 import { FollowCard } from "./FollowCard";
+import { followUser, unfollowUser } from "../../lib/nostr/follow";
+import { sendFriendRequest, acceptFriendRequestAction, cancelFriendRequestAction, removeFriendAction, wouldBreakFriendship } from "../../lib/nostr/friendRequest";
+import { useAppSelector, useAppDispatch } from "../../store/hooks";
+import { setMuteList } from "../../store/slices/identitySlice";
+import { buildMuteListEvent } from "../../lib/nostr/eventBuilder";
+import { signAndPublish } from "../../lib/nostr/publish";
+import { useClickOutside } from "../../hooks/useClickOutside";
 import type { NostrEvent } from "../../types/nostr";
 
 type Tab = "notes" | "following" | "followers";
@@ -23,7 +49,85 @@ export function ProfilePage({ pubkey }: ProfilePageProps) {
   const [activeTab, setActiveTab] = useState<Tab>("notes");
   const { notes, loading: notesLoading, eoseReceived } = useProfileNotes(pubkey);
   const { following, followers, followingLoading, followersLoading } = useFollowData(pubkey, activeTab);
+  const { iFollow, isMutual, loading: followLoading } = useMutualFollow(pubkey);
+  const myPubkey = useAppSelector((s) => s.identity.pubkey);
+  const muteList = useAppSelector((s) => s.identity.muteList);
+  const dispatch = useAppDispatch();
+  const friendRequests = useAppSelector((s) => s.friendRequests.requests);
+  const isMe = pubkey === myPubkey;
+  const isMuted = muteList.some((m) => m.type === "pubkey" && m.value === pubkey);
   const navigate = useNavigate();
+
+  // Derive friend request status for this user
+  const friendStatus = useMemo(() => {
+    const incoming = friendRequests.find(
+      (r) => r.pubkey === pubkey && r.direction === "incoming",
+    );
+    const outgoing = friendRequests.find(
+      (r) => r.pubkey === pubkey && r.direction === "outgoing",
+    );
+    if (incoming?.status === "accepted" || outgoing?.status === "accepted") return "friends";
+    if (outgoing?.status === "pending") return "pending_outgoing";
+    if (incoming?.status === "pending") return "pending_incoming";
+    return "none";
+  }, [friendRequests, pubkey]);
+  const npub = useMemo(() => npubEncode(pubkey), [pubkey]);
+  const [npubCopied, setNpubCopied] = useState(false);
+  const [showOverflow, setShowOverflow] = useState(false);
+  const [showUnfollowConfirm, setShowUnfollowConfirm] = useState(false);
+  const [showUnfriendConfirm, setShowUnfriendConfirm] = useState(false);
+  const overflowRef = useRef<HTMLDivElement>(null);
+  const unfollowConfirmRef = useRef<HTMLDivElement>(null);
+  const unfriendConfirmRef = useRef<HTMLDivElement>(null);
+
+  useClickOutside(overflowRef, () => setShowOverflow(false), showOverflow);
+  useClickOutside(unfollowConfirmRef, () => setShowUnfollowConfirm(false), showUnfollowConfirm);
+  useClickOutside(unfriendConfirmRef, () => setShowUnfriendConfirm(false), showUnfriendConfirm);
+
+  const handleFollow = useCallback(async () => {
+    if (iFollow) {
+      // If they're a friend, show confirmation before unfollowing
+      if (wouldBreakFriendship(pubkey)) {
+        setShowUnfollowConfirm(true);
+        return;
+      }
+      await unfollowUser(pubkey);
+    } else {
+      await followUser(pubkey);
+    }
+  }, [pubkey, iFollow]);
+
+  const handleConfirmUnfollow = useCallback(async () => {
+    setShowUnfollowConfirm(false);
+    // Unfollowing a friend: remove friendship + unfollow
+    await removeFriendAction(pubkey);
+  }, [pubkey]);
+
+  const handleConfirmUnfriend = useCallback(async () => {
+    setShowUnfriendConfirm(false);
+    await removeFriendAction(pubkey);
+  }, [pubkey]);
+
+  const handleMute = useCallback(async () => {
+    if (!myPubkey) return;
+    const newMutes = isMuted
+      ? muteList.filter((m) => !(m.type === "pubkey" && m.value === pubkey))
+      : [...muteList, { type: "pubkey" as const, value: pubkey }];
+
+    const now = Math.floor(Date.now() / 1000);
+    dispatch(setMuteList({ mutes: newMutes, createdAt: now }));
+
+    const unsigned = buildMuteListEvent(myPubkey, newMutes);
+    await signAndPublish(unsigned);
+    setShowOverflow(false);
+  }, [myPubkey, pubkey, isMuted, muteList, dispatch]);
+
+  const handleCopyPubkey = useCallback(() => {
+    navigator.clipboard.writeText(npub);
+    setNpubCopied(true);
+    setTimeout(() => setNpubCopied(false), 2000);
+    setShowOverflow(false);
+  }, [npub]);
 
   if (!profile) {
     return (
@@ -64,11 +168,227 @@ export function ProfilePage({ pubkey }: ProfilePageProps) {
 
       {/* Profile info */}
       <div className="relative z-10 px-6 pb-4">
-        <div className="-mt-12 mb-4">
+        <div className="-mt-12 mb-4 flex items-end justify-between">
           <Avatar src={profile?.picture} alt={displayName} size="lg" className="h-24 w-24 border-4 border-backdrop ring-2 ring-pulse/20" />
+
+          {/* Action buttons */}
+          {!isMe && (
+            <div className="flex items-center gap-2 pb-1">
+              <button
+                onClick={() => navigate(`/dm/${pubkey}`)}
+                className="flex items-center gap-1.5 rounded-lg bg-white/[0.06] px-4 py-2 text-sm font-medium text-heading hover:bg-white/[0.1] transition-colors"
+              >
+                <MessageCircle size={14} />
+                Message
+              </button>
+
+              {/* Add Friend / Request Status */}
+              {friendStatus === "none" && (
+                <button
+                  onClick={() => sendFriendRequest(pubkey)}
+                  className="flex items-center gap-1.5 rounded-lg bg-neon/20 px-4 py-2 text-sm font-medium text-neon hover:bg-neon/30 transition-colors"
+                >
+                  <HeartHandshake size={14} />
+                  Add Friend
+                </button>
+              )}
+              {friendStatus === "pending_outgoing" && (
+                <button
+                  onClick={() => cancelFriendRequestAction(pubkey)}
+                  className="flex items-center gap-1.5 rounded-lg bg-white/[0.06] px-4 py-2 text-sm font-medium text-muted hover:bg-red-500/10 hover:text-red-400 transition-colors"
+                  title="Cancel request"
+                >
+                  <Clock size={14} />
+                  Request Sent
+                </button>
+              )}
+              {friendStatus === "pending_incoming" && (
+                <button
+                  onClick={() => acceptFriendRequestAction(pubkey)}
+                  className="flex items-center gap-1.5 rounded-lg bg-pulse/20 px-4 py-2 text-sm font-medium text-pulse hover:bg-pulse/30 transition-colors"
+                >
+                  <HeartHandshake size={14} />
+                  Accept Request
+                </button>
+              )}
+              {friendStatus === "friends" && (
+                <div className="relative">
+                <button
+                  onClick={() => setShowUnfriendConfirm(true)}
+                  className="flex items-center gap-1.5 rounded-lg bg-pulse/15 px-4 py-2 text-sm font-semibold text-pulse hover:bg-red-500/10 hover:text-red-400 transition-colors"
+                  title="Remove friend"
+                >
+                  <HeartHandshake size={14} />
+                  Friends
+                </button>
+
+                {showUnfriendConfirm && (
+                  <div
+                    ref={unfriendConfirmRef}
+                    className="absolute right-0 top-full mt-1 z-50 w-64 rounded-lg border border-edge-light p-3"
+                    style={{
+                      backgroundColor: "var(--color-card)",
+                      boxShadow: "var(--shadow-elevated)",
+                    }}
+                  >
+                    <p className="text-xs text-heading font-medium mb-1">
+                      Remove this user as a friend?
+                    </p>
+                    <p className="text-[11px] text-muted mb-3">
+                      This will also unfollow them. You can re-send a friend request later.
+                    </p>
+                    <div className="flex items-center gap-2 justify-end">
+                      <button
+                        onClick={() => setShowUnfriendConfirm(false)}
+                        className="rounded-md px-2.5 py-1 text-xs text-soft hover:bg-white/[0.06] transition-colors"
+                      >
+                        Cancel
+                      </button>
+                      <button
+                        onClick={handleConfirmUnfriend}
+                        className="rounded-md bg-red-500/20 px-2.5 py-1 text-xs font-medium text-red-400 hover:bg-red-500/30 transition-colors"
+                      >
+                        Remove Friend
+                      </button>
+                    </div>
+                  </div>
+                )}
+                </div>
+              )}
+
+              <div className="relative">
+              <button
+                onClick={handleFollow}
+                disabled={followLoading}
+                className={`flex items-center gap-1.5 rounded-lg px-4 py-2 text-sm font-medium transition-colors ${
+                  iFollow
+                    ? "bg-white/[0.06] text-heading hover:bg-red-500/10 hover:text-red-400"
+                    : "bg-pulse/20 text-pulse hover:bg-pulse/30"
+                }`}
+              >
+                {iFollow ? (
+                  <>
+                    <UserCheck size={14} />
+                    Following
+                  </>
+                ) : (
+                  <>
+                    <UserPlus size={14} />
+                    Follow
+                  </>
+                )}
+              </button>
+
+              {/* Unfollow-friend confirmation popover */}
+              {showUnfollowConfirm && (
+                <div
+                  ref={unfollowConfirmRef}
+                  className="absolute right-0 top-full mt-1 z-50 w-64 rounded-lg border border-edge-light p-3"
+                  style={{
+                    backgroundColor: "var(--color-card)",
+                    boxShadow: "var(--shadow-elevated)",
+                  }}
+                >
+                  <p className="text-xs text-heading font-medium mb-1">
+                    Unfollowing will also remove them as a friend.
+                  </p>
+                  <p className="text-[11px] text-muted mb-3">
+                    Are you sure you want to continue?
+                  </p>
+                  <div className="flex items-center gap-2 justify-end">
+                    <button
+                      onClick={() => setShowUnfollowConfirm(false)}
+                      className="rounded-md px-2.5 py-1 text-xs text-soft hover:bg-white/[0.06] transition-colors"
+                    >
+                      Cancel
+                    </button>
+                    <button
+                      onClick={handleConfirmUnfollow}
+                      className="rounded-md bg-red-500/20 px-2.5 py-1 text-xs font-medium text-red-400 hover:bg-red-500/30 transition-colors"
+                    >
+                      Unfollow & Unfriend
+                    </button>
+                  </div>
+                </div>
+              )}
+              </div>
+
+              {/* Overflow menu */}
+              <div className="relative" ref={overflowRef}>
+                <button
+                  onClick={() => setShowOverflow((v) => !v)}
+                  className="flex items-center justify-center rounded-lg bg-white/[0.06] p-2 text-heading hover:bg-white/[0.1] transition-colors"
+                >
+                  <MoreHorizontal size={14} />
+                </button>
+
+                {showOverflow && (
+                  <div
+                    className="absolute right-0 top-full mt-1 z-50 w-48 rounded-lg border border-edge-light overflow-hidden"
+                    style={{
+                      backgroundColor: "var(--color-card)",
+                      boxShadow: "var(--shadow-elevated)",
+                    }}
+                  >
+                    <button
+                      onClick={handleCopyPubkey}
+                      className="flex w-full items-center gap-2.5 px-3 py-2 text-xs text-heading hover:bg-white/[0.08] transition-colors"
+                    >
+                      <Copy size={13} />
+                      {npubCopied ? "Copied!" : "Copy Public Key"}
+                    </button>
+
+                    <div className="border-t border-edge" />
+
+                    <button
+                      onClick={handleMute}
+                      className="flex w-full items-center gap-2.5 px-3 py-2 text-xs text-heading hover:bg-white/[0.08] transition-colors"
+                    >
+                      <VolumeX size={13} />
+                      {isMuted ? "Unmute" : "Mute"}
+                    </button>
+                    <button
+                      onClick={() => {
+                        if (!isMuted) handleMute();
+                        if (iFollow) unfollowUser(pubkey);
+                        setShowOverflow(false);
+                      }}
+                      className="flex w-full items-center gap-2.5 px-3 py-2 text-xs text-red-400 hover:bg-red-500/10 transition-colors"
+                    >
+                      <Ban size={13} />
+                      Block
+                    </button>
+                    <button
+                      onClick={() => {
+                        console.warn(`Report user: ${pubkey}`);
+                        setShowOverflow(false);
+                      }}
+                      className="flex w-full items-center gap-2.5 px-3 py-2 text-xs text-red-400 hover:bg-red-500/10 transition-colors"
+                    >
+                      <Flag size={13} />
+                      Report User
+                    </button>
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
         </div>
 
-        <h1 className="text-2xl font-bold tracking-tight text-heading">{displayName}</h1>
+        <div className="flex items-center gap-2">
+          <h1 className="text-2xl font-bold tracking-tight text-heading">{displayName}</h1>
+          {friendStatus === "friends" && isMutual && (
+            <span className="inline-flex items-center gap-1 rounded-full bg-pulse/15 px-2.5 py-0.5 text-xs font-semibold text-pulse">
+              <HeartHandshake size={12} />
+              Friends
+            </span>
+          )}
+          {iFollow && !(friendStatus === "friends" && isMutual) && !isMe && (
+            <span className="inline-flex items-center gap-1 rounded-full bg-white/[0.08] px-2.5 py-0.5 text-xs font-semibold text-muted">
+              Following
+            </span>
+          )}
+        </div>
 
         {profile?.nip05 && (
           <div className="mt-1 flex items-center gap-1 text-sm text-neon">
@@ -101,10 +421,23 @@ export function ProfilePage({ pubkey }: ProfilePageProps) {
           )}
         </div>
 
-        <div className="mt-2 text-xs text-muted">
-          <User size={12} className="mr-1 inline" />
-          {pubkey.slice(0, 16)}...
-        </div>
+        <button
+          onClick={() => {
+            navigator.clipboard.writeText(npub);
+            setNpubCopied(true);
+            setTimeout(() => setNpubCopied(false), 2000);
+          }}
+          className="mt-2 flex items-center gap-1.5 text-xs text-muted hover:text-heading transition-colors group"
+          title="Copy npub"
+        >
+          <User size={12} className="shrink-0" />
+          <span className="font-mono">{npub.slice(0, 20)}...{npub.slice(-6)}</span>
+          {npubCopied ? (
+            <Check size={12} className="shrink-0 text-green-400" />
+          ) : (
+            <Copy size={12} className="shrink-0 opacity-0 group-hover:opacity-100 transition-opacity" />
+          )}
+        </button>
       </div>
 
       {/* Stats bar */}

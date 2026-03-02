@@ -71,10 +71,11 @@ class RelayManagerImpl {
     }
   }
 
+  /** Publish an event to write relays. Returns the number of relays it was sent to. */
   publish(
     event: NostrEvent,
     targets?: string[],
-  ): void {
+  ): number {
     const relays = targets
       ? targets
           .map((url) => this.connections.get(url))
@@ -84,6 +85,7 @@ class RelayManagerImpl {
     for (const conn of relays) {
       conn.publish(event);
     }
+    return relays.length;
   }
 
   subscribe(opts: SubscribeOptions): string {

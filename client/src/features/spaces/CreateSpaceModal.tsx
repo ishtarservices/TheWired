@@ -5,7 +5,7 @@ import { Modal } from "../../components/ui/Modal";
 import { MemberInput } from "./MemberInput";
 import { useAppSelector } from "../../store/hooks";
 import { BOOTSTRAP_RELAYS } from "../../lib/nostr/constants";
-import { api } from "../../lib/api/client";
+import { registerSpace } from "../../lib/api/spaces";
 import type { Space } from "../../types/space";
 
 interface CreateSpaceModalProps {
@@ -37,6 +37,9 @@ export function CreateSpaceModal({
   function handleCreate() {
     if (!name.trim() || !pubkey) return;
 
+    // Always include the creator as a member (dedup in case they added themselves)
+    const allMembers = members.includes(pubkey) ? members : [pubkey, ...members];
+
     const space: Space = {
       id: generateId(),
       name: name.trim(),
@@ -45,7 +48,7 @@ export function CreateSpaceModal({
       mode,
       creatorPubkey: pubkey,
       adminPubkeys: [pubkey],
-      memberPubkeys: members,
+      memberPubkeys: allMembers,
       hostRelay: BOOTSTRAP_RELAYS[0],
       isPrivate: false,
       createdAt: Math.floor(Date.now() / 1000),
@@ -53,8 +56,18 @@ export function CreateSpaceModal({
 
     onCreate(space);
 
-    // Seed default roles on backend (best-effort)
-    api(`/spaces/${space.id}/roles/seed`, { method: "POST" }).catch(() => {});
+    // Bootstrap space on backend (creates space record, seeds roles+channels,
+    // registers creator as member+admin — all in one call)
+    registerSpace({
+      id: space.id,
+      name: space.name,
+      hostRelay: space.hostRelay,
+      picture: space.picture,
+      about: space.about,
+      mode: space.mode,
+    }).catch((err) => {
+      console.error("[CreateSpace] Backend bootstrap failed:", err);
+    });
 
     setName("");
     setAbout("");

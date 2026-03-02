@@ -17,6 +17,11 @@ import {
   removeSpaceFromStore,
   updateSpaceInStore,
 } from "../../lib/db/spaceStore";
+import {
+  clearChannelUnread,
+  updateLastRead,
+} from "../../store/slices/notificationSlice";
+import { fetchMembers } from "../../lib/api/spaces";
 import type { Space, SpaceChannel } from "../../types/space";
 
 /** Pick the best default channel for a space, respecting position and isDefault flag */
@@ -43,6 +48,32 @@ export function useSpace() {
 
   const activeSpace = spaces.find((s) => s.id === activeSpaceId) ?? null;
 
+  /** Fetch members from backend and merge into Redux + IndexedDB */
+  const syncMembers = useCallback(
+    async (spaceId: string) => {
+      try {
+        const res = await fetchMembers(spaceId);
+        const backendPubkeys = res.data.map((m) => m.pubkey);
+        if (backendPubkeys.length === 0) return;
+
+        const space = spaces.find((s) => s.id === spaceId);
+        if (!space) return;
+
+        // Merge: union of local + backend members (local may have members
+        // the backend doesn't know about yet, e.g. from NIP-29 metadata)
+        const merged = [...new Set([...space.memberPubkeys, ...backendPubkeys])];
+        if (merged.length !== space.memberPubkeys.length || !merged.every((pk) => space.memberPubkeys.includes(pk))) {
+          const updated: Space = { ...space, memberPubkeys: merged };
+          dispatch(updateSpace(updated));
+          updateSpaceInStore(updated);
+        }
+      } catch {
+        // Backend unavailable — keep local members
+      }
+    },
+    [dispatch, spaces],
+  );
+
   const selectSpace = useCallback(
     (spaceId: string) => {
       const space = spaces.find((s) => s.id === spaceId);
@@ -68,8 +99,11 @@ export function useSpace() {
         // Channels not loaded yet — clear channel; will be set once channels load
         dispatch(setActiveChannel(null));
       }
+
+      // Sync members from backend (non-blocking)
+      syncMembers(spaceId);
     },
-    [dispatch, spaces, activeSpaceId, allChannels],
+    [dispatch, spaces, activeSpaceId, allChannels, syncMembers],
   );
 
   const selectChannel = useCallback(
@@ -83,11 +117,15 @@ export function useSpace() {
       if (channel) {
         const channelId = `${activeSpace.id}:${channel.id}`;
         dispatch(setActiveChannel(channelId));
+        dispatch(clearChannelUnread(channelId));
+        dispatch(updateLastRead({ contextId: channelId, timestamp: Math.floor(Date.now() / 1000) }));
         switchSpaceChannel(activeSpace, channel.type);
       } else {
         // Legacy: treat as channel type string
         const channelId = `${activeSpace.id}:${channelOrType}`;
         dispatch(setActiveChannel(channelId));
+        dispatch(clearChannelUnread(channelId));
+        dispatch(updateLastRead({ contextId: channelId, timestamp: Math.floor(Date.now() / 1000) }));
         switchSpaceChannel(activeSpace, channelOrType);
       }
     },
@@ -149,6 +187,38 @@ export function useSpace() {
     [dispatch, spaces, activeSpaceId, activeChannelId, getActiveChannelType],
   );
 
+  /** Join a space (add it locally and auto-select it) */
+  const joinSpace = useCallback(
+    (space: Space) => {
+      dispatch(addSpace(space));
+      addSpaceToStore(space);
+
+      // Leave previous space
+      if (activeSpaceId) {
+        leaveClientSpace(activeSpaceId);
+      }
+
+      dispatch(setActiveSpace(space.id));
+      enterClientSpace(space);
+
+      // Pick default channel once channels load
+      const spaceChannels = allChannels[space.id];
+      if (spaceChannels && spaceChannels.length > 0) {
+        const best = pickDefaultChannel(spaceChannels, space.mode);
+        if (best) {
+          dispatch(setActiveChannel(`${space.id}:${best.id}`));
+          switchSpaceChannel(space, best.type);
+        }
+      } else {
+        dispatch(setActiveChannel(null));
+      }
+
+      // Sync members from backend (non-blocking)
+      syncMembers(space.id);
+    },
+    [dispatch, activeSpaceId, allChannels, syncMembers],
+  );
+
   const removeMember = useCallback(
     (spaceId: string, pubkey: string) => {
       const space = spaces.find((s) => s.id === spaceId);
@@ -180,8 +250,10 @@ export function useSpace() {
     resolveActiveChannel,
     getActiveChannelType,
     createSpace,
+    joinSpace,
     deleteSpace,
     addMember,
     removeMember,
+    syncMembers,
   };
 }

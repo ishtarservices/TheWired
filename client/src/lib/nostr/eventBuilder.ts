@@ -29,8 +29,14 @@ export function buildChatMessage(
   groupId: string,
   content: string,
   replyTo?: { eventId: string; pubkey: string },
+  channelId?: string,
 ): UnsignedEvent {
   const tags: string[][] = [["h", groupId]];
+
+  // Tag with channel ID so messages can be scoped per-channel
+  if (channelId) {
+    tags.push(["channel", channelId]);
+  }
 
   if (replyTo) {
     tags.push(["q", replyTo.eventId]);
@@ -124,6 +130,41 @@ export function buildQuoteNote(
       ["p", target.pubkey],
     ],
     content,
+  };
+}
+
+/** Build an unsigned kind:3 follow list event (NIP-02) */
+export function buildFollowListEvent(
+  pubkey: string,
+  follows: string[],
+): UnsignedEvent {
+  return {
+    pubkey,
+    created_at: Math.floor(Date.now() / 1000),
+    kind: 3,
+    tags: follows.map((pk) => ["p", pk]),
+    content: "",
+  };
+}
+
+/** Build an unsigned kind:10000 mute list event (NIP-51) */
+export function buildMuteListEvent(
+  pubkey: string,
+  mutes: Array<{ type: "pubkey" | "tag" | "word" | "event"; value: string }>,
+): UnsignedEvent {
+  const TAG_MAP: Record<string, string> = {
+    pubkey: "p",
+    tag: "t",
+    word: "word",
+    event: "e",
+  };
+
+  return {
+    pubkey,
+    created_at: Math.floor(Date.now() / 1000),
+    kind: 10000,
+    tags: mutes.map((m) => [TAG_MAP[m.type], m.value]),
+    content: "",
   };
 }
 

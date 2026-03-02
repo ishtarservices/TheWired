@@ -26,6 +26,14 @@ export class TauriSigner implements NostrSigner {
     };
   }
 
+  async nip44Encrypt(recipientPubkey: string, plaintext: string): Promise<string> {
+    return invoke<string>("keystore_nip44_encrypt", { recipientPubkey, plaintext });
+  }
+
+  async nip44Decrypt(senderPubkey: string, ciphertext: string): Promise<string> {
+    return invoke<string>("keystore_nip44_decrypt", { senderPubkey, ciphertext });
+  }
+
   /**
    * Import an nsec (bech32) or hex secret key into the Tauri keystore.
    * Returns the resulting hex pubkey.

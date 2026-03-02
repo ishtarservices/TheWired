@@ -3,16 +3,20 @@ import type { RootState } from "../../store";
 import { eventsSelectors } from "../../store/slices/eventsSlice";
 import type { NostrEvent } from "../../types/nostr";
 
-/** Select chat message events for the active group, sorted by time ascending */
+/** Select chat message events for the active channel, sorted by time ascending */
 export const selectChatMessages = createSelector(
   [
+    (state: RootState) => state.spaces.activeChannelId,
     (state: RootState) => state.spaces.activeSpaceId,
     (state: RootState) => state.events,
   ],
-  (activeSpaceId, events) => {
+  (activeChannelId, activeSpaceId, events) => {
     if (!activeSpaceId) return [];
 
-    const messageIds = events.chatMessages[activeSpaceId] ?? [];
+    // Prefer channel-scoped messages; fall back to space-level for legacy messages
+    const channelMessages = activeChannelId ? events.chatMessages[activeChannelId] : undefined;
+    const spaceMessages = events.chatMessages[activeSpaceId];
+    const messageIds = channelMessages ?? spaceMessages ?? [];
     return messageIds
       .map((id) => eventsSelectors.selectById(events, id))
       .filter((e): e is NostrEvent => !!e)

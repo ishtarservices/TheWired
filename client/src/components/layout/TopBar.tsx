@@ -3,6 +3,7 @@ import { Button } from "../ui/Button";
 import { useTheme } from "../../contexts/ThemeContext";
 import { SearchInput } from "../../features/music/SearchInput";
 import { UserSearchInput } from "../../features/search/UserSearchInput";
+import { NotificationBell } from "../../features/notifications/NotificationBell";
 import { useAppSelector } from "../../store/hooks";
 
 interface TopBarProps {
@@ -41,6 +42,9 @@ export function TopBar({
       <div className="ml-auto flex items-center gap-3">
         {/* Mode-aware search */}
         {sidebarMode === "music" ? <SearchInput /> : <UserSearchInput />}
+
+        {/* Notification bell */}
+        <NotificationBell />
 
         {/* Theme toggle */}
         <button

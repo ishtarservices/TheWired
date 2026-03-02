@@ -7,6 +7,7 @@ import { spaceActivityDaily, memberEngagement } from "../db/schema/analytics.js"
 import { getRedis } from "../lib/redis.js";
 import { getMeilisearchClient } from "../lib/meilisearch.js";
 import { verifyEvent } from "../lib/nostr/eventVerifier.js";
+import { enqueueNotification } from "../services/notificationEnqueue.js";
 import { eq, and, sql } from "drizzle-orm";
 
 interface NostrEvent {
@@ -192,6 +193,23 @@ export function startRelayIngester() {
         target: [memberEngagement.spaceId, memberEngagement.pubkey, memberEngagement.date],
         set: { messageCount: sql`${memberEngagement.messageCount} + 1` },
       });
+
+    // Enqueue push notifications for mentioned users
+    const mentionedPubkeys = event.tags
+      .filter((t) => t[0] === "p" && t[1] !== event.pubkey)
+      .map((t) => t[1]);
+
+    const preview = event.content.length > 120 ? event.content.slice(0, 120) + "..." : event.content;
+
+    for (const pubkey of mentionedPubkeys) {
+      enqueueNotification({
+        pubkey,
+        type: "mention",
+        title: "You were mentioned",
+        body: preview,
+        data: { spaceId, eventId: event.id },
+      });
+    }
   }
 
   async function indexReaction(event: NostrEvent) {

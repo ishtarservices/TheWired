@@ -41,6 +41,10 @@ import { parseAlbumEvent } from "../../features/music/albumParser";
 import { parsePlaylistEvent } from "../../features/music/playlistParser";
 import { BOOTSTRAP_RELAYS } from "./constants";
 import { profileCache } from "./profileCache";
+import { loadDMState, startDMPersistence } from "../../features/dm/dmPersistence";
+import { loadFollowerState, startFollowerPersistence } from "./followerPersistence";
+import { loadFriendRequestState, startFriendRequestPersistence } from "./friendRequestPersistence";
+import { setKnownFollowers, addKnownFollower } from "../../store/slices/identitySlice";
 
 let currentSigner: NostrSigner | null = null;
 
@@ -262,6 +266,79 @@ export async function performLogin(
       },
     ],
     relayUrls: BOOTSTRAP_RELAYS,
+  });
+
+  // Step 7f: Load persisted DMs from IndexedDB BEFORE subscribing to relays.
+  // This populates processedWrapIds so relay echoes are deduped and
+  // messages keep their original display timestamps.
+  await loadDMState();
+  startDMPersistence();
+
+  // Step 7f-b: Load persisted friend requests from IndexedDB
+  await loadFriendRequestState();
+  startFriendRequestPersistence();
+
+  // Step 7g: Subscribe for gift-wrapped DMs (kind:1059) addressed to us.
+  // Explicitly include APP_RELAY which is guaranteed to store gift wraps.
+  subscriptionManager.subscribe({
+    filters: [
+      {
+        kinds: [EVENT_KINDS.GIFT_WRAP],
+        "#p": [pubkey],
+        limit: 100,
+      },
+    ],
+    relayUrls: BOOTSTRAP_RELAYS,
+  });
+
+  // Step 7h: Load cached followers, then subscribe for kind:3 events that tag us.
+  // Use all connected read relays (not just bootstrap) so user-configured relays are included.
+  // Buffer follower pubkeys until EOSE, then MERGE with cached set (never shrink).
+  await loadFollowerState();
+  startFollowerPersistence();
+
+  const followerBuffer: string[] = [];
+  let followerEoseCount = 0;
+  // Use all connected read relays, falling back to bootstrap count
+  const connectedReadRelays = relayManager.getReadRelays();
+  const followerRelayCount = Math.max(connectedReadRelays.length, BOOTSTRAP_RELAYS.length);
+
+  relayManager.subscribe({
+    filters: [
+      {
+        kinds: [EVENT_KINDS.FOLLOW_LIST],
+        "#p": [pubkey],
+        limit: 500,
+      },
+    ],
+    // Don't restrict to BOOTSTRAP_RELAYS — let relayManager use all read relays
+    onEvent: (event) => {
+      // Only care about events that include us in their follow list
+      if (event.pubkey === pubkey) return;
+      const followsUs = event.tags.some(
+        (t) => t[0] === "p" && t[1] === pubkey,
+      );
+      if (!followsUs) return;
+
+      if (followerEoseCount < followerRelayCount) {
+        // Still buffering — collect pubkeys
+        if (!followerBuffer.includes(event.pubkey)) {
+          followerBuffer.push(event.pubkey);
+        }
+      } else {
+        // Post-EOSE: genuinely new follower
+        store.dispatch(addKnownFollower(event.pubkey));
+      }
+    },
+    onEOSE: () => {
+      followerEoseCount++;
+      if (followerEoseCount >= followerRelayCount) {
+        // Merge buffered followers with cached set — always union, never replace with smaller
+        const cached = store.getState().identity.knownFollowers;
+        const merged = Array.from(new Set([...cached, ...followerBuffer]));
+        store.dispatch(setKnownFollowers(merged));
+      }
+    },
   });
 
   // Step 8: Persist session for restore

@@ -7,6 +7,9 @@ import { uiSlice } from "./slices/uiSlice";
 import { feedSlice } from "./slices/feedSlice";
 import { musicSlice } from "./slices/musicSlice";
 import { spaceConfigSlice } from "./slices/spaceConfigSlice";
+import { dmSlice } from "./slices/dmSlice";
+import { notificationSlice } from "./slices/notificationSlice";
+import { friendRequestSlice } from "./slices/friendRequestSlice";
 
 export const store = configureStore({
   reducer: {
@@ -18,6 +21,9 @@ export const store = configureStore({
     feed: feedSlice.reducer,
     music: musicSlice.reducer,
     spaceConfig: spaceConfigSlice.reducer,
+    dm: dmSlice.reducer,
+    notifications: notificationSlice.reducer,
+    friendRequests: friendRequestSlice.reducer,
   },
 });
 

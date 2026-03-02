@@ -15,6 +15,7 @@ interface IdentityState {
   profile: Kind0Profile | null;
   relayList: RelayListEntry[];
   followList: string[];
+  knownFollowers: string[];
   muteList: MuteEntry[];
   profileCreatedAt: number;
   followListCreatedAt: number;
@@ -28,6 +29,7 @@ const initialState: IdentityState = {
   profile: null,
   relayList: [],
   followList: [],
+  knownFollowers: [],
   muteList: [],
   profileCreatedAt: 0,
   followListCreatedAt: 0,
@@ -81,6 +83,14 @@ export const identitySlice = createSlice({
       state.muteList = action.payload.mutes;
       state.muteListCreatedAt = action.payload.createdAt;
     },
+    setKnownFollowers(state, action: PayloadAction<string[]>) {
+      state.knownFollowers = action.payload;
+    },
+    addKnownFollower(state, action: PayloadAction<string>) {
+      if (!state.knownFollowers.includes(action.payload)) {
+        state.knownFollowers.push(action.payload);
+      }
+    },
   },
 });
 
@@ -91,4 +101,6 @@ export const {
   setRelayList,
   setFollowList,
   setMuteList,
+  setKnownFollowers,
+  addKnownFollower,
 } = identitySlice.actions;

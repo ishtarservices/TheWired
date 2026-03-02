@@ -1,9 +1,11 @@
-import { useState, useMemo, useEffect, useCallback, memo } from "react";
+import { useState, useMemo, useEffect, useCallback, useRef, memo } from "react";
 import { ChevronDown, ChevronUp, ImageIcon, Film } from "lucide-react";
 import { useAppSelector } from "../../store/hooks";
 import { selectSpaceRootNotes, selectSpaceRootNoteIds } from "./spaceSelectors";
 import { Avatar } from "../../components/ui/Avatar";
+import { RichContent } from "../../components/content/RichContent";
 import { useProfile } from "../profile/useProfile";
+import { useUserPopover } from "../profile/UserPopoverContext";
 import {
   extractMediaUrls,
   stripMediaUrls,
@@ -83,9 +85,11 @@ function MediaPreview({ media }: { media: ExtractedMedia[] }) {
 
 const NoteCard = memo(function NoteCard({ event }: { event: NostrEvent }) {
   const { profile } = useProfile(event.pubkey);
+  const { openUserPopover } = useUserPopover();
   const [showMedia, setShowMedia] = useState(false);
   const [showReplyComposer, setShowReplyComposer] = useState(false);
   const [threadExpanded, setThreadExpanded] = useState(false);
+  const avatarRef = useRef<HTMLButtonElement>(null);
 
   const engagement = useNoteEngagement(event.id);
   const actions = useNoteActions(event);
@@ -161,15 +165,24 @@ const NoteCard = memo(function NoteCard({ event }: { event: NostrEvent }) {
   return (
     <div className="rounded-lg border-neon-glow bg-card p-4 hover-lift transition-all duration-150 hover:glow-neon">
       <div className="mb-2 flex items-center gap-2">
-        <Avatar src={profile?.picture} alt={name} size="sm" />
+        <button
+          ref={avatarRef}
+          type="button"
+          onClick={() => {
+            if (avatarRef.current) openUserPopover(event.pubkey, avatarRef.current);
+          }}
+          className="cursor-pointer"
+        >
+          <Avatar src={profile?.picture} alt={name} size="sm" />
+        </button>
         <span className="text-sm font-medium text-heading">{name}</span>
         <span className="text-xs text-muted">{timeStr}</span>
       </div>
 
       {cleanText && (
-        <p className="whitespace-pre-wrap text-sm leading-relaxed text-body">
-          {cleanText}
-        </p>
+        <div className="text-sm leading-relaxed text-body">
+          <RichContent content={cleanText} onMentionClick={openUserPopover} />
+        </div>
       )}
 
       {quoteRef && <QuotedNote eventId={quoteRef.eventId} />}

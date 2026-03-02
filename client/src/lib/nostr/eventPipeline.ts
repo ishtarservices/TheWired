@@ -7,6 +7,7 @@ import { store } from "../../store";
 import { putEvent } from "../db/eventStore";
 import { addEvent, indexChatMessage, indexReel, indexLongForm, indexLiveStream, indexNote, indexSpaceFeed, indexMusicTrack, indexMusicAlbum, indexReaction, indexReply, indexRepost, indexQuote } from "../../store/slices/eventsSlice";
 import { addTrack, indexTrackByArtist, indexTrackByAlbum, addAlbum, addPlaylist } from "../../store/slices/musicSlice";
+import { addDMMessage } from "../../store/slices/dmSlice";
 import { parseTrackEvent } from "../../features/music/trackParser";
 import { parseAlbumEvent } from "../../features/music/albumParser";
 import { parsePlaylistEvent } from "../../features/music/playlistParser";
@@ -16,6 +17,11 @@ import { SPACE_CHANNEL_ROUTES } from "../../features/spaces/spaceChannelRoutes";
 import { hasMediaUrls } from "../media/mediaUrlParser";
 import { parseThreadRef, parseQuoteRef } from "../../features/spaces/noteParser";
 import { profileCache } from "./profileCache";
+import { unwrapGiftWrap } from "./giftWrap";
+import { evaluateNotification, evaluateDMNotification, evaluateFriendRequestNotification, evaluateFriendAcceptNotification } from "./notificationEvaluator";
+import { addFriendRequest, markOutgoingAccepted, acceptFriendRequest, addProcessedWrapId, removeFriend } from "../../store/slices/friendRequestSlice";
+import { addKnownFollower } from "../../store/slices/identitySlice";
+import { acceptFriendRequestAction } from "./friendRequest";
 
 const dedup = new EventDeduplicator();
 
@@ -74,6 +80,13 @@ export async function processIncomingEvent(
     return;
   }
 
+  // Step 4: Handle gift wraps specially (don't add to general event store)
+  if (event.kind === EVENT_KINDS.GIFT_WRAP) {
+    store.dispatch(incrementEventCount(relayUrl));
+    handleGiftWrap(event);
+    return;
+  }
+
   // Step 4: Dispatch to store
   store.dispatch(addEvent(event));
   store.dispatch(incrementEventCount(relayUrl));
@@ -91,6 +104,9 @@ export async function processIncomingEvent(
 
   // Step 5: Index by kind
   indexEvent(event);
+
+  // Step 6: Evaluate for notifications (unread badges, toasts)
+  evaluateNotification(event);
 }
 
 function indexEvent(event: NostrEvent): void {
@@ -133,8 +149,30 @@ function indexEvent(event: NostrEvent): void {
     }
     case EVENT_KINDS.CHAT_MESSAGE: {
       if (hTag) {
-        store.dispatch(indexChatMessage({ groupId: hTag, eventId: event.id }));
-        store.dispatch(trackFeedTimestamp({ contextId: hTag, createdAt: event.created_at }));
+        const channelTag = event.tags.find((t) => t[0] === "channel")?.[1];
+
+        if (channelTag) {
+          // New-style: explicit channel tag → index per-channel
+          const indexKey = `${hTag}:${channelTag}`;
+          store.dispatch(indexChatMessage({ groupId: indexKey, eventId: event.id }));
+          store.dispatch(trackFeedTimestamp({ contextId: indexKey, createdAt: event.created_at }));
+        } else {
+          // Legacy: no channel tag → route to default chat channel if known
+          const state = store.getState();
+          const spaceChannels = state.spaces.channels[hTag];
+          const defaultChat = spaceChannels?.find((c) => c.type === "chat" && c.isDefault)
+            ?? spaceChannels?.find((c) => c.type === "chat");
+
+          if (defaultChat) {
+            const indexKey = `${hTag}:${defaultChat.id}`;
+            store.dispatch(indexChatMessage({ groupId: indexKey, eventId: event.id }));
+            store.dispatch(trackFeedTimestamp({ contextId: indexKey, createdAt: event.created_at }));
+          } else {
+            // Channels not loaded yet — fall back to space-level indexing
+            store.dispatch(indexChatMessage({ groupId: hTag, eventId: event.id }));
+            store.dispatch(trackFeedTimestamp({ contextId: hTag, createdAt: event.created_at }));
+          }
+        }
       }
       break;
     }
@@ -239,5 +277,186 @@ function indexEventIntoSpaceFeeds(event: NostrEvent): void {
       store.dispatch(indexSpaceFeed({ contextId: legacyMediaContextId, eventId: event.id }));
       store.dispatch(trackFeedTimestamp({ contextId: legacyMediaContextId, createdAt: event.created_at }));
     }
+  }
+}
+
+/** Handle incoming gift wrap (kind:1059) — decrypt and route to DM or friend request */
+async function handleGiftWrap(event: NostrEvent): Promise<void> {
+  try {
+    const dm = await unwrapGiftWrap(event);
+    const myPubkey = store.getState().identity.pubkey;
+    if (!myPubkey) return;
+
+    // Check for friend request type tags before DM routing
+    const typeTag = dm.tags.find((t) => t[0] === "type")?.[1];
+    if (typeTag === "friend_request") {
+      handleFriendRequestWrap(dm, myPubkey);
+      return;
+    }
+    if (typeTag === "friend_request_accept") {
+      handleFriendAcceptWrap(dm, myPubkey);
+      return;
+    }
+    if (typeTag === "friend_request_remove") {
+      handleFriendRemoveWrap(dm, myPubkey);
+      return;
+    }
+
+    const isOwnMessage = dm.sender === myPubkey;
+
+    // Determine conversation partner
+    const partnerPubkey = isOwnMessage
+      ? dm.tags.find((t) => t[0] === "p" && t[1] !== myPubkey)?.[1] ?? dm.sender
+      : dm.sender;
+
+    // Snapshot DM state BEFORE dispatch so we can gate the notification on
+    // whether this wrap was already processed (e.g. restored from IndexedDB).
+    const dmState = store.getState().dm;
+    const alreadyProcessed = dmState.processedWrapIds.includes(dm.wrapId);
+
+    // Use receive-time for display instead of the rumor's randomized created_at.
+    // NIP-17 randomizes the rumor timestamp for wire-level privacy — it's not
+    // meaningful for display. Own messages dispatched from dmService already use
+    // real time and will dedup before reaching here.
+    const displayTimestamp = Math.round(Date.now() / 1000);
+
+    store.dispatch(
+      addDMMessage({
+        partnerPubkey,
+        myPubkey,
+        message: {
+          id: dm.wrapId,
+          senderPubkey: dm.sender,
+          content: dm.content,
+          createdAt: displayTimestamp,
+          wrapId: dm.wrapId,
+        },
+      }),
+    );
+
+    // Only fire notification for genuinely new incoming messages that we're
+    // not currently viewing. Prevents spurious notifications on app reload
+    // when old wraps are re-fetched from relays.
+    if (!isOwnMessage && !alreadyProcessed && dmState.activeConversation !== partnerPubkey) {
+      evaluateDMNotification(dm.sender, dm.content);
+    }
+  } catch (err) {
+    // Log for debugging — common for wraps not addressed to us
+    console.debug("[DM] Gift wrap decryption failed:", (err as Error)?.message ?? err);
+  }
+}
+
+/** Handle an unwrapped friend request */
+function handleFriendRequestWrap(
+  dm: { sender: string; content: string; tags: string[][]; wrapId: string },
+  myPubkey: string,
+): void {
+  const isOwnMessage = dm.sender === myPubkey;
+  const partnerPubkey = isOwnMessage
+    ? dm.tags.find((t) => t[0] === "p" && t[1] !== myPubkey)?.[1] ?? dm.sender
+    : dm.sender;
+
+  const frState = store.getState().friendRequests;
+
+  // Dedup check
+  if (frState.processedWrapIds.includes(dm.wrapId)) return;
+
+  // Skip if this pubkey was explicitly removed/cancelled — prevents relay resurrection
+  if (frState.removedPubkeys.includes(partnerPubkey)) return;
+
+  const direction = isOwnMessage ? "outgoing" : "incoming";
+
+  // Auto-accept: if we receive an incoming request and we already have a pending
+  // outgoing to the same pubkey, auto-accept both directions
+  if (direction === "incoming") {
+    const pendingOutgoing = frState.requests.find(
+      (r) => r.pubkey === partnerPubkey && r.direction === "outgoing" && r.status === "pending",
+    );
+    if (pendingOutgoing) {
+      store.dispatch(
+        addFriendRequest({
+          id: dm.wrapId,
+          pubkey: partnerPubkey,
+          message: dm.content,
+          createdAt: Math.round(Date.now() / 1000),
+          status: "accepted",
+          direction: "incoming",
+        }),
+      );
+      store.dispatch(markOutgoingAccepted(partnerPubkey));
+      store.dispatch(addKnownFollower(partnerPubkey));
+      // Send accept back (don't duplicate the state updates already done above)
+      acceptFriendRequestAction(partnerPubkey).catch(() => {});
+      return;
+    }
+  }
+
+  store.dispatch(
+    addFriendRequest({
+      id: dm.wrapId,
+      pubkey: partnerPubkey,
+      message: dm.content,
+      createdAt: Math.round(Date.now() / 1000),
+      status: "pending",
+      direction,
+    }),
+  );
+
+  // Fire notification for incoming only
+  if (direction === "incoming") {
+    evaluateFriendRequestNotification(partnerPubkey, dm.content);
+  }
+}
+
+/** Handle an unwrapped friend request accept */
+function handleFriendAcceptWrap(
+  dm: { sender: string; content: string; tags: string[][]; wrapId: string },
+  myPubkey: string,
+): void {
+  const isOwnMessage = dm.sender === myPubkey;
+  const partnerPubkey = isOwnMessage
+    ? dm.tags.find((t) => t[0] === "p" && t[1] !== myPubkey)?.[1] ?? dm.sender
+    : dm.sender;
+
+  const frState = store.getState().friendRequests;
+
+  // Dedup check
+  if (frState.processedWrapIds.includes(dm.wrapId)) return;
+
+  // Track wrap ID to prevent re-processing (was previously missing)
+  store.dispatch(addProcessedWrapId(dm.wrapId));
+
+  // Skip if this pubkey was explicitly removed
+  if (frState.removedPubkeys.includes(partnerPubkey)) return;
+
+  if (!isOwnMessage) {
+    // They accepted our request
+    store.dispatch(markOutgoingAccepted(partnerPubkey));
+    store.dispatch(acceptFriendRequest(partnerPubkey));
+    // They accepted, so they follow us — sync knownFollowers
+    store.dispatch(addKnownFollower(partnerPubkey));
+    evaluateFriendAcceptNotification(partnerPubkey);
+  }
+}
+
+/** Handle an unwrapped friend removal notification */
+function handleFriendRemoveWrap(
+  dm: { sender: string; content: string; tags: string[][]; wrapId: string },
+  myPubkey: string,
+): void {
+  const isOwnMessage = dm.sender === myPubkey;
+  const partnerPubkey = isOwnMessage
+    ? dm.tags.find((t) => t[0] === "p" && t[1] !== myPubkey)?.[1] ?? dm.sender
+    : dm.sender;
+
+  const frState = store.getState().friendRequests;
+
+  // Dedup check
+  if (frState.processedWrapIds.includes(dm.wrapId)) return;
+  store.dispatch(addProcessedWrapId(dm.wrapId));
+
+  if (!isOwnMessage) {
+    // The other user removed us as a friend — clear all request state for them
+    store.dispatch(removeFriend(partnerPubkey));
   }
 }

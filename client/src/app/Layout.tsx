@@ -5,6 +5,8 @@ import { RightPanel } from "../components/layout/RightPanel";
 import { TopBar } from "../components/layout/TopBar";
 import { PlaybackBar } from "../features/music/PlaybackBar";
 import { QueuePanel } from "../features/music/QueuePanel";
+import { UserPopoverProvider } from "../features/profile/UserPopoverContext";
+import { NotificationToastStack } from "../features/notifications/NotificationToast";
 import { useAppSelector, useAppDispatch } from "../store/hooks";
 import { toggleMemberList } from "../store/slices/uiSlice";
 
@@ -18,21 +20,24 @@ export function Layout() {
   const showRightPanel = !!activeSpaceId && memberListVisible;
 
   return (
-    <div className="flex h-screen flex-col overflow-hidden bg-ambient animate-gradient-shift">
-      <TopBar
-        sidebarExpanded={sidebarExpanded}
-        onToggleSidebar={() => setSidebarExpanded((v) => !v)}
-        memberListVisible={memberListVisible}
-        onToggleMemberList={() => dispatch(toggleMemberList())}
-        hasActiveSpace={!!activeSpaceId}
-      />
-      <div className="flex flex-1 overflow-hidden">
-        <Sidebar expanded={sidebarExpanded} />
-        <CenterPanel />
-        <RightPanel visible={showRightPanel} />
-        <QueuePanel />
+    <UserPopoverProvider>
+      <div className="flex h-screen flex-col overflow-hidden bg-ambient animate-gradient-shift">
+        <TopBar
+          sidebarExpanded={sidebarExpanded}
+          onToggleSidebar={() => setSidebarExpanded((v) => !v)}
+          memberListVisible={memberListVisible}
+          onToggleMemberList={() => dispatch(toggleMemberList())}
+          hasActiveSpace={!!activeSpaceId}
+        />
+        <div className="flex flex-1 overflow-hidden">
+          <Sidebar expanded={sidebarExpanded} />
+          <CenterPanel />
+          <RightPanel visible={showRightPanel} />
+          <QueuePanel />
+        </div>
+        {hasTrack && <PlaybackBar />}
+        <NotificationToastStack />
       </div>
-      {hasTrack && <PlaybackBar />}
-    </div>
+    </UserPopoverProvider>
   );
 }

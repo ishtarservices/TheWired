@@ -1,7 +1,7 @@
 import { createSlice, type PayloadAction } from "@reduxjs/toolkit";
 
 type ActiveTab = "chat" | "reels" | "longform";
-type SidebarMode = "spaces" | "music";
+type SidebarMode = "spaces" | "music" | "messages";
 
 interface UIState {
   sidebarExpanded: boolean;
