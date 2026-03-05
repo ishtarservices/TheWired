@@ -22,6 +22,7 @@ interface EventsExtraState {
   reactions: Record<string, string[]>; // targetEventId -> reaction eventIds
   replies: Record<string, string[]>; // parentEventId -> reply eventIds
   reposts: Record<string, string[]>; // targetEventId -> repost eventIds
+  repostsByAuthor: Record<string, string[]>; // pubkey -> repost eventIds
   quotes: Record<string, string[]>; // targetEventId -> quote eventIds
 }
 
@@ -37,6 +38,7 @@ const initialState = eventsAdapter.getInitialState<EventsExtraState>({
   reactions: {},
   replies: {},
   reposts: {},
+  repostsByAuthor: {},
   quotes: {},
 });
 
@@ -188,6 +190,16 @@ export const eventsSlice = createSlice({
         action.payload.eventId,
       );
     },
+    indexRepostByAuthor(
+      state,
+      action: PayloadAction<{ pubkey: string; eventId: string }>,
+    ) {
+      pushToIndex(
+        state.repostsByAuthor,
+        action.payload.pubkey,
+        action.payload.eventId,
+      );
+    },
     indexQuote(
       state,
       action: PayloadAction<{ targetEventId: string; eventId: string }>,
@@ -219,5 +231,6 @@ export const {
   indexReaction,
   indexReply,
   indexRepost,
+  indexRepostByAuthor,
   indexQuote,
 } = eventsSlice.actions;

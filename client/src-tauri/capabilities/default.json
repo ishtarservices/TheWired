@@ -6,6 +6,16 @@
     "main"
   ],
   "permissions": [
-    "core:default"
+    "core:default",
+    "opener:default",
+    {
+      "identifier": "http:default",
+      "allow": [
+        { "url": "https://blossom.primal.net/**" },
+        { "url": "https://cdn.satellite.earth/**" },
+        { "url": "https://blossom.oxtr.dev/**" },
+        { "url": "https://files.v0l.io/**" }
+      ]
+    }
   ]
 }

@@ -45,7 +45,20 @@ export async function registerSpace(params: {
   return api<{ id: string }>("/spaces", { method: "POST", body: params });
 }
 
+/** Leave a space (removes the current user from the member list) */
+export async function leaveSpaceApi(id: string) {
+  return api<{ left: boolean }>(`/spaces/${encodeURIComponent(id)}/members/me`, { method: "DELETE" });
+}
+
 /** Delete a space from the backend database */
 export async function deleteSpaceApi(id: string) {
   return api<{ deleted: boolean }>(`/spaces/${encodeURIComponent(id)}`, { method: "DELETE" });
+}
+
+/** Check which space IDs still exist on the backend (for stale cache cleanup) */
+export async function validateSpaces(ids: string[]) {
+  return api<{ existing: string[]; deleted: string[] }>("/spaces/validate", {
+    method: "POST",
+    body: { ids },
+  });
 }

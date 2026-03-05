@@ -3,6 +3,7 @@ import { Send } from "lucide-react";
 import { npubEncode, decode } from "nostr-tools/nip19";
 import { Button } from "../../components/ui/Button";
 import { MentionAutocomplete } from "../../components/content/MentionAutocomplete";
+import { useAutoResize } from "../../hooks/useAutoResize";
 
 interface ChatInputProps {
   onSend: (content: string, mentionPubkeys: string[]) => void;
@@ -58,6 +59,7 @@ export function ChatInput({ onSend, disabled }: ChatInputProps) {
   const [mentionQuery, setMentionQuery] = useState<string | null>(null);
   const [caretRect, setCaretRect] = useState<DOMRect | null>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+  useAutoResize(textareaRef, value, 150);
 
   const updateMentionState = useCallback((val: string, cursor: number) => {
     const query = detectMentionQuery(val, cursor);
@@ -154,7 +156,7 @@ export function ChatInput({ onSend, disabled }: ChatInputProps) {
           placeholder="Send a message..."
           disabled={disabled}
           rows={1}
-          className="flex-1 resize-none bg-transparent text-sm text-heading placeholder:text-muted focus:outline-none focus:ring-pulse/30 focus:shadow-[0_0_12px_rgba(139,92,246,0.1)]"
+          className="flex-1 resize-none overflow-hidden bg-transparent text-sm text-heading placeholder:text-muted focus:outline-none focus:ring-pulse/30 focus:shadow-[0_0_12px_rgba(139,92,246,0.1)]"
         />
         <Button
           type="submit"

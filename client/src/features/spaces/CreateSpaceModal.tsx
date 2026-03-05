@@ -1,11 +1,12 @@
-import { useState } from "react";
+import { useState, useRef } from "react";
 import { X } from "lucide-react";
 import { Button } from "../../components/ui/Button";
 import { Modal } from "../../components/ui/Modal";
-import { MemberInput } from "./MemberInput";
+import { ImageUpload } from "../../components/ui/ImageUpload";
 import { useAppSelector } from "../../store/hooks";
 import { BOOTSTRAP_RELAYS } from "../../lib/nostr/constants";
 import { registerSpace } from "../../lib/api/spaces";
+import { useAutoResize } from "../../hooks/useAutoResize";
 import type { Space } from "../../types/space";
 
 interface CreateSpaceModalProps {
@@ -31,14 +32,12 @@ export function CreateSpaceModal({
   const [name, setName] = useState("");
   const [about, setAbout] = useState("");
   const [picture, setPicture] = useState("");
-  const [mode, setMode] = useState<"read" | "read-write">("read");
-  const [members, setMembers] = useState<string[]>([]);
+  const [mode, setMode] = useState<"read" | "read-write">("read-write");
+  const aboutRef = useRef<HTMLTextAreaElement>(null);
+  useAutoResize(aboutRef, about, 200);
 
   function handleCreate() {
     if (!name.trim() || !pubkey) return;
-
-    // Always include the creator as a member (dedup in case they added themselves)
-    const allMembers = members.includes(pubkey) ? members : [pubkey, ...members];
 
     const space: Space = {
       id: generateId(),
@@ -48,7 +47,7 @@ export function CreateSpaceModal({
       mode,
       creatorPubkey: pubkey,
       adminPubkeys: [pubkey],
-      memberPubkeys: allMembers,
+      memberPubkeys: [pubkey],
       hostRelay: BOOTSTRAP_RELAYS[0],
       isPrivate: false,
       createdAt: Math.floor(Date.now() / 1000),
@@ -72,8 +71,7 @@ export function CreateSpaceModal({
     setName("");
     setAbout("");
     setPicture("");
-    setMode("read");
-    setMembers([]);
+    setMode("read-write");
     onClose();
   }
 
@@ -109,42 +107,28 @@ export function CreateSpaceModal({
               Description
             </label>
             <textarea
+              ref={aboutRef}
               value={about}
               onChange={(e) => setAbout(e.target.value)}
               placeholder="What's this space about?"
               rows={2}
-              className="w-full rounded-xl bg-white/[0.04] border border-white/[0.04] px-3 py-1.5 text-sm text-heading placeholder-muted focus:border-neon focus:outline-none transition-colors"
+              className="w-full resize-none overflow-hidden rounded-xl bg-white/[0.04] border border-white/[0.04] px-3 py-1.5 text-sm text-heading placeholder-muted focus:border-neon focus:outline-none transition-colors"
             />
           </div>
 
-          <div>
-            <label className="mb-1 block text-xs font-medium text-soft">
-              Picture URL
-            </label>
-            <input
-              type="text"
-              value={picture}
-              onChange={(e) => setPicture(e.target.value)}
-              placeholder="https://..."
-              className="w-full rounded-xl bg-white/[0.04] border border-white/[0.04] px-3 py-1.5 text-sm text-heading placeholder-muted focus:border-neon focus:outline-none transition-colors"
-            />
-          </div>
+          <ImageUpload
+            value={picture}
+            onChange={setPicture}
+            label="Picture"
+            placeholder="Drop space image or click to upload"
+            shape="square"
+          />
 
           <div>
             <label className="mb-1 block text-xs font-medium text-soft">
               Mode
             </label>
             <div className="flex gap-2">
-              <button
-                onClick={() => setMode("read")}
-                className={`flex-1 rounded-xl px-3 py-2 text-sm font-medium transition-all duration-150 ${
-                  mode === "read"
-                    ? "bg-pulse/15 text-pulse-soft ring-1 ring-pulse/30"
-                    : "bg-white/[0.04] text-soft hover:text-heading"
-                }`}
-              >
-                Feed (Read-only)
-              </button>
               <button
                 onClick={() => setMode("read-write")}
                 className={`flex-1 rounded-xl px-3 py-2 text-sm font-medium transition-all duration-150 ${
@@ -155,6 +139,16 @@ export function CreateSpaceModal({
               >
                 Community (Read-write)
               </button>
+              <button
+                onClick={() => setMode("read")}
+                className={`flex-1 rounded-xl px-3 py-2 text-sm font-medium transition-all duration-150 ${
+                  mode === "read"
+                    ? "bg-pulse/15 text-pulse-soft ring-1 ring-pulse/30"
+                    : "bg-white/[0.04] text-soft hover:text-heading"
+                }`}
+              >
+                Feed (Read-only)
+              </button>
             </div>
             <p className="mt-1 text-xs text-muted">
               {mode === "read"
@@ -163,16 +157,6 @@ export function CreateSpaceModal({
             </p>
           </div>
 
-          <div>
-            <label className="mb-1 block text-xs font-medium text-soft">
-              Members
-            </label>
-            <MemberInput
-              members={members}
-              onAdd={(pk) => setMembers((prev) => [...prev, pk])}
-              onRemove={(pk) => setMembers((prev) => prev.filter((m) => m !== pk))}
-            />
-          </div>
         </div>
 
         <div className="mt-6 flex justify-end gap-2">

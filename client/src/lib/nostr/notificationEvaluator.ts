@@ -8,6 +8,7 @@ import {
   type NotificationType,
 } from "../../store/slices/notificationSlice";
 import { addKnownFollower } from "../../store/slices/identitySlice";
+import { showBrowserNotification } from "../../features/notifications/browserNotify";
 
 /**
  * Evaluate an incoming event for notification side-effects.
@@ -75,6 +76,11 @@ export function evaluateDMNotification(senderPubkey: string, content: string): v
       timestamp: Date.now(),
     }),
   );
+
+  // Fire browser/OS notification immediately (only shows when app is not focused)
+  if (prefs.browserNotifications) {
+    showBrowserNotification("New direct message", preview);
+  }
 }
 
 /**
@@ -112,6 +118,11 @@ export function evaluateFriendRequestNotification(
       actionTarget: senderPubkey,
     }),
   );
+
+  // Fire browser/OS notification (only shows when app is not focused)
+  if (prefs.browserNotifications) {
+    showBrowserNotification("Friend request", body);
+  }
 }
 
 /**
@@ -128,16 +139,22 @@ export function evaluateFriendAcceptNotification(
   if (!prefs.enabled) return;
   if (prefs.dnd && (!prefs.dndUntil || prefs.dndUntil > Date.now())) return;
 
+  const body = `${senderPubkey.slice(0, 8)}... accepted your friend request`;
+
   store.dispatch(
     addNotification({
       id: `friend-accept-${senderPubkey}-${Date.now()}`,
       type: "friend_request",
       title: "Friend request accepted",
-      body: `${senderPubkey.slice(0, 8)}... accepted your friend request`,
+      body,
       actorPubkey: senderPubkey,
       timestamp: Date.now(),
     }),
   );
+
+  if (prefs.browserNotifications) {
+    showBrowserNotification("Friend request accepted", body);
+  }
 }
 
 // ── Private helpers ─────────────────────────────────────────────

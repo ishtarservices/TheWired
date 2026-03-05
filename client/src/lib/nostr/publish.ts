@@ -1,5 +1,6 @@
 import type { NostrEvent, UnsignedEvent } from "../../types/nostr";
 import { getSigner } from "./loginFlow";
+import { signingQueue } from "./signingQueue";
 import { relayManager } from "./relayManager";
 import { processIncomingEvent } from "./eventPipeline";
 import { putEvent } from "../db/eventStore";
@@ -13,7 +14,7 @@ export async function signAndPublish(
   const signer = getSigner();
   if (!signer) throw new Error("No signer available");
 
-  const signed = await signer.signEvent(unsigned);
+  const signed = await signingQueue.enqueue(() => signer.signEvent(unsigned));
   relayManager.publish(signed, targetRelays);
 
   // Persist to IndexedDB so events survive page refresh
@@ -33,7 +34,7 @@ export async function signAndSaveLocally(
   const signer = getSigner();
   if (!signer) throw new Error("No signer available");
 
-  const signed = await signer.signEvent(unsigned);
+  const signed = await signingQueue.enqueue(() => signer.signEvent(unsigned));
 
   // Persist to IndexedDB
   await putEvent(signed);

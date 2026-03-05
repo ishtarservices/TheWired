@@ -17,16 +17,23 @@ import {
   Flag,
   HeartHandshake,
   Clock,
+  FileText,
+  MessageSquare,
+  ImageIcon,
+  BookOpen,
+  Repeat2,
 } from "lucide-react";
 import { npubEncode } from "nostr-tools/nip19";
 import { Avatar } from "../../components/ui/Avatar";
 import { Spinner } from "../../components/ui/Spinner";
 import { useProfile } from "./useProfile";
-import { useProfileNotes } from "./useProfileNotes";
+import { useProfileFeed } from "./useProfileNotes";
 import { useFollowData } from "./useFollowData";
 import { useMutualFollow } from "./useMutualFollow";
-import { NoteCard } from "./NoteCard";
-import { FollowCard } from "./FollowCard";
+import { useProfileEngagementSub } from "./useProfileEngagementSub";
+import { ProfileNoteCard } from "./NoteCard";
+import { FollowListModal } from "./FollowListModal";
+import { ArticleCard } from "../longform/ArticleCard";
 import { followUser, unfollowUser } from "../../lib/nostr/follow";
 import { sendFriendRequest, acceptFriendRequestAction, cancelFriendRequestAction, removeFriendAction, wouldBreakFriendship } from "../../lib/nostr/friendRequest";
 import { useAppSelector, useAppDispatch } from "../../store/hooks";
@@ -34,11 +41,9 @@ import { setMuteList } from "../../store/slices/identitySlice";
 import { buildMuteListEvent } from "../../lib/nostr/eventBuilder";
 import { signAndPublish } from "../../lib/nostr/publish";
 import { useClickOutside } from "../../hooks/useClickOutside";
-import type { NostrEvent } from "../../types/nostr";
+import { RichContent } from "../../components/content/RichContent";
 
-type Tab = "notes" | "following" | "followers";
-
-const PAGE_SIZE = 50;
+type Tab = "notes" | "reposts" | "replies" | "media" | "reads";
 
 interface ProfilePageProps {
   pubkey: string;
@@ -47,8 +52,12 @@ interface ProfilePageProps {
 export function ProfilePage({ pubkey }: ProfilePageProps) {
   const { profile } = useProfile(pubkey);
   const [activeTab, setActiveTab] = useState<Tab>("notes");
-  const { notes, loading: notesLoading, eoseReceived } = useProfileNotes(pubkey);
-  const { following, followers, followingLoading, followersLoading } = useFollowData(pubkey, activeTab);
+  const [followModal, setFollowModal] = useState<"following" | "followers" | null>(null);
+  const {
+    allItems, rootNotes, reposts, replies, mediaItems, articles,
+    loading: feedLoading, eoseReceived, articlesEose,
+  } = useProfileFeed(pubkey);
+  const { following, followers, followingLoading, followersLoading } = useFollowData(pubkey, followModal === "followers");
   const { iFollow, isMutual, loading: followLoading } = useMutualFollow(pubkey);
   const myPubkey = useAppSelector((s) => s.identity.pubkey);
   const muteList = useAppSelector((s) => s.identity.muteList);
@@ -57,6 +66,20 @@ export function ProfilePage({ pubkey }: ProfilePageProps) {
   const isMe = pubkey === myPubkey;
   const isMuted = muteList.some((m) => m.type === "pubkey" && m.value === pubkey);
   const navigate = useNavigate();
+
+  // Engagement subscriptions for visible notes
+  const visibleNoteIds = useMemo(() => {
+    const items = activeTab === "notes" ? rootNotes
+      : activeTab === "reposts" ? reposts
+      : activeTab === "replies" ? replies
+      : activeTab === "media" ? mediaItems
+      : [];
+    return items
+      .slice(0, 50)
+      .map((item) => item.event.id)
+      .filter((id) => id);
+  }, [activeTab, rootNotes, reposts, replies, mediaItems]);
+  useProfileEngagementSub(visibleNoteIds);
 
   // Derive friend request status for this user
   const friendStatus = useMemo(() => {
@@ -86,7 +109,6 @@ export function ProfilePage({ pubkey }: ProfilePageProps) {
 
   const handleFollow = useCallback(async () => {
     if (iFollow) {
-      // If they're a friend, show confirmation before unfollowing
       if (wouldBreakFriendship(pubkey)) {
         setShowUnfollowConfirm(true);
         return;
@@ -99,7 +121,6 @@ export function ProfilePage({ pubkey }: ProfilePageProps) {
 
   const handleConfirmUnfollow = useCallback(async () => {
     setShowUnfollowConfirm(false);
-    // Unfollowing a friend: remove friendship + unfollow
     await removeFriendAction(pubkey);
   }, [pubkey]);
 
@@ -140,10 +161,12 @@ export function ProfilePage({ pubkey }: ProfilePageProps) {
   const displayName =
     profile?.display_name || profile?.name || pubkey.slice(0, 12) + "...";
 
-  const tabs: { id: Tab; label: string; count: string }[] = [
-    { id: "notes", label: "Notes", count: String(notes.length) },
-    { id: "following", label: "Following", count: followingLoading ? "—" : String(following.length) },
-    { id: "followers", label: "Followers", count: activeTab === "followers" || followers.length > 0 ? String(followers.length) : "—" },
+  const tabs: { id: Tab; label: string; icon: typeof FileText }[] = [
+    { id: "notes", label: "Notes", icon: FileText },
+    { id: "reposts", label: "Reposts", icon: Repeat2 },
+    { id: "replies", label: "Replies", icon: MessageSquare },
+    { id: "media", label: "Media", icon: ImageIcon },
+    { id: "reads", label: "Reads", icon: BookOpen },
   ];
 
   return (
@@ -398,7 +421,9 @@ export function ProfilePage({ pubkey }: ProfilePageProps) {
         )}
 
         {profile?.about && (
-          <p className="mt-3 text-sm text-body">{profile.about}</p>
+          <div className="mt-3 text-sm text-body">
+            <RichContent content={profile.about} />
+          </div>
         )}
 
         <div className="mt-4 flex gap-4 text-sm text-soft">
@@ -440,67 +465,132 @@ export function ProfilePage({ pubkey }: ProfilePageProps) {
         </button>
       </div>
 
-      {/* Stats bar */}
+      {/* Stats bar — clickable Following/Followers */}
       <div className="flex gap-8 border-b border-white/[0.04] px-8 pb-3 text-sm">
         <span className="text-soft">
-          <span className="font-semibold text-heading">{notes.length}</span> Notes
+          <span className="font-semibold text-heading">{allItems.length}</span> Notes
         </span>
-        <span className="text-soft">
+        <button
+          onClick={() => setFollowModal("following")}
+          className="text-soft hover:text-neon transition-colors"
+        >
           <span className="font-semibold text-heading">
-            {followingLoading ? "—" : following.length}
+            {followingLoading ? "\u2014" : following.length}
           </span> Following
-        </span>
-        <span className="text-soft">
+        </button>
+        <button
+          onClick={() => setFollowModal("followers")}
+          className="text-soft hover:text-neon transition-colors"
+        >
           <span className="font-semibold text-heading">
-            {activeTab === "followers" || followers.length > 0 ? followers.length : "—"}
+            {followers.length > 0 ? followers.length : "\u2014"}
           </span> Followers
-        </span>
+        </button>
       </div>
 
       {/* Tab bar */}
       <div className="flex border-b border-white/[0.04]">
-        {tabs.map((tab) => (
-          <button
-            key={tab.id}
-            onClick={() => setActiveTab(tab.id)}
-            className={`px-6 py-3 text-sm font-medium transition-colors ${
-              activeTab === tab.id
-                ? "border-b-2 border-pulse text-pulse"
-                : "text-soft hover:text-heading"
-            }`}
-          >
-            {tab.label}
-          </button>
-        ))}
+        {tabs.map((tab) => {
+          const Icon = tab.icon;
+          return (
+            <button
+              key={tab.id}
+              onClick={() => setActiveTab(tab.id)}
+              className={`flex items-center gap-1.5 px-6 py-3 text-sm font-medium transition-colors ${
+                activeTab === tab.id
+                  ? "border-b-2 border-pulse text-pulse"
+                  : "text-soft hover:text-heading"
+              }`}
+            >
+              <Icon size={14} />
+              {tab.label}
+            </button>
+          );
+        })}
       </div>
 
       {/* Tab content */}
       <div className="flex-1 px-6 py-4">
         {activeTab === "notes" && (
-          <NotesTab notes={notes} loading={notesLoading} eoseReceived={eoseReceived} />
+          <FeedTab
+            items={rootNotes}
+            loading={feedLoading}
+            eoseReceived={eoseReceived}
+            emptyIcon={<FileText size={32} className="text-faint" />}
+            emptyText="No notes yet"
+          />
         )}
-        {activeTab === "following" && (
-          <FollowTab pubkeys={following} loading={followingLoading} emptyText="Not following anyone" />
+        {activeTab === "reposts" && (
+          <FeedTab
+            items={reposts}
+            loading={feedLoading}
+            eoseReceived={eoseReceived}
+            emptyIcon={<Repeat2 size={32} className="text-faint" />}
+            emptyText="No reposts yet"
+          />
         )}
-        {activeTab === "followers" && (
-          <FollowTab pubkeys={followers} loading={followersLoading} emptyText="No followers yet" />
+        {activeTab === "replies" && (
+          <FeedTab
+            items={replies}
+            loading={feedLoading}
+            eoseReceived={eoseReceived}
+            showThreadContext
+            emptyIcon={<MessageSquare size={32} className="text-faint" />}
+            emptyText="No replies yet"
+          />
+        )}
+        {activeTab === "media" && (
+          <FeedTab
+            items={mediaItems}
+            loading={feedLoading}
+            eoseReceived={eoseReceived}
+            emptyIcon={<ImageIcon size={32} className="text-faint" />}
+            emptyText="No media posts yet"
+          />
+        )}
+        {activeTab === "reads" && (
+          <ReadsTab articles={articles} loading={!articlesEose && articles.length === 0} />
         )}
       </div>
+
+      {/* Follow list modals */}
+      {followModal === "following" && (
+        <FollowListModal
+          pubkeys={following}
+          loading={followingLoading}
+          mode="following"
+          onClose={() => setFollowModal(null)}
+        />
+      )}
+      {followModal === "followers" && (
+        <FollowListModal
+          pubkeys={followers}
+          loading={followersLoading}
+          mode="followers"
+          onClose={() => setFollowModal(null)}
+        />
+      )}
     </div>
   );
 }
 
-function NotesTab({
-  notes,
+/** Generic feed tab for Notes/Replies/Media */
+function FeedTab({
+  items,
   loading,
   eoseReceived,
+  showThreadContext,
+  emptyIcon,
+  emptyText,
 }: {
-  notes: NostrEvent[];
+  items: import("./useProfileNotes").ProfileFeedItem[];
   loading: boolean;
   eoseReceived: boolean;
+  showThreadContext?: boolean;
+  emptyIcon: React.ReactNode;
+  emptyText: string;
 }) {
-  // Show full spinner only when we have no notes and are still loading
-  if (loading && notes.length === 0) {
+  if (loading && items.length === 0) {
     return (
       <div className="flex justify-center py-8">
         <Spinner size="md" />
@@ -508,16 +598,24 @@ function NotesTab({
     );
   }
 
-  if (notes.length === 0 && eoseReceived) {
+  if (items.length === 0 && eoseReceived) {
     return (
-      <p className="py-8 text-center text-sm text-muted">No notes yet</p>
+      <div className="flex flex-col items-center gap-3 py-12 text-center">
+        {emptyIcon}
+        <p className="text-sm text-muted">{emptyText}</p>
+      </div>
     );
   }
 
   return (
     <div className="flex flex-col gap-3">
-      {notes.map((event) => (
-        <NoteCard key={event.id} event={event} />
+      {items.map((item, i) => (
+        <ProfileNoteCard
+          key={item.event.id}
+          item={item}
+          showThreadContext={showThreadContext}
+          animationDelay={i < 15 ? i * 40 : undefined}
+        />
       ))}
       {!eoseReceived && (
         <div className="flex justify-center py-4">
@@ -528,18 +626,17 @@ function NotesTab({
   );
 }
 
-function FollowTab({
-  pubkeys,
+/** Reads tab for kind:30023 articles */
+function ReadsTab({
+  articles,
   loading,
-  emptyText,
 }: {
-  pubkeys: string[];
+  articles: import("../../types/media").LongFormArticle[];
   loading: boolean;
-  emptyText: string;
 }) {
-  const [visibleCount, setVisibleCount] = useState(PAGE_SIZE);
+  const navigate = useNavigate();
 
-  if (loading && pubkeys.length === 0) {
+  if (loading) {
     return (
       <div className="flex justify-center py-8">
         <Spinner size="md" />
@@ -547,35 +644,29 @@ function FollowTab({
     );
   }
 
-  if (pubkeys.length === 0) {
+  if (articles.length === 0) {
     return (
-      <p className="py-8 text-center text-sm text-muted">{emptyText}</p>
+      <div className="flex flex-col items-center gap-3 py-12 text-center">
+        <BookOpen size={32} className="text-faint" />
+        <p className="text-sm text-muted">No articles yet</p>
+      </div>
     );
   }
 
-  const visible = pubkeys.slice(0, visibleCount);
-  const hasMore = visibleCount < pubkeys.length;
-
   return (
-    <div className="flex flex-col gap-2">
-      <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
-        {visible.map((pk) => (
-          <FollowCard key={pk} pubkey={pk} />
-        ))}
-      </div>
-      {hasMore && (
-        <button
-          onClick={() => setVisibleCount((c) => c + PAGE_SIZE)}
-          className="mx-auto mt-2 rounded-lg bg-surface px-4 py-2 text-sm text-soft transition-colors hover:bg-edge hover:text-heading"
+    <div className="flex flex-col gap-3">
+      {articles.map((article, i) => (
+        <div
+          key={article.eventId}
+          className="animate-fade-in-up"
+          style={{ animationDelay: `${Math.min(i, 15) * 40}ms` }}
         >
-          Show more ({pubkeys.length - visibleCount} remaining)
-        </button>
-      )}
-      {loading && (
-        <div className="flex justify-center py-4">
-          <Spinner size="sm" />
+          <ArticleCard
+            article={article}
+            onClick={() => navigate(`/article/${article.eventId}`)}
+          />
         </div>
-      )}
+      ))}
     </div>
   );
 }

@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { useNavigate } from "react-router-dom";
 import { X, ArrowLeft, Users, AlertCircle } from "lucide-react";
 import { Modal } from "../../components/ui/Modal";
 import { Button } from "../../components/ui/Button";
@@ -8,7 +9,8 @@ import { getInviteWithPreview, redeemInvite, type InviteWithPreview } from "../.
 import { ApiRequestError } from "../../lib/api/client";
 import { useSpace } from "./useSpace";
 import { BOOTSTRAP_RELAYS } from "../../lib/nostr/constants";
-import { useAppSelector } from "../../store/hooks";
+import { useAppSelector, useAppDispatch } from "../../store/hooks";
+import { setSidebarMode } from "../../store/slices/uiSlice";
 
 interface JoinSpaceModalProps {
   open: boolean;
@@ -45,7 +47,9 @@ function parseInviteCode(input: string): string {
 }
 
 export function JoinSpaceModal({ open, onClose, initialCode }: JoinSpaceModalProps) {
-  const { createSpace, selectSpace } = useSpace();
+  const { joinSpace } = useSpace();
+  const dispatch = useAppDispatch();
+  const navigate = useNavigate();
   const myPubkey = useAppSelector((s) => s.identity.pubkey);
 
   const [step, setStep] = useState<Step>("input");
@@ -102,7 +106,7 @@ export function JoinSpaceModal({ open, onClose, initialCode }: JoinSpaceModalPro
       // spaces are correctly reflected for joiners
       const spaceData = res.data.space;
       const spaceMode = (spaceData?.mode as "read" | "read-write") ?? "read-write";
-      createSpace({
+      joinSpace({
         id: invite.spaceId,
         name: spaceData?.name ?? "Space",
         about: spaceData?.about ?? undefined,
@@ -116,11 +120,14 @@ export function JoinSpaceModal({ open, onClose, initialCode }: JoinSpaceModalPro
         createdAt: Math.floor(Date.now() / 1000),
       });
 
+      // Ensure sidebar shows spaces and CenterPanel navigates to the space view
+      dispatch(setSidebarMode("spaces"));
+      navigate("/");
+
       setStep("success");
 
-      // Auto-select the space after a brief delay
+      // Close modal after a brief delay (space is already selected by joinSpace)
       setTimeout(() => {
-        selectSpace(invite.spaceId);
         handleClose();
       }, 1200);
     } catch (err) {

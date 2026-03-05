@@ -1,5 +1,6 @@
 import { createGiftWrappedDM, createSelfWrap } from "./giftWrap";
 import { relayManager } from "./relayManager";
+import { getDMRelaysForPublish, getOwnDMRelays } from "./dmRelayList";
 import { store } from "@/store";
 import {
   addFriendRequest,
@@ -65,9 +66,13 @@ export async function sendFriendRequest(
   // Create gift wrap for self
   const selfWrap = await createSelfWrap(content, recipientPubkey, extraTags);
 
-  // Publish both
-  relayManager.publish(recipientWrap);
-  relayManager.publish(selfWrap);
+  // Publish to recipient's DM relays (falls back to all write relays)
+  const recipientRelays = await getDMRelaysForPublish(recipientPubkey);
+  relayManager.publish(recipientWrap, recipientRelays);
+
+  // Publish self-wrap to our own DM relays (falls back to all write relays)
+  const ownRelays = getOwnDMRelays();
+  relayManager.publish(selfWrap, ownRelays.length > 0 ? ownRelays : undefined);
 
   // Optimistic local dispatch
   store.dispatch(
@@ -105,9 +110,13 @@ export async function acceptFriendRequestAction(
   const recipientWrap = await createGiftWrappedDM("", requesterPubkey, extraTags);
   const selfWrap = await createSelfWrap("", requesterPubkey, extraTags);
 
-  // Publish both
-  relayManager.publish(recipientWrap);
-  relayManager.publish(selfWrap);
+  // Publish to recipient's DM relays (falls back to all write relays)
+  const recipientRelays = await getDMRelaysForPublish(requesterPubkey);
+  relayManager.publish(recipientWrap, recipientRelays);
+
+  // Publish self-wrap to our own DM relays (falls back to all write relays)
+  const ownRelays = getOwnDMRelays();
+  relayManager.publish(selfWrap, ownRelays.length > 0 ? ownRelays : undefined);
 
   // Update local state
   store.dispatch(acceptFriendRequest(requesterPubkey));
@@ -158,8 +167,14 @@ export async function removeFriendAction(pubkey: string): Promise<void> {
     const extraTags: string[][] = [["type", "friend_request_remove"]];
     const recipientWrap = await createGiftWrappedDM("", pubkey, extraTags);
     const selfWrap = await createSelfWrap("", pubkey, extraTags);
-    relayManager.publish(recipientWrap);
-    relayManager.publish(selfWrap);
+
+    // Publish to recipient's DM relays (falls back to all write relays)
+    const recipientRelays = await getDMRelaysForPublish(pubkey);
+    relayManager.publish(recipientWrap, recipientRelays);
+
+    // Publish self-wrap to our own DM relays (falls back to all write relays)
+    const ownRelays = getOwnDMRelays();
+    relayManager.publish(selfWrap, ownRelays.length > 0 ? ownRelays : undefined);
   } catch (err) {
     console.error("[FriendRequest] Failed to send remove wrap:", err);
     // Still proceed with local removal

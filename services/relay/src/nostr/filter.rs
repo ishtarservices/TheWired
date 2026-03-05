@@ -45,12 +45,29 @@ impl Filter {
             }
         }
         // Check h-tag filter
-        if !self.h_tags.is_empty() {
-            let event_h = event.get_tag_value("h");
-            if !event_h.map(|h| self.h_tags.contains(&h)).unwrap_or(false) {
-                return false;
-            }
+        if !self.h_tags.is_empty() && !self.event_has_matching_tag(event, "h", &self.h_tags) {
+            return false;
+        }
+        // Check p-tag filter (critical for gift wraps / DMs)
+        if !self.p_tags.is_empty() && !self.event_has_matching_tag(event, "p", &self.p_tags) {
+            return false;
+        }
+        // Check e-tag filter
+        if !self.e_tags.is_empty() && !self.event_has_matching_tag(event, "e", &self.e_tags) {
+            return false;
+        }
+        // Check d-tag filter
+        if !self.d_tags.is_empty() && !self.event_has_matching_tag(event, "d", &self.d_tags) {
+            return false;
         }
         true
+    }
+
+    /// Check if any tag of the given name in the event has a value in the filter set
+    fn event_has_matching_tag(&self, event: &super::event::Event, tag_name: &str, filter_values: &[String]) -> bool {
+        event.tags.iter().any(|t| {
+            t.first().map(|s| s.as_str()) == Some(tag_name)
+                && t.get(1).map(|v| filter_values.contains(v)).unwrap_or(false)
+        })
     }
 }

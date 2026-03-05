@@ -1,5 +1,8 @@
+import { useState } from "react";
 import { parseContent, type ContentSegment } from "@/lib/content/parseContent";
 import { MentionLink } from "./MentionLink";
+import { EmbedRenderer } from "./EmbedRenderer";
+import { MediaLightbox } from "../ui/MediaLightbox";
 
 interface RichContentProps {
   content: string;
@@ -59,14 +62,7 @@ function RichSegment({
       );
 
     case "image":
-      return (
-        <img
-          src={segment.url}
-          alt=""
-          loading="lazy"
-          className="max-w-xs max-h-60 rounded-lg mt-1 inline-block"
-        />
-      );
+      return <ClickableImage url={segment.url} />;
 
     case "video":
       return (
@@ -78,10 +74,31 @@ function RichSegment({
         />
       );
 
+    case "embed":
+      return <EmbedRenderer embed={segment.embed} />;
+
     case "hashtag":
       return <span className="text-pulse/80 font-medium">#{segment.value}</span>;
 
     default:
       return null;
   }
+}
+
+function ClickableImage({ url }: { url: string }) {
+  const [lightbox, setLightbox] = useState(false);
+  return (
+    <>
+      <img
+        src={url}
+        alt=""
+        loading="lazy"
+        onClick={() => setLightbox(true)}
+        className="max-w-xs max-h-60 rounded-lg mt-1 inline-block cursor-zoom-in hover:opacity-90 transition-opacity"
+      />
+      {lightbox && (
+        <MediaLightbox src={url} onClose={() => setLightbox(false)} />
+      )}
+    </>
+  );
 }

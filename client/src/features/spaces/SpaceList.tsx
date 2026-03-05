@@ -12,6 +12,7 @@ export function SpaceList() {
   const { spaces, activeSpaceId, selectSpace } = useSpace();
   const [showAction, setShowAction] = useState(false);
   const [ctxMenu, setCtxMenu] = useState<{ spaceId: string; x: number; y: number } | null>(null);
+  const [ctxSpaceId, setCtxSpaceId] = useState<string>("");
   const navigate = useNavigate();
   const location = useLocation();
 
@@ -24,6 +25,7 @@ export function SpaceList() {
 
   const handleContextMenu = useCallback((e: React.MouseEvent, spaceId: string) => {
     e.preventDefault();
+    setCtxSpaceId(spaceId);
     setCtxMenu({ spaceId, x: e.clientX, y: e.clientY });
   }, []);
 
@@ -98,12 +100,12 @@ export function SpaceList() {
         onClose={() => setShowAction(false)}
       />
 
-      {ctxMenu && (
+      {ctxSpaceId && (
         <SpaceContextMenu
-          open
+          open={!!ctxMenu}
           onClose={() => setCtxMenu(null)}
-          spaceId={ctxMenu.spaceId}
-          position={{ x: ctxMenu.x, y: ctxMenu.y }}
+          spaceId={ctxSpaceId}
+          position={ctxMenu ? { x: ctxMenu.x, y: ctxMenu.y } : { x: 0, y: 0 }}
         />
       )}
     </>

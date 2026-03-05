@@ -3,6 +3,7 @@ import {
   login,
   setProfile,
   setRelayList,
+  setDMRelayList,
   setFollowList,
   setMuteList,
 } from "../../store/slices/identitySlice";
@@ -18,12 +19,16 @@ import { detectSigner, createSigner, type NostrSigner } from "./signer";
 import { relayManager } from "./relayManager";
 import { subscriptionManager } from "./subscriptionManager";
 import { parseRelayList } from "./nip65";
+import { parseDMRelayList, clearDMRelayCache } from "./dmRelayList";
 import { EVENT_KINDS } from "../../types/nostr";
 import { saveUserState, getUserState } from "../db/userStateStore";
 import { loadSpaces } from "../db/spaceStore";
 import { loadMusicLibrary } from "../db/musicStore";
 import { getEventsByKind } from "../db/eventStore";
-import { setSpaces } from "../../store/slices/spacesSlice";
+import { setSpaces, removeSpace } from "../../store/slices/spacesSlice";
+import { addNotification } from "../../store/slices/notificationSlice";
+import { validateSpaces } from "../api/spaces";
+import { removeSpaceFromStore } from "../db/spaceStore";
 import {
   addTracks,
   addAlbums,
@@ -39,11 +44,14 @@ import {
 import { parseTrackEvent } from "../../features/music/trackParser";
 import { parseAlbumEvent } from "../../features/music/albumParser";
 import { parsePlaylistEvent } from "../../features/music/playlistParser";
-import { BOOTSTRAP_RELAYS } from "./constants";
+import { BOOTSTRAP_RELAYS, APP_RELAY } from "./constants";
+import { signAndPublish } from "./publish";
+import { buildDMRelayListEvent } from "./eventBuilder";
 import { profileCache } from "./profileCache";
 import { loadDMState, startDMPersistence } from "../../features/dm/dmPersistence";
 import { loadFollowerState, startFollowerPersistence } from "./followerPersistence";
 import { loadFriendRequestState, startFriendRequestPersistence } from "./friendRequestPersistence";
+import { loadNotificationState, startNotificationPersistence } from "../../features/notifications/notificationPersistence";
 import { setKnownFollowers, addKnownFollower } from "../../store/slices/identitySlice";
 
 let currentSigner: NostrSigner | null = null;
@@ -145,6 +153,30 @@ function subscribeUserData(
   });
 }
 
+/** Validate cached space IDs against backend and remove any that no longer exist */
+async function validateAndPurgeStaleSpaces(spaceIds: string[]): Promise<void> {
+  if (spaceIds.length === 0) return;
+  const res = await validateSpaces(spaceIds);
+  const deleted = res.data.deleted;
+  if (deleted.length === 0) return;
+
+  for (const id of deleted) {
+    store.dispatch(removeSpace(id));
+    removeSpaceFromStore(id);
+  }
+
+  const names = deleted.length === 1 ? "A space you joined" : `${deleted.length} spaces you joined`;
+  store.dispatch(
+    addNotification({
+      id: `space-removed-${Date.now()}`,
+      type: "chat",
+      title: "Space removed",
+      body: `${names} no longer exist and have been removed.`,
+      timestamp: Math.floor(Date.now() / 1000),
+    }),
+  );
+}
+
 /**
  * Full login flow.
  * @param signerTypeOverride - force a specific signer type
@@ -186,6 +218,12 @@ export async function performLogin(
     relayManager.connectFromConfig(cachedRelayList);
   }
 
+  // Step 5b: Load cached DM relay list from IndexedDB
+  const cachedDMRelays = await getUserState<string[]>("dm_relay_list");
+  if (cachedDMRelays?.length) {
+    store.dispatch(setDMRelayList({ relays: cachedDMRelays, createdAt: 0 }));
+  }
+
   // Step 6: Subscribe for relay list (kind:10002) from bootstrap relays
   relayManager.subscribe({
     filters: [{ kinds: [EVENT_KINDS.RELAY_LIST], authors: [pubkey], limit: 1 }],
@@ -208,6 +246,40 @@ export async function performLogin(
     },
   });
 
+  // Step 6b: Subscribe for DM relay list (kind:10050) from bootstrap relays
+  let dmRelayEoseReceived = false;
+  relayManager.subscribe({
+    filters: [{ kinds: [10050], authors: [pubkey], limit: 1 }],
+    relayUrls: BOOTSTRAP_RELAYS,
+    onEvent: (event) => {
+      const relays = parseDMRelayList(event);
+      if (relays.length > 0) {
+        store.dispatch(setDMRelayList({ relays, createdAt: event.created_at }));
+        saveUserState("dm_relay_list", relays);
+        // Connect to DM relays so gift wraps can be received
+        for (const url of relays) {
+          relayManager.connect(url);
+        }
+      }
+    },
+    onEOSE: () => {
+      if (dmRelayEoseReceived) return;
+      dmRelayEoseReceived = true;
+      // If no kind:10050 found and no cache, auto-publish defaults
+      const currentDMRelays = store.getState().identity.dmRelayList;
+      if (currentDMRelays.length === 0) {
+        const defaults = [APP_RELAY, "wss://relay.damus.io", "wss://nos.lol"];
+        const unsigned = buildDMRelayListEvent(pubkey, defaults);
+        signAndPublish(unsigned, BOOTSTRAP_RELAYS).then(() => {
+          store.dispatch(setDMRelayList({ relays: defaults, createdAt: Math.floor(Date.now() / 1000) }));
+          saveUserState("dm_relay_list", defaults);
+        }).catch((err) => {
+          console.error("[LoginFlow] Failed to auto-publish kind:10050:", err);
+        });
+      }
+    },
+  });
+
   // Step 7: Subscribe for user metadata from bootstrap relays
   subscribeUserData(pubkey, BOOTSTRAP_RELAYS);
 
@@ -215,6 +287,9 @@ export async function performLogin(
   const savedSpaces = await loadSpaces();
   if (savedSpaces.length > 0) {
     store.dispatch(setSpaces(savedSpaces));
+
+    // Non-blocking: validate cached spaces against backend and purge stale ones
+    validateAndPurgeStaleSpaces(savedSpaces.map((s) => s.id)).catch(() => {});
   }
 
   // Step 7c: Load music events from IndexedDB
@@ -278,18 +353,38 @@ export async function performLogin(
   await loadFriendRequestState();
   startFriendRequestPersistence();
 
+  // Step 7f-c: Load persisted notification state (unread counts, preferences, mutes)
+  await loadNotificationState();
+  startNotificationPersistence();
+
   // Step 7g: Subscribe for gift-wrapped DMs (kind:1059) addressed to us.
-  // Explicitly include APP_RELAY which is guaranteed to store gift wraps.
+  // Use a persisted timestamp so we catch all wraps since the last session.
+  // NIP-17 randomizes created_at up to 2 days back, so subtract a 3-day buffer
+  // from our last-seen timestamp to avoid missing events.
+  const THREE_DAYS = 3 * 24 * 60 * 60;
+  const lastGiftWrapTs = await getUserState<number>("last_gift_wrap_ts");
+  const giftWrapFilter: import("../../types/nostr").NostrFilter = {
+    kinds: [EVENT_KINDS.GIFT_WRAP],
+    "#p": [pubkey],
+  };
+  if (lastGiftWrapTs) {
+    // Fetch all wraps since (lastSeen - 3 days) to account for NIP-17 timestamp randomization
+    giftWrapFilter.since = lastGiftWrapTs - THREE_DAYS;
+  } else {
+    // First login: fetch a reasonable initial batch
+    giftWrapFilter.limit = 200;
+  }
+  // Subscribe on DM relays (if known) plus bootstrap for transition coverage
+  const dmRelays = store.getState().identity.dmRelayList;
+  const giftWrapRelayUrls = dmRelays.length > 0
+    ? [...new Set([...dmRelays, ...BOOTSTRAP_RELAYS])]
+    : BOOTSTRAP_RELAYS;
   subscriptionManager.subscribe({
-    filters: [
-      {
-        kinds: [EVENT_KINDS.GIFT_WRAP],
-        "#p": [pubkey],
-        limit: 100,
-      },
-    ],
-    relayUrls: BOOTSTRAP_RELAYS,
+    filters: [giftWrapFilter],
+    relayUrls: giftWrapRelayUrls,
   });
+  // Persist current timestamp for next session
+  saveUserState("last_gift_wrap_ts", Math.floor(Date.now() / 1000)).catch(() => {});
 
   // Step 7h: Load cached followers, then subscribe for kind:3 events that tag us.
   // Use all connected read relays (not just bootstrap) so user-configured relays are included.
@@ -387,6 +482,7 @@ export async function tryRestoreSession(): Promise<boolean> {
 export function performLogout(): void {
   currentSigner = null;
   profileCache.clear();
+  clearDMRelayCache();
   relayManager.disconnectAll();
   saveUserState("session", null);
 }

@@ -96,9 +96,9 @@ export function NotificationBell() {
 
       {/* Dropdown */}
       {open && (
-        <div className="absolute right-0 top-full mt-2 z-50 w-80 max-h-[420px] rounded-xl glass-panel shadow-[var(--shadow-elevated)] animate-fade-in-up flex flex-col overflow-hidden">
+        <div className="absolute right-0 top-full mt-2 z-50 w-80 max-h-[420px] rounded-xl shadow-[var(--shadow-elevated)] animate-fade-in-up flex flex-col overflow-hidden border border-white/[0.08] backdrop-blur-2xl" style={{ background: 'rgba(10, 13, 23, 0.96)' }}>
           {/* Header */}
-          <div className="flex items-center justify-between border-b border-white/[0.06] px-4 py-2.5">
+          <div className="flex items-center justify-between border-b border-white/[0.08] px-4 py-2.5 bg-white/[0.03]">
             <span className="text-xs font-semibold text-heading tracking-wide uppercase">Notifications</span>
             <div className="flex items-center gap-1">
               {notifications.length > 0 && (
@@ -199,8 +199,8 @@ function NotificationRow({
     <button
       onClick={onClick}
       className={cn(
-        "group flex w-full items-start gap-3 px-4 py-3 text-left transition-colors hover:bg-white/[0.03]",
-        !isRead && "bg-pulse/[0.03]",
+        "group flex w-full items-start gap-3 px-4 py-3 text-left transition-colors hover:bg-white/[0.05]",
+        !isRead && "bg-pulse/[0.04]",
       )}
     >
       {/* Unread dot */}

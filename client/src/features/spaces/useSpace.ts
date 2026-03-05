@@ -20,8 +20,10 @@ import {
 import {
   clearChannelUnread,
   updateLastRead,
+  addNotification,
 } from "../../store/slices/notificationSlice";
-import { fetchMembers } from "../../lib/api/spaces";
+import { fetchMembers, getSpace } from "../../lib/api/spaces";
+import { ApiRequestError } from "../../lib/api/client";
 import type { Space, SpaceChannel } from "../../types/space";
 
 /** Pick the best default channel for a space, respecting position and isDefault flag */
@@ -67,7 +69,23 @@ export function useSpace() {
           dispatch(updateSpace(updated));
           updateSpaceInStore(updated);
         }
-      } catch {
+      } catch (err) {
+        // Space deleted on backend — clean up locally
+        if (err instanceof ApiRequestError && err.status === 404) {
+          leaveClientSpace(spaceId);
+          dispatch(removeSpace(spaceId));
+          removeSpaceFromStore(spaceId);
+          dispatch(
+            addNotification({
+              id: `space-gone-${spaceId}`,
+              type: "chat",
+              title: "Space removed",
+              body: "This space no longer exists and has been removed.",
+              timestamp: Math.floor(Date.now() / 1000),
+            }),
+          );
+          return;
+        }
         // Backend unavailable — keep local members
       }
     },
@@ -102,6 +120,24 @@ export function useSpace() {
 
       // Sync members from backend (non-blocking)
       syncMembers(spaceId);
+
+      // Background existence check — if the space was deleted, getSpace returns 404
+      getSpace(spaceId).catch((err) => {
+        if (err instanceof ApiRequestError && err.status === 404) {
+          leaveClientSpace(spaceId);
+          dispatch(removeSpace(spaceId));
+          removeSpaceFromStore(spaceId);
+          dispatch(
+            addNotification({
+              id: `space-gone-${spaceId}`,
+              type: "chat",
+              title: "Space removed",
+              body: "This space no longer exists and has been removed.",
+              timestamp: Math.floor(Date.now() / 1000),
+            }),
+          );
+        }
+      });
     },
     [dispatch, spaces, activeSpaceId, allChannels, syncMembers],
   );

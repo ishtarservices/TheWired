@@ -4,11 +4,59 @@ use sqlx::{PgPool, Postgres};
 use crate::nostr::event::Event;
 use crate::nostr::filter::Filter;
 
-/// Store an event in the database
+/// Replaceable event kinds: only one event per pubkey+kind (NIP-01)
+fn is_replaceable(kind: i32) -> bool {
+    kind == 0 || kind == 3 || (kind >= 10000 && kind < 20000)
+}
+
+/// Addressable event kinds: only one event per pubkey+kind+d_tag (NIP-01)
+fn is_addressable(kind: i32) -> bool {
+    kind >= 30000 && kind < 40000
+}
+
+/// Store an event in the database.
+/// Handles replaceable (kinds 0, 3, 10000-19999) and addressable (kinds 30000-39999)
+/// events by replacing older versions for the same pubkey+kind (or pubkey+kind+d_tag).
 pub async fn store_event(pool: &PgPool, event: &Event) -> anyhow::Result<bool> {
     let d_tag = event.get_tag_value("d");
     let h_tag = event.get_tag_value("h");
     let tags_json: Value = serde_json::to_value(&event.tags)?;
+
+    // For replaceable/addressable events, delete the older version first.
+    // Only deletes if the new event is strictly newer (created_at >).
+    // If the existing event is newer or same age, the delete matches nothing
+    // and the subsequent insert will fail on the unique constraint — that's fine,
+    // we return Ok(false) to indicate "duplicate/superseded".
+    if is_replaceable(event.kind) {
+        sqlx::query(
+            "DELETE FROM relay.events WHERE pubkey = $1 AND kind = $2 AND created_at < $3",
+        )
+        .bind(&event.pubkey)
+        .bind(event.kind)
+        .bind(event.created_at)
+        .execute(pool)
+        .await
+        .map_err(|e| {
+            tracing::error!(kind = event.kind, error = %e, "Failed to delete old replaceable event");
+            e
+        })?;
+    } else if is_addressable(event.kind) {
+        if let Some(ref d) = d_tag {
+            sqlx::query(
+                "DELETE FROM relay.events WHERE pubkey = $1 AND kind = $2 AND d_tag = $3 AND created_at < $4",
+            )
+            .bind(&event.pubkey)
+            .bind(event.kind)
+            .bind(d)
+            .bind(event.created_at)
+            .execute(pool)
+            .await
+            .map_err(|e| {
+                tracing::error!(kind = event.kind, error = %e, "Failed to delete old addressable event");
+                e
+            })?;
+        }
+    }
 
     let result = sqlx::query(
         r#"
@@ -27,9 +75,34 @@ pub async fn store_event(pool: &PgPool, event: &Event) -> anyhow::Result<bool> {
     .bind(&d_tag)
     .bind(&h_tag)
     .execute(pool)
-    .await?;
+    .await;
 
-    Ok(result.rows_affected() > 0)
+    match result {
+        Ok(r) => Ok(r.rows_affected() > 0),
+        Err(e) => {
+            // Unique constraint violation for replaceable/addressable means
+            // the existing event is newer — not an error, just a no-op.
+            if is_replaceable(event.kind) || is_addressable(event.kind) {
+                if let sqlx::Error::Database(ref db_err) = e {
+                    if db_err.constraint().is_some() {
+                        tracing::debug!(
+                            event_id = &event.id[..12],
+                            kind = event.kind,
+                            "Replaceable event superseded by existing newer event"
+                        );
+                        return Ok(false);
+                    }
+                }
+            }
+            tracing::error!(
+                event_id = &event.id[..12],
+                kind = event.kind,
+                error = %e,
+                "DB store failed"
+            );
+            Err(e.into())
+        }
+    }
 }
 
 /// Query events matching a filter with dynamic WHERE clauses
@@ -39,6 +112,8 @@ pub async fn query_events(pool: &PgPool, filter: &Filter) -> anyhow::Result<Vec<
         let limit = filter.limit.unwrap_or(100);
         return crate::protocol::nip50::search_events(pool, search_query, limit).await;
     }
+
+    let start = std::time::Instant::now();
 
     let mut conditions: Vec<String> = Vec::new();
     let mut param_counter: usize = 0;
@@ -152,6 +227,16 @@ pub async fn query_events(pool: &PgPool, filter: &Filter) -> anyhow::Result<Vec<
     }
 
     let events: Vec<EventRow> = query.fetch_all(pool).await?;
+
+    let elapsed = start.elapsed();
+    if elapsed.as_millis() > 50 {
+        tracing::warn!(
+            elapsed_ms = elapsed.as_millis() as u64,
+            results = events.len(),
+            kinds = ?filter.kinds,
+            "Slow query"
+        );
+    }
 
     Ok(events
         .into_iter()

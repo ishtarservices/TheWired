@@ -1,5 +1,6 @@
 import { parse } from "nostr-tools/nip27";
 import type { ProfilePointer, EventPointer, AddressPointer } from "nostr-tools/nip19";
+import { matchEmbed, type EmbedMatch } from "./embedPatterns";
 
 export type ContentSegment =
   | { type: "text"; text: string }
@@ -9,6 +10,7 @@ export type ContentSegment =
   | { type: "url"; url: string }
   | { type: "image"; url: string }
   | { type: "video"; url: string }
+  | { type: "embed"; embed: EmbedMatch }
   | { type: "hashtag"; value: string };
 
 const IMAGE_EXTS = /\.(jpe?g|png|gif|webp|svg|avif|bmp)(\?.*)?$/i;
@@ -78,7 +80,12 @@ export function parseContent(content: string): ContentSegment[] {
         } else if (VIDEO_EXTS.test(url)) {
           segments.push({ type: "video", url });
         } else {
-          segments.push({ type: "url", url });
+          const embed = matchEmbed(url);
+          if (embed) {
+            segments.push({ type: "embed", embed });
+          } else {
+            segments.push({ type: "url", url });
+          }
         }
         break;
       }

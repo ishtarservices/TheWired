@@ -1,5 +1,7 @@
 use axum::extract::ws::{Message, WebSocket};
 use futures::{SinkExt, StreamExt};
+use std::net::SocketAddr;
+use std::sync::atomic::Ordering;
 use std::sync::Arc;
 use tokio::sync::broadcast;
 use tokio::sync::Mutex;
@@ -13,7 +15,19 @@ pub async fn handle_connection(
     socket: WebSocket,
     state: Arc<AppState>,
     mut broadcast_rx: broadcast::Receiver<Event>,
+    addr: SocketAddr,
 ) {
+    let conn_count = state.active_connections.fetch_add(1, Ordering::Relaxed) + 1;
+    let connected_at = std::time::Instant::now();
+    let mut events_received: u64 = 0;
+    let mut events_sent: u64 = 0;
+
+    tracing::info!(
+        remote = %addr,
+        connections = conn_count,
+        "Client connected"
+    );
+
     let (mut sender, mut receiver) = socket.split();
     let subscriptions = Arc::new(Mutex::new(
         crate::protocol::subscription::SubscriptionManager::new(),
@@ -26,6 +40,7 @@ pub async fn handle_connection(
             ws_msg = receiver.next() => {
                 match ws_msg {
                     Some(Ok(Message::Text(text))) => {
+                        events_received += 1;
                         let responses = handler::handle_message(
                             &text,
                             &state,
@@ -37,7 +52,7 @@ pub async fn handle_connection(
 
                         for response in responses {
                             if sender.send(Message::Text(response.into())).await.is_err() {
-                                return;
+                                break;
                             }
                         }
                     }
@@ -57,13 +72,14 @@ pub async fn handle_connection(
                         for sub_id in matching {
                             let event_json = serde_json::to_string(&event).unwrap_or_default();
                             let msg = format!(r#"["EVENT","{sub_id}",{event_json}]"#);
+                            events_sent += 1;
                             if sender.send(Message::Text(msg.into())).await.is_err() {
-                                return;
+                                break;
                             }
                         }
                     }
                     Err(broadcast::error::RecvError::Lagged(n)) => {
-                        tracing::warn!("Broadcast receiver lagged, skipped {n} events");
+                        tracing::warn!(remote = %addr, skipped = n, "Broadcast receiver lagged");
                     }
                     Err(broadcast::error::RecvError::Closed) => {
                         break;
@@ -72,4 +88,13 @@ pub async fn handle_connection(
             }
         }
     }
+
+    state.active_connections.fetch_sub(1, Ordering::Relaxed);
+    tracing::info!(
+        remote = %addr,
+        duration_secs = connected_at.elapsed().as_secs(),
+        events_received,
+        events_sent,
+        "Client disconnected"
+    );
 }

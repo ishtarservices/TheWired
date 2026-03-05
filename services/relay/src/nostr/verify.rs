@@ -10,7 +10,7 @@ pub fn verify_event(event: &super::event::Event) -> bool {
     let hash = hex::encode(hasher.finalize());
 
     if hash != event.id {
-        tracing::warn!("Event ID mismatch: expected {}, got {}", hash, event.id);
+        tracing::debug!("Event ID mismatch: expected {}, got {}", hash, event.id);
         return false;
     }
 

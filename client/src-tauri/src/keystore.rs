@@ -85,6 +85,13 @@ pub fn keystore_sign_event(serialized_event: String) -> Result<SignedEventResult
     })
 }
 
+/// Return the hex-encoded secret key (errors if no key exists)
+#[tauri::command]
+pub fn keystore_get_secret_key() -> Result<String, String> {
+    let sk = load_secret_key(false)?;
+    Ok(hex::encode(sk.secret_bytes()))
+}
+
 /// Check if a private key exists in the keystore
 #[tauri::command]
 pub fn keystore_has_key() -> Result<bool, String> {

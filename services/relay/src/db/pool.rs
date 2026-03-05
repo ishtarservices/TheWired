@@ -3,10 +3,12 @@ use sqlx::PgPool;
 pub async fn create_pool(database_url: &str) -> anyhow::Result<PgPool> {
     let pool = sqlx::postgres::PgPoolOptions::new()
         .max_connections(20)
+        .min_connections(2)
+        .acquire_timeout(std::time::Duration::from_secs(5))
         .connect(database_url)
         .await?;
 
-    tracing::info!("Connected to database");
+    tracing::info!("Connected to database (pool: 2-20 connections)");
     Ok(pool)
 }
 

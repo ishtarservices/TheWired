@@ -2,6 +2,7 @@ import { generateSecretKey, getPublicKey, finalizeEvent } from "nostr-tools/pure
 import { getConversationKey, encrypt } from "nostr-tools/nip44";
 import { nip44Encrypt, nip44Decrypt } from "./nip44";
 import { getSigner } from "./loginFlow";
+import { signingQueue } from "./signingQueue";
 import { store } from "@/store";
 import { EVENT_KINDS } from "@/types/nostr";
 import type { NostrEvent, UnsignedEvent } from "@/types/nostr";
@@ -95,7 +96,7 @@ export async function createGiftWrappedDM(
     content: encryptedRumor,
   };
 
-  const seal = await signer.signEvent(sealUnsigned);
+  const seal = await signingQueue.enqueue(() => signer.signEvent(sealUnsigned));
 
   // Step 3: Generate ephemeral keypair
   const ephemeralSk = generateSecretKey();
@@ -162,7 +163,7 @@ export async function createSelfWrap(
     content: encryptedRumor,
   };
 
-  const seal = await signer.signEvent(sealUnsigned);
+  const seal = await signingQueue.enqueue(() => signer.signEvent(sealUnsigned));
 
   // Ephemeral key
   const ephemeralSk = generateSecretKey();

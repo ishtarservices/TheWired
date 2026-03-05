@@ -2,9 +2,7 @@ import { useEffect, useState, useRef } from "react";
 import { relayManager } from "../../lib/nostr/relayManager";
 import { buildFollowersFilter } from "../../lib/nostr/filterBuilder";
 
-type Tab = "notes" | "following" | "followers";
-
-export function useFollowData(pubkey: string, activeTab: Tab = "notes") {
+export function useFollowData(pubkey: string, fetchFollowers = false) {
   const [following, setFollowing] = useState<string[]>([]);
   const [followers, setFollowers] = useState<string[]>([]);
   const [followingLoading, setFollowingLoading] = useState(true);
@@ -46,7 +44,7 @@ export function useFollowData(pubkey: string, activeTab: Tab = "notes") {
 
   // --- Followers: only fetch when tab is active ---
   useEffect(() => {
-    if (activeTab !== "followers") return;
+    if (!fetchFollowers) return;
 
     setFollowers([]);
     setFollowersLoading(true);
@@ -84,7 +82,7 @@ export function useFollowData(pubkey: string, activeTab: Tab = "notes") {
       if (flushTimer) clearTimeout(flushTimer);
       relayManager.closeSubscription(followersSub);
     };
-  }, [pubkey, activeTab]);
+  }, [pubkey, fetchFollowers]);
 
   return {
     following,

@@ -187,3 +187,17 @@ export function buildRelayListEvent(
     content: "",
   };
 }
+
+/** Build an unsigned kind:10050 DM relay list event (NIP-17) */
+export function buildDMRelayListEvent(
+  pubkey: string,
+  relayUrls: string[],
+): UnsignedEvent {
+  return {
+    pubkey,
+    created_at: Math.floor(Date.now() / 1000),
+    kind: 10050,
+    tags: relayUrls.map((url) => ["relay", url]),
+    content: "",
+  };
+}

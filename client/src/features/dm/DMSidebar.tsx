@@ -141,7 +141,7 @@ function DMContactItem({
     <button
       onClick={onClick}
       className={`flex w-full items-center gap-3 px-4 py-3 text-left transition-colors ${
-        isActive ? "bg-white/[0.06]" : "hover:bg-white/[0.03]"
+        isActive ? "bg-white/6" : "hover:bg-white/3"
       }`}
     >
       <Avatar src={profile?.picture} alt={displayName} size="sm" />
@@ -186,7 +186,7 @@ function FriendItem({
     <button
       onClick={onClick}
       className={`flex w-full items-center gap-3 px-4 py-3 text-left transition-colors ${
-        isActive ? "bg-white/[0.06]" : "hover:bg-white/[0.03]"
+        isActive ? "bg-white/6" : "hover:bg-white/3"
       }`}
     >
       <Avatar src={profile?.picture} alt={displayName} size="sm" />
@@ -236,7 +236,7 @@ function PendingRequestItem({
         </button>
         <button
           onClick={() => declineFriendRequestAction(request.pubkey)}
-          className="rounded-md p-1 text-muted hover:text-heading hover:bg-white/[0.06] transition-colors"
+          className="rounded-md p-1 text-muted hover:text-heading hover:bg-white/6 transition-colors"
           title="Decline"
         >
           <X size={12} />

@@ -1,10 +1,12 @@
 use axum::{
-    extract::{State, WebSocketUpgrade},
+    extract::{connect_info::ConnectInfo, State, WebSocketUpgrade},
     response::IntoResponse,
     routing::get,
     Router,
 };
 use sqlx::PgPool;
+use std::net::SocketAddr;
+use std::sync::atomic::AtomicUsize;
 use std::sync::Arc;
 use tokio::sync::broadcast;
 
@@ -18,6 +20,7 @@ pub struct AppState {
     pub config: Config,
     pub broadcast_tx: broadcast::Sender<Event>,
     pub relay_identity: RelayIdentity,
+    pub active_connections: AtomicUsize,
 }
 
 pub async fn run(config: Config, pool: PgPool) -> anyhow::Result<()> {
@@ -32,6 +35,7 @@ pub async fn run(config: Config, pool: PgPool) -> anyhow::Result<()> {
         config,
         broadcast_tx,
         relay_identity,
+        active_connections: AtomicUsize::new(0),
     });
 
     let app = Router::new()
@@ -41,16 +45,22 @@ pub async fn run(config: Config, pool: PgPool) -> anyhow::Result<()> {
 
     let listener = tokio::net::TcpListener::bind(format!("0.0.0.0:{}", port)).await?;
     tracing::info!("Relay listening on 0.0.0.0:{}", port);
-    axum::serve(listener, app).await?;
+    axum::serve(
+        listener,
+        app.into_make_service_with_connect_info::<SocketAddr>(),
+    )
+    .await?;
     Ok(())
 }
 
 async fn ws_handler(
     ws: WebSocketUpgrade,
+    ConnectInfo(addr): ConnectInfo<SocketAddr>,
     State(state): State<Arc<AppState>>,
 ) -> impl IntoResponse {
     let broadcast_rx = state.broadcast_tx.subscribe();
-    ws.on_upgrade(move |socket| connection::handle_connection(socket, state, broadcast_rx))
+    tracing::debug!(remote = %addr, "WebSocket upgrade");
+    ws.on_upgrade(move |socket| connection::handle_connection(socket, state, broadcast_rx, addr))
 }
 
 async fn health() -> &'static str {

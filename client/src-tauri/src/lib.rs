@@ -4,6 +4,8 @@ mod nip44;
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
+        .plugin(tauri_plugin_opener::init())
+        .plugin(tauri_plugin_http::init())
         .setup(|app| {
             if cfg!(debug_assertions) {
                 app.handle().plugin(
@@ -18,6 +20,7 @@ pub fn run() {
             keystore::keystore_get_public_key,
             keystore::keystore_sign_event,
             keystore::keystore_has_key,
+            keystore::keystore_get_secret_key,
             keystore::keystore_delete_key,
             keystore::keystore_import_key,
             keystore::keystore_nip44_encrypt,

@@ -1,8 +1,10 @@
 import { useState } from "react";
+import { useNavigate, useLocation } from "react-router-dom";
 import { X, Plus, LogIn } from "lucide-react";
 import { Modal } from "../../components/ui/Modal";
 import { CreateSpaceModal } from "./CreateSpaceModal";
 import { JoinSpaceModal } from "./JoinSpaceModal";
+import { InviteGenerateModal } from "./InviteGenerateModal";
 import { useSpace } from "./useSpace";
 
 interface SpaceActionModalProps {
@@ -11,9 +13,12 @@ interface SpaceActionModalProps {
 }
 
 export function SpaceActionModal({ open, onClose }: SpaceActionModalProps) {
-  const { createSpace } = useSpace();
+  const { joinSpace } = useSpace();
+  const navigate = useNavigate();
+  const location = useLocation();
   const [showCreate, setShowCreate] = useState(false);
   const [showJoin, setShowJoin] = useState(false);
+  const [inviteSpace, setInviteSpace] = useState<{ id: string; name: string } | null>(null);
 
   const handleCreate = () => {
     onClose();
@@ -72,8 +77,23 @@ export function SpaceActionModal({ open, onClose }: SpaceActionModalProps) {
       <CreateSpaceModal
         open={showCreate}
         onClose={() => setShowCreate(false)}
-        onCreate={createSpace}
+        onCreate={(space) => {
+          joinSpace(space);
+          setInviteSpace({ id: space.id, name: space.name });
+          if (location.pathname !== "/") {
+            navigate("/");
+          }
+        }}
       />
+
+      {inviteSpace && (
+        <InviteGenerateModal
+          open
+          onClose={() => setInviteSpace(null)}
+          spaceId={inviteSpace.id}
+          spaceName={inviteSpace.name}
+        />
+      )}
 
       <JoinSpaceModal
         open={showJoin}

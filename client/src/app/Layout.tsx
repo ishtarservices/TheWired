@@ -9,8 +9,10 @@ import { UserPopoverProvider } from "../features/profile/UserPopoverContext";
 import { NotificationToastStack } from "../features/notifications/NotificationToast";
 import { useAppSelector, useAppDispatch } from "../store/hooks";
 import { toggleMemberList } from "../store/slices/uiSlice";
+import { useExternalLinkHandler } from "../hooks/useExternalLinkHandler";
 
 export function Layout() {
+  useExternalLinkHandler();
   const dispatch = useAppDispatch();
   const [sidebarExpanded, setSidebarExpanded] = useState(true);
   const memberListVisible = useAppSelector((s) => s.ui.memberListVisible);

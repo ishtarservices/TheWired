@@ -1,5 +1,5 @@
 import type { Space } from "../../types/space";
-import { saveUserState, getUserState } from "./userStateStore";
+import { saveUserState, getUserState, deleteUserState } from "./userStateStore";
 
 const SPACES_KEY = "spaces";
 
@@ -26,10 +26,12 @@ export async function addSpaceToStore(space: Space): Promise<void> {
   await saveSpaces(spaces);
 }
 
-/** Remove a space by ID */
+/** Remove a space by ID (also cleans up channel cache) */
 export async function removeSpaceFromStore(spaceId: string): Promise<void> {
   const spaces = await loadSpaces();
   await saveSpaces(spaces.filter((s) => s.id !== spaceId));
+  // Clean up cached channels for this space
+  await deleteUserState(`space_channels:${spaceId}`);
 }
 
 /** Update an existing space */

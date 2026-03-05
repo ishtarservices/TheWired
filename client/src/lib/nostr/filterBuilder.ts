@@ -54,6 +54,22 @@ export function buildNotesFilter(
   return { kinds: [1], authors: [pubkey], limit };
 }
 
+/** Build a filter for a user's profile feed (notes + reposts) */
+export function buildProfileFeedFilter(
+  pubkey: string,
+  limit = 50,
+): NostrFilter {
+  return { kinds: [1, 6], authors: [pubkey], limit };
+}
+
+/** Build a filter for a user's long-form articles (kind:30023) */
+export function buildProfileArticlesFilter(
+  pubkey: string,
+  limit = 20,
+): NostrFilter {
+  return { kinds: [30023], authors: [pubkey], limit };
+}
+
 /** Build a filter for followers (kind:3 events that tag this pubkey) */
 export function buildFollowersFilter(pubkey: string): NostrFilter {
   return { kinds: [3], "#p": [pubkey], limit: 500 };

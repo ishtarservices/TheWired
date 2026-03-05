@@ -26,6 +26,10 @@ export class TauriSigner implements NostrSigner {
     };
   }
 
+  async getSecretKey(): Promise<string> {
+    return invoke<string>("keystore_get_secret_key");
+  }
+
   async nip44Encrypt(recipientPubkey: string, plaintext: string): Promise<string> {
     return invoke<string>("keystore_nip44_encrypt", { recipientPubkey, plaintext });
   }

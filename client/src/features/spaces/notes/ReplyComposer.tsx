@@ -1,6 +1,7 @@
 import { useState, useRef, useEffect } from "react";
 import { Send, X } from "lucide-react";
 import { useProfile } from "../../profile/useProfile";
+import { useAutoResize } from "../../../hooks/useAutoResize";
 
 interface ReplyComposerProps {
   targetPubkey: string;
@@ -11,6 +12,7 @@ interface ReplyComposerProps {
 export function ReplyComposer({ targetPubkey, onSend, onCancel }: ReplyComposerProps) {
   const [text, setText] = useState("");
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+  useAutoResize(textareaRef, text, 120);
   const { profile } = useProfile(targetPubkey);
   const name = profile?.display_name || profile?.name || targetPubkey.slice(0, 8) + "...";
 
@@ -43,9 +45,9 @@ export function ReplyComposer({ targetPubkey, onSend, onCancel }: ReplyComposerP
           value={text}
           onChange={(e) => setText(e.target.value)}
           onKeyDown={handleKeyDown}
-          rows={2}
+          rows={1}
           placeholder="Write a reply..."
-          className="flex-1 resize-none rounded-md bg-transparent px-2 py-1 text-sm text-body placeholder:text-muted focus:outline-none"
+          className="flex-1 resize-none overflow-hidden rounded-md bg-transparent px-2 py-1 text-sm text-body placeholder:text-muted focus:outline-none"
         />
         <div className="flex gap-1 pb-1">
           <button

@@ -5,7 +5,7 @@ import { isValidEventStructure } from "./validation";
 import { verifyBridge } from "./verifyWorkerBridge";
 import { store } from "../../store";
 import { putEvent } from "../db/eventStore";
-import { addEvent, indexChatMessage, indexReel, indexLongForm, indexLiveStream, indexNote, indexSpaceFeed, indexMusicTrack, indexMusicAlbum, indexReaction, indexReply, indexRepost, indexQuote } from "../../store/slices/eventsSlice";
+import { addEvent, indexChatMessage, indexReel, indexLongForm, indexLiveStream, indexNote, indexSpaceFeed, indexMusicTrack, indexMusicAlbum, indexReaction, indexReply, indexRepost, indexRepostByAuthor, indexQuote } from "../../store/slices/eventsSlice";
 import { addTrack, indexTrackByArtist, indexTrackByAlbum, addAlbum, addPlaylist } from "../../store/slices/musicSlice";
 import { addDMMessage } from "../../store/slices/dmSlice";
 import { parseTrackEvent } from "../../features/music/trackParser";
@@ -145,6 +145,7 @@ function indexEvent(event: NostrEvent): void {
       if (eTag?.[1]) {
         store.dispatch(indexRepost({ targetEventId: eTag[1], eventId: event.id }));
       }
+      store.dispatch(indexRepostByAuthor({ pubkey: event.pubkey, eventId: event.id }));
       break;
     }
     case EVENT_KINDS.CHAT_MESSAGE: {

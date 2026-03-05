@@ -16,6 +16,7 @@ import {
 } from "lucide-react";
 import { npubEncode } from "nostr-tools/nip19";
 import { Avatar } from "@/components/ui/Avatar";
+import { RichContent } from "@/components/content/RichContent";
 import { useProfile } from "./useProfile";
 import { useMutualSpaces } from "./useMutualSpaces";
 import { useMutualFollow } from "./useMutualFollow";
@@ -372,10 +373,8 @@ export function UserPopoverCard({
 
         {/* About */}
         {profile?.about && (
-          <div className="px-4 mt-2">
-            <p className="text-xs text-soft line-clamp-3 leading-relaxed">
-              {profile.about}
-            </p>
+          <div className="px-4 mt-2 text-xs text-soft line-clamp-3 leading-relaxed">
+            <RichContent content={profile.about} />
           </div>
         )}
 

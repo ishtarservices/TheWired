@@ -219,7 +219,7 @@ export function InviteGenerateModal({
                   type="text"
                   value={dmTarget}
                   onChange={(e) => setDmTarget(e.target.value)}
-                  placeholder="Paste pubkey..."
+                  placeholder="Paste npub or hex pubkey..."
                   className="flex-1 rounded-xl bg-white/[0.04] border border-white/[0.04] px-3 py-2 text-sm text-heading placeholder-muted font-mono focus:border-neon focus:outline-none transition-colors"
                 />
                 <Button

@@ -2,7 +2,7 @@ import type { FastifyPluginAsync } from "fastify";
 import { db } from "../db/connection.js";
 import { spaces, spaceTags } from "../db/schema/spaces.js";
 import { spaceMembers } from "../db/schema/members.js";
-import { eq } from "drizzle-orm";
+import { eq, inArray } from "drizzle-orm";
 import { roleService } from "../services/roleService.js";
 import { channelService } from "../services/channelService.js";
 
@@ -64,6 +64,7 @@ export const spacesRoutes: FastifyPluginAsync = async (server) => {
         category: body.category ?? null,
         language: body.language ?? null,
         mode,
+        creatorPubkey: pubkey,
         memberCount: 1,
         createdAt: Date.now(),
       })
@@ -74,6 +75,7 @@ export const spacesRoutes: FastifyPluginAsync = async (server) => {
           picture: body.picture ?? null,
           about: body.about ?? null,
           mode,
+          creatorPubkey: pubkey,
         },
       });
 
@@ -108,15 +110,44 @@ export const spacesRoutes: FastifyPluginAsync = async (server) => {
       return reply.status(404).send({ error: "Space not found", code: "NOT_FOUND" });
     }
 
-    // Check if user has MANAGE_SPACE permission (admins get this implicitly)
-    const perms = await roleService.getEffectivePermissions(id, pubkey);
-    if (!perms.includes("MANAGE_SPACE")) {
-      return reply.status(403).send({ error: "Insufficient permissions", code: "FORBIDDEN" });
+    // Creator-only delete: if creator_pubkey is set, only the creator can delete.
+    // For legacy spaces without a creator, fall back to MANAGE_SPACE permission.
+    if (space.creatorPubkey) {
+      if (pubkey !== space.creatorPubkey) {
+        return reply.status(403).send({ error: "Only the space creator can delete this space", code: "CREATOR_ONLY" });
+      }
+    } else {
+      const perms = await roleService.getEffectivePermissions(id, pubkey);
+      if (!perms.includes("MANAGE_SPACE")) {
+        return reply.status(403).send({ error: "Insufficient permissions", code: "FORBIDDEN" });
+      }
     }
 
     // Delete space — CASCADE foreign keys clean up channels, members, roles, invites, tags
     await db.delete(spaces).where(eq(spaces.id, id));
 
     return { data: { deleted: true } };
+  });
+
+  /** POST /validate — Check which space IDs still exist (for stale cache cleanup). */
+  server.post("/validate", async (request, reply) => {
+    const body = request.body as { ids?: string[] };
+    if (!Array.isArray(body?.ids) || body.ids.length === 0) {
+      return reply.status(400).send({ error: "ids array required", code: "BAD_REQUEST" });
+    }
+
+    // Cap at 100 to prevent abuse
+    const ids = body.ids.slice(0, 100);
+
+    const rows = await db
+      .select({ id: spaces.id })
+      .from(spaces)
+      .where(inArray(spaces.id, ids));
+
+    const existingSet = new Set(rows.map((r) => r.id));
+    const existing = ids.filter((id) => existingSet.has(id));
+    const deleted = ids.filter((id) => !existingSet.has(id));
+
+    return { data: { existing, deleted } };
   });
 };

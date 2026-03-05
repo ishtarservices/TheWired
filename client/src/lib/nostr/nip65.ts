@@ -47,7 +47,7 @@ export function fetchRelayList(
 }
 
 /** Normalize relay URL */
-function normalizeRelayUrl(url: string): string | null {
+export function normalizeRelayUrl(url: string): string | null {
   try {
     const u = new URL(url);
     if (u.protocol !== "wss:" && u.protocol !== "ws:") return null;

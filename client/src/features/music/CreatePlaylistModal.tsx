@@ -1,9 +1,10 @@
-import { useState } from "react";
+import { useState, useRef } from "react";
 import { X } from "lucide-react";
 import { Modal } from "@/components/ui/Modal";
 import { useAppSelector } from "@/store/hooks";
 import { buildPlaylistEvent } from "./musicEventBuilder";
 import { signAndPublish } from "@/lib/nostr/publish";
+import { useAutoResize } from "@/hooks/useAutoResize";
 
 interface CreatePlaylistModalProps {
   open: boolean;
@@ -14,6 +15,8 @@ export function CreatePlaylistModal({ open, onClose }: CreatePlaylistModalProps)
   const pubkey = useAppSelector((s) => s.identity.pubkey);
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
+  const descRef = useRef<HTMLTextAreaElement>(null);
+  useAutoResize(descRef, description, 200);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -63,10 +66,11 @@ export function CreatePlaylistModal({ open, onClose }: CreatePlaylistModalProps)
           <div>
             <label className="mb-1 block text-xs font-medium text-soft">Description</label>
             <textarea
+              ref={descRef}
               value={description}
               onChange={(e) => setDescription(e.target.value)}
-              rows={3}
-              className="w-full rounded-xl border border-white/[0.04] bg-white/[0.04] px-3 py-1.5 text-sm text-heading outline-none focus:border-pulse/30"
+              rows={2}
+              className="w-full resize-none overflow-hidden rounded-xl border border-white/[0.04] bg-white/[0.04] px-3 py-1.5 text-sm text-heading outline-none focus:border-pulse/30"
               placeholder="Optional description"
             />
           </div>

@@ -7,6 +7,7 @@ import { useDMConversation } from "./useDMConversation";
 import { sendDM } from "./dmService";
 import { useAppDispatch } from "@/store/hooks";
 import { markConversationRead } from "@/store/slices/dmSlice";
+import { markDMNotificationsRead } from "@/store/slices/notificationSlice";
 import { ArrowLeft } from "lucide-react";
 
 interface DMConversationProps {
@@ -30,9 +31,10 @@ export function DMConversation({ partnerPubkey, onBack }: DMConversationProps) {
     }
   }, [messages.length]);
 
-  // Mark as read
+  // Mark as read — sync both DM unread count and notification bell
   useEffect(() => {
     dispatch(markConversationRead(partnerPubkey));
+    dispatch(markDMNotificationsRead(partnerPubkey));
   }, [partnerPubkey, dispatch]);
 
   const handleSend = useCallback(

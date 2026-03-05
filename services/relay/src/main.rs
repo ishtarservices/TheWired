@@ -13,9 +13,17 @@ mod server;
 async fn main() -> anyhow::Result<()> {
     dotenvy::dotenv().ok();
 
-    tracing_subscriber::fmt()
-        .with_env_filter(EnvFilter::from_default_env())
-        .init();
+    let log_format = std::env::var("LOG_FORMAT").unwrap_or_default();
+    if log_format == "json" {
+        tracing_subscriber::fmt()
+            .json()
+            .with_env_filter(EnvFilter::from_default_env())
+            .init();
+    } else {
+        tracing_subscriber::fmt()
+            .with_env_filter(EnvFilter::from_default_env())
+            .init();
+    }
 
     let config = config::Config::from_env();
     tracing::info!("Starting {} on port {}", config.relay_name, config.port);

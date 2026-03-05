@@ -1,17 +1,17 @@
-import { useState } from "react";
+import { useState, useRef } from "react";
 import { Button } from "../../components/ui/Button";
 import { Spinner } from "../../components/ui/Spinner";
+import { ImageUpload } from "../../components/ui/ImageUpload";
 import { useAppSelector } from "../../store/hooks";
 import { buildProfileEvent } from "../../lib/nostr/eventBuilder";
 import { signAndPublish } from "../../lib/nostr/publish";
+import { useAutoResize } from "../../hooks/useAutoResize";
 import type { Kind0Profile } from "../../types/profile";
 
 const FIELDS: { key: keyof Kind0Profile; label: string }[] = [
   { key: "name", label: "Username" },
   { key: "display_name", label: "Display Name" },
   { key: "about", label: "About" },
-  { key: "picture", label: "Avatar URL" },
-  { key: "banner", label: "Banner URL" },
   { key: "nip05", label: "NIP-05 Identifier" },
   { key: "lud16", label: "Lightning Address" },
   { key: "website", label: "Website" },
@@ -32,6 +32,8 @@ export function ProfileSettingsTab() {
     website: existingProfile?.website ?? "",
   });
 
+  const aboutRef = useRef<HTMLTextAreaElement>(null);
+  useAutoResize(aboutRef, form.about ?? "", 200);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState(false);
@@ -65,15 +67,32 @@ export function ProfileSettingsTab() {
       </h3>
 
       <div className="space-y-3">
+        <ImageUpload
+          value={form.picture ?? ""}
+          onChange={(url) => updateField("picture", url)}
+          label="Avatar"
+          placeholder="Drop avatar image or click to upload"
+          shape="circle"
+        />
+
+        <ImageUpload
+          value={form.banner ?? ""}
+          onChange={(url) => updateField("banner", url)}
+          label="Banner"
+          placeholder="Drop banner image or click to upload"
+          shape="banner"
+        />
+
         {FIELDS.map(({ key, label }) => (
           <div key={key}>
             <label className="mb-1 block text-xs text-soft">{label}</label>
             {key === "about" ? (
               <textarea
+                ref={aboutRef}
                 value={form[key] ?? ""}
                 onChange={(e) => updateField(key, e.target.value)}
-                className="w-full rounded-xl border border-white/[0.04] bg-white/[0.04] px-3 py-2 text-sm text-heading focus:border-neon focus:outline-none transition-colors"
-                rows={3}
+                className="w-full resize-none overflow-hidden rounded-xl border border-white/[0.04] bg-white/[0.04] px-3 py-2 text-sm text-heading focus:border-neon focus:outline-none transition-colors"
+                rows={2}
               />
             ) : (
               <input

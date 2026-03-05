@@ -10,7 +10,7 @@ import { navigateToNotification } from "./navigateToNotification";
 import { followUser } from "@/lib/nostr/follow";
 import { acceptFriendRequestAction } from "@/lib/nostr/friendRequest";
 
-const AUTO_DISMISS_MS = 6_000;
+const AUTO_DISMISS_MS = 5_000;
 const MAX_VISIBLE = 5;
 
 const TYPE_ICONS: Record<NotificationType, typeof AtSign> = {
@@ -87,33 +87,44 @@ function Toast({
         r.status === "pending",
     );
 
-  // Actionable notifications (friend requests, follow-back) stay in Redux
-  // for the bell dropdown. The toast hides itself locally instead.
-  const isActionable = notification.actionType === "accept_friend" || notification.actionType === "follow_back";
+  // Persistent notifications stay in Redux for the bell dropdown.
+  // The toast hides itself locally instead of removing from Redux.
+  const isPersistent =
+    notification.actionType === "accept_friend" ||
+    notification.actionType === "follow_back" ||
+    notification.type === "dm";
+
+  // Actionable notifications (friend req, follow back) get an extended toast
+  // so the user has time to act. DMs and others use the short timer.
+  const isActionable =
+    notification.actionType === "accept_friend" ||
+    notification.actionType === "follow_back";
 
   useEffect(() => {
     // Fire browser notification once on mount
     showBrowserNotification(notification.title, notification.body);
 
-    if (isActionable) {
-      // Longer timeout: hide the toast visually but keep the notification
-      // in Redux so it stays in the bell dropdown
+    const timeout = isActionable ? AUTO_DISMISS_MS * 3 : AUTO_DISMISS_MS;
+
+    if (isPersistent) {
+      // Hide toast visually but keep notification in Redux for the bell
       timerRef.current = setTimeout(() => {
         onHideToast(notification.id);
-      }, AUTO_DISMISS_MS * 3);
+      }, timeout);
     } else {
+      // Ephemeral — remove from Redux entirely
       timerRef.current = setTimeout(() => {
         dispatch(removeNotification(notification.id));
-      }, AUTO_DISMISS_MS);
+      }, timeout);
     }
 
     return () => {
       if (timerRef.current) clearTimeout(timerRef.current);
     };
-  }, [dispatch, notification.id, notification.title, notification.body, isActionable, onHideToast]);
+  }, [dispatch, notification.id, notification.title, notification.body, isPersistent, isActionable, onHideToast]);
 
   const handleClick = () => {
-    if (isActionable) {
+    if (isPersistent) {
       // Hide toast, mark read in bell, but don't remove from Redux
       onHideToast(notification.id);
       dispatch(markNotificationRead(notification.id));
@@ -125,7 +136,7 @@ function Toast({
 
   const handleDismiss = (e: React.MouseEvent) => {
     e.stopPropagation();
-    if (isActionable) {
+    if (isPersistent) {
       onHideToast(notification.id);
     } else {
       dispatch(removeNotification(notification.id));

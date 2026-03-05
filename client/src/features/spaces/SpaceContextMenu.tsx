@@ -8,7 +8,7 @@ import { useSpaceMuted } from "../notifications/useNotifications";
 import { usePermissions } from "./usePermissions";
 import { useSpace } from "./useSpace";
 import { InviteGenerateModal } from "./InviteGenerateModal";
-import { deleteSpaceApi } from "../../lib/api/spaces";
+import { deleteSpaceApi, leaveSpaceApi } from "../../lib/api/spaces";
 
 const MUTE_DURATIONS = [
   { label: "1 hour", ms: 60 * 60 * 1000 },
@@ -32,7 +32,7 @@ export function SpaceContextMenu({
 }: SpaceContextMenuProps) {
   const dispatch = useAppDispatch();
   const isMuted = useSpaceMuted(spaceId);
-  const { can, isAdmin } = usePermissions(spaceId);
+  const { can } = usePermissions(spaceId);
   const { deleteSpace } = useSpace();
   const space = useAppSelector((s) => s.spaces.list.find((sp) => sp.id === spaceId));
   const currentPubkey = useAppSelector((s) => s.identity.pubkey);
@@ -73,7 +73,7 @@ export function SpaceContextMenu({
     }
   }, [open]);
 
-  if (!open) return null;
+  if (!open && !showInvite) return null;
 
   function handleUnmute() {
     dispatch(removeSpaceMute(spaceId));
@@ -87,7 +87,12 @@ export function SpaceContextMenu({
     onClose();
   }
 
-  function handleLeave() {
+  async function handleLeave() {
+    try {
+      await leaveSpaceApi(spaceId);
+    } catch {
+      // Backend unavailable — still clean up locally
+    }
     deleteSpace(spaceId);
     onClose();
   }
@@ -191,8 +196,8 @@ export function SpaceContextMenu({
             Leave Space
           </button>
 
-          {/* Delete Space (admin/creator only) */}
-          {(isAdmin || isCreator) && (
+          {/* Delete Space (creator only) */}
+          {isCreator && (
             <button
               onClick={handleDelete}
               className="flex w-full items-center gap-2 rounded-lg mx-1 px-3.5 py-2.5 text-sm text-red-400 hover:bg-red-500/10 transition-colors"
@@ -208,7 +213,7 @@ export function SpaceContextMenu({
 
   return (
     <>
-      {createPortal(menu, document.body)}
+      {open && createPortal(menu, document.body)}
       <InviteGenerateModal
         open={showInvite}
         onClose={() => setShowInvite(false)}

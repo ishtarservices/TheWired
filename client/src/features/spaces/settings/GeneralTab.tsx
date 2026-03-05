@@ -1,8 +1,10 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { Button } from "../../../components/ui/Button";
+import { ImageUpload } from "../../../components/ui/ImageUpload";
 import { useAppSelector, useAppDispatch } from "../../../store/hooks";
 import { updateSpace } from "../../../store/slices/spacesSlice";
 import { updateSpaceInStore } from "../../../lib/db/spaceStore";
+import { useAutoResize } from "../../../hooks/useAutoResize";
 
 interface GeneralTabProps {
   spaceId: string;
@@ -16,6 +18,8 @@ export function GeneralTab({ spaceId }: GeneralTabProps) {
   const [about, setAbout] = useState("");
   const [picture, setPicture] = useState("");
   const [saved, setSaved] = useState(false);
+  const aboutRef = useRef<HTMLTextAreaElement>(null);
+  useAutoResize(aboutRef, about, 200);
 
   useEffect(() => {
     if (!space) return;
@@ -56,23 +60,21 @@ export function GeneralTab({ spaceId }: GeneralTabProps) {
       <div>
         <label className="mb-1 block text-xs font-medium text-soft">Description</label>
         <textarea
+          ref={aboutRef}
           value={about}
           onChange={(e) => setAbout(e.target.value)}
-          rows={3}
-          className="w-full rounded-xl bg-white/[0.04] border border-white/[0.04] px-3 py-1.5 text-sm text-heading placeholder-muted focus:border-neon focus:outline-none transition-colors"
+          rows={2}
+          className="w-full resize-none overflow-hidden rounded-xl bg-white/[0.04] border border-white/[0.04] px-3 py-1.5 text-sm text-heading placeholder-muted focus:border-neon focus:outline-none transition-colors"
         />
       </div>
 
-      <div>
-        <label className="mb-1 block text-xs font-medium text-soft">Picture URL</label>
-        <input
-          type="text"
-          value={picture}
-          onChange={(e) => setPicture(e.target.value)}
-          placeholder="https://..."
-          className="w-full rounded-xl bg-white/[0.04] border border-white/[0.04] px-3 py-1.5 text-sm text-heading placeholder-muted focus:border-neon focus:outline-none transition-colors"
-        />
-      </div>
+      <ImageUpload
+        value={picture}
+        onChange={setPicture}
+        label="Picture"
+        placeholder="Drop space image or click to upload"
+        shape="square"
+      />
 
       <div className="flex items-center gap-3">
         <Button variant="primary" size="md" onClick={handleSave}>

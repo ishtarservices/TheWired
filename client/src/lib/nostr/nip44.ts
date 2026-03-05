@@ -1,4 +1,5 @@
 import { store } from "@/store";
+import { signingQueue } from "./signingQueue";
 
 /**
  * NIP-44 encryption abstraction.
@@ -19,13 +20,13 @@ export async function nip44Encrypt(
         "NIP-44 encryption not supported by your browser extension. Please update your Nostr signer.",
       );
     }
-    return window.nostr.nip44.encrypt(recipientPubkey, plaintext);
+    return signingQueue.enqueue(() => window.nostr!.nip44!.encrypt(recipientPubkey, plaintext));
   }
 
   if (signerType === "tauri_keystore") {
     const { TauriSigner } = await import("./tauriSigner");
     const signer = new TauriSigner();
-    return signer.nip44Encrypt(recipientPubkey, plaintext);
+    return signingQueue.enqueue(() => signer.nip44Encrypt(recipientPubkey, plaintext));
   }
 
   throw new Error("No signer available for NIP-44 encryption");
@@ -43,13 +44,13 @@ export async function nip44Decrypt(
         "NIP-44 decryption not supported by your browser extension. Please update your Nostr signer.",
       );
     }
-    return window.nostr.nip44.decrypt(senderPubkey, ciphertext);
+    return signingQueue.enqueue(() => window.nostr!.nip44!.decrypt(senderPubkey, ciphertext));
   }
 
   if (signerType === "tauri_keystore") {
     const { TauriSigner } = await import("./tauriSigner");
     const signer = new TauriSigner();
-    return signer.nip44Decrypt(senderPubkey, ciphertext);
+    return signingQueue.enqueue(() => signer.nip44Decrypt(senderPubkey, ciphertext));
   }
 
   throw new Error("No signer available for NIP-44 decryption");

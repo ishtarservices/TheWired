@@ -4,7 +4,6 @@ import { Avatar } from "../../components/ui/Avatar";
 import { useProfile } from "../profile/useProfile";
 import { useUserPopover } from "../profile/UserPopoverContext";
 import { useSpace } from "./useSpace";
-import { MemberInput } from "./MemberInput";
 import { useAppSelector } from "../../store/hooks";
 import { usePermissions } from "./usePermissions";
 import { MemberContextMenu } from "./moderation/MemberContextMenu";
@@ -60,7 +59,7 @@ function MemberItem({ pubkey, spaceId }: { pubkey: string; spaceId: string }) {
 }
 
 export function MemberList() {
-  const { activeSpace, activeSpaceId, addMember, removeMember } = useSpace();
+  const { activeSpace, activeSpaceId } = useSpace();
   const currentPubkey = useAppSelector((s) => s.identity.pubkey);
   const { can } = usePermissions(activeSpaceId);
   const [showInvite, setShowInvite] = useState(false);
@@ -68,8 +67,7 @@ export function MemberList() {
   if (!activeSpace || !activeSpaceId) return null;
 
   const members = activeSpace.memberPubkeys;
-  const isAdmin = can("MANAGE_MEMBERS") || (!!currentPubkey && activeSpace.adminPubkeys.includes(currentPubkey));
-  const canInvite = can("CREATE_INVITES") || isAdmin;
+  const canInvite = can("CREATE_INVITES") || can("MANAGE_MEMBERS") || (!!currentPubkey && activeSpace.adminPubkeys.includes(currentPubkey));
 
   return (
     <div className="p-3 space-y-1">
@@ -95,19 +93,6 @@ export function MemberList() {
             <Link2 size={13} />
             <span>Invite People</span>
           </button>
-        </div>
-      )}
-
-      {isAdmin && (
-        <div className="mt-3 border-t border-white/[0.04] pt-3 px-1">
-          <div className="mb-1.5 text-[10px] font-semibold uppercase tracking-wider text-muted">
-            Add Member
-          </div>
-          <MemberInput
-            members={members}
-            onAdd={(pubkey) => addMember(activeSpaceId, pubkey)}
-            onRemove={(pubkey) => removeMember(activeSpaceId, pubkey)}
-          />
         </div>
       )}
 

@@ -1,11 +1,13 @@
-import { useState } from "react";
+import { useState, useRef } from "react";
 import { X } from "lucide-react";
 import { Button } from "../../components/ui/Button";
 import { Modal } from "../../components/ui/Modal";
 import { Spinner } from "../../components/ui/Spinner";
+import { ImageUpload } from "../../components/ui/ImageUpload";
 import { useAppSelector } from "../../store/hooks";
 import { buildProfileEvent } from "../../lib/nostr/eventBuilder";
 import { signAndPublish } from "../../lib/nostr/publish";
+import { useAutoResize } from "../../hooks/useAutoResize";
 import type { Kind0Profile } from "../../types/profile";
 
 interface ProfileEditModalProps {
@@ -27,6 +29,8 @@ export function ProfileEditModal({ onClose }: ProfileEditModalProps) {
     website: existingProfile?.website ?? "",
   });
 
+  const aboutRef = useRef<HTMLTextAreaElement>(null);
+  useAutoResize(aboutRef, form.about ?? "", 200);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -61,13 +65,27 @@ export function ProfileEditModal({ onClose }: ProfileEditModalProps) {
         </div>
 
         <div className="space-y-3">
+          <ImageUpload
+            value={form.picture ?? ""}
+            onChange={(url) => updateField("picture", url)}
+            label="Avatar"
+            placeholder="Drop avatar image or click to upload"
+            shape="circle"
+          />
+
+          <ImageUpload
+            value={form.banner ?? ""}
+            onChange={(url) => updateField("banner", url)}
+            label="Banner"
+            placeholder="Drop banner image or click to upload"
+            shape="banner"
+          />
+
           {(
             [
               ["name", "Username"],
               ["display_name", "Display Name"],
               ["about", "About"],
-              ["picture", "Avatar URL"],
-              ["banner", "Banner URL"],
               ["nip05", "NIP-05 Identifier"],
               ["lud16", "Lightning Address"],
               ["website", "Website"],
@@ -79,10 +97,11 @@ export function ProfileEditModal({ onClose }: ProfileEditModalProps) {
               </label>
               {field === "about" ? (
                 <textarea
+                  ref={aboutRef}
                   value={form[field] ?? ""}
                   onChange={(e) => updateField(field, e.target.value)}
-                  className="w-full rounded-xl border border-white/[0.04] bg-white/[0.04] px-3 py-2 text-sm text-heading focus:border-pulse/30 focus:outline-none transition-colors"
-                  rows={3}
+                  className="w-full resize-none overflow-hidden rounded-xl border border-white/[0.04] bg-white/[0.04] px-3 py-2 text-sm text-heading focus:border-pulse/30 focus:outline-none transition-colors"
+                  rows={2}
                 />
               ) : (
                 <input

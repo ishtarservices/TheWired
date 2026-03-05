@@ -23,6 +23,15 @@ export function DMView() {
     }
   }, [routePubkey, activeConversation, dispatch]);
 
+  // Clear activeConversation when leaving the DM view entirely.
+  // Without this, the dmSlice reducer thinks we're still viewing the
+  // conversation and won't increment unreadCount for new messages.
+  useEffect(() => {
+    return () => {
+      dispatch(setActiveConversation(null));
+    };
+  }, [dispatch]);
+
   const handleSelectContact = useCallback(
     (pubkey: string) => {
       dispatch(setActiveConversation(pubkey));

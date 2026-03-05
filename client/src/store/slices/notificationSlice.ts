@@ -171,6 +171,17 @@ export const notificationSlice = createSlice({
       if (n) n.read = true;
     },
 
+    /** Mark all DM notifications from a given pubkey as read.
+     *  Called when the user opens a DM conversation directly. */
+    markDMNotificationsRead(state, action: PayloadAction<string>) {
+      const pubkey = action.payload;
+      for (const n of state.notifications) {
+        if (n.type === "dm" && n.contextId === pubkey && !n.read) {
+          n.read = true;
+        }
+      }
+    },
+
     markAllNotificationsRead(state) {
       for (const n of state.notifications) {
         n.read = true;
@@ -237,6 +248,7 @@ export const {
   addNotification,
   removeNotification,
   markNotificationRead,
+  markDMNotificationsRead,
   markAllNotificationsRead,
   clearAllNotifications,
   setSpaceMute,

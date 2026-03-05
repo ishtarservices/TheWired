@@ -21,6 +21,8 @@ interface IdentityState {
   followListCreatedAt: number;
   muteListCreatedAt: number;
   relayListCreatedAt: number;
+  dmRelayList: string[];
+  dmRelayListCreatedAt: number;
 }
 
 const initialState: IdentityState = {
@@ -35,6 +37,8 @@ const initialState: IdentityState = {
   followListCreatedAt: 0,
   muteListCreatedAt: 0,
   relayListCreatedAt: 0,
+  dmRelayList: [],
+  dmRelayListCreatedAt: 0,
 };
 
 export const identitySlice = createSlice({
@@ -66,6 +70,14 @@ export const identitySlice = createSlice({
       if (action.payload.createdAt <= state.relayListCreatedAt) return;
       state.relayList = action.payload.entries;
       state.relayListCreatedAt = action.payload.createdAt;
+    },
+    setDMRelayList(
+      state,
+      action: PayloadAction<{ relays: string[]; createdAt: number }>,
+    ) {
+      if (action.payload.createdAt <= state.dmRelayListCreatedAt) return;
+      state.dmRelayList = action.payload.relays;
+      state.dmRelayListCreatedAt = action.payload.createdAt;
     },
     setFollowList(
       state,
@@ -99,6 +111,7 @@ export const {
   logout,
   setProfile,
   setRelayList,
+  setDMRelayList,
   setFollowList,
   setMuteList,
   setKnownFollowers,
