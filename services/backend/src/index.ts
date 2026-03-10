@@ -7,6 +7,7 @@ import { startTrendingComputer } from "./workers/trendingComputer.js";
 import { startProfileRefresher } from "./workers/profileRefresher.js";
 import { startNotificationDispatcher } from "./workers/notificationDispatcher.js";
 import { startAnalyticsAggregator } from "./workers/analyticsAggregator.js";
+import { musicService } from "./services/musicService.js";
 
 async function main() {
   // Run database migrations before anything else
@@ -20,6 +21,14 @@ async function main() {
   // Initialize Meilisearch indexes
   await initIndexes().catch((err) => {
     console.warn("[meilisearch] Failed to initialize indexes:", err.message);
+  });
+
+  // Reindex music from relay DB → Meilisearch + Redis on startup.
+  // This ensures Meilisearch stays in sync even after restarts/crashes.
+  musicService.rebuildCounts().then((r) => {
+    console.log(`[music] Reindexed: ${r.tracksAndAlbums} tracks+albums, ${r.genres} genres, ${r.tags} tags`);
+  }).catch((err) => {
+    console.warn("[music] Reindex failed:", err.message);
   });
 
   // Start background workers

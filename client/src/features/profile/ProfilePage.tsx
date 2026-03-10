@@ -1,4 +1,4 @@
-import { useState, useCallback, useMemo, useRef } from "react";
+import { useState, useCallback, useMemo, useRef, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import {
   User,
@@ -22,6 +22,7 @@ import {
   ImageIcon,
   BookOpen,
   Repeat2,
+  Loader2,
 } from "lucide-react";
 import { npubEncode } from "nostr-tools/nip19";
 import { Avatar } from "../../components/ui/Avatar";
@@ -42,6 +43,8 @@ import { buildMuteListEvent } from "../../lib/nostr/eventBuilder";
 import { signAndPublish } from "../../lib/nostr/publish";
 import { useClickOutside } from "../../hooks/useClickOutside";
 import { RichContent } from "../../components/content/RichContent";
+import type { ProfileFeedItem } from "./useProfileNotes";
+import type { LongFormArticle } from "../../types/media";
 
 type Tab = "notes" | "reposts" | "replies" | "media" | "reads";
 
@@ -53,10 +56,7 @@ export function ProfilePage({ pubkey }: ProfilePageProps) {
   const { profile } = useProfile(pubkey);
   const [activeTab, setActiveTab] = useState<Tab>("notes");
   const [followModal, setFollowModal] = useState<"following" | "followers" | null>(null);
-  const {
-    allItems, rootNotes, reposts, replies, mediaItems, articles,
-    loading: feedLoading, eoseReceived, articlesEose,
-  } = useProfileFeed(pubkey);
+  const feed = useProfileFeed(pubkey);
   const { following, followers, followingLoading, followersLoading } = useFollowData(pubkey, followModal === "followers");
   const { iFollow, isMutual, loading: followLoading } = useMutualFollow(pubkey);
   const myPubkey = useAppSelector((s) => s.identity.pubkey);
@@ -67,18 +67,36 @@ export function ProfilePage({ pubkey }: ProfilePageProps) {
   const isMuted = muteList.some((m) => m.type === "pubkey" && m.value === pubkey);
   const navigate = useNavigate();
 
-  // Engagement subscriptions for visible notes
+  // Per-tab scroll position persistence
+  const scrollRef = useRef<HTMLDivElement>(null);
+  const scrollPositions = useRef<Record<Tab, number>>({
+    notes: 0, reposts: 0, replies: 0, media: 0, reads: 0,
+  });
+
+  const handleTabChange = useCallback((newTab: Tab) => {
+    // Save current scroll position
+    if (scrollRef.current) {
+      scrollPositions.current[activeTab] = scrollRef.current.scrollTop;
+    }
+    setActiveTab(newTab);
+  }, [activeTab]);
+
+  // Restore scroll position when tab changes
+  useEffect(() => {
+    if (scrollRef.current) {
+      scrollRef.current.scrollTop = scrollPositions.current[activeTab];
+    }
+  }, [activeTab]);
+
+  // Engagement subscriptions — scoped to only the currently visible page's note IDs
   const visibleNoteIds = useMemo(() => {
-    const items = activeTab === "notes" ? rootNotes
-      : activeTab === "reposts" ? reposts
-      : activeTab === "replies" ? replies
-      : activeTab === "media" ? mediaItems
+    const items = activeTab === "notes" ? feed.rootNotes
+      : activeTab === "reposts" ? feed.reposts
+      : activeTab === "replies" ? feed.replies
+      : activeTab === "media" ? feed.mediaItems
       : [];
-    return items
-      .slice(0, 50)
-      .map((item) => item.event.id)
-      .filter((id) => id);
-  }, [activeTab, rootNotes, reposts, replies, mediaItems]);
+    return items.map((item) => item.event.id).filter(Boolean);
+  }, [activeTab, feed.rootNotes, feed.reposts, feed.replies, feed.mediaItems]);
   useProfileEngagementSub(visibleNoteIds);
 
   // Derive friend request status for this user
@@ -161,16 +179,16 @@ export function ProfilePage({ pubkey }: ProfilePageProps) {
   const displayName =
     profile?.display_name || profile?.name || pubkey.slice(0, 12) + "...";
 
-  const tabs: { id: Tab; label: string; icon: typeof FileText }[] = [
-    { id: "notes", label: "Notes", icon: FileText },
-    { id: "reposts", label: "Reposts", icon: Repeat2 },
-    { id: "replies", label: "Replies", icon: MessageSquare },
-    { id: "media", label: "Media", icon: ImageIcon },
-    { id: "reads", label: "Reads", icon: BookOpen },
+  const tabs: { id: Tab; label: string; icon: typeof FileText; count?: number }[] = [
+    { id: "notes", label: "Notes", icon: FileText, count: feed.totalNotes },
+    { id: "reposts", label: "Reposts", icon: Repeat2, count: feed.totalReposts },
+    { id: "replies", label: "Replies", icon: MessageSquare, count: feed.totalReplies },
+    { id: "media", label: "Media", icon: ImageIcon, count: feed.totalMedia },
+    { id: "reads", label: "Reads", icon: BookOpen, count: feed.totalArticles },
   ];
 
   return (
-    <div className="flex min-h-0 flex-1 flex-col overflow-y-auto">
+    <div ref={scrollRef} className="flex min-h-0 flex-1 flex-col overflow-y-auto">
       {/* Banner */}
       <div className="relative h-40 shrink-0 overflow-hidden bg-gradient-to-r from-pulse/40 to-neon/15">
         {profile?.banner && (
@@ -199,7 +217,7 @@ export function ProfilePage({ pubkey }: ProfilePageProps) {
             <div className="flex items-center gap-2 pb-1">
               <button
                 onClick={() => navigate(`/dm/${pubkey}`)}
-                className="flex items-center gap-1.5 rounded-lg bg-white/[0.06] px-4 py-2 text-sm font-medium text-heading hover:bg-white/[0.1] transition-colors"
+                className="flex items-center gap-1.5 rounded-lg bg-surface-hover px-4 py-2 text-sm font-medium text-heading hover:bg-surface-hover transition-colors"
               >
                 <MessageCircle size={14} />
                 Message
@@ -218,7 +236,7 @@ export function ProfilePage({ pubkey }: ProfilePageProps) {
               {friendStatus === "pending_outgoing" && (
                 <button
                   onClick={() => cancelFriendRequestAction(pubkey)}
-                  className="flex items-center gap-1.5 rounded-lg bg-white/[0.06] px-4 py-2 text-sm font-medium text-muted hover:bg-red-500/10 hover:text-red-400 transition-colors"
+                  className="flex items-center gap-1.5 rounded-lg bg-surface-hover px-4 py-2 text-sm font-medium text-muted hover:bg-red-500/10 hover:text-red-400 transition-colors"
                   title="Cancel request"
                 >
                   <Clock size={14} />
@@ -263,7 +281,7 @@ export function ProfilePage({ pubkey }: ProfilePageProps) {
                     <div className="flex items-center gap-2 justify-end">
                       <button
                         onClick={() => setShowUnfriendConfirm(false)}
-                        className="rounded-md px-2.5 py-1 text-xs text-soft hover:bg-white/[0.06] transition-colors"
+                        className="rounded-md px-2.5 py-1 text-xs text-soft hover:bg-surface-hover transition-colors"
                       >
                         Cancel
                       </button>
@@ -285,7 +303,7 @@ export function ProfilePage({ pubkey }: ProfilePageProps) {
                 disabled={followLoading}
                 className={`flex items-center gap-1.5 rounded-lg px-4 py-2 text-sm font-medium transition-colors ${
                   iFollow
-                    ? "bg-white/[0.06] text-heading hover:bg-red-500/10 hover:text-red-400"
+                    ? "bg-surface-hover text-heading hover:bg-red-500/10 hover:text-red-400"
                     : "bg-pulse/20 text-pulse hover:bg-pulse/30"
                 }`}
               >
@@ -321,7 +339,7 @@ export function ProfilePage({ pubkey }: ProfilePageProps) {
                   <div className="flex items-center gap-2 justify-end">
                     <button
                       onClick={() => setShowUnfollowConfirm(false)}
-                      className="rounded-md px-2.5 py-1 text-xs text-soft hover:bg-white/[0.06] transition-colors"
+                      className="rounded-md px-2.5 py-1 text-xs text-soft hover:bg-surface-hover transition-colors"
                     >
                       Cancel
                     </button>
@@ -340,7 +358,7 @@ export function ProfilePage({ pubkey }: ProfilePageProps) {
               <div className="relative" ref={overflowRef}>
                 <button
                   onClick={() => setShowOverflow((v) => !v)}
-                  className="flex items-center justify-center rounded-lg bg-white/[0.06] p-2 text-heading hover:bg-white/[0.1] transition-colors"
+                  className="flex items-center justify-center rounded-lg bg-surface-hover p-2 text-heading hover:bg-surface-hover transition-colors"
                 >
                   <MoreHorizontal size={14} />
                 </button>
@@ -355,7 +373,7 @@ export function ProfilePage({ pubkey }: ProfilePageProps) {
                   >
                     <button
                       onClick={handleCopyPubkey}
-                      className="flex w-full items-center gap-2.5 px-3 py-2 text-xs text-heading hover:bg-white/[0.08] transition-colors"
+                      className="flex w-full items-center gap-2.5 px-3 py-2 text-xs text-heading hover:bg-surface-hover transition-colors"
                     >
                       <Copy size={13} />
                       {npubCopied ? "Copied!" : "Copy Public Key"}
@@ -365,7 +383,7 @@ export function ProfilePage({ pubkey }: ProfilePageProps) {
 
                     <button
                       onClick={handleMute}
-                      className="flex w-full items-center gap-2.5 px-3 py-2 text-xs text-heading hover:bg-white/[0.08] transition-colors"
+                      className="flex w-full items-center gap-2.5 px-3 py-2 text-xs text-heading hover:bg-surface-hover transition-colors"
                     >
                       <VolumeX size={13} />
                       {isMuted ? "Unmute" : "Mute"}
@@ -407,7 +425,7 @@ export function ProfilePage({ pubkey }: ProfilePageProps) {
             </span>
           )}
           {iFollow && !(friendStatus === "friends" && isMutual) && !isMe && (
-            <span className="inline-flex items-center gap-1 rounded-full bg-white/[0.08] px-2.5 py-0.5 text-xs font-semibold text-muted">
+            <span className="inline-flex items-center gap-1 rounded-full bg-surface-hover px-2.5 py-0.5 text-xs font-semibold text-muted">
               Following
             </span>
           )}
@@ -466,9 +484,9 @@ export function ProfilePage({ pubkey }: ProfilePageProps) {
       </div>
 
       {/* Stats bar — clickable Following/Followers */}
-      <div className="flex gap-8 border-b border-white/[0.04] px-8 pb-3 text-sm">
+      <div className="flex gap-8 border-b border-edge px-8 pb-3 text-sm">
         <span className="text-soft">
-          <span className="font-semibold text-heading">{allItems.length}</span> Notes
+          <span className="font-semibold text-heading">{feed.allItems.length}</span> Notes
         </span>
         <button
           onClick={() => setFollowModal("following")}
@@ -489,13 +507,13 @@ export function ProfilePage({ pubkey }: ProfilePageProps) {
       </div>
 
       {/* Tab bar */}
-      <div className="flex border-b border-white/[0.04]">
+      <div className="flex border-b border-edge">
         {tabs.map((tab) => {
           const Icon = tab.icon;
           return (
             <button
               key={tab.id}
-              onClick={() => setActiveTab(tab.id)}
+              onClick={() => handleTabChange(tab.id)}
               className={`flex items-center gap-1.5 px-6 py-3 text-sm font-medium transition-colors ${
                 activeTab === tab.id
                   ? "border-b-2 border-pulse text-pulse"
@@ -504,36 +522,47 @@ export function ProfilePage({ pubkey }: ProfilePageProps) {
             >
               <Icon size={14} />
               {tab.label}
+              {tab.count != null && tab.count > 0 && (
+                <span className="ml-1 text-xs text-muted">{tab.count}</span>
+              )}
             </button>
           );
         })}
       </div>
 
-      {/* Tab content */}
+      {/* Tab content — only active tab renders */}
       <div className="flex-1 px-6 py-4">
         {activeTab === "notes" && (
           <FeedTab
-            items={rootNotes}
-            loading={feedLoading}
-            eoseReceived={eoseReceived}
+            items={feed.rootNotes}
+            loading={feed.loading}
+            eoseReceived={feed.eoseReceived}
+            hasMore={feed.hasMoreNotes}
+            onLoadMore={feed.loadMoreNotes}
+            fetchingMore={feed.fetchingMore}
+            onFetchOlder={feed.fetchOlderFromRelay}
             emptyIcon={<FileText size={32} className="text-faint" />}
             emptyText="No notes yet"
           />
         )}
         {activeTab === "reposts" && (
           <FeedTab
-            items={reposts}
-            loading={feedLoading}
-            eoseReceived={eoseReceived}
+            items={feed.reposts}
+            loading={feed.loading}
+            eoseReceived={feed.eoseReceived}
+            hasMore={feed.hasMoreReposts}
+            onLoadMore={feed.loadMoreReposts}
             emptyIcon={<Repeat2 size={32} className="text-faint" />}
             emptyText="No reposts yet"
           />
         )}
         {activeTab === "replies" && (
           <FeedTab
-            items={replies}
-            loading={feedLoading}
-            eoseReceived={eoseReceived}
+            items={feed.replies}
+            loading={feed.loading}
+            eoseReceived={feed.eoseReceived}
+            hasMore={feed.hasMoreReplies}
+            onLoadMore={feed.loadMoreReplies}
             showThreadContext
             emptyIcon={<MessageSquare size={32} className="text-faint" />}
             emptyText="No replies yet"
@@ -541,15 +570,22 @@ export function ProfilePage({ pubkey }: ProfilePageProps) {
         )}
         {activeTab === "media" && (
           <FeedTab
-            items={mediaItems}
-            loading={feedLoading}
-            eoseReceived={eoseReceived}
+            items={feed.mediaItems}
+            loading={feed.loading}
+            eoseReceived={feed.eoseReceived}
+            hasMore={feed.hasMoreMedia}
+            onLoadMore={feed.loadMoreMedia}
             emptyIcon={<ImageIcon size={32} className="text-faint" />}
             emptyText="No media posts yet"
           />
         )}
         {activeTab === "reads" && (
-          <ReadsTab articles={articles} loading={!articlesEose && articles.length === 0} />
+          <ReadsTab
+            articles={feed.articles}
+            loading={!feed.articlesEose && feed.articles.length === 0}
+            hasMore={feed.hasMoreArticles}
+            onLoadMore={feed.loadMoreArticles}
+          />
         )}
       </div>
 
@@ -574,19 +610,51 @@ export function ProfilePage({ pubkey }: ProfilePageProps) {
   );
 }
 
-/** Generic feed tab for Notes/Replies/Media */
+/** IntersectionObserver sentinel for auto-loading next page */
+function LoadMoreSentinel({ onIntersect }: { onIntersect: () => void }) {
+  const sentinelRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const el = sentinelRef.current;
+    if (!el) return;
+
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (entries[0]?.isIntersecting) {
+          onIntersect();
+        }
+      },
+      { rootMargin: "200px" },
+    );
+
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, [onIntersect]);
+
+  return <div ref={sentinelRef} className="h-1" />;
+}
+
+/** Generic feed tab for Notes/Replies/Media with pagination */
 function FeedTab({
   items,
   loading,
   eoseReceived,
   showThreadContext,
+  hasMore,
+  onLoadMore,
+  fetchingMore,
+  onFetchOlder,
   emptyIcon,
   emptyText,
 }: {
-  items: import("./useProfileNotes").ProfileFeedItem[];
+  items: ProfileFeedItem[];
   loading: boolean;
   eoseReceived: boolean;
   showThreadContext?: boolean;
+  hasMore?: boolean;
+  onLoadMore?: () => void;
+  fetchingMore?: boolean;
+  onFetchOlder?: () => void;
   emptyIcon: React.ReactNode;
   emptyText: string;
 }) {
@@ -617,6 +685,31 @@ function FeedTab({
           animationDelay={i < 15 ? i * 40 : undefined}
         />
       ))}
+
+      {/* Auto-load next page when sentinel is visible */}
+      {hasMore && onLoadMore && (
+        <LoadMoreSentinel onIntersect={onLoadMore} />
+      )}
+
+      {/* Fetching more from relay indicator */}
+      {fetchingMore && (
+        <div className="flex items-center justify-center gap-2 py-4 text-xs text-muted">
+          <Loader2 size={14} className="animate-spin" />
+          Loading older notes...
+        </div>
+      )}
+
+      {/* Fetch older from relay when all local items shown */}
+      {!hasMore && eoseReceived && items.length > 0 && onFetchOlder && (
+        <button
+          onClick={onFetchOlder}
+          disabled={fetchingMore}
+          className="mx-auto mt-2 rounded-lg bg-surface px-4 py-2 text-xs text-muted hover:bg-surface-hover hover:text-heading transition-colors disabled:opacity-50"
+        >
+          Load older notes
+        </button>
+      )}
+
       {!eoseReceived && (
         <div className="flex justify-center py-4">
           <Spinner size="sm" />
@@ -626,13 +719,17 @@ function FeedTab({
   );
 }
 
-/** Reads tab for kind:30023 articles */
+/** Reads tab for kind:30023 articles with pagination */
 function ReadsTab({
   articles,
   loading,
+  hasMore,
+  onLoadMore,
 }: {
-  articles: import("../../types/media").LongFormArticle[];
+  articles: LongFormArticle[];
   loading: boolean;
+  hasMore?: boolean;
+  onLoadMore?: () => void;
 }) {
   const navigate = useNavigate();
 
@@ -667,6 +764,10 @@ function ReadsTab({
           />
         </div>
       ))}
+
+      {hasMore && onLoadMore && (
+        <LoadMoreSentinel onIntersect={onLoadMore} />
+      )}
     </div>
   );
 }

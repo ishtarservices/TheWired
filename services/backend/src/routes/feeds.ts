@@ -3,15 +3,17 @@ import { feedService } from "../services/feedService.js";
 
 export const feedsRoutes: FastifyPluginAsync = async (server) => {
   server.get("/trending", async (request) => {
-    const { period, kind, limit } = request.query as {
+    const { period, kind, limit, genre } = request.query as {
       period?: string;
       kind?: string;
       limit?: string;
+      genre?: string;
     };
     const results = await feedService.getTrending({
       period: (period as "1h" | "6h" | "24h" | "7d") ?? "24h",
       kind: kind ? parseInt(kind) : undefined,
       limit: limit ? parseInt(limit) : 50,
+      genre,
     });
     return { data: results };
   });

@@ -136,7 +136,7 @@ export function InviteGenerateModal({
               <select
                 value={expiryHours}
                 onChange={(e) => setExpiryHours(Number(e.target.value))}
-                className="w-full rounded-xl bg-white/[0.04] border border-white/[0.04] px-3 py-2 text-sm text-heading focus:border-neon focus:outline-none transition-colors"
+                className="w-full rounded-xl bg-field border border-edge px-3 py-2 text-sm text-heading focus:border-neon focus:outline-none transition-colors"
               >
                 {EXPIRY_OPTIONS.map((opt) => (
                   <option key={opt.hours} value={opt.hours}>
@@ -153,7 +153,7 @@ export function InviteGenerateModal({
               <select
                 value={maxUses}
                 onChange={(e) => setMaxUses(Number(e.target.value))}
-                className="w-full rounded-xl bg-white/[0.04] border border-white/[0.04] px-3 py-2 text-sm text-heading focus:border-neon focus:outline-none transition-colors"
+                className="w-full rounded-xl bg-field border border-edge px-3 py-2 text-sm text-heading focus:border-neon focus:outline-none transition-colors"
               >
                 {MAX_USES_OPTIONS.map((opt) => (
                   <option key={opt.value} value={opt.value}>
@@ -172,7 +172,7 @@ export function InviteGenerateModal({
                 value={label}
                 onChange={(e) => setLabel(e.target.value)}
                 placeholder="e.g. For friends"
-                className="w-full rounded-xl bg-white/[0.04] border border-white/[0.04] px-3 py-2 text-sm text-heading placeholder-muted focus:border-neon focus:outline-none transition-colors"
+                className="w-full rounded-xl bg-field border border-edge px-3 py-2 text-sm text-heading placeholder-muted focus:border-neon focus:outline-none transition-colors"
               />
             </div>
 
@@ -201,7 +201,7 @@ export function InviteGenerateModal({
                   type="text"
                   readOnly
                   value={inviteLink}
-                  className="flex-1 rounded-xl bg-white/[0.04] border border-white/[0.04] px-3 py-2 text-sm text-heading font-mono select-all"
+                  className="flex-1 rounded-xl bg-field border border-edge px-3 py-2 text-sm text-heading font-mono select-all"
                 />
                 <Button variant="secondary" size="md" onClick={handleCopy}>
                   {copied ? <Check size={14} className="text-green-400" /> : <Copy size={14} />}
@@ -220,7 +220,7 @@ export function InviteGenerateModal({
                   value={dmTarget}
                   onChange={(e) => setDmTarget(e.target.value)}
                   placeholder="Paste npub or hex pubkey..."
-                  className="flex-1 rounded-xl bg-white/[0.04] border border-white/[0.04] px-3 py-2 text-sm text-heading placeholder-muted font-mono focus:border-neon focus:outline-none transition-colors"
+                  className="flex-1 rounded-xl bg-field border border-edge px-3 py-2 text-sm text-heading placeholder-muted font-mono focus:border-neon focus:outline-none transition-colors"
                 />
                 <Button
                   variant="neon"

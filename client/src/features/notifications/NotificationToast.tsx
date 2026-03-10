@@ -92,7 +92,9 @@ function Toast({
   const isPersistent =
     notification.actionType === "accept_friend" ||
     notification.actionType === "follow_back" ||
-    notification.type === "dm";
+    notification.type === "dm" ||
+    notification.type === "mention" ||
+    notification.type === "chat";
 
   // Actionable notifications (friend req, follow back) get an extended toast
   // so the user has time to act. DMs and others use the short timer.
@@ -164,7 +166,7 @@ function Toast({
   return (
     <div
       onClick={handleClick}
-      className="pointer-events-auto card-glass rounded-xl px-4 py-3 max-w-xs animate-slide-up cursor-pointer hover:bg-white/[0.06] transition-colors"
+      className="pointer-events-auto card-glass rounded-xl px-4 py-3 max-w-xs animate-slide-up cursor-pointer hover:bg-surface-hover transition-colors"
     >
       <div className="flex items-start gap-3">
         <Icon size={16} className={cn("mt-0.5 shrink-0", iconColor)} />
@@ -190,7 +192,7 @@ function Toast({
         </div>
         <button
           onClick={handleDismiss}
-          className="shrink-0 rounded-md p-0.5 text-muted hover:text-heading hover:bg-white/[0.06] transition-colors"
+          className="shrink-0 rounded-md p-0.5 text-muted hover:text-heading hover:bg-surface-hover transition-colors"
         >
           <X size={14} />
         </button>

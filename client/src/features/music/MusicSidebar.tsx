@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { useNavigate, useLocation } from "react-router-dom";
 import { cn } from "@/lib/utils";
-import { Home, Clock, Users, Disc3, Music, ListMusic, Upload, FolderUp } from "lucide-react";
+import { Home, Clock, Users, Disc3, Music, ListMusic, Upload, FolderUp, Compass } from "lucide-react";
 import { useAppDispatch, useAppSelector } from "@/store/hooks";
 import { setMusicView } from "@/store/slices/musicSlice";
 import { UploadTrackModal } from "./UploadTrackModal";
@@ -16,6 +16,7 @@ interface NavItem {
 
 const navItems: NavItem[] = [
   { view: "home", label: "Home", icon: Home },
+  { view: "explore", label: "Explore", icon: Compass },
   { view: "recently-added", label: "Recently Added", icon: Clock },
   { view: "artists", label: "Artists", icon: Users },
   { view: "albums", label: "Projects", icon: Disc3 },
@@ -57,7 +58,7 @@ export function MusicSidebar() {
                 "flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-sm transition-all duration-150",
                 isActive
                   ? "bg-pulse/8 text-heading"
-                  : "text-soft hover:bg-white/[0.03] hover:text-heading",
+                  : "text-soft hover:bg-surface hover:text-heading",
               )}
             >
               <item.icon size={16} />
@@ -70,7 +71,7 @@ export function MusicSidebar() {
       <div className="mt-auto p-2">
         <button
           onClick={() => setUploadOpen(true)}
-          className="flex w-full items-center gap-2 rounded-md border border-dashed border-white/[0.04] px-2 py-1.5 text-sm text-soft transition-colors hover:border-pulse/40 hover:text-heading"
+          className="flex w-full items-center gap-2 rounded-md border border-dashed border-edge px-2 py-1.5 text-sm text-soft transition-colors hover:border-pulse/40 hover:text-heading"
         >
           <Upload size={16} />
           <span>Upload</span>

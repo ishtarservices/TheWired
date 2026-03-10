@@ -11,8 +11,8 @@ interface ButtonProps extends ButtonHTMLAttributes<HTMLButtonElement> {
 
 const variantStyles: Record<ButtonVariant, string> = {
   primary: "bg-gradient-to-r from-pulse to-pulse-soft text-white shadow-[0_0_12px_rgba(139,92,246,0.25)] hover:shadow-[0_0_20px_rgba(139,92,246,0.4)] hover-lift press-effect",
-  secondary: "bg-surface border border-white/[0.06] text-heading hover:bg-surface-hover hover-lift press-effect",
-  ghost: "bg-transparent hover:bg-white/[0.04] text-soft hover:text-heading press-effect",
+  secondary: "bg-surface border border-edge text-heading hover:bg-surface-hover hover-lift press-effect",
+  ghost: "bg-transparent hover:bg-surface-hover text-soft hover:text-heading press-effect",
   neon: "bg-neon/10 text-neon border border-neon/20 hover:bg-neon/20 hover:border-neon/40 hover:glow-neon hover-lift press-effect",
 };
 

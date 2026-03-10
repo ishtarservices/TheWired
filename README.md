@@ -127,13 +127,16 @@ TheWiredV1/
 │   │   │   └── ui/                # Button, Avatar, Spinner
 │   │   ├── features/
 │   │   │   ├── chat/              # Kind:9 real-time chat with optimistic UI
+│   │   │   ├── dm/                # NIP-17 encrypted DMs (gift wraps), friend list
 │   │   │   ├── identity/          # Login, profile card, signer detection
 │   │   │   ├── longform/          # Kind:30023 Markdown article rendering
 │   │   │   ├── media/             # Kind:22 video playback (HLS via hls.js)
 │   │   │   ├── music/             # Music library, player, upload (kinds 31683/33123/30119)
 │   │   │   │   └── views/         # MusicHome, SongList, AlbumGrid, ArtistDetail, etc.
-│   │   │   ├── profile/           # Profile display and edit
+│   │   │   ├── notifications/     # Toast stack, bell dropdown, browser/push notifications
+│   │   │   ├── profile/           # Profile display, edit, friend request buttons
 │   │   │   ├── relay/             # Relay connection status panel
+│   │   │   ├── settings/          # Notification preferences, DND settings
 │   │   │   └── spaces/            # NIP-29 spaces, channels, members
 │   │   ├── lib/
 │   │   │   ├── api/               # Backend API client (NIP-98 auth, typed endpoints)
@@ -232,6 +235,9 @@ TheWiredV1/
 | 30023 | NIP-23 | Long-form articles |
 | 30311 | NIP-53 | Live streams |
 | 1311 | NIP-53 | Live chat |
+| 1059 | NIP-17 | Gift wraps (encrypted DMs + friend requests) |
+| 13 | NIP-17 | Seals (intermediate encryption layer) |
+| 14 | NIP-17 | Rumors (decrypted DM content) |
 | 10000 | NIP-51 | Mute lists |
 | 10002 | NIP-65 | Relay lists |
 | 27235 | NIP-98 | HTTP auth (gateway) |
@@ -334,9 +340,9 @@ Full music library, playback, upload, search, and discovery system.
 - NIP-57 zap integration + NIP-47 Nostr Wallet Connect
 - NIP-22 comments on videos/tracks/articles
 
-### Phase 4: Spaces & Channels Enhancement -- COMPLETE
+### Phase 4: Spaces, DMs, Notifications & Social -- COMPLETE
 
-Custom channels, roles/permissions, moderation tools, Space Settings UI.
+Custom channels, roles/permissions, moderation tools, Space Settings UI, encrypted DMs, notification system, friend requests.
 
 **Backend (3 new route modules, 3 new services):**
 - Channel CRUD: `spaceChannels` table + `channelService` (list, create, update, delete, reorder, seed defaults)
@@ -375,6 +381,28 @@ Custom channels, roles/permissions, moderation tools, Space Settings UI.
 - `MemberContextMenu` popover: View Profile, Mute (5m/15m/1h/24h), Kick (with confirmation), Ban (with reason + confirmation)
 - Member list shows "..." context menu button on hover, admin crown icon
 - Slow mode display in channel header
+
+**Encrypted DMs (NIP-17):**
+- NIP-44 v2 encryption in Tauri keystore (pure Rust: ECDH, HKDF, ChaCha20, HMAC-SHA256)
+- Triple-layer gift wrap: kind:1059 → kind:13 seal → kind:14 rumor
+- Self-wraps for sent message persistence across sessions
+- DM persistence to IndexedDB (200 msgs/conversation, 3000 processedWrapIds cap)
+- Auto-updating relative timestamps via shared-interval `useRelativeTime` hook
+
+**Notification System:**
+- Client-side evaluation: checks preferences, space mutes, DND, mute lists before dispatching
+- Toast stack (max 5, auto-dismiss 6s), bell dropdown with read/unread state
+- Browser notifications (when unfocused), notification settings with per-type toggles + DND
+- Backend push pipeline: `relayIngester` → `notification_queue` → `notificationDispatcher` → web-push VAPID
+- Unread/mention badges on spaces and channels, cleared on navigation
+
+**Friend Request System:**
+- Private friend requests via NIP-17 gift wraps with `["type", "friend_request"]` tag
+- Friends = accepted request + mutual follow; accepting auto-follows, unfriending auto-unfollows
+- Auto-accept when both users have pending requests to each other
+- `removedPubkeys` tracking prevents relay re-delivery from resurrecting cleared state
+- Friend buttons on profile page, user popover cards, and DM sidebar
+- Accept button in notification toast and bell dropdown
 
 ### Phase 5: Discovery and Scale -- TODO
 

@@ -150,6 +150,9 @@
 | NIP-29 Group Meta | 39000 | NIP-29 | Addressable | Group name, picture, about, access flags |
 | NIP-29 Group Admins | 39001 | NIP-29 | Addressable | Admin list with roles |
 | NIP-29 Group Members | 39002 | NIP-29 | Addressable | Member pubkey list |
+| Gift Wrap | 1059 | NIP-17 | Regular | Encrypted DM/friend-request envelope (NIP-44 payload) |
+| Seal | 13 | NIP-17 | Regular | Intermediate encryption layer inside gift wrap |
+| Rumor (DM) | 14 | NIP-17 | Regular | Decrypted inner DM content (never published raw) |
 | Client Auth | 22242 | NIP-42 | Ephemeral | Challenge-response for relay auth |
 
 ### Custom Music Event Kinds (Addressable Range)
@@ -478,6 +481,29 @@ interface RootState {
     recentZapReceipts: ZapReceipt[];
   };
 
+  dm: {
+    contacts: Record<pubkey, { messages: DMMessage[]; unreadCount: number }>;
+    activeConversation: string | null;
+    processedWrapIds: string[];  // dedup relay echoes, capped at 3000
+  };
+
+  notifications: {
+    spaceUnread:        Record<spaceId, number>;
+    channelUnread:      Record<"spaceId:channelId", number>;
+    spaceMentions:      Record<spaceId, number>;
+    channelMentions:    Record<"spaceId:channelId", number>;
+    notifications:      InAppNotification[];  // toast stack + bell dropdown
+    spaceMutes:         Record<spaceId, { muted: boolean; muteUntil?: number }>;
+    preferences:        NotificationPreferences;
+    lastReadTimestamps: Record<contextId, unixSeconds>;
+  };
+
+  friendRequests: {
+    requests: FriendRequest[];       // { id, pubkey, message, createdAt, status, direction }
+    processedWrapIds: string[];      // dedup relay echoes, capped at 3000
+    removedPubkeys: string[];        // blocks relay resurrection after unfriend/cancel
+  };
+
   ui: {
     sidebarExpanded: boolean;
     sidebarMode: 'spaces' | 'music';
@@ -538,6 +564,15 @@ interface NostrSigner {
 // NIP-07: delegates to window.nostr (Alby, nos2x, etc.)
 // Tauri: delegates to Rust via IPC (private key in OS keychain, never in JS)
 ```
+
+**Tauri NIP-44 v2 Encryption:**
+
+The Tauri keystore includes a pure Rust NIP-44 v2 module (`client/src-tauri/src/nip44.rs`) providing ECDH key agreement, HKDF-Extract/Expand, ChaCha20 encryption, HMAC-SHA256 authentication, and NIP-44 power-of-two padding. Two IPC commands are exposed:
+
+- `keystore_nip44_encrypt(recipient_pubkey, plaintext)` -- Encrypt for a recipient
+- `keystore_nip44_decrypt(sender_pubkey, ciphertext)` -- Decrypt from a sender
+
+Both use the stored private key from the OS keychain. The TypeScript layer (`nip44.ts`) dynamically imports `TauriSigner` when `signerType === "tauri_keystore"`.
 
 ### 3.9 Optimistic UI Updates
 
@@ -601,6 +636,65 @@ Modeled as NIP-29 groups with prefixed IDs:
 - Child: `synthwave-collective:producers`
 
 Client constructs tree from `:` delimiter. Each sub-space has its own kind:39000 metadata.
+
+### 4.5 Direct Messages (NIP-17 Gift Wraps)
+
+DMs use NIP-17 triple-layer encryption: **Gift Wrap (kind:1059) → Seal (kind:13) → Rumor (kind:14)**. All three layers have randomized timestamps for metadata privacy. The event pipeline in `handleGiftWrap()` decrypts using NIP-44 and routes based on the rumor's `type` tag (DM, friend request, or friend accept).
+
+**Key files:**
+- `lib/nostr/giftWrap.ts` -- Gift wrap creation and unwrapping
+- `lib/nostr/nip44.ts` -- NIP-44 encrypt/decrypt dispatcher (NIP-07 or Tauri)
+- `lib/nostr/eventPipeline.ts` -- `handleGiftWrap()` decrypts and routes to DM or friend handlers
+- `store/slices/dmSlice.ts` -- Redux state: contacts, messages, unread counts, active conversation
+- `features/dm/dmPersistence.ts` -- IndexedDB persistence (200 msgs/conversation, 3000 processedWrapIds cap)
+- `features/dm/dmService.ts` -- Send DM with optimistic local dispatch
+
+**Self-wraps:** Every sent DM publishes two gift wraps (one to recipient, one to self) so sent messages survive app reload.
+
+**Display timestamps:** Uses `Date.now()` at receipt time (not the randomized rumor timestamp) for display. Persisted messages retain their original display timestamp across sessions.
+
+### 4.6 Friend Request System
+
+Private friend requests built on NIP-17 gift wraps with a distinguishing `type` tag on the rumor:
+
+| Tag | Meaning |
+|-----|---------|
+| `["type", "friend_request"]` | New friend request |
+| `["type", "friend_request_accept"]` | Acceptance |
+| `["type", "friend_request_remove"]` | Friend removal notification |
+
+**Friends = accepted friend request + mutual follow.** Accepting auto-follows; unfriending auto-unfollows. Declining and canceling are local-only (no event sent). Canceled/removed pubkeys are tracked in `removedPubkeys` to prevent relay re-delivery from resurrecting cleared state.
+
+**Key files:**
+- `lib/nostr/friendRequest.ts` -- Send, accept, decline, cancel, remove actions
+- `lib/nostr/friendRequestPersistence.ts` -- IndexedDB load/save (debounced 5s)
+- `store/slices/friendRequestSlice.ts` -- Redux state and reducers
+- `features/dm/useFriends.ts` -- Unified friend definition hook (accepted request + follow)
+
+### 4.7 Notification System
+
+```
+Incoming Event → eventPipeline.ts
+  ├─ evaluateNotification()    → checks prefs/mutes/DND → incrementUnread/incrementMention + toast
+  ├─ evaluateDMNotification()  → DM-specific path (from handleGiftWrap)
+  └─ evaluateFriendRequestNotification() → friend request path
+
+Backend (relayIngester)
+  └─ enqueueNotification()     → notification_queue → notificationDispatcher → web-push → OS notification
+```
+
+**Client-side:** Evaluation checks global DND, per-space mutes, user-level mute lists, and per-type toggles before dispatching. Toasts auto-dismiss after 6s (actionable toasts like friend requests persist longer). Bell dropdown shows all notifications with read/unread state.
+
+**Backend push:** `relayIngester` extracts p-tags from chat messages → `enqueueNotification()` → `notification_queue` table → `notificationDispatcher` worker polls every 30s → `web-push` VAPID delivery.
+
+**Key files:**
+- `lib/nostr/notificationEvaluator.ts` -- Evaluates events against preferences/mutes/DND
+- `features/notifications/notificationPersistence.ts` -- IndexedDB persistence (debounced 5s)
+- `features/notifications/NotificationToast.tsx` -- Toast stack (max 5, bottom-right)
+- `features/notifications/NotificationBell.tsx` -- Bell icon with unread badge + dropdown
+- `features/notifications/browserNotify.ts` -- Browser notification API (fires when unfocused)
+- `features/settings/NotificationSettingsTab.tsx` -- Toggles for mentions/DMs/followers/chat/browser/sound + DND
+- `store/slices/notificationSlice.ts` -- Redux state: unread counts, mentions, mutes, preferences, in-app notifications
 
 ---
 
@@ -1123,6 +1217,30 @@ SAT balance: NIP-47 `get_balance` every 60 seconds.
 - NIP-44 encrypted private playlists
 - NIP-57 zap integration + NIP-47 NWC
 - NIP-22 comments on tracks/videos/articles
+
+### Music Discovery Roadmap
+
+**Phase 4: Underground/Rare Content Algorithm (TODO)**
+
+Surface quality tracks with low engagement, preventing popular content from dominating all discovery surfaces.
+
+- **Algorithm:** Inverse trending -- select tracks with quality signals (complete metadata, hashtags, cover art) but below-median engagement scores
+- **Genre-scoped:** Underground feeds per genre via `music:underground:{genre}` Redis sorted sets
+- **Quality filters:** Require `title` + `artist` + `genre` tags, minimum 30s duration, valid audio URL
+- **Redis keys:** `music:underground:{genre}` (ZSET, recomputed by trendingComputer)
+
+**Phase 5: Personalized Recommendations (TODO)**
+
+Per-user recommendations based on listening history, genre preferences, and social graph.
+
+- **Listening history:** `listening_history:{pubkey}` Redis sorted set (capped at 500, populated by `recordPlay`)
+- **Genre distribution:** Compute from user's listening history -- weight genres by play frequency
+- **Follow graph scoring:** Boost tracks from followed artists and artists followed by follows (2-hop)
+- **Collaborative filtering:** Users with similar listening histories surface each other's favorites
+- **Redis keys:** `personalized:music:{pubkey}` (ZSET, 1hr TTL), `listening_history:{pubkey}` (ZSET)
+- **Endpoint:** `GET /music/recommended?limit=20` returns personalized track list
+
+---
 
 ### Phase 4: Discovery and Scale -- TODO
 

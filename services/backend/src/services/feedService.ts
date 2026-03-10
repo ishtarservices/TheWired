@@ -4,7 +4,19 @@ import { eq, desc, sql } from "drizzle-orm";
 import { getRedis } from "../lib/redis.js";
 
 export const feedService = {
-  async getTrending(params: { period: string; kind?: number; limit: number }) {
+  async getTrending(params: { period: string; kind?: number; limit: number; genre?: string }) {
+    // If genre filter is specified for music tracks, use per-genre Redis sorted sets
+    if (params.genre && (!params.kind || params.kind === 31683)) {
+      const redis = getRedis();
+      const key = `trending:music:tracks:genre:${params.genre.toLowerCase()}`;
+      const ids = await redis.zrevrange(key, 0, params.limit - 1, "WITHSCORES");
+      const results: { eventId: string; score: number }[] = [];
+      for (let i = 0; i < ids.length; i += 2) {
+        results.push({ eventId: ids[i], score: parseFloat(ids[i + 1]) });
+      }
+      return results;
+    }
+
     const query = db
       .select()
       .from(trendingSnapshots)

@@ -37,7 +37,7 @@ function CopyButton({ text, label }: { text: string; label: string }) {
   return (
     <button
       onClick={handleCopy}
-      className="inline-flex items-center gap-1 rounded-md px-2 py-1 text-xs text-soft transition-colors hover:bg-white/[0.06] hover:text-heading"
+      className="inline-flex items-center gap-1 rounded-md px-2 py-1 text-xs text-soft transition-colors hover:bg-surface-hover hover:text-heading"
       title={`Copy ${label}`}
     >
       <Copy size={12} />
@@ -236,7 +236,7 @@ function ImportKeySection() {
           value={input}
           onChange={(e) => setInput(e.target.value)}
           placeholder="nsec1... or hex"
-          className="flex-1 rounded-lg border border-white/[0.06] bg-surface px-3 py-2 text-sm text-heading placeholder:text-muted focus:border-pulse/40 focus:outline-none"
+          className="flex-1 rounded-lg border border-edge bg-surface px-3 py-2 text-sm text-heading placeholder:text-muted focus:border-pulse/40 focus:outline-none"
         />
         <Button variant="secondary" size="md" onClick={handleImport} disabled={loading || !input.trim()}>
           {loading ? <Spinner size="sm" /> : <Key size={14} className="mr-1.5" />}
@@ -344,11 +344,11 @@ export function SecuritySettingsTab() {
       </div>
 
       <IdentityInfoSection />
-      <hr className="border-white/[0.04]" />
+      <hr className="border-edge" />
       <SecretKeySection />
-      <hr className="border-white/[0.04]" />
+      <hr className="border-edge" />
       <ImportKeySection />
-      <hr className="border-white/[0.04]" />
+      <hr className="border-edge" />
       <DangerZoneSection />
     </div>
   );

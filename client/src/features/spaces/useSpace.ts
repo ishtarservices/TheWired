@@ -1,5 +1,6 @@
 import { useCallback } from "react";
 import { useAppSelector, useAppDispatch } from "../../store/hooks";
+import { store } from "../../store";
 import {
   setActiveSpace,
   setActiveChannel,
@@ -11,6 +12,8 @@ import {
   enterClientSpace,
   leaveClientSpace,
   switchSpaceChannel,
+  openBgChatSub,
+  closeBgChatSub,
 } from "../../lib/nostr/groupSubscriptions";
 import {
   addSpaceToStore,
@@ -21,9 +24,12 @@ import {
   clearChannelUnread,
   updateLastRead,
   addNotification,
+  markChannelNotificationsRead,
+  setUnreadDivider,
 } from "../../store/slices/notificationSlice";
-import { fetchMembers, getSpace } from "../../lib/api/spaces";
+import { fetchMembers, getSpace, fetchFeedSources } from "../../lib/api/spaces";
 import { ApiRequestError } from "../../lib/api/client";
+import { updateSpaceFeedSources } from "../../store/slices/spacesSlice";
 import type { Space, SpaceChannel } from "../../types/space";
 
 /** Pick the best default channel for a space, respecting position and isDefault flag */
@@ -39,6 +45,21 @@ function pickDefaultChannel(
 
   const sorted = [...visible].sort((a, b) => a.position - b.position);
   return sorted.find((c) => c.isDefault) ?? sorted[0];
+}
+
+/** Capture old lastRead timestamp for unread divider, then update lastRead and clear unreads */
+function activateChannel(channelId: string, dispatch: ReturnType<typeof useAppDispatch>) {
+  const state = store.getState();
+  const hasUnreads = (state.notifications.channelUnread[channelId] ?? 0) > 0;
+
+  if (hasUnreads) {
+    const oldTimestamp = state.notifications.lastReadTimestamps[channelId] ?? 0;
+    dispatch(setUnreadDivider({ channelId, timestamp: oldTimestamp }));
+  }
+
+  dispatch(clearChannelUnread(channelId));
+  dispatch(markChannelNotificationsRead(channelId));
+  dispatch(updateLastRead({ contextId: channelId, timestamp: Math.floor(Date.now() / 1000) }));
 }
 
 export function useSpace() {
@@ -73,6 +94,7 @@ export function useSpace() {
         // Space deleted on backend — clean up locally
         if (err instanceof ApiRequestError && err.status === 404) {
           leaveClientSpace(spaceId);
+          closeBgChatSub(spaceId);
           dispatch(removeSpace(spaceId));
           removeSpaceFromStore(spaceId);
           dispatch(
@@ -87,6 +109,43 @@ export function useSpace() {
           return;
         }
         // Backend unavailable — keep local members
+      }
+    },
+    [dispatch, spaces],
+  );
+
+  /** Fetch feed sources from backend and merge into Redux + IndexedDB.
+   *  Re-subscribes the active channel so events from new sources are fetched. */
+  const syncFeedSources = useCallback(
+    async (spaceId: string) => {
+      try {
+        const res = await fetchFeedSources(spaceId);
+        const pubkeys = res.data;
+        const space = spaces.find((s) => s.id === spaceId);
+        if (!space) return;
+
+        // Update if different
+        const changed =
+          pubkeys.length !== space.feedPubkeys.length ||
+          !pubkeys.every((pk) => space.feedPubkeys.includes(pk));
+        if (changed) {
+          dispatch(updateSpaceFeedSources({ spaceId, pubkeys }));
+          const updated: Space = { ...space, feedPubkeys: pubkeys };
+          updateSpaceInStore(updated);
+
+          // Re-subscribe the active channel with updated feed sources
+          const state = store.getState();
+          if (state.spaces.activeSpaceId === spaceId && state.spaces.activeChannelId) {
+            const spaceChannels = state.spaces.channels[spaceId];
+            const channelIdPart = state.spaces.activeChannelId.split(":").slice(1).join(":");
+            const channel = spaceChannels?.find((c) => c.id === channelIdPart);
+            if (channel) {
+              switchSpaceChannel(updated, channel.type);
+            }
+          }
+        }
+      } catch {
+        // Backend unavailable — keep local feed sources
       }
     },
     [dispatch, spaces],
@@ -110,7 +169,9 @@ export function useSpace() {
       if (spaceChannels && spaceChannels.length > 0) {
         const best = pickDefaultChannel(spaceChannels, space.mode);
         if (best) {
-          dispatch(setActiveChannel(`${spaceId}:${best.id}`));
+          const channelId = `${spaceId}:${best.id}`;
+          dispatch(setActiveChannel(channelId));
+          activateChannel(channelId, dispatch);
           switchSpaceChannel(space, best.type);
         }
       } else {
@@ -121,10 +182,16 @@ export function useSpace() {
       // Sync members from backend (non-blocking)
       syncMembers(spaceId);
 
+      // Sync feed sources for feed-mode spaces (non-blocking)
+      if (space.mode === "read") {
+        syncFeedSources(spaceId);
+      }
+
       // Background existence check — if the space was deleted, getSpace returns 404
       getSpace(spaceId).catch((err) => {
         if (err instanceof ApiRequestError && err.status === 404) {
           leaveClientSpace(spaceId);
+          closeBgChatSub(spaceId);
           dispatch(removeSpace(spaceId));
           removeSpaceFromStore(spaceId);
           dispatch(
@@ -139,7 +206,7 @@ export function useSpace() {
         }
       });
     },
-    [dispatch, spaces, activeSpaceId, allChannels, syncMembers],
+    [dispatch, spaces, activeSpaceId, allChannels, syncMembers, syncFeedSources],
   );
 
   const selectChannel = useCallback(
@@ -153,15 +220,13 @@ export function useSpace() {
       if (channel) {
         const channelId = `${activeSpace.id}:${channel.id}`;
         dispatch(setActiveChannel(channelId));
-        dispatch(clearChannelUnread(channelId));
-        dispatch(updateLastRead({ contextId: channelId, timestamp: Math.floor(Date.now() / 1000) }));
+        activateChannel(channelId, dispatch);
         switchSpaceChannel(activeSpace, channel.type);
       } else {
         // Legacy: treat as channel type string
         const channelId = `${activeSpace.id}:${channelOrType}`;
         dispatch(setActiveChannel(channelId));
-        dispatch(clearChannelUnread(channelId));
-        dispatch(updateLastRead({ contextId: channelId, timestamp: Math.floor(Date.now() / 1000) }));
+        activateChannel(channelId, dispatch);
         switchSpaceChannel(activeSpace, channelOrType);
       }
     },
@@ -189,6 +254,7 @@ export function useSpace() {
     (space: Space) => {
       dispatch(addSpace(space));
       addSpaceToStore(space);
+      openBgChatSub(space);
     },
     [dispatch],
   );
@@ -196,6 +262,7 @@ export function useSpace() {
   const deleteSpace = useCallback(
     (spaceId: string) => {
       leaveClientSpace(spaceId);
+      closeBgChatSub(spaceId);
       dispatch(removeSpace(spaceId));
       removeSpaceFromStore(spaceId);
     },
@@ -228,6 +295,7 @@ export function useSpace() {
     (space: Space) => {
       dispatch(addSpace(space));
       addSpaceToStore(space);
+      openBgChatSub(space);
 
       // Leave previous space
       if (activeSpaceId) {
@@ -242,7 +310,9 @@ export function useSpace() {
       if (spaceChannels && spaceChannels.length > 0) {
         const best = pickDefaultChannel(spaceChannels, space.mode);
         if (best) {
-          dispatch(setActiveChannel(`${space.id}:${best.id}`));
+          const channelId = `${space.id}:${best.id}`;
+          dispatch(setActiveChannel(channelId));
+          activateChannel(channelId, dispatch);
           switchSpaceChannel(space, best.type);
         }
       } else {
@@ -251,8 +321,13 @@ export function useSpace() {
 
       // Sync members from backend (non-blocking)
       syncMembers(space.id);
+
+      // Sync feed sources for feed-mode spaces
+      if (space.mode === "read") {
+        syncFeedSources(space.id);
+      }
     },
-    [dispatch, activeSpaceId, allChannels, syncMembers],
+    [dispatch, activeSpaceId, allChannels, syncMembers, syncFeedSources],
   );
 
   const removeMember = useCallback(
@@ -291,5 +366,6 @@ export function useSpace() {
     addMember,
     removeMember,
     syncMembers,
+    syncFeedSources,
   };
 }

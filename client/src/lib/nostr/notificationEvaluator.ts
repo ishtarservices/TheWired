@@ -1,5 +1,6 @@
 import type { NostrEvent } from "../../types/nostr";
 import { EVENT_KINDS } from "../../types/nostr";
+import { decode } from "nostr-tools/nip19";
 import { store } from "../../store";
 import {
   incrementUnread,
@@ -9,6 +10,7 @@ import {
 } from "../../store/slices/notificationSlice";
 import { addKnownFollower } from "../../store/slices/identitySlice";
 import { showBrowserNotification } from "../../features/notifications/browserNotify";
+import { profileCache } from "./profileCache";
 
 /**
  * Evaluate an incoming event for notification side-effects.
@@ -139,7 +141,7 @@ export function evaluateFriendAcceptNotification(
   if (!prefs.enabled) return;
   if (prefs.dnd && (!prefs.dndUntil || prefs.dndUntil > Date.now())) return;
 
-  const body = `${senderPubkey.slice(0, 8)}... accepted your friend request`;
+  const body = `${getDisplayName(senderPubkey)} accepted your friend request`;
 
   store.dispatch(
     addNotification({
@@ -192,6 +194,16 @@ function evaluateChatMessage(
     ? `${spaceId}:${chatChannel.id}`
     : `${spaceId}:chat`;
 
+  // Check channel-level notification override
+  const channelMode = state.notifications.channelNotifSettings[channelId];
+  if (channelMode === "muted") return;
+
+  // Resolve effective mode: channel override > space settings > global prefs
+  const spaceSettings = state.notifications.spaceNotifSettings[spaceId];
+  const effectiveMode = channelMode && channelMode !== "default"
+    ? channelMode
+    : spaceSettings?.mode ?? "all";
+
   // Check if user is currently viewing this channel
   const isViewing =
     activeSpaceId === spaceId && activeChannelId === channelId;
@@ -201,6 +213,18 @@ function evaluateChatMessage(
     (t) => t[0] === "p" && t[1] === myPubkey,
   );
 
+  // Check suppress settings
+  const suppressEveryone = spaceSettings?.suppressEveryone ?? false;
+  // Detect @everyone-style mentions (no specific p-tag target, or content-based)
+  const isEveryonePing = !isMentioned && event.content.includes("@everyone");
+
+  if (suppressEveryone && isEveryonePing) return;
+
+  // Skip events older than (or equal to) last-read timestamp.
+  // Prevents double-counting on app reboot when relays replay recent messages.
+  const lastRead = state.notifications.lastReadTimestamps[channelId] ?? 0;
+  if (event.created_at <= lastRead) return;
+
   if (isMentioned && mentionsEnabled) {
     store.dispatch(incrementMention({ spaceId, channelId }));
 
@@ -209,7 +233,18 @@ function evaluateChatMessage(
     }
 
     dispatchToast("mention", "You were mentioned", event, channelId);
+  } else if (effectiveMode === "nothing") {
+    // "Nothing" mode: still track unread (gray dot) but no toast
+    if (!isViewing) {
+      store.dispatch(incrementUnread({ spaceId, channelId }));
+    }
+  } else if (effectiveMode === "mentions") {
+    // "Mentions only" mode: track unread silently (no toast for regular messages)
+    if (!isViewing) {
+      store.dispatch(incrementUnread({ spaceId, channelId }));
+    }
   } else if (!isViewing && chatEnabled) {
+    // "All" mode: full notification behavior
     store.dispatch(incrementUnread({ spaceId, channelId }));
   }
 }
@@ -238,12 +273,14 @@ function evaluateFollowList(
   // Determine if we should show a "follow back" action
   const alreadyFollow = state.identity.followList.includes(event.pubkey);
 
+  const followerName = getDisplayName(event.pubkey);
+
   store.dispatch(
     addNotification({
       id: `follow-${event.pubkey}-${event.created_at}`,
       type: "follow",
       title: "New follower",
-      body: `${event.pubkey.slice(0, 8)}... followed you`,
+      body: `${followerName} followed you`,
       actorPubkey: event.pubkey,
       timestamp: Date.now(),
       actionType: alreadyFollow ? undefined : "follow_back",
@@ -252,22 +289,48 @@ function evaluateFollowList(
   );
 }
 
+/** Resolve nostr:npub1... references in text to display names */
+function resolveNostrMentions(text: string): string {
+  return text.replace(/nostr:(npub1[a-z0-9]+)/g, (_match, bech32: string) => {
+    try {
+      const { type, data } = decode(bech32);
+      if (type === "npub") {
+        const profile = profileCache.getCached(data as string);
+        const name = profile?.display_name || profile?.name;
+        if (name) return `@${name}`;
+      }
+    } catch {
+      // invalid bech32 — leave as-is
+    }
+    return `@${bech32.slice(0, 8)}...`;
+  });
+}
+
+/** Get a human-readable display name for a pubkey */
+function getDisplayName(pubkey: string): string {
+  const profile = profileCache.getCached(pubkey);
+  return profile?.display_name || profile?.name || pubkey.slice(0, 8) + "...";
+}
+
 function dispatchToast(
   type: NotificationType,
   title: string,
   event: NostrEvent,
   contextId?: string,
 ): void {
+  const resolved = resolveNostrMentions(event.content);
   const preview =
-    event.content.length > 80
-      ? event.content.slice(0, 80) + "..."
-      : event.content;
+    resolved.length > 80
+      ? resolved.slice(0, 80) + "..."
+      : resolved;
+
+  const senderName = getDisplayName(event.pubkey);
 
   store.dispatch(
     addNotification({
       id: `${type}-${event.id}`,
       type,
-      title,
+      title: `${senderName}: ${title.toLowerCase()}`,
       body: preview,
       actorPubkey: event.pubkey,
       contextId,

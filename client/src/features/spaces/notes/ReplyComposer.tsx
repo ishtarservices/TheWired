@@ -34,7 +34,7 @@ export function ReplyComposer({ targetPubkey, onSend, onCancel }: ReplyComposerP
   };
 
   return (
-    <div className="mt-2 rounded-xl card-glass border border-white/[0.04]">
+    <div className="mt-2 rounded-xl card-glass border border-edge">
       <div className="flex items-center gap-1 border-l-2 border-pulse px-3 pt-2 text-xs text-muted">
         <span>Replying to</span>
         <span className="text-pulse">{name}</span>

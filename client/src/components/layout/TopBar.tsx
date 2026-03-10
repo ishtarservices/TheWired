@@ -27,7 +27,7 @@ export function TopBar({
   const sidebarMode = useAppSelector((s) => s.ui.sidebarMode);
 
   return (
-    <div className="relative z-10 flex h-14 items-center border-b border-white/[0.04] glass px-3">
+    <div className="relative z-10 flex h-14 items-center border-b border-edge glass px-3">
       <Button variant="ghost" size="sm" onClick={onToggleSidebar}>
         {sidebarExpanded ? (
           <PanelLeftClose size={18} />
@@ -49,7 +49,7 @@ export function TopBar({
         {/* Theme toggle */}
         <button
           onClick={toggleTheme}
-          className="rounded-xl p-2 text-soft transition-colors hover:bg-white/[0.04] hover:text-heading"
+          className="rounded-xl p-2 text-soft transition-colors hover:bg-surface-hover hover:text-heading"
           title={`Switch to ${theme === "dark" ? "light" : "dark"} mode`}
         >
           {theme === "dark" ? <Sun size={15} /> : <Moon size={15} />}

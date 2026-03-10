@@ -59,10 +59,11 @@ export function startTrendingComputer() {
 
     for (const event of events) {
       // Fetch counters from Redis
-      const [zapTotal, zapCount, viewCount] = await Promise.all([
+      const [zapTotal, zapCount, viewCount, playCount] = await Promise.all([
         redis.get(`zap_total:${event.id}`).then((v) => parseInt(v ?? "0", 10)),
         redis.get(`zap_count:${event.id}`).then((v) => parseInt(v ?? "0", 10)),
         redis.get(`view_count:${event.id}`).then((v) => parseInt(v ?? "0", 10)),
+        redis.get(`play_count:${event.id}`).then((v) => parseInt(v ?? "0", 10)),
       ]);
 
       // Count reactions (kind:7 with e tag pointing to this event)
@@ -82,7 +83,7 @@ export function startTrendingComputer() {
       // Compute score per ARCHITECTURE.md formula
       const logZapSats = zapTotal > 0 ? Math.log2(zapTotal) : 0;
       const rawScore =
-        zapCount * 10 + reactionCount * 3 + viewCount * 1 + commentCount * 5 + logZapSats * 2;
+        zapCount * 10 + reactionCount * 3 + viewCount * 1 + playCount * 2 + commentCount * 5 + logZapSats * 2;
       const score = Math.round(rawScore * timeDecay(event.created_at) * 1000);
 
       if (score > 0) {
@@ -128,6 +129,25 @@ export function startTrendingComputer() {
       }
       pipeline.expire(key, PERIOD_HOURS[period] * 3600);
     }
+
+    // Per-genre trending for music tracks
+    const musicTrackItems = top.filter((i) => i.kind === 31683);
+    if (musicTrackItems.length > 0) {
+      // Fetch genres for scored music tracks
+      for (const item of musicTrackItems) {
+        const genreRows = (await db.execute(
+          sql`SELECT tags FROM relay.events WHERE id = ${item.eventId} LIMIT 1`,
+        )) as unknown as { tags: string[][] }[];
+        if (genreRows.length === 0) continue;
+        const genreTag = genreRows[0].tags?.find((t: string[]) => t[0] === "genre");
+        if (genreTag?.[1]) {
+          const genreKey = `trending:music:tracks:genre:${genreTag[1].toLowerCase()}`;
+          pipeline.zadd(genreKey, item.score, item.eventId);
+          pipeline.expire(genreKey, PERIOD_HOURS[period] * 3600);
+        }
+      }
+    }
+
     await pipeline.exec();
 
     console.log(`[trending] ${period}: scored ${events.length} events, top ${top.length} stored`);

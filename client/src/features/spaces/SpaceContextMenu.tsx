@@ -128,7 +128,7 @@ export function SpaceContextMenu({
               onClick={() => handleMute(d.ms)}
               className={cn(
                 "flex w-full items-center gap-2 rounded-lg mx-1 px-3.5 py-2.5 text-sm transition-colors",
-                "text-body hover:bg-white/[0.04] hover:text-heading",
+                "text-body hover:bg-surface-hover hover:text-heading",
               )}
             >
               <Clock size={14} />
@@ -150,7 +150,7 @@ export function SpaceContextMenu({
           </button>
           <button
             onClick={() => setConfirmDelete(false)}
-            className="flex w-full items-center gap-2 rounded-lg mx-1 px-3.5 py-2.5 text-sm text-body hover:bg-white/[0.04] hover:text-heading transition-colors"
+            className="flex w-full items-center gap-2 rounded-lg mx-1 px-3.5 py-2.5 text-sm text-body hover:bg-surface-hover hover:text-heading transition-colors"
           >
             Cancel
           </button>
@@ -160,7 +160,7 @@ export function SpaceContextMenu({
           {can("CREATE_INVITES") && (
             <button
               onClick={() => { setShowInvite(true); onClose(); }}
-              className="flex w-full items-center gap-2 rounded-lg mx-1 px-3.5 py-2.5 text-sm text-body hover:bg-white/[0.04] hover:text-heading transition-colors"
+              className="flex w-full items-center gap-2 rounded-lg mx-1 px-3.5 py-2.5 text-sm text-body hover:bg-surface-hover hover:text-heading transition-colors"
             >
               <Link2 size={14} />
               Create Invite
@@ -169,7 +169,7 @@ export function SpaceContextMenu({
           {isMuted ? (
             <button
               onClick={handleUnmute}
-              className="flex w-full items-center gap-2 rounded-lg mx-1 px-3.5 py-2.5 text-sm text-body hover:bg-white/[0.04] hover:text-heading transition-colors"
+              className="flex w-full items-center gap-2 rounded-lg mx-1 px-3.5 py-2.5 text-sm text-body hover:bg-surface-hover hover:text-heading transition-colors"
             >
               <Bell size={14} />
               Unmute notifications
@@ -177,7 +177,7 @@ export function SpaceContextMenu({
           ) : (
             <button
               onClick={() => setShowDurations(true)}
-              className="flex w-full items-center gap-2 rounded-lg mx-1 px-3.5 py-2.5 text-sm text-body hover:bg-white/[0.04] hover:text-heading transition-colors"
+              className="flex w-full items-center gap-2 rounded-lg mx-1 px-3.5 py-2.5 text-sm text-body hover:bg-surface-hover hover:text-heading transition-colors"
             >
               <BellOff size={14} />
               Mute notifications
@@ -185,12 +185,12 @@ export function SpaceContextMenu({
           )}
 
           {/* Divider */}
-          <div className="my-1 border-t border-white/[0.06]" />
+          <div className="my-1 border-t border-edge" />
 
           {/* Leave Space */}
           <button
             onClick={handleLeave}
-            className="flex w-full items-center gap-2 rounded-lg mx-1 px-3.5 py-2.5 text-sm text-body hover:bg-white/[0.04] hover:text-heading transition-colors"
+            className="flex w-full items-center gap-2 rounded-lg mx-1 px-3.5 py-2.5 text-sm text-body hover:bg-surface-hover hover:text-heading transition-colors"
           >
             <LogOut size={14} />
             Leave Space

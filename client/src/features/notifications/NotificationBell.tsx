@@ -81,8 +81,8 @@ export function NotificationBell() {
         className={cn(
           "relative rounded-xl p-2 transition-colors",
           open
-            ? "bg-white/[0.06] text-heading"
-            : "text-soft hover:bg-white/[0.04] hover:text-heading",
+            ? "bg-surface-hover text-heading"
+            : "text-soft hover:bg-surface hover:text-heading",
         )}
         title="Notifications"
       >
@@ -96,23 +96,23 @@ export function NotificationBell() {
 
       {/* Dropdown */}
       {open && (
-        <div className="absolute right-0 top-full mt-2 z-50 w-80 max-h-[420px] rounded-xl shadow-[var(--shadow-elevated)] animate-fade-in-up flex flex-col overflow-hidden border border-white/[0.08] backdrop-blur-2xl" style={{ background: 'rgba(10, 13, 23, 0.96)' }}>
+        <div className="absolute right-0 top-full mt-2 z-50 w-80 max-h-[420px] rounded-xl shadow-[var(--shadow-elevated)] animate-fade-in-up flex flex-col overflow-hidden border border-edge-light glass-panel">
           {/* Header */}
-          <div className="flex items-center justify-between border-b border-white/[0.08] px-4 py-2.5 bg-white/[0.03]">
+          <div className="flex items-center justify-between border-b border-edge px-4 py-2.5 bg-surface">
             <span className="text-xs font-semibold text-heading tracking-wide uppercase">Notifications</span>
             <div className="flex items-center gap-1">
               {notifications.length > 0 && (
                 <>
                   <button
                     onClick={handleMarkAllRead}
-                    className="rounded-md p-1 text-muted hover:text-heading hover:bg-white/[0.06] transition-colors"
+                    className="rounded-md p-1 text-muted hover:text-heading hover:bg-surface-hover transition-colors"
                     title="Mark all as read"
                   >
                     <CheckCheck size={13} />
                   </button>
                   <button
                     onClick={handleClearAll}
-                    className="rounded-md p-1 text-muted hover:text-heading hover:bg-white/[0.06] transition-colors"
+                    className="rounded-md p-1 text-muted hover:text-heading hover:bg-surface-hover transition-colors"
                     title="Clear all"
                   >
                     <Trash2 size={13} />
@@ -126,7 +126,7 @@ export function NotificationBell() {
           <div className="flex-1 overflow-y-auto">
             {sorted.length === 0 ? (
               <div className="flex flex-col items-center justify-center py-12 text-muted">
-                <div className="rounded-full bg-white/[0.03] p-3 mb-3">
+                <div className="rounded-full bg-surface p-3 mb-3">
                   <Bell size={20} className="text-faint" />
                 </div>
                 <span className="text-xs font-medium text-soft">All clear</span>
@@ -199,7 +199,7 @@ function NotificationRow({
     <button
       onClick={onClick}
       className={cn(
-        "group flex w-full items-start gap-3 px-4 py-3 text-left transition-colors hover:bg-white/[0.05]",
+        "group flex w-full items-start gap-3 px-4 py-3 text-left transition-colors hover:bg-surface-hover",
         !isRead && "bg-pulse/[0.04]",
       )}
     >
@@ -246,7 +246,7 @@ function NotificationRow({
       {/* Dismiss */}
       <button
         onClick={onDismiss}
-        className="shrink-0 rounded-md p-0.5 text-faint opacity-0 transition-all group-hover:opacity-100 hover:text-heading hover:bg-white/[0.06]"
+        className="shrink-0 rounded-md p-0.5 text-faint opacity-0 transition-all group-hover:opacity-100 hover:text-heading hover:bg-surface-hover"
       >
         <X size={12} />
       </button>

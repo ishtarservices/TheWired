@@ -1,15 +1,17 @@
 import { useState } from "react";
-import { X, Settings, Hash, Shield, Users, Gavel } from "lucide-react";
+import { X, Settings, Hash, Shield, Users, Gavel, Bell, Rss } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Modal } from "../../../components/ui/Modal";
 import { GeneralTab } from "./GeneralTab";
 import { ChannelsTab } from "./ChannelsTab";
 import { RolesTab } from "./RolesTab";
 import { MembersTab } from "./MembersTab";
+import { NotificationsTab } from "./NotificationsTab";
 import { ModerationTab } from "../moderation/ModerationTab";
 import { usePermissions } from "../usePermissions";
+import { useAppSelector } from "../../../store/hooks";
 
-type TabId = "general" | "channels" | "roles" | "members" | "moderation";
+type TabId = "general" | "channels" | "roles" | "members" | "notifications" | "moderation";
 
 interface Tab {
   id: TabId;
@@ -18,12 +20,20 @@ interface Tab {
   permission?: string;
 }
 
-const TABS: Tab[] = [
+const COMMUNITY_TABS: Tab[] = [
   { id: "general", label: "General", icon: Settings },
   { id: "channels", label: "Channels", icon: Hash },
   { id: "roles", label: "Roles", icon: Shield },
   { id: "members", label: "Members", icon: Users },
+  { id: "notifications", label: "Notifications", icon: Bell },
   { id: "moderation", label: "Moderation", icon: Gavel, permission: "BAN_MEMBERS" },
+];
+
+const FEED_TABS: Tab[] = [
+  { id: "general", label: "General", icon: Settings },
+  { id: "channels", label: "Channels", icon: Hash },
+  { id: "members", label: "Feed & Members", icon: Rss },
+  { id: "notifications", label: "Notifications", icon: Bell },
 ];
 
 interface SpaceSettingsModalProps {
@@ -35,8 +45,11 @@ interface SpaceSettingsModalProps {
 export function SpaceSettingsModal({ open, onClose, spaceId }: SpaceSettingsModalProps) {
   const [activeTab, setActiveTab] = useState<TabId>("general");
   const { can } = usePermissions(spaceId);
+  const space = useAppSelector((s) => s.spaces.list.find((sp) => sp.id === spaceId));
+  const isFeedMode = space?.mode === "read";
 
-  const visibleTabs = TABS.filter(
+  const baseTabs = isFeedMode ? FEED_TABS : COMMUNITY_TABS;
+  const visibleTabs = baseTabs.filter(
     (tab) => !tab.permission || can(tab.permission),
   );
 
@@ -44,8 +57,8 @@ export function SpaceSettingsModal({ open, onClose, spaceId }: SpaceSettingsModa
     <Modal open={open} onClose={onClose}>
       <div className="flex w-full max-w-2xl rounded-2xl card-glass shadow-2xl overflow-hidden" style={{ height: "min(80vh, 600px)" }}>
         {/* Tab navigation */}
-        <div className="flex w-44 shrink-0 flex-col border-r border-white/[0.04] bg-surface/50">
-          <div className="flex items-center justify-between px-4 py-3 border-b border-white/[0.04]">
+        <div className="flex w-44 shrink-0 flex-col border-r border-edge bg-surface/50">
+          <div className="flex items-center justify-between px-4 py-3 border-b border-edge">
             <h2 className="text-sm font-bold text-heading">Settings</h2>
             <button
               onClick={onClose}
@@ -63,7 +76,7 @@ export function SpaceSettingsModal({ open, onClose, spaceId }: SpaceSettingsModa
                   "flex w-full items-center gap-2 rounded-xl px-3 py-2 text-sm transition-all duration-150",
                   activeTab === tab.id
                     ? "bg-pulse/10 text-pulse"
-                    : "text-soft hover:bg-white/[0.04] hover:text-heading",
+                    : "text-soft hover:bg-surface-hover hover:text-heading",
                 )}
               >
                 <tab.icon size={16} />
@@ -79,6 +92,7 @@ export function SpaceSettingsModal({ open, onClose, spaceId }: SpaceSettingsModa
           {activeTab === "channels" && <ChannelsTab spaceId={spaceId} />}
           {activeTab === "roles" && <RolesTab spaceId={spaceId} />}
           {activeTab === "members" && <MembersTab spaceId={spaceId} />}
+          {activeTab === "notifications" && <NotificationsTab spaceId={spaceId} />}
           {activeTab === "moderation" && <ModerationTab spaceId={spaceId} />}
         </div>
       </div>

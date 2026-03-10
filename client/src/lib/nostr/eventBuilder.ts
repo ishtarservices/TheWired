@@ -23,6 +23,14 @@ export function buildProfileEvent(
   };
 }
 
+/** File metadata for imeta tags (NIP-94 inline) */
+export interface AttachmentMeta {
+  url: string;
+  mimeType: string;
+  sha256: string;
+  size: number;
+}
+
 /** Build an unsigned kind:9 chat message event */
 export function buildChatMessage(
   pubkey: string,
@@ -30,6 +38,7 @@ export function buildChatMessage(
   content: string,
   replyTo?: { eventId: string; pubkey: string },
   channelId?: string,
+  attachments?: AttachmentMeta[],
 ): UnsignedEvent {
   const tags: string[][] = [["h", groupId]];
 
@@ -43,14 +52,25 @@ export function buildChatMessage(
     tags.push(["p", replyTo.pubkey]);
   }
 
+  // Add imeta tags for file attachments (NIP-94 inline metadata)
+  if (attachments?.length) {
+    for (const att of attachments) {
+      tags.push([
+        "imeta",
+        `url ${att.url}`,
+        `m ${att.mimeType}`,
+        `x ${att.sha256}`,
+        `size ${String(att.size)}`,
+      ]);
+    }
+  }
+
   return {
     pubkey,
     created_at: Math.floor(Date.now() / 1000),
     kind: 9,
     tags,
-    content: replyTo
-      ? `nostr:nevent1${replyTo.eventId.slice(0, 16)}... ${content}`
-      : content,
+    content,
   };
 }
 
@@ -130,6 +150,52 @@ export function buildQuoteNote(
       ["p", target.pubkey],
     ],
     content,
+  };
+}
+
+/** Build an unsigned kind:5 deletion event (NIP-09) */
+export function buildDeletionEvent(
+  pubkey: string,
+  targets: {
+    eventIds?: string[];
+    addressableIds?: string[];
+  },
+  reason?: string,
+): UnsignedEvent {
+  const tags: string[][] = [];
+
+  // "e" tags for specific event IDs
+  if (targets.eventIds) {
+    for (const id of targets.eventIds) {
+      tags.push(["e", id]);
+    }
+  }
+
+  // "a" tags for addressable events (kind:pubkey:d-tag)
+  if (targets.addressableIds) {
+    for (const addr of targets.addressableIds) {
+      tags.push(["a", addr]);
+    }
+  }
+
+  // "k" tags for the kinds being deleted (helps relays filter)
+  const kinds = new Set<string>();
+  if (targets.addressableIds) {
+    for (const addr of targets.addressableIds) {
+      const kind = addr.split(":")[0];
+      if (kind) kinds.add(kind);
+    }
+  }
+  for (const k of kinds) {
+    tags.push(["k", k]);
+  }
+
+  return {
+    pubkey,
+    created_at: Math.floor(Date.now() / 1000),
+    kind: 5,
+    tags,
+    content: reason ?? "",
   };
 }
 

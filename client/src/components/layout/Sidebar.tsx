@@ -55,7 +55,7 @@ export function Sidebar({ expanded }: SidebarProps) {
         </div>
       )}
 
-      <div className="flex h-14 items-center justify-between border-b border-white/4 px-5">
+      <div className="flex h-14 items-center justify-between border-b border-edge px-5">
         <span className="text-sm font-bold tracking-[0.2em] text-gradient-accent uppercase">
           The Wired
         </span>
@@ -69,7 +69,7 @@ export function Sidebar({ expanded }: SidebarProps) {
               "rounded-lg p-1.5 transition-colors",
               sidebarMode === "spaces"
                 ? "bg-pulse/15 text-pulse"
-                : "text-muted hover:text-heading hover:bg-white/4",
+                : "text-muted hover:text-heading hover:bg-surface",
             )}
             title="Spaces"
           >
@@ -84,7 +84,7 @@ export function Sidebar({ expanded }: SidebarProps) {
               "rounded-lg p-1.5 transition-colors",
               sidebarMode === "music"
                 ? "bg-pulse/15 text-pulse"
-                : "text-muted hover:text-heading hover:bg-white/4",
+                : "text-muted hover:text-heading hover:bg-surface",
             )}
             title="Music"
           >
@@ -99,7 +99,7 @@ export function Sidebar({ expanded }: SidebarProps) {
               "relative rounded-lg p-1.5 transition-colors",
               sidebarMode === "messages"
                 ? "bg-pulse/15 text-pulse"
-                : "text-muted hover:text-heading hover:bg-white/4",
+                : "text-muted hover:text-heading hover:bg-surface",
             )}
             title="Messages"
           >
@@ -117,7 +117,7 @@ export function Sidebar({ expanded }: SidebarProps) {
         {sidebarMode === "spaces" && (
           <>
             {/* Spaces */}
-            <div className="border-b border-white/4 pb-2">
+            <div className="border-b border-edge pb-2">
               <div className="px-5 pt-4 pb-2 text-[10px] font-semibold uppercase tracking-[0.15em] text-muted">
                 Spaces
               </div>
@@ -142,7 +142,7 @@ export function Sidebar({ expanded }: SidebarProps) {
       </div>
 
       {/* User profile */}
-      <div className="relative border-t border-white/4 p-4">
+      <div className="relative border-t border-edge p-4">
         {isLoggedIn ? (
           <ProfileCard />
         ) : (

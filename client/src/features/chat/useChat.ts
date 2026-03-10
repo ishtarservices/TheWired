@@ -2,7 +2,7 @@ import { useCallback, useState } from "react";
 import { useAppSelector, useAppDispatch } from "../../store/hooks";
 import { addEvent, indexChatMessage } from "../../store/slices/eventsSlice";
 import { selectChatMessages } from "./chatSelectors";
-import { buildChatMessage } from "../../lib/nostr/eventBuilder";
+import { buildChatMessage, type AttachmentMeta } from "../../lib/nostr/eventBuilder";
 import { signAndPublish } from "../../lib/nostr/publish";
 
 
@@ -26,7 +26,7 @@ export function useChat() {
   } | null>(null);
 
   const sendMessage = useCallback(
-    async (content: string, mentionPubkeys?: string[]) => {
+    async (content: string, mentionPubkeys?: string[], attachments?: AttachmentMeta[]) => {
       if (!pubkey || !activeSpaceId || !content.trim()) return;
 
       const tempId = `temp_${Date.now()}_${Math.random().toString(36).slice(2)}`;
@@ -47,6 +47,7 @@ export function useChat() {
           content,
           replyTo ?? undefined,
           channelIdPart,
+          attachments,
         );
 
         // Add p-tags for mentioned pubkeys

@@ -42,7 +42,7 @@ export function RightPanel({ visible }: RightPanelProps) {
         </div>
       )}
 
-      <div className="flex h-14 items-center border-b border-white/[0.04] px-4">
+      <div className="flex h-14 items-center border-b border-edge px-4">
         <Users size={16} className="mr-2 text-soft" />
         <span className="text-sm font-semibold text-body">Members</span>
       </div>

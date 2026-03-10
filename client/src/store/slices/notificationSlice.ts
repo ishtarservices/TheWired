@@ -27,6 +27,19 @@ export interface SpaceMute {
   muteUntil?: number;
 }
 
+/** Per-channel notification mode (mirrors Discord's channel overrides) */
+export type ChannelNotifMode = "default" | "all" | "mentions" | "nothing" | "muted";
+
+/** Per-space notification settings (personal, not admin-controlled) */
+export interface SpaceNotifSettings {
+  /** Notification mode for the space (default = global prefs) */
+  mode: "all" | "mentions" | "nothing";
+  /** Suppress @everyone / @here style pings */
+  suppressEveryone: boolean;
+  /** Suppress role-based @mentions */
+  suppressRoleMentions: boolean;
+}
+
 export interface NotificationPreferences {
   enabled: boolean;
   mentions: boolean;
@@ -69,6 +82,13 @@ interface NotificationState {
   preferences: NotificationPreferences;
   /** Last-read timestamps per context (key: contextId, value: unix seconds) */
   lastReadTimestamps: Record<string, number>;
+  /** Per-channel notification mode overrides (key: "spaceId:channelId") */
+  channelNotifSettings: Record<string, ChannelNotifMode>;
+  /** Per-space notification settings (key: spaceId) */
+  spaceNotifSettings: Record<string, SpaceNotifSettings>;
+  /** Captured old lastRead timestamps for unread divider positioning.
+   *  Set when navigating to a channel that has unreads. */
+  unreadDividerTimestamps: Record<string, number>;
 }
 
 const initialState: NotificationState = {
@@ -80,6 +100,9 @@ const initialState: NotificationState = {
   spaceMutes: {},
   preferences: defaultPreferences,
   lastReadTimestamps: {},
+  channelNotifSettings: {},
+  spaceNotifSettings: {},
+  unreadDividerTimestamps: {},
 };
 
 export const notificationSlice = createSlice({
@@ -215,6 +238,47 @@ export const notificationSlice = createSlice({
         action.payload.timestamp;
     },
 
+    /** Mark all in-app notifications for a channel as read */
+    markChannelNotificationsRead(state, action: PayloadAction<string>) {
+      const channelId = action.payload;
+      for (const n of state.notifications) {
+        if ((n.type === "mention" || n.type === "chat") && n.contextId === channelId && !n.read) {
+          n.read = true;
+        }
+      }
+    },
+
+    /** Capture old lastRead timestamp for unread divider positioning */
+    setUnreadDivider(
+      state,
+      action: PayloadAction<{ channelId: string; timestamp: number }>,
+    ) {
+      state.unreadDividerTimestamps[action.payload.channelId] = action.payload.timestamp;
+    },
+
+    clearUnreadDivider(state, action: PayloadAction<string>) {
+      delete state.unreadDividerTimestamps[action.payload];
+    },
+
+    setChannelNotifMode(
+      state,
+      action: PayloadAction<{ channelId: string; mode: ChannelNotifMode }>,
+    ) {
+      const { channelId, mode } = action.payload;
+      if (mode === "default") {
+        delete state.channelNotifSettings[channelId];
+      } else {
+        state.channelNotifSettings[channelId] = mode;
+      }
+    },
+
+    setSpaceNotifSettings(
+      state,
+      action: PayloadAction<{ spaceId: string; settings: SpaceNotifSettings }>,
+    ) {
+      state.spaceNotifSettings[action.payload.spaceId] = action.payload.settings;
+    },
+
     restoreNotificationState(
       state,
       action: PayloadAction<{
@@ -225,6 +289,8 @@ export const notificationSlice = createSlice({
         lastReadTimestamps?: Record<string, number>;
         spaceMutes?: Record<string, SpaceMute>;
         preferences?: NotificationPreferences;
+        channelNotifSettings?: Record<string, ChannelNotifMode>;
+        spaceNotifSettings?: Record<string, SpaceNotifSettings>;
       }>,
     ) {
       const p = action.payload;
@@ -236,6 +302,10 @@ export const notificationSlice = createSlice({
         state.lastReadTimestamps = p.lastReadTimestamps;
       if (p.spaceMutes) state.spaceMutes = p.spaceMutes;
       if (p.preferences) state.preferences = p.preferences;
+      if (p.channelNotifSettings)
+        state.channelNotifSettings = p.channelNotifSettings;
+      if (p.spaceNotifSettings)
+        state.spaceNotifSettings = p.spaceNotifSettings;
     },
   },
 });
@@ -249,11 +319,16 @@ export const {
   removeNotification,
   markNotificationRead,
   markDMNotificationsRead,
+  markChannelNotificationsRead,
   markAllNotificationsRead,
   clearAllNotifications,
   setSpaceMute,
   removeSpaceMute,
   setPreferences,
   updateLastRead,
+  setUnreadDivider,
+  clearUnreadDivider,
+  setChannelNotifMode,
+  setSpaceNotifSettings,
   restoreNotificationState,
 } = notificationSlice.actions;

@@ -17,6 +17,7 @@ import {
   addRecentlyPlayed,
 } from "@/store/slices/musicSlice";
 import { selectAudioSource } from "./trackParser";
+import { reportPlay } from "@/lib/api/music";
 import type { RepeatMode } from "@/types/music";
 
 // Module-level audio element singleton — persists across navigation
@@ -121,7 +122,10 @@ export function useAudioPlayer() {
       el.src = url;
     }
     el.currentTime = 0;
-    el.play().catch(() => {
+    el.play().then(() => {
+      // Report play count (fire-and-forget)
+      reportPlay(currentTrack.eventId);
+    }).catch(() => {
       // Autoplay might be blocked
     });
 

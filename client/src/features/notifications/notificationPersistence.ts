@@ -1,5 +1,5 @@
 import { store } from "@/store";
-import { restoreNotificationState, type NotificationPreferences, type SpaceMute } from "@/store/slices/notificationSlice";
+import { restoreNotificationState, type NotificationPreferences, type SpaceMute, type ChannelNotifMode, type SpaceNotifSettings } from "@/store/slices/notificationSlice";
 import { saveUserState, getUserState } from "@/lib/db/userStateStore";
 
 const PREFS_KEY = "notification_preferences";
@@ -15,6 +15,8 @@ interface PersistedUnreadState {
   channelMentions: Record<string, number>;
   lastReadTimestamps: Record<string, number>;
   spaceMutes: Record<string, SpaceMute>;
+  channelNotifSettings: Record<string, ChannelNotifMode>;
+  spaceNotifSettings: Record<string, SpaceNotifSettings>;
 }
 
 // ── Preferences (localStorage for instant sync access) ──────────
@@ -54,6 +56,10 @@ export async function loadNotificationState(): Promise<void> {
     payload.channelMentions = persisted.channelMentions;
     payload.lastReadTimestamps = persisted.lastReadTimestamps;
     payload.spaceMutes = persisted.spaceMutes;
+    if (persisted.channelNotifSettings)
+      (payload as Record<string, unknown>).channelNotifSettings = persisted.channelNotifSettings;
+    if (persisted.spaceNotifSettings)
+      (payload as Record<string, unknown>).spaceNotifSettings = persisted.spaceNotifSettings;
   }
 
   if (prefs) {
@@ -77,10 +83,34 @@ export function scheduleSaveNotificationState(): void {
       channelMentions: state.channelMentions,
       lastReadTimestamps: state.lastReadTimestamps,
       spaceMutes: state.spaceMutes,
+      channelNotifSettings: state.channelNotifSettings,
+      spaceNotifSettings: state.spaceNotifSettings,
     };
     saveUserState(STATE_KEY, persisted).catch(() => {});
     savePreferences(state.preferences);
   }, DEBOUNCE_MS);
+}
+
+/** Immediately flush any pending debounced save (used on app close) */
+function flushNotificationState(): void {
+  if (debounceTimer) {
+    clearTimeout(debounceTimer);
+    debounceTimer = null;
+  }
+
+  const state = store.getState().notifications;
+  const persisted: PersistedUnreadState = {
+    spaceUnread: state.spaceUnread,
+    channelUnread: state.channelUnread,
+    spaceMentions: state.spaceMentions,
+    channelMentions: state.channelMentions,
+    lastReadTimestamps: state.lastReadTimestamps,
+    spaceMutes: state.spaceMutes,
+    channelNotifSettings: state.channelNotifSettings,
+    spaceNotifSettings: state.spaceNotifSettings,
+  };
+  saveUserState(STATE_KEY, persisted).catch(() => {});
+  savePreferences(state.preferences);
 }
 
 /** Subscribe to Redux store changes and auto-persist */
@@ -90,7 +120,7 @@ export function startNotificationPersistence(): () => void {
 
   const unsubscribe = store.subscribe(() => {
     const s = store.getState().notifications;
-    const fingerprint = `${Object.keys(s.spaceUnread).length}:${Object.keys(s.channelUnread).length}:${Object.keys(s.spaceMutes).length}:${s.preferences.enabled}:${s.preferences.dnd}`;
+    const fingerprint = `${Object.keys(s.spaceUnread).length}:${Object.keys(s.channelUnread).length}:${Object.keys(s.spaceMutes).length}:${Object.keys(s.channelNotifSettings).length}:${Object.keys(s.spaceNotifSettings).length}:${Object.keys(s.lastReadTimestamps).length}:${s.preferences.enabled}:${s.preferences.dnd}`;
 
     if (fingerprint !== lastFingerprint) {
       lastFingerprint = fingerprint;
@@ -98,5 +128,12 @@ export function startNotificationPersistence(): () => void {
     }
   });
 
-  return unsubscribe;
+  // Flush pending save on app close to prevent debounce loss
+  const handleBeforeUnload = () => flushNotificationState();
+  window.addEventListener("beforeunload", handleBeforeUnload);
+
+  return () => {
+    unsubscribe();
+    window.removeEventListener("beforeunload", handleBeforeUnload);
+  };
 }

@@ -11,6 +11,8 @@ import { AlbumDetail } from "./views/AlbumDetail";
 import { PlaylistDetail } from "./views/PlaylistDetail";
 import { RecentlyAdded } from "./views/RecentlyAdded";
 import { MyUploads } from "./views/MyUploads";
+import { ExploreMusic } from "./views/ExploreMusic";
+import { SearchResults } from "./views/SearchResults";
 
 const VIEW_COMPONENTS: Record<MusicView, React.ComponentType> = {
   home: MusicHome,
@@ -20,9 +22,12 @@ const VIEW_COMPONENTS: Record<MusicView, React.ComponentType> = {
   songs: SongList,
   playlists: PlaylistList,
   "my-uploads": MyUploads,
+  explore: ExploreMusic,
+  "for-you": ExploreMusic,
   "artist-detail": ArtistDetail,
   "album-detail": AlbumDetail,
   "playlist-detail": PlaylistDetail,
+  search: SearchResults,
 };
 
 /**

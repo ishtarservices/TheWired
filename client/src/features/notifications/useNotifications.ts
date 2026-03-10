@@ -1,6 +1,6 @@
 import { useMemo } from "react";
 import { useAppSelector } from "@/store/hooks";
-import type { NotificationPreferences, SpaceMute } from "@/store/slices/notificationSlice";
+import type { NotificationPreferences, SpaceMute, ChannelNotifMode, SpaceNotifSettings } from "@/store/slices/notificationSlice";
 
 /** Unread count for a specific space (aggregated across all channels) */
 export function useSpaceUnread(spaceId: string | undefined): number {
@@ -73,4 +73,31 @@ export function useUnreadNotificationCount(): number {
     () => notifications.filter((n) => !n.read).length,
     [notifications],
   );
+}
+
+/** Per-channel notification mode (returns "default" if no override set) */
+export function useChannelNotifMode(channelId: string | undefined): ChannelNotifMode {
+  return useAppSelector((s) =>
+    channelId ? s.notifications.channelNotifSettings[channelId] ?? "default" : "default",
+  );
+}
+
+/** Per-space notification settings */
+export function useSpaceNotifSettings(spaceId: string | undefined): SpaceNotifSettings | undefined {
+  return useAppSelector((s) =>
+    spaceId ? s.notifications.spaceNotifSettings[spaceId] : undefined,
+  );
+}
+
+/** Whether a channel is effectively muted (channel muted OR space muted) */
+export function useChannelMuted(channelId: string | undefined): boolean {
+  const channelMode = useAppSelector((s) =>
+    channelId ? s.notifications.channelNotifSettings[channelId] : undefined,
+  );
+  const spaceId = channelId?.split(":")[0];
+  const spaceMuted = useSpaceMuted(spaceId);
+
+  if (channelMode === "muted") return true;
+  if (channelMode && channelMode !== "default") return false;
+  return spaceMuted;
 }

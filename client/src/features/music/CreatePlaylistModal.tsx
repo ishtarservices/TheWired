@@ -44,7 +44,7 @@ export function CreatePlaylistModal({ open, onClose }: CreatePlaylistModalProps)
 
   return (
     <Modal open={open} onClose={onClose}>
-      <div className="w-full max-w-md rounded-2xl border border-white/[0.04] card-glass p-6 shadow-xl">
+      <div className="w-full max-w-md rounded-2xl border border-edge card-glass p-6 shadow-xl">
         <div className="mb-4 flex items-center justify-between">
           <h2 className="text-lg font-semibold text-heading">Create Playlist</h2>
           <button onClick={onClose} className="text-soft hover:text-heading">
@@ -59,7 +59,7 @@ export function CreatePlaylistModal({ open, onClose }: CreatePlaylistModalProps)
               type="text"
               value={title}
               onChange={(e) => setTitle(e.target.value)}
-              className="w-full rounded-xl border border-white/[0.04] bg-white/[0.04] px-3 py-1.5 text-sm text-heading outline-none focus:border-pulse/30"
+              className="w-full rounded-xl border border-edge bg-field px-3 py-1.5 text-sm text-heading outline-none focus:border-pulse/30"
               placeholder="Playlist name"
             />
           </div>
@@ -70,7 +70,7 @@ export function CreatePlaylistModal({ open, onClose }: CreatePlaylistModalProps)
               value={description}
               onChange={(e) => setDescription(e.target.value)}
               rows={2}
-              className="w-full resize-none overflow-hidden rounded-xl border border-white/[0.04] bg-white/[0.04] px-3 py-1.5 text-sm text-heading outline-none focus:border-pulse/30"
+              className="w-full resize-none overflow-hidden rounded-xl border border-edge bg-field px-3 py-1.5 text-sm text-heading outline-none focus:border-pulse/30"
               placeholder="Optional description"
             />
           </div>

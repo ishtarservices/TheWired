@@ -1,9 +1,10 @@
 import { memo, useState } from "react";
-import { Play, MoreHorizontal, Pencil, Upload, Link2, Heart } from "lucide-react";
+import { Play, MoreHorizontal, Pencil, Upload, Link2, Heart, Trash2 } from "lucide-react";
 import type { MusicTrack } from "@/types/music";
 import { useAppSelector } from "@/store/hooks";
 import { useAudioPlayer } from "./useAudioPlayer";
 import { useLibrary } from "./useLibrary";
+import { useDeleteMusic } from "./useDeleteMusic";
 import { PopoverMenu, PopoverMenuItem, PopoverMenuSeparator } from "@/components/ui/PopoverMenu";
 import { EditTrackModal } from "./EditTrackModal";
 import { FeaturedArtistsDisplay } from "./FeaturedArtistsDisplay";
@@ -39,8 +40,10 @@ export const TrackRow = memo(function TrackRow({
   const saved = !isLocal && isTrackSaved(track.addressableId);
   const isCurrent = player.currentTrackId === track.addressableId;
   const isPlaying = isCurrent && player.isPlaying;
+  const { deleteTrack, deleting } = useDeleteMusic();
   const [menuOpen, setMenuOpen] = useState(false);
   const [editOpen, setEditOpen] = useState(false);
+  const [confirmDelete, setConfirmDelete] = useState(false);
   const [publishing, setPublishing] = useState(false);
 
   const handlePlay = () => {
@@ -73,7 +76,7 @@ export const TrackRow = memo(function TrackRow({
   return (
     <div
       onClick={handlePlay}
-      className={`group grid cursor-pointer grid-cols-[2rem_1fr_1fr_4rem_2rem] items-center gap-4 rounded-lg px-3 py-1.5 text-sm transition-colors hover:bg-white/[0.03] ${
+      className={`group grid cursor-pointer grid-cols-[2rem_1fr_1fr_4rem_2rem] items-center gap-4 rounded-lg px-3 py-1.5 text-sm transition-colors hover:bg-surface ${
         isCurrent ? "text-neon" : "text-soft"
       }`}
     >
@@ -112,8 +115,20 @@ export const TrackRow = memo(function TrackRow({
         </p>
       </div>
 
-      {/* Genre */}
-      <span className="truncate text-xs text-muted">{track.genre ?? ""}</span>
+      {/* Genre + hashtags */}
+      <div className="flex min-w-0 items-center gap-1 overflow-hidden">
+        {track.genre && (
+          <span className="shrink-0 text-xs text-muted">{track.genre}</span>
+        )}
+        {track.hashtags.slice(0, 2).map((tag) => (
+          <span
+            key={tag}
+            className="shrink-0 rounded-full bg-card px-1.5 py-0.5 text-[10px] text-muted"
+          >
+            #{tag}
+          </span>
+        ))}
+      </div>
 
       {/* Duration */}
       <span className="text-right text-xs text-muted">
@@ -172,6 +187,26 @@ export const TrackRow = memo(function TrackRow({
                     icon={<Upload size={14} />}
                     label={publishing ? "Publishing..." : "Publish to Relays"}
                     onClick={handlePublish}
+                  />
+                )}
+                <PopoverMenuSeparator />
+                {confirmDelete ? (
+                  <PopoverMenuItem
+                    icon={<Trash2 size={14} />}
+                    label={deleting ? "Deleting..." : "Confirm Delete"}
+                    variant="danger"
+                    onClick={async () => {
+                      setMenuOpen(false);
+                      setConfirmDelete(false);
+                      await deleteTrack(track);
+                    }}
+                  />
+                ) : (
+                  <PopoverMenuItem
+                    icon={<Trash2 size={14} />}
+                    label="Delete Track"
+                    variant="danger"
+                    onClick={() => setConfirmDelete(true)}
                   />
                 )}
               </>

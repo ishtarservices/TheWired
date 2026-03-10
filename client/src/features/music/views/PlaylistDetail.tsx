@@ -75,7 +75,7 @@ export function PlaylistDetail() {
                 playQueue(shuffled, 0);
               }}
               disabled={queueIds.length === 0}
-              className="flex items-center gap-1.5 rounded-full border border-white/[0.04] px-4 py-1.5 text-sm text-soft transition-colors hover:border-white/[0.08] hover:text-heading disabled:opacity-50"
+              className="flex items-center gap-1.5 rounded-full border border-edge px-4 py-1.5 text-sm text-soft transition-colors hover:border-edge-light hover:text-heading disabled:opacity-50"
             >
               <Shuffle size={14} />
               Shuffle

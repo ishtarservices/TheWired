@@ -10,11 +10,15 @@ export type ContentSegment =
   | { type: "url"; url: string }
   | { type: "image"; url: string }
   | { type: "video"; url: string }
+  | { type: "audio"; url: string }
+  | { type: "file"; url: string; filename: string }
   | { type: "embed"; embed: EmbedMatch }
   | { type: "hashtag"; value: string };
 
 const IMAGE_EXTS = /\.(jpe?g|png|gif|webp|svg|avif|bmp)(\?.*)?$/i;
 const VIDEO_EXTS = /\.(mp4|webm|mov|m3u8|mkv|avi)(\?.*)?$/i;
+const AUDIO_EXTS = /\.(mp3|wav|ogg|flac|aac|m4a|opus)(\?.*)?$/i;
+const DOC_EXTS = /\.(pdf)(\?.*)?$/i;
 
 /** Type guard: pointer is a ProfilePointer (has pubkey, no id) */
 function isProfilePointer(p: ProfilePointer | EventPointer | AddressPointer): p is ProfilePointer {
@@ -79,6 +83,11 @@ export function parseContent(content: string): ContentSegment[] {
           segments.push({ type: "image", url });
         } else if (VIDEO_EXTS.test(url)) {
           segments.push({ type: "video", url });
+        } else if (AUDIO_EXTS.test(url)) {
+          segments.push({ type: "audio", url });
+        } else if (DOC_EXTS.test(url)) {
+          const filename = url.split("/").pop()?.split("?")[0] || "document.pdf";
+          segments.push({ type: "file", url, filename });
         } else {
           const embed = matchEmbed(url);
           if (embed) {
@@ -98,8 +107,12 @@ export function parseContent(content: string): ContentSegment[] {
         segments.push({ type: "video", url: token.url });
         break;
 
+      case "audio":
+        segments.push({ type: "audio", url: token.url });
+        break;
+
       default:
-        // relay, emoji, audio, etc. — render as text for now
+        // relay, emoji, etc. — render as text for now
         if ("url" in token && token.url) {
           segments.push({ type: "text", text: String(token.url) });
         }

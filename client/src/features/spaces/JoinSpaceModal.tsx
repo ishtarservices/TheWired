@@ -115,6 +115,7 @@ export function JoinSpaceModal({ open, onClose, initialCode }: JoinSpaceModalPro
         creatorPubkey: invite.createdBy,
         adminPubkeys: [invite.createdBy],
         memberPubkeys: [myPubkey],
+        feedPubkeys: [],
         hostRelay: BOOTSTRAP_RELAYS[0],
         isPrivate: false,
         createdAt: Math.floor(Date.now() / 1000),
@@ -186,7 +187,7 @@ export function JoinSpaceModal({ open, onClose, initialCode }: JoinSpaceModalPro
                 onKeyDown={handleKeyDown}
                 placeholder="Enter invite code..."
                 autoFocus
-                className="w-full rounded-xl bg-white/[0.04] border border-white/[0.04] px-3 py-2 text-sm text-heading placeholder-muted focus:border-neon focus:outline-none transition-colors"
+                className="w-full rounded-xl bg-field border border-edge px-3 py-2 text-sm text-heading placeholder-muted focus:border-neon focus:outline-none transition-colors"
               />
             </div>
 
@@ -216,7 +217,7 @@ export function JoinSpaceModal({ open, onClose, initialCode }: JoinSpaceModalPro
         {/* Step 2: Preview */}
         {step === "preview" && invite && (
           <div className="space-y-4">
-            <div className="flex items-center gap-4 rounded-xl bg-white/[0.03] border border-white/[0.04] p-4">
+            <div className="flex items-center gap-4 rounded-xl bg-surface border border-edge p-4">
               <Avatar
                 src={invite.space.picture}
                 alt={invite.space.name}

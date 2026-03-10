@@ -4,9 +4,9 @@ import { EventDeduplicator } from "./dedup";
 import { isValidEventStructure } from "./validation";
 import { verifyBridge } from "./verifyWorkerBridge";
 import { store } from "../../store";
-import { putEvent } from "../db/eventStore";
+import { putEvent, deleteEvent } from "../db/eventStore";
 import { addEvent, indexChatMessage, indexReel, indexLongForm, indexLiveStream, indexNote, indexSpaceFeed, indexMusicTrack, indexMusicAlbum, indexReaction, indexReply, indexRepost, indexRepostByAuthor, indexQuote } from "../../store/slices/eventsSlice";
-import { addTrack, indexTrackByArtist, indexTrackByAlbum, addAlbum, addPlaylist } from "../../store/slices/musicSlice";
+import { addTrack, indexTrackByArtist, indexTrackByAlbum, addAlbum, addPlaylist, removeTrack, removeAlbum, removePlaylist } from "../../store/slices/musicSlice";
 import { addDMMessage } from "../../store/slices/dmSlice";
 import { parseTrackEvent } from "../../features/music/trackParser";
 import { parseAlbumEvent } from "../../features/music/albumParser";
@@ -14,7 +14,7 @@ import { parsePlaylistEvent } from "../../features/music/playlistParser";
 import { incrementEventCount } from "../../store/slices/relaysSlice";
 import { trackFeedTimestamp } from "../../store/slices/feedSlice";
 import { SPACE_CHANNEL_ROUTES } from "../../features/spaces/spaceChannelRoutes";
-import { hasMediaUrls } from "../media/mediaUrlParser";
+import { hasMediaUrls, hasEmbedUrls } from "../media/mediaUrlParser";
 import { parseThreadRef, parseQuoteRef } from "../../features/spaces/noteParser";
 import { profileCache } from "./profileCache";
 import { unwrapGiftWrap } from "./giftWrap";
@@ -25,19 +25,19 @@ import { acceptFriendRequestAction } from "./friendRequest";
 
 const dedup = new EventDeduplicator();
 
-// Cached Set for space member lookups (O(1) instead of O(n) per check)
-const memberSetCache = new Map<string, { set: Set<string>; fingerprint: string }>();
+// Cached Set for space author lookups (O(1) instead of O(n) per check)
+const authorSetCache = new Map<string, { set: Set<string>; fingerprint: string }>();
 
-/** Get or create a cached Set from a space's memberPubkeys array */
-function getMemberSet(spaceId: string, memberPubkeys: string[]): Set<string> {
+/** Get or create a cached Set from a pubkey array (keyed by cacheKey) */
+function getCachedSet(cacheKey: string, pubkeys: string[]): Set<string> {
   // Cheap fingerprint: length + first + last pubkey
-  const fingerprint = `${memberPubkeys.length}:${memberPubkeys[0] ?? ""}:${memberPubkeys[memberPubkeys.length - 1] ?? ""}`;
-  const cached = memberSetCache.get(spaceId);
+  const fingerprint = `${pubkeys.length}:${pubkeys[0] ?? ""}:${pubkeys[pubkeys.length - 1] ?? ""}`;
+  const cached = authorSetCache.get(cacheKey);
   if (cached && cached.fingerprint === fingerprint) {
     return cached.set;
   }
-  const set = new Set(memberPubkeys);
-  memberSetCache.set(spaceId, { set, fingerprint });
+  const set = new Set(pubkeys);
+  authorSetCache.set(cacheKey, { set, fingerprint });
   return set;
 }
 
@@ -220,6 +220,53 @@ function indexEvent(event: NostrEvent): void {
       store.dispatch(addPlaylist(playlist));
       break;
     }
+    case EVENT_KINDS.DELETION: {
+      // NIP-09: Process deletion events -- remove referenced content.
+      // Only process deletions from the same author (can't delete others' content).
+      // Crucially, a deletion only applies to events created BEFORE the deletion.
+      // Re-published addressable events (same kind:pubkey:d-tag but newer created_at)
+      // supersede the deletion and must NOT be removed.
+      const state = store.getState();
+      for (const tag of event.tags) {
+        if (tag[0] === "a" && tag[1]) {
+          const addr = tag[1];
+          const [kindStr, addrPubkey] = addr.split(":");
+          if (addrPubkey !== event.pubkey) continue;
+          const kind = parseInt(kindStr, 10);
+          if (kind === EVENT_KINDS.MUSIC_TRACK) {
+            const track = state.music.tracks[addr];
+            // Only delete if the track was created before the deletion event
+            if (track && track.createdAt <= event.created_at) {
+              deleteEvent(track.eventId).catch(() => {});
+              store.dispatch(removeTrack(addr));
+            }
+          } else if (kind === EVENT_KINDS.MUSIC_ALBUM) {
+            const album = state.music.albums[addr];
+            if (album && album.createdAt <= event.created_at) {
+              deleteEvent(album.eventId).catch(() => {});
+              store.dispatch(removeAlbum(addr));
+            }
+          } else if (kind === EVENT_KINDS.MUSIC_PLAYLIST) {
+            const playlist = state.music.playlists[addr];
+            if (playlist && playlist.createdAt <= event.created_at) {
+              deleteEvent(playlist.eventId).catch(() => {});
+              store.dispatch(removePlaylist(addr));
+            }
+          }
+        }
+        // Handle "e" tag deletions (by event ID) — only if the referenced
+        // event is authored by the deletion event's author.
+        if (tag[0] === "e" && tag[1]) {
+          const refEvent = state.events.entities[tag[1]];
+          if (!refEvent || refEvent.pubkey === event.pubkey) {
+            deleteEvent(tag[1]).catch(() => {});
+          }
+        }
+      }
+      // Persist the deletion event itself so we can check on next startup
+      putEvent(event).catch(() => {});
+      break;
+    }
   }
 
   // Index into active space feeds
@@ -238,9 +285,15 @@ function indexEventIntoSpaceFeeds(event: NostrEvent): void {
   const channelsMap = state.spaces.channels;
 
   for (const space of spaces) {
-    // O(1) Set lookup instead of O(n) Array.includes
-    const memberSet = getMemberSet(space.id, space.memberPubkeys);
-    if (!memberSet.has(event.pubkey)) continue;
+    // For feed-mode spaces, index events from feed sources only;
+    // for community spaces, index events from all members
+    const authorPubkeys =
+      space.mode === "read" ? space.feedPubkeys : space.memberPubkeys;
+    const authorSet = getCachedSet(
+      space.mode === "read" ? `feed:${space.id}` : space.id,
+      authorPubkeys,
+    );
+    if (!authorSet.has(event.pubkey)) continue;
 
     // Check which space channel this event kind belongs to
     for (const [channelType, route] of Object.entries(SPACE_CHANNEL_ROUTES)) {
@@ -264,8 +317,8 @@ function indexEventIntoSpaceFeeds(event: NostrEvent): void {
       store.dispatch(trackFeedTimestamp({ contextId: legacyContextId, createdAt: event.created_at }));
     }
 
-    // Cross-index: kind:1 notes that contain media URLs also go into the media feed
-    if (event.kind === EVENT_KINDS.SHORT_TEXT && hasMediaUrls(event.content)) {
+    // Cross-index: kind:1 notes that contain media URLs or embed links also go into the media feed
+    if (event.kind === EVENT_KINDS.SHORT_TEXT && (hasMediaUrls(event.content) || hasEmbedUrls(event.content))) {
       const spaceChannels = channelsMap[space.id];
       const mediaChannel = spaceChannels?.find((c) => c.type === "media");
       if (mediaChannel) {

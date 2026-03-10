@@ -49,11 +49,24 @@ export function startRelayIngester() {
     ws.addEventListener("open", async () => {
       console.log("[ingester] Connected to relay");
       const since = await getLastSeen();
+
+      // Main subscription: all event kinds from last-seen forward
       ws.send(
         JSON.stringify([
           "REQ",
           "ingester",
-          { kinds: [0, 1, 7, 9, 22, 30023, 34236, 31683, 33123, 30119, 9735, 9021, 9022, 39000], since },
+          { kinds: [0, 1, 5, 7, 9, 22, 30023, 34236, 31683, 33123, 30119, 9735, 9021, 9022, 39000], since },
+        ]),
+      );
+
+      // Backfill subscription: fetch ALL music events to cover gaps.
+      // Meilisearch deduplicates by primary key (event id), so re-indexing is safe.
+      // The counted_events Redis set prevents double-counting.
+      ws.send(
+        JSON.stringify([
+          "REQ",
+          "ingester-music-backfill",
+          { kinds: [31683, 33123, 5] },
         ]),
       );
     });
@@ -109,6 +122,9 @@ export function startRelayIngester() {
       case 39000:
         await indexGroupMetadata(event);
         break;
+      case 5:
+        await processDeletion(event);
+        break;
       case 31683:
         await indexMusicTrack(event);
         break;
@@ -119,8 +135,9 @@ export function startRelayIngester() {
         break;
     }
 
-    // Index searchable content kinds into Meilisearch
-    if ([1, 9, 22, 30023, 34236, 31683, 33123, 30119].includes(event.kind)) {
+    // Index searchable content kinds into Meilisearch (generic events index).
+    // Exclude music kinds — they have dedicated tracks/albums indexes.
+    if ([1, 9, 22, 30023, 34236, 30119].includes(event.kind)) {
       await indexToMeilisearch(event);
     }
   }
@@ -199,7 +216,9 @@ export function startRelayIngester() {
       .filter((t) => t[0] === "p" && t[1] !== event.pubkey)
       .map((t) => t[1]);
 
-    const preview = event.content.length > 120 ? event.content.slice(0, 120) + "..." : event.content;
+    // Strip nostr:npub/nevent/naddr/note references from push notification preview
+    const cleanContent = event.content.replace(/nostr:(npub|nevent|naddr|note)1[a-z0-9]+/g, "@mention").replace(/\s{2,}/g, " ").trim();
+    const preview = cleanContent.length > 120 ? cleanContent.slice(0, 120) + "..." : cleanContent;
 
     for (const pubkey of mentionedPubkeys) {
       enqueueNotification({
@@ -315,6 +334,8 @@ export function startRelayIngester() {
     const artist = getTagValue(event, "artist");
     const genre = getTagValue(event, "genre");
     const dTag = getTagValue(event, "d") ?? "";
+    const imageUrl = getTagValue(event, "image") ?? getTagValue(event, "thumb") ?? "";
+    const hashtags = event.tags.filter((t) => t[0] === "t").map((t) => t[1]);
 
     await ms.index("tracks").addDocuments([
       {
@@ -323,10 +344,29 @@ export function startRelayIngester() {
         title: title ?? "",
         artist: artist ?? "",
         genre: genre ?? "",
+        image_url: imageUrl,
+        hashtags,
         pubkey: event.pubkey,
         created_at: event.created_at,
       },
     ]);
+
+    // Track genre and tag popularity — deduplicate so re-processing the same
+    // event (relay reconnect, replay) doesn't inflate counts.
+    const alreadyCounted = await redis.sismember("music:counted_events", event.id);
+    if (!alreadyCounted) {
+      await redis.sadd("music:counted_events", event.id);
+      const pipeline = redis.pipeline();
+      if (genre) {
+        pipeline.zincrby("music:genre_counts", 1, genre);
+      }
+      for (const tag of hashtags) {
+        pipeline.zincrby("music:tag_counts", 1, tag);
+      }
+      if (genre || hashtags.length > 0) {
+        await pipeline.exec();
+      }
+    }
   }
 
   async function indexMusicAlbum(event: NostrEvent) {
@@ -338,6 +378,8 @@ export function startRelayIngester() {
     const artist = getTagValue(event, "artist");
     const genre = getTagValue(event, "genre");
     const dTag = getTagValue(event, "d") ?? "";
+    const imageUrl = getTagValue(event, "image") ?? getTagValue(event, "thumb") ?? "";
+    const hashtags = event.tags.filter((t) => t[0] === "t").map((t) => t[1]);
 
     await ms.index("albums").addDocuments([
       {
@@ -346,10 +388,137 @@ export function startRelayIngester() {
         title: title ?? "",
         artist: artist ?? "",
         genre: genre ?? "",
+        image_url: imageUrl,
+        hashtags,
         pubkey: event.pubkey,
         created_at: event.created_at,
       },
     ]);
+
+    // Track genre and tag popularity — deduplicated
+    const alreadyCounted = await redis.sismember("music:counted_events", event.id);
+    if (!alreadyCounted) {
+      await redis.sadd("music:counted_events", event.id);
+      const pipeline = redis.pipeline();
+      if (genre) {
+        pipeline.zincrby("music:genre_counts", 1, genre);
+      }
+      for (const tag of hashtags) {
+        pipeline.zincrby("music:tag_counts", 1, tag);
+      }
+      if (genre || hashtags.length > 0) {
+        await pipeline.exec();
+      }
+    }
+  }
+
+  async function processDeletion(event: NostrEvent) {
+    const ms = getMeilisearchClient();
+    for (const tag of event.tags) {
+      if (tag[0] !== "a" || !tag[1]) continue;
+      const addr = tag[1];
+      const [kindStr, addrPubkey, ...dParts] = addr.split(":");
+      const dTag = dParts.join(":");
+      // Only honor deletions from the content author
+      if (addrPubkey !== event.pubkey) continue;
+      const kind = parseInt(kindStr, 10);
+
+      if (kind === 31683) {
+        // Delete track from relay DB — only events created before the deletion.
+        // Re-published events with the same d-tag but newer created_at supersede the deletion.
+        try {
+          await db.execute(
+            sql`DELETE FROM relay.events
+                WHERE kind = 31683
+                  AND pubkey = ${addrPubkey}
+                  AND tags @> ${JSON.stringify([["d", dTag]])}::jsonb
+                  AND created_at <= ${event.created_at}`,
+          );
+        } catch (err) {
+          console.error("[ingester] Failed to delete track from relay DB:", err);
+        }
+        // Delete from Meilisearch tracks index — only docs created before the deletion
+        try {
+          const results = await ms.index("tracks").search("", {
+            filter: `pubkey = "${addrPubkey}"`,
+            limit: 100,
+          });
+          const matchingHits = results.hits.filter(
+            (h: Record<string, unknown>) =>
+              h.addressable_id === addr &&
+              (h.created_at as number) <= event.created_at,
+          );
+          const docIds = matchingHits.map((h: Record<string, unknown>) => h.id as string);
+          if (docIds.length > 0) {
+            await ms.index("tracks").deleteDocuments(docIds);
+            // Decrement genre/tag counts and remove from counted set
+            for (const h of matchingHits) {
+              const hGenre = h.genre as string;
+              const hTags = (h.hashtags as string[]) ?? [];
+              if (hGenre) await redis.zincrby("music:genre_counts", -1, hGenre);
+              for (const t of hTags) await redis.zincrby("music:tag_counts", -1, t);
+              await redis.srem("music:counted_events", h.id as string);
+            }
+            // Clean up zero/negative entries
+            await redis.zremrangebyscore("music:genre_counts", "-inf", "0");
+            await redis.zremrangebyscore("music:tag_counts", "-inf", "0");
+          }
+        } catch (err) {
+          console.error("[ingester] Failed to delete track from Meilisearch:", err);
+        }
+      } else if (kind === 33123) {
+        // Delete album from relay DB — only events created before the deletion.
+        try {
+          await db.execute(
+            sql`DELETE FROM relay.events
+                WHERE kind = 33123
+                  AND pubkey = ${addrPubkey}
+                  AND tags @> ${JSON.stringify([["d", dTag]])}::jsonb
+                  AND created_at <= ${event.created_at}`,
+          );
+        } catch (err) {
+          console.error("[ingester] Failed to delete album from relay DB:", err);
+        }
+        // Delete from Meilisearch albums index — only docs created before the deletion
+        try {
+          const results = await ms.index("albums").search("", {
+            filter: `pubkey = "${addrPubkey}"`,
+            limit: 100,
+          });
+          const matchingHits = results.hits.filter(
+            (h: Record<string, unknown>) =>
+              h.addressable_id === addr &&
+              (h.created_at as number) <= event.created_at,
+          );
+          const docIds = matchingHits.map((h: Record<string, unknown>) => h.id as string);
+          if (docIds.length > 0) {
+            await ms.index("albums").deleteDocuments(docIds);
+            for (const h of matchingHits) {
+              const hGenre = h.genre as string;
+              const hTags = (h.hashtags as string[]) ?? [];
+              if (hGenre) await redis.zincrby("music:genre_counts", -1, hGenre);
+              for (const t of hTags) await redis.zincrby("music:tag_counts", -1, t);
+              await redis.srem("music:counted_events", h.id as string);
+            }
+            await redis.zremrangebyscore("music:genre_counts", "-inf", "0");
+            await redis.zremrangebyscore("music:tag_counts", "-inf", "0");
+          }
+        } catch (err) {
+          console.error("[ingester] Failed to delete album from Meilisearch:", err);
+        }
+      }
+
+      // Also remove from general events Meilisearch index
+      for (const eTag of event.tags) {
+        if (eTag[0] === "e" && eTag[1]) {
+          try {
+            await ms.index("events").deleteDocument(eTag[1]);
+          } catch {
+            // doc may not exist
+          }
+        }
+      }
+    }
   }
 
   async function indexToMeilisearch(event: NostrEvent) {

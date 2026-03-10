@@ -126,6 +126,63 @@ class ProfileCacheImpl {
     return results;
   }
 
+  /**
+   * Search within a specific set of pubkeys (e.g. space members).
+   * Returns members matching the query first, then falls back to global cache.
+   */
+  searchScoped(query: string, scopedPubkeys: string[], limit = 8): Array<{ pubkey: string; profile: Kind0Profile }> {
+    const q = query.toLowerCase();
+    const results: Array<{ pubkey: string; profile: Kind0Profile }> = [];
+    const seen = new Set<string>();
+
+    // Phase 1: search within scoped pubkeys (include uncached members by pubkey prefix match)
+    for (const pubkey of scopedPubkeys) {
+      if (results.length >= limit) return results;
+      const entry = this.cache.get(pubkey);
+      const p = entry?.profile ?? {};
+
+      if (
+        pubkey.startsWith(q) ||
+        p.name?.toLowerCase().includes(q) ||
+        p.display_name?.toLowerCase().includes(q) ||
+        p.nip05?.toLowerCase().includes(q)
+      ) {
+        results.push({ pubkey, profile: p });
+        seen.add(pubkey);
+      }
+    }
+
+    // Phase 2: fill remaining slots from global cache
+    if (results.length < limit) {
+      for (const [pubkey, entry] of this.cache) {
+        if (results.length >= limit) break;
+        if (seen.has(pubkey)) continue;
+
+        const p = entry.profile;
+        if (
+          pubkey.startsWith(q) ||
+          p.name?.toLowerCase().includes(q) ||
+          p.display_name?.toLowerCase().includes(q) ||
+          p.nip05?.toLowerCase().includes(q)
+        ) {
+          results.push({ pubkey, profile: p });
+        }
+      }
+    }
+
+    return results;
+  }
+
+  /** Ensure profiles for a list of pubkeys are loaded into cache */
+  warmPubkeys(pubkeys: string[]): void {
+    const needed = pubkeys.filter((pk) => !this.cache.has(pk));
+    if (needed.length === 0) return;
+    for (const pk of needed) {
+      this.pendingBatch.add(pk);
+    }
+    this.scheduleBatch();
+  }
+
   /** Clear the entire cache (used on logout) */
   clear(): void {
     this.cache.clear();

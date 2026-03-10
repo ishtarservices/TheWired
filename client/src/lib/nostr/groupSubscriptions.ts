@@ -9,6 +9,60 @@ import { store } from "../../store";
 import { setChannelSubscription, removeChannelSubscription } from "../../store/slices/spacesSlice";
 import { setRefreshing, setLoadingMore, setHasMore } from "../../store/slices/feedSlice";
 
+// ── Background chat subscriptions ────────────────────────────────
+// Always-on lightweight subs for all joined spaces so notifications
+// fire even when the user is viewing a different space.
+// Mirrors how DMs use a global gift-wrap subscription.
+
+/** Map of spaceId → background chat subscription ID */
+const bgChatSubs = new Map<string, string>();
+
+/**
+ * Open background chat subscriptions for all joined spaces.
+ * Called once at login after spaces are loaded from IndexedDB.
+ */
+export function startBackgroundChatSubs(spaces: Space[]): void {
+  for (const space of spaces) {
+    openBgChatSub(space);
+  }
+}
+
+/** Open a single background chat sub for a space (idempotent) */
+export function openBgChatSub(space: Space): void {
+  if (bgChatSubs.has(space.id)) return;
+
+  const subId = subscriptionManager.subscribe({
+    filters: [
+      {
+        kinds: [EVENT_KINDS.CHAT_MESSAGE],
+        "#h": [space.id],
+        // Only fetch recent — historical messages loaded when entering space
+        since: Math.floor(Date.now() / 1000) - 60,
+      },
+    ],
+    relayUrls: [space.hostRelay],
+  });
+
+  bgChatSubs.set(space.id, subId);
+}
+
+/** Close a single background chat sub (when leaving/deleting a space) */
+export function closeBgChatSub(spaceId: string): void {
+  const subId = bgChatSubs.get(spaceId);
+  if (subId) {
+    subscriptionManager.close(subId);
+    bgChatSubs.delete(spaceId);
+  }
+}
+
+/** Close all background chat subs (logout) */
+export function stopAllBgChatSubs(): void {
+  for (const [, subId] of bgChatSubs) {
+    subscriptionManager.close(subId);
+  }
+  bgChatSubs.clear();
+}
+
 /** Active subscriptions per space for metadata */
 const spaceMetaSubs = new Map<string, string>();
 
@@ -132,18 +186,22 @@ export function switchSpaceChannel(
       limit: route.pageSize,
     };
   } else {
-    // Feed channels: scoped by member pubkeys
-    if (space.memberPubkeys.length === 0) return;
-    filter = buildSpaceFeedFilter(
-      space.memberPubkeys,
-      route.kinds,
-      route.pageSize,
-    );
+    // Feed channels: for feed-mode spaces use curated feed sources,
+    // for community spaces use all member pubkeys
+    const authors =
+      space.mode === "read" ? space.feedPubkeys : space.memberPubkeys;
+    if (authors.length === 0) return;
+    filter = buildSpaceFeedFilter(authors, route.kinds, route.pageSize);
   }
 
+  // Feed-mode spaces: broadcast to all read relays since feed sources'
+  // notes live on their own relays, not the space's host relay.
+  // Community spaces: use the host relay (content is h-tag scoped there).
   const subId = subscriptionManager.subscribe({
     filters: [filter],
-    relayUrls: [space.hostRelay],
+    relayUrls: space.mode === "read" && route.filterMode !== "htag"
+      ? undefined  // all read relays
+      : [space.hostRelay],
   });
 
   store.dispatch(setChannelSubscription({ channelId, subId }));
@@ -174,7 +232,10 @@ export function refreshSpaceFeed(
 ): void {
   const route = getSpaceChannelRoute(channelType);
   if (!route || route.filterMode === "htag") return;
-  if (space.memberPubkeys.length === 0) return;
+
+  const authors =
+    space.mode === "read" ? space.feedPubkeys : space.memberPubkeys;
+  if (authors.length === 0) return;
 
   const contextId = `${space.id}:${channelType}`;
   const meta = store.getState().feed.meta[contextId];
@@ -182,7 +243,7 @@ export function refreshSpaceFeed(
   store.dispatch(setRefreshing({ contextId, value: true }));
 
   const filter: NostrFilter = {
-    authors: space.memberPubkeys,
+    authors,
     kinds: route.kinds,
     limit: route.pageSize,
   };
@@ -192,9 +253,12 @@ export function refreshSpaceFeed(
     filter.since = meta.newestAt;
   }
 
+  // Feed-mode: broadcast to all read relays
+  const relayUrls = space.mode === "read" ? undefined : [space.hostRelay];
+
   subscriptionManager.subscribe({
     filters: [filter],
-    relayUrls: [space.hostRelay],
+    relayUrls,
     onEOSE: () => {
       store.dispatch(setRefreshing({ contextId, value: false }));
     },
@@ -211,7 +275,10 @@ export function loadMoreSpaceFeed(
 ): void {
   const route = getSpaceChannelRoute(channelType);
   if (!route || route.filterMode === "htag") return;
-  if (space.memberPubkeys.length === 0) return;
+
+  const authors =
+    space.mode === "read" ? space.feedPubkeys : space.memberPubkeys;
+  if (authors.length === 0) return;
 
   const contextId = `${space.id}:${channelType}`;
   const meta = store.getState().feed.meta[contextId];
@@ -220,7 +287,7 @@ export function loadMoreSpaceFeed(
   store.dispatch(setLoadingMore({ contextId, value: true }));
 
   const filter: NostrFilter = {
-    authors: space.memberPubkeys,
+    authors,
     kinds: route.kinds,
     until: meta.oldestAt - 1, // Exclusive: events older than our oldest
     limit: route.pageSize,
@@ -228,9 +295,12 @@ export function loadMoreSpaceFeed(
 
   const previousOldest = meta.oldestAt;
 
+  // Feed-mode: broadcast to all read relays
+  const relayUrls = space.mode === "read" ? undefined : [space.hostRelay];
+
   const subId = subscriptionManager.subscribe({
     filters: [filter],
-    relayUrls: [space.hostRelay],
+    relayUrls,
     onEOSE: () => {
       store.dispatch(setLoadingMore({ contextId, value: false }));
 

@@ -36,27 +36,27 @@ export function FollowListModal({ pubkeys, loading, mode, onClose }: FollowListM
 
   return (
     <Modal open onClose={onClose}>
-      <div className="card-glass w-full max-w-lg rounded-2xl border border-white/[0.06] max-h-[80vh] flex flex-col">
+      <div className="card-glass w-full max-w-lg rounded-2xl border border-edge max-h-[80vh] flex flex-col">
         {/* Header */}
-        <div className="flex items-center justify-between border-b border-white/[0.04] px-5 py-4">
+        <div className="flex items-center justify-between border-b border-edge px-5 py-4">
           <div className="flex items-center gap-2">
             <Users size={18} className="text-pulse" />
             <h2 className="text-lg font-semibold text-heading">{title}</h2>
-            <span className="rounded-full bg-white/[0.06] px-2 py-0.5 text-xs text-muted">
+            <span className="rounded-full bg-surface-hover px-2 py-0.5 text-xs text-muted">
               {pubkeys.length}
             </span>
           </div>
           <button
             onClick={onClose}
-            className="rounded-lg p-1.5 text-muted hover:bg-white/[0.06] hover:text-heading transition-colors"
+            className="rounded-lg p-1.5 text-muted hover:bg-surface-hover hover:text-heading transition-colors"
           >
             <X size={18} />
           </button>
         </div>
 
         {/* Search */}
-        <div className="px-5 py-3 border-b border-white/[0.04]">
-          <div className="flex items-center gap-2 rounded-lg bg-white/[0.04] px-3 py-2">
+        <div className="px-5 py-3 border-b border-edge">
+          <div className="flex items-center gap-2 rounded-lg bg-field px-3 py-2">
             <Search size={14} className="text-muted shrink-0" />
             <input
               type="text"

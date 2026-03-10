@@ -37,6 +37,7 @@ export interface MusicAlbum {
   blurhash?: string;
   genre?: string;
   trackRefs: string[]; // ordered addressable IDs of tracks
+  hashtags: string[];
   trackCount: number;
   totalDuration?: number;
   createdAt: number;
@@ -66,6 +67,9 @@ export type MusicView =
   | "my-uploads"
   | "artist-detail"
   | "album-detail"
-  | "playlist-detail";
+  | "playlist-detail"
+  | "explore"
+  | "for-you"
+  | "search";
 
 export type RepeatMode = "none" | "one" | "all";

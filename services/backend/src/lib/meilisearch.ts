@@ -44,8 +44,8 @@ export async function initIndexes(): Promise<void> {
     // Index already exists
   }
   const tracksIndex = ms.index("tracks");
-  await tracksIndex.updateSearchableAttributes(["title", "artist", "genre"]);
-  await tracksIndex.updateFilterableAttributes(["pubkey", "genre"]);
+  await tracksIndex.updateSearchableAttributes(["title", "artist", "genre", "hashtags"]);
+  await tracksIndex.updateFilterableAttributes(["pubkey", "genre", "hashtags"]);
   await tracksIndex.updateSortableAttributes(["created_at"]);
 
   // Albums index (music)
@@ -55,8 +55,8 @@ export async function initIndexes(): Promise<void> {
     // Index already exists
   }
   const albumsIndex = ms.index("albums");
-  await albumsIndex.updateSearchableAttributes(["title", "artist", "genre"]);
-  await albumsIndex.updateFilterableAttributes(["pubkey", "genre"]);
+  await albumsIndex.updateSearchableAttributes(["title", "artist", "genre", "hashtags"]);
+  await albumsIndex.updateFilterableAttributes(["pubkey", "genre", "hashtags"]);
   await albumsIndex.updateSortableAttributes(["created_at"]);
 
   console.log("[meilisearch] Indexes initialized");

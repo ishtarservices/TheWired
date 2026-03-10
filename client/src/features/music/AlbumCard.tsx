@@ -1,11 +1,12 @@
 import { memo, useRef, useState } from "react";
-import { Disc3, MoreHorizontal, Pencil, Link2, Heart } from "lucide-react";
+import { Disc3, MoreHorizontal, Pencil, Link2, Heart, Trash2 } from "lucide-react";
 import type { MusicAlbum } from "@/types/music";
 import { useAppDispatch, useAppSelector } from "@/store/hooks";
 import { setActiveDetailId } from "@/store/slices/musicSlice";
 import { PopoverMenu, PopoverMenuItem, PopoverMenuSeparator } from "@/components/ui/PopoverMenu";
 import { CreateAlbumModal } from "./CreateAlbumModal";
 import { useLibrary } from "./useLibrary";
+import { useDeleteMusic } from "./useDeleteMusic";
 import { buildMusicLink } from "./musicLinks";
 import { copyToClipboard } from "@/lib/clipboard";
 
@@ -20,9 +21,11 @@ export const AlbumCard = memo(function AlbumCard({ album }: AlbumCardProps) {
   const isLocal = album.visibility === "local";
   const { saveAlbum, unsaveAlbum, isAlbumSaved } = useLibrary();
   const saved = isAlbumSaved(album.addressableId);
+  const { deleteAlbum, deleting } = useDeleteMusic();
   const menuBtnRef = useRef<HTMLButtonElement>(null);
   const [menuOpen, setMenuOpen] = useState(false);
   const [editOpen, setEditOpen] = useState(false);
+  const [confirmDelete, setConfirmDelete] = useState(false);
 
   return (
     <>
@@ -32,7 +35,7 @@ export const AlbumCard = memo(function AlbumCard({ album }: AlbumCardProps) {
             setActiveDetailId({ view: "album-detail", id: album.addressableId }),
           )
         }
-        className="group relative flex w-full flex-col rounded-xl border border-white/[0.04] card-glass transition-all hover:border-white/[0.08] hover-lift"
+        className="group relative flex w-full flex-col rounded-xl border border-edge card-glass transition-all hover:border-edge-light hover-lift"
       >
         <div className="aspect-square w-full overflow-hidden rounded-t-xl">
           {album.imageUrl ? (
@@ -95,6 +98,38 @@ export const AlbumCard = memo(function AlbumCard({ album }: AlbumCardProps) {
                           setEditOpen(true);
                         }}
                       />
+                      <PopoverMenuSeparator />
+                      {confirmDelete ? (
+                        <>
+                          <PopoverMenuItem
+                            icon={<Trash2 size={14} />}
+                            label={deleting ? "Deleting..." : "Project Only"}
+                            variant="danger"
+                            onClick={async () => {
+                              setMenuOpen(false);
+                              setConfirmDelete(false);
+                              await deleteAlbum(album, false);
+                            }}
+                          />
+                          <PopoverMenuItem
+                            icon={<Trash2 size={14} />}
+                            label={deleting ? "Deleting..." : "Project + All Tracks"}
+                            variant="danger"
+                            onClick={async () => {
+                              setMenuOpen(false);
+                              setConfirmDelete(false);
+                              await deleteAlbum(album, true);
+                            }}
+                          />
+                        </>
+                      ) : (
+                        <PopoverMenuItem
+                          icon={<Trash2 size={14} />}
+                          label="Delete Project"
+                          variant="danger"
+                          onClick={() => setConfirmDelete(true)}
+                        />
+                      )}
                     </>
                   )}
                 </PopoverMenu>

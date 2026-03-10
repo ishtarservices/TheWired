@@ -59,7 +59,7 @@ function EmbedIframe({ embed }: { embed: EmbedMatch }) {
 
 function EmbedLinkCard({ embed }: { embed: EmbedMatch }) {
   return (
-    <div className="my-2 -mx-3 min-w-[280px] max-w-md overflow-hidden rounded-lg border border-edge-light bg-white/[0.03]">
+    <div className="my-2 -mx-3 min-w-[280px] max-w-md overflow-hidden rounded-lg border border-edge-light bg-surface">
       <div className="flex items-center gap-3 px-3 py-2.5">
         <div className={`h-2.5 w-2.5 shrink-0 rounded-full ${PLATFORM_COLORS[embed.platform]}`} />
         <div className="min-w-0 flex-1">
@@ -74,7 +74,7 @@ function EmbedLinkCard({ embed }: { embed: EmbedMatch }) {
           href={embed.originalUrl}
           target="_blank"
           rel="noopener noreferrer"
-          className="shrink-0 rounded-md bg-white/[0.08] p-1.5 text-soft hover:bg-white/[0.14] hover:text-heading transition-colors"
+          className="shrink-0 rounded-md bg-surface-hover p-1.5 text-soft hover:bg-surface-hover/80 hover:text-heading transition-colors"
         >
           <ExternalLink size={12} />
         </a>
@@ -85,7 +85,7 @@ function EmbedLinkCard({ embed }: { embed: EmbedMatch }) {
 
 function EmbedFooter({ embed }: { embed: EmbedMatch }) {
   return (
-    <div className="flex items-center justify-between border-t border-edge px-3 py-1.5 bg-white/[0.02]">
+    <div className="flex items-center justify-between border-t border-edge px-3 py-1.5 bg-surface">
       <div className="flex items-center gap-2">
         <div className={`h-2 w-2 rounded-full ${PLATFORM_COLORS[embed.platform]}`} />
         <span className="text-[11px] text-muted">{PLATFORM_LABELS[embed.platform]}</span>

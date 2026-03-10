@@ -36,7 +36,7 @@ export function SettingsPage() {
         <h2 className="text-lg font-bold text-heading">Settings</h2>
       </div>
 
-      <div className="mb-4 flex gap-1 border-b border-white/[0.04]">
+      <div className="mb-4 flex gap-1 border-b border-edge">
         {tabs.map((tab) => (
           <button
             key={tab.id}

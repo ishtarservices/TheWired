@@ -27,9 +27,9 @@ export function DMSidebar({ activePartner, onSelectContact }: DMSidebarProps) {
   );
 
   return (
-    <div className="flex flex-col border-r border-white/4 w-72">
+    <div className="flex flex-col border-r border-edge w-72">
       {/* Tab bar */}
-      <div className="flex border-b border-white/4">
+      <div className="flex border-b border-edge">
         <button
           onClick={() => setActiveTab("messages")}
           className={`flex flex-1 items-center justify-center gap-1.5 px-3 py-2.5 text-xs font-semibold transition-colors ${
@@ -80,7 +80,7 @@ export function DMSidebar({ activePartner, onSelectContact }: DMSidebarProps) {
           <>
             {/* Pending friend requests */}
             {pendingIncoming.length > 0 && (
-              <div className="border-b border-white/4">
+              <div className="border-b border-edge">
                 <div className="flex items-center gap-2 px-4 pt-3 pb-1.5">
                   <span className="text-[10px] font-semibold uppercase tracking-wider text-muted">
                     Pending Requests
@@ -141,7 +141,7 @@ function DMContactItem({
     <button
       onClick={onClick}
       className={`flex w-full items-center gap-3 px-4 py-3 text-left transition-colors ${
-        isActive ? "bg-white/6" : "hover:bg-white/3"
+        isActive ? "bg-surface-hover" : "hover:bg-surface"
       }`}
     >
       <Avatar src={profile?.picture} alt={displayName} size="sm" />
@@ -186,7 +186,7 @@ function FriendItem({
     <button
       onClick={onClick}
       className={`flex w-full items-center gap-3 px-4 py-3 text-left transition-colors ${
-        isActive ? "bg-white/6" : "hover:bg-white/3"
+        isActive ? "bg-surface-hover" : "hover:bg-surface"
       }`}
     >
       <Avatar src={profile?.picture} alt={displayName} size="sm" />
@@ -236,7 +236,7 @@ function PendingRequestItem({
         </button>
         <button
           onClick={() => declineFriendRequestAction(request.pubkey)}
-          className="rounded-md p-1 text-muted hover:text-heading hover:bg-white/6 transition-colors"
+          className="rounded-md p-1 text-muted hover:text-heading hover:bg-surface-hover transition-colors"
           title="Decline"
         >
           <X size={12} />

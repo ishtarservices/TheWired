@@ -100,7 +100,7 @@ export function ProfileEditModal({ onClose }: ProfileEditModalProps) {
                   ref={aboutRef}
                   value={form[field] ?? ""}
                   onChange={(e) => updateField(field, e.target.value)}
-                  className="w-full resize-none overflow-hidden rounded-xl border border-white/[0.04] bg-white/[0.04] px-3 py-2 text-sm text-heading focus:border-pulse/30 focus:outline-none transition-colors"
+                  className="w-full resize-none overflow-hidden rounded-xl border border-edge bg-field px-3 py-2 text-sm text-heading focus:border-pulse/30 focus:outline-none transition-colors"
                   rows={2}
                 />
               ) : (
@@ -108,7 +108,7 @@ export function ProfileEditModal({ onClose }: ProfileEditModalProps) {
                   type="text"
                   value={form[field] ?? ""}
                   onChange={(e) => updateField(field, e.target.value)}
-                  className="w-full rounded-xl border border-white/[0.04] bg-white/[0.04] px-3 py-2 text-sm text-heading focus:border-pulse/30 focus:outline-none transition-colors"
+                  className="w-full rounded-xl border border-edge bg-field px-3 py-2 text-sm text-heading focus:border-pulse/30 focus:outline-none transition-colors"
                 />
               )}
             </div>

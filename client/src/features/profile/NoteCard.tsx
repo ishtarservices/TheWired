@@ -248,7 +248,7 @@ function ThreadContext({ parentId }: { parentId: string }) {
     return (
       <button
         onClick={() => setExpanded(true)}
-        className="mb-2 flex items-center gap-1.5 rounded-lg bg-white/[0.03] px-3 py-1.5 text-xs text-muted hover:text-heading hover:bg-white/[0.06] transition-colors w-full text-left"
+        className="mb-2 flex items-center gap-1.5 rounded-lg bg-surface px-3 py-1.5 text-xs text-muted hover:text-heading hover:bg-surface-hover transition-colors w-full text-left"
       >
         <CornerUpLeft size={12} className="shrink-0" />
         <span>View parent post</span>
@@ -258,7 +258,7 @@ function ThreadContext({ parentId }: { parentId: string }) {
 
   if (!parentEvent) {
     return (
-      <div className="mb-2 rounded-lg bg-white/[0.03] px-3 py-2 text-xs text-muted animate-pulse">
+      <div className="mb-2 rounded-lg bg-surface px-3 py-2 text-xs text-muted animate-pulse">
         Loading parent note...
       </div>
     );
@@ -278,7 +278,7 @@ function ParentNotePreview({ event, onCollapse }: { event: NostrEvent; onCollaps
     : event.content;
 
   return (
-    <div className="mb-3 rounded-xl border border-white/[0.04] bg-white/[0.02] p-3">
+    <div className="mb-3 rounded-xl border border-edge bg-surface p-3">
       <div className="mb-1.5 flex items-center justify-between">
         <div className="flex items-center gap-1.5">
           <Avatar src={profile?.picture} alt={name} size="xs" />

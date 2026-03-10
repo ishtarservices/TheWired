@@ -39,7 +39,7 @@ export const TrackCard = memo(function TrackCard({
   return (
     <button
       onClick={handleClick}
-      className="group flex w-full flex-col overflow-hidden rounded-xl border border-white/[0.04] card-glass transition-all hover:border-white/[0.08] hover-lift"
+      className="group flex w-full flex-col overflow-hidden rounded-xl border border-edge card-glass transition-all hover:border-edge-light hover-lift"
     >
       <div className="relative aspect-square w-full">
         {imageUrl ? (

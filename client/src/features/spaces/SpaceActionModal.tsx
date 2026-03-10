@@ -47,7 +47,7 @@ export function SpaceActionModal({ open, onClose }: SpaceActionModalProps) {
           <div className="space-y-3">
             <button
               onClick={handleCreate}
-              className="flex w-full items-center gap-4 rounded-xl bg-white/[0.04] border border-white/[0.04] px-4 py-4 text-left transition-all hover:bg-pulse/8 hover:border-pulse/20 group"
+              className="flex w-full items-center gap-4 rounded-xl bg-surface border border-edge px-4 py-4 text-left transition-all hover:bg-pulse/8 hover:border-pulse/20 group"
             >
               <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-pulse/10 text-pulse group-hover:bg-pulse/20 transition-colors">
                 <Plus size={20} />
@@ -60,7 +60,7 @@ export function SpaceActionModal({ open, onClose }: SpaceActionModalProps) {
 
             <button
               onClick={handleJoin}
-              className="flex w-full items-center gap-4 rounded-xl bg-white/[0.04] border border-white/[0.04] px-4 py-4 text-left transition-all hover:bg-neon/8 hover:border-neon/20 group"
+              className="flex w-full items-center gap-4 rounded-xl bg-surface border border-edge px-4 py-4 text-left transition-all hover:bg-neon/8 hover:border-neon/20 group"
             >
               <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-neon/10 text-neon group-hover:bg-neon/20 transition-colors">
                 <LogIn size={20} />

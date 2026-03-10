@@ -29,6 +29,10 @@ export function parseAlbumEvent(event: NostrEvent): MusicAlbum {
   const durationStr = event.tags.find((t) => t[0] === "duration")?.[1];
   const totalDuration = durationStr ? parseFloat(durationStr) : undefined;
 
+  const hashtags = event.tags
+    .filter((t) => t[0] === "t")
+    .map((t) => t[1]);
+
   // Extract featured artists from p-tags (excluding the event author)
   const featuredArtists = event.tags
     .filter((t) => t[0] === "p" && t[1] && t[1] !== event.pubkey)
@@ -45,6 +49,7 @@ export function parseAlbumEvent(event: NostrEvent): MusicAlbum {
     imageUrl,
     blurhash,
     genre,
+    hashtags,
     trackRefs,
     trackCount: trackRefs.length,
     totalDuration,

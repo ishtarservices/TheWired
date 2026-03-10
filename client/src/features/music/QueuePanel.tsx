@@ -46,7 +46,7 @@ export function QueuePanel() {
         />
       </div>
 
-      <div className="flex items-center justify-between border-b border-white/[0.04] px-4 py-3">
+      <div className="flex items-center justify-between border-b border-edge px-4 py-3">
         <h3 className="text-sm font-semibold text-heading">Now Playing</h3>
         <button
           onClick={() => dispatch(toggleQueuePanel())}
@@ -73,7 +73,7 @@ export function QueuePanel() {
                 <div
                   key={`${trackId}-${idx}`}
                   onClick={() => playQueue(queue, idx)}
-                  className={`group flex cursor-pointer items-center gap-2 rounded-lg px-3 py-1.5 transition-colors hover:bg-white/[0.03] ${
+                  className={`group flex cursor-pointer items-center gap-2 rounded-lg px-3 py-1.5 transition-colors hover:bg-surface ${
                     isCurrent ? "bg-pulse/8" : ""
                   }`}
                 >

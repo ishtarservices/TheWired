@@ -1,6 +1,7 @@
 import type { NavigateFunction } from "react-router-dom";
 import type { AppDispatch } from "@/store";
 import type { InAppNotification } from "@/store/slices/notificationSlice";
+import { clearChannelUnread, updateLastRead, markChannelNotificationsRead, setUnreadDivider } from "@/store/slices/notificationSlice";
 import { setActiveConversation } from "@/store/slices/dmSlice";
 import { setActiveSpace, setActiveChannel } from "@/store/slices/spacesSlice";
 import { setSidebarMode } from "@/store/slices/uiSlice";
@@ -56,6 +57,18 @@ export function navigateToNotification(
       if (channelPart) {
         const channelId = `${spaceId}:${channelPart}`;
         dispatch(setActiveChannel(channelId));
+
+        // Capture old lastRead for unread divider before clearing
+        const notifState = state.notifications;
+        const hasUnreads = (notifState.channelUnread[channelId] ?? 0) > 0;
+        if (hasUnreads) {
+          const oldTimestamp = notifState.lastReadTimestamps[channelId] ?? 0;
+          dispatch(setUnreadDivider({ channelId, timestamp: oldTimestamp }));
+        }
+
+        dispatch(clearChannelUnread(channelId));
+        dispatch(markChannelNotificationsRead(channelId));
+        dispatch(updateLastRead({ contextId: channelId, timestamp: Math.floor(Date.now() / 1000) }));
 
         // Resolve channel type for subscription switching
         const spaceChannels = state.spaces.channels[spaceId];

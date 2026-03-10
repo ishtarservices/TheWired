@@ -58,7 +58,7 @@ export function PlaybackBar() {
   };
 
   return (
-    <div className="flex h-[76px] items-center border-t border-white/[0.04] glass px-5">
+    <div className="flex h-[76px] items-center border-t border-edge glass px-5">
       {/* Left: Track info */}
       <div className="flex w-56 items-center gap-3 shrink-0">
         {imageUrl ? (
@@ -152,7 +152,7 @@ export function PlaybackBar() {
             step={0.1}
             value={player.position}
             onChange={(e) => seek(parseFloat(e.target.value))}
-            className="h-1 flex-1 cursor-pointer appearance-none rounded-full bg-white/[0.06] accent-pulse
+            className="h-1 flex-1 cursor-pointer appearance-none rounded-full bg-surface-hover accent-pulse
               [&::-webkit-slider-thumb]:h-3 [&::-webkit-slider-thumb]:w-3 [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-heading"
           />
           <span className="w-10 text-[11px] text-muted">
@@ -180,7 +180,7 @@ export function PlaybackBar() {
           step={0.01}
           value={player.isMuted ? 0 : player.volume}
           onChange={(e) => setVolume(parseFloat(e.target.value))}
-          className="h-1 w-20 cursor-pointer appearance-none rounded-full bg-white/[0.06] accent-pulse
+          className="h-1 w-20 cursor-pointer appearance-none rounded-full bg-surface-hover accent-pulse
             [&::-webkit-slider-thumb]:h-3 [&::-webkit-slider-thumb]:w-3 [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-heading"
         />
         <button

@@ -6,7 +6,9 @@ const SPACES_KEY = "spaces";
 /** Load all spaces from IndexedDB */
 export async function loadSpaces(): Promise<Space[]> {
   const data = await getUserState<Space[]>(SPACES_KEY);
-  return data ?? [];
+  if (!data) return [];
+  // Backfill feedPubkeys for spaces saved before the field existed
+  return data.map((s) => (s.feedPubkeys ? s : { ...s, feedPubkeys: [] }));
 }
 
 /** Save all spaces to IndexedDB */

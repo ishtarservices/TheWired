@@ -17,3 +17,12 @@ export const memberRoles = appSchema.table("member_roles", {
 }, (t) => [
   primaryKey({ columns: [t.spaceId, t.pubkey, t.roleId] }),
 ]);
+
+/** Curated pubkeys whose content appears in feed-mode spaces */
+export const spaceFeedSources = appSchema.table("space_feed_sources", {
+  spaceId: text("space_id").notNull().references(() => spaces.id, { onDelete: "cascade" }),
+  pubkey: text("pubkey").notNull(),
+  addedAt: timestamp("added_at").defaultNow(),
+}, (t) => [
+  primaryKey({ columns: [t.spaceId, t.pubkey] }),
+]);

@@ -59,6 +59,30 @@ function scheduleSaveDMState(): void {
   }, DEBOUNCE_MS);
 }
 
+/** Immediately flush any pending debounced save (used on app close) */
+function flushDMState(): void {
+  if (debounceTimer) {
+    clearTimeout(debounceTimer);
+    debounceTimer = null;
+  }
+
+  const state = store.getState().dm;
+  const trimmedMessages: Record<string, DMMessage[]> = {};
+  for (const [pubkey, msgs] of Object.entries(state.messages)) {
+    trimmedMessages[pubkey] =
+      msgs.length > MAX_MESSAGES_PER_CONVERSATION
+        ? msgs.slice(-MAX_MESSAGES_PER_CONVERSATION)
+        : msgs;
+  }
+
+  const persisted: PersistedDMState = {
+    messages: trimmedMessages,
+    contacts: state.contacts,
+    processedWrapIds: state.processedWrapIds.slice(-MAX_PERSISTED_WRAP_IDS),
+  };
+  saveUserState(DM_STATE_KEY, persisted).catch(() => {});
+}
+
 /** Subscribe to Redux store changes and auto-persist DM state */
 export function startDMPersistence(): () => void {
   let lastFingerprint = "";
@@ -75,5 +99,12 @@ export function startDMPersistence(): () => void {
     }
   });
 
-  return unsubscribe;
+  // Flush pending save on app close to prevent debounce loss
+  const handleBeforeUnload = () => flushDMState();
+  window.addEventListener("beforeunload", handleBeforeUnload);
+
+  return () => {
+    unsubscribe();
+    window.removeEventListener("beforeunload", handleBeforeUnload);
+  };
 }

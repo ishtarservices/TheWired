@@ -39,6 +39,11 @@ export async function getEvent(id: string): Promise<NostrEvent | undefined> {
   return stored ? stripMeta(stored) : undefined;
 }
 
+export async function deleteEvent(id: string): Promise<void> {
+  const db = await getDB();
+  await db.delete("events", id);
+}
+
 export async function getEventsByKind(
   kind: number,
   limit = 50,

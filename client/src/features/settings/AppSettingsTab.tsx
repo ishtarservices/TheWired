@@ -84,7 +84,7 @@ export function AppSettingsTab() {
   return (
     <div className="mx-auto w-full max-w-lg space-y-4">
       {/* Theme selection */}
-      <div className="rounded-lg border border-white/[0.04] bg-panel p-4">
+      <div className="rounded-lg border border-edge bg-panel p-4">
         <h3 className="mb-1 text-sm font-semibold text-heading">Theme</h3>
         <p className="mb-3 text-xs text-muted">
           Choose your preferred appearance.
@@ -95,7 +95,7 @@ export function AppSettingsTab() {
             className={`flex flex-1 items-center justify-center gap-2 rounded-lg border px-4 py-3 text-sm font-medium transition-all duration-150 ${
               theme === "dark"
                 ? "border-neon/40 bg-neon/10 text-neon glow-neon"
-                : "border-white/[0.04] bg-card text-soft hover:bg-card-hover hover:text-heading"
+                : "border-edge bg-card text-soft hover:bg-card-hover hover:text-heading"
             }`}
           >
             <Moon size={16} />
@@ -106,7 +106,7 @@ export function AppSettingsTab() {
             className={`flex flex-1 items-center justify-center gap-2 rounded-lg border px-4 py-3 text-sm font-medium transition-all duration-150 ${
               theme === "light"
                 ? "border-neon/40 bg-neon/10 text-neon glow-neon"
-                : "border-white/[0.04] bg-card text-soft hover:bg-card-hover hover:text-heading"
+                : "border-edge bg-card text-soft hover:bg-card-hover hover:text-heading"
             }`}
           >
             <Sun size={16} />
@@ -116,7 +116,7 @@ export function AppSettingsTab() {
       </div>
 
       {/* App preferences */}
-      <div className="rounded-lg border border-white/[0.04] bg-panel p-4">
+      <div className="rounded-lg border border-edge bg-panel p-4">
         <h3 className="mb-1 text-sm font-semibold text-heading">
           App Preferences
         </h3>
@@ -124,7 +124,7 @@ export function AppSettingsTab() {
           These settings are stored locally on this device.
         </p>
 
-        <div className="divide-y divide-white/[0.04]">
+        <div className="divide-y divide-edge">
           <Toggle
             label="Sidebar default expanded"
             description="Show the sidebar expanded when the app starts"

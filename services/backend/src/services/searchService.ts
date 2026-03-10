@@ -14,23 +14,30 @@ export const searchService = {
     return results.hits;
   },
 
-  async searchMusic(query: string, opts?: { type?: "track" | "album"; limit?: number }) {
+  async searchMusic(
+    query: string,
+    opts?: { type?: "track" | "album"; limit?: number; genre?: string; hashtag?: string },
+  ) {
     const client = getMeilisearchClient();
     const limit = opts?.limit ?? 20;
+    const filters: string[] = [];
+    if (opts?.genre) filters.push(`genre = "${opts.genre}"`);
+    if (opts?.hashtag) filters.push(`hashtags = "${opts.hashtag}"`);
+    const filterStr = filters.length > 0 ? filters.join(" AND ") : undefined;
 
     if (opts?.type === "track") {
-      const results = await client.index("tracks").search(query, { limit });
+      const results = await client.index("tracks").search(query, { limit, filter: filterStr });
       return results.hits;
     }
     if (opts?.type === "album") {
-      const results = await client.index("albums").search(query, { limit });
+      const results = await client.index("albums").search(query, { limit, filter: filterStr });
       return results.hits;
     }
 
     // Search both
     const [tracks, albums] = await Promise.all([
-      client.index("tracks").search(query, { limit: Math.ceil(limit / 2) }),
-      client.index("albums").search(query, { limit: Math.floor(limit / 2) }),
+      client.index("tracks").search(query, { limit: Math.ceil(limit / 2), filter: filterStr }),
+      client.index("albums").search(query, { limit: Math.floor(limit / 2), filter: filterStr }),
     ]);
     return { tracks: tracks.hits, albums: albums.hits };
   },

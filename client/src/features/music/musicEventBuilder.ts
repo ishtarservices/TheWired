@@ -31,6 +31,7 @@ interface AlbumEventParams {
   imageMime?: string;
   trackRefs?: string[];
   featuredArtists?: string[];
+  hashtags?: string[];
   projectType?: ProjectType;
   visibility?: MusicVisibility;
   spaceId?: string;
@@ -132,6 +133,12 @@ export function buildAlbumEvent(
   if (params.trackRefs) {
     for (const ref of params.trackRefs) {
       tags.push(["a", ref]);
+    }
+  }
+
+  if (params.hashtags) {
+    for (const t of params.hashtags) {
+      tags.push(["t", t.toLowerCase()]);
     }
   }
 

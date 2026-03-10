@@ -21,6 +21,8 @@ interface DMState {
   activeConversation: string | null;
   loading: boolean;
   processedWrapIds: string[];
+  /** Captured unread count when opening a conversation, for divider positioning */
+  unreadDividers: Record<string, number>;
 }
 
 const initialState: DMState = {
@@ -29,6 +31,7 @@ const initialState: DMState = {
   activeConversation: null,
   loading: false,
   processedWrapIds: [],
+  unreadDividers: {},
 };
 
 export const dmSlice = createSlice({
@@ -98,10 +101,13 @@ export const dmSlice = createSlice({
     setActiveConversation(state, action: PayloadAction<string | null>) {
       state.activeConversation = action.payload;
 
-      // Mark as read
+      // Capture unread count for divider, then mark as read
       if (action.payload) {
         const contact = state.contacts.find((c) => c.pubkey === action.payload);
         if (contact) {
+          if (contact.unreadCount > 0) {
+            state.unreadDividers[action.payload] = contact.unreadCount;
+          }
           contact.unreadCount = 0;
         }
       }
@@ -112,6 +118,10 @@ export const dmSlice = createSlice({
       if (contact) {
         contact.unreadCount = 0;
       }
+    },
+
+    clearDMUnreadDivider(state, action: PayloadAction<string>) {
+      delete state.unreadDividers[action.payload];
     },
 
     setDMLoading(state, action: PayloadAction<boolean>) {
@@ -139,6 +149,7 @@ export const {
   addDMMessage,
   setActiveConversation,
   markConversationRead,
+  clearDMUnreadDivider,
   setDMLoading,
   restoreDMState,
 } = dmSlice.actions;

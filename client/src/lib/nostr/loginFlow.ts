@@ -25,7 +25,7 @@ import { saveUserState, getUserState } from "../db/userStateStore";
 import { loadSpaces } from "../db/spaceStore";
 import { loadMusicLibrary } from "../db/musicStore";
 import { getEventsByKind } from "../db/eventStore";
-import { setSpaces, removeSpace } from "../../store/slices/spacesSlice";
+import { setSpaces, removeSpace, setChannels } from "../../store/slices/spacesSlice";
 import { addNotification } from "../../store/slices/notificationSlice";
 import { validateSpaces } from "../api/spaces";
 import { removeSpaceFromStore } from "../db/spaceStore";
@@ -52,6 +52,8 @@ import { loadDMState, startDMPersistence } from "../../features/dm/dmPersistence
 import { loadFollowerState, startFollowerPersistence } from "./followerPersistence";
 import { loadFriendRequestState, startFriendRequestPersistence } from "./friendRequestPersistence";
 import { loadNotificationState, startNotificationPersistence } from "../../features/notifications/notificationPersistence";
+import { startBackgroundChatSubs, closeBgChatSub } from "./groupSubscriptions";
+import { loadChannels } from "../db/channelStore";
 import { setKnownFollowers, addKnownFollower } from "../../store/slices/identitySlice";
 
 let currentSigner: NostrSigner | null = null;
@@ -161,6 +163,7 @@ async function validateAndPurgeStaleSpaces(spaceIds: string[]): Promise<void> {
   if (deleted.length === 0) return;
 
   for (const id of deleted) {
+    closeBgChatSub(id);
     store.dispatch(removeSpace(id));
     removeSpaceFromStore(id);
   }
@@ -290,16 +293,81 @@ export async function performLogin(
 
     // Non-blocking: validate cached spaces against backend and purge stale ones
     validateAndPurgeStaleSpaces(savedSpaces.map((s) => s.id)).catch(() => {});
+
+    // Preload cached channels for all spaces from IndexedDB so the
+    // notification evaluator can resolve the correct channel IDs
+    // (e.g. "spaceId:ch_abc" instead of fallback "spaceId:chat")
+    await Promise.all(
+      savedSpaces.map(async (space) => {
+        try {
+          const cached = await loadChannels(space.id);
+          if (cached && cached.length > 0) {
+            store.dispatch(setChannels({ spaceId: space.id, channels: cached }));
+          }
+        } catch {
+          // IndexedDB read failed — channels will be fetched from backend later
+        }
+      }),
+    );
+
+    // NOTE: Background chat subs are started AFTER notification state is
+    // restored (step 7f-c below) to ensure lastReadTimestamps are available.
+    // This prevents re-fetched messages from being double-counted as unread.
   }
 
-  // Step 7c: Load music events from IndexedDB
-  const [trackEvents, albumEvents, playlistEvents] = await Promise.all([
+  // Step 7c: Load music events from IndexedDB, filtering out any that have
+  // been deleted (kind:5 events referencing them via "a" tags)
+  const [trackEvents, albumEvents, playlistEvents, deletionEvents] = await Promise.all([
     getEventsByKind(EVENT_KINDS.MUSIC_TRACK, 500),
     getEventsByKind(EVENT_KINDS.MUSIC_ALBUM, 200),
     getEventsByKind(EVENT_KINDS.MUSIC_PLAYLIST, 200),
+    getEventsByKind(EVENT_KINDS.DELETION, 500),
   ]);
-  if (trackEvents.length > 0) {
-    const tracks = trackEvents.map(parseTrackEvent);
+
+  // Build deletion lookups from persisted deletion events.
+  // For addressable IDs ("a" tags), track the deletion timestamp so that
+  // re-published events (created AFTER the deletion) are NOT filtered out.
+  const deletedAddrTimestamps = new Map<string, number>(); // addr → latest deletion created_at
+  const deletedEventIds = new Set<string>();
+  for (const delEvt of deletionEvents) {
+    for (const tag of delEvt.tags) {
+      if (tag[0] === "a" && tag[1]) {
+        // Only honor deletions from the content author
+        const addrPubkey = tag[1].split(":")[1];
+        if (addrPubkey === delEvt.pubkey) {
+          const prev = deletedAddrTimestamps.get(tag[1]) ?? 0;
+          deletedAddrTimestamps.set(tag[1], Math.max(prev, delEvt.created_at));
+        }
+      }
+      if (tag[0] === "e" && tag[1]) {
+        deletedEventIds.add(tag[1]);
+      }
+    }
+  }
+
+  /** Check if an event is superseded by a deletion (only for events created before the deletion) */
+  function isDeletedByAddr(event: { pubkey: string; created_at: number; tags: string[][] }, kindNum: number): boolean {
+    const dTag = event.tags.find((t) => t[0] === "d")?.[1];
+    if (dTag === undefined) return false;
+    const addr = `${kindNum}:${event.pubkey}:${dTag}`;
+    const deletedAt = deletedAddrTimestamps.get(addr);
+    // Only filter if the event was created BEFORE or AT the deletion time.
+    // Events re-published AFTER a deletion supersede it.
+    return deletedAt !== undefined && event.created_at <= deletedAt;
+  }
+
+  const liveTrackEvents = trackEvents.filter(
+    (e) => !deletedEventIds.has(e.id) && !isDeletedByAddr(e, EVENT_KINDS.MUSIC_TRACK),
+  );
+  const liveAlbumEvents = albumEvents.filter(
+    (e) => !deletedEventIds.has(e.id) && !isDeletedByAddr(e, EVENT_KINDS.MUSIC_ALBUM),
+  );
+  const livePlaylistEvents = playlistEvents.filter(
+    (e) => !deletedEventIds.has(e.id) && !isDeletedByAddr(e, EVENT_KINDS.MUSIC_PLAYLIST),
+  );
+
+  if (liveTrackEvents.length > 0) {
+    const tracks = liveTrackEvents.map(parseTrackEvent);
     store.dispatch(addTracks(tracks));
     for (const track of tracks) {
       store.dispatch(indexTrackByArtist({ pubkey: track.pubkey, addressableId: track.addressableId }));
@@ -313,11 +381,11 @@ export async function performLogin(
       }
     }
   }
-  if (albumEvents.length > 0) {
-    store.dispatch(addAlbums(albumEvents.map(parseAlbumEvent)));
+  if (liveAlbumEvents.length > 0) {
+    store.dispatch(addAlbums(liveAlbumEvents.map(parseAlbumEvent)));
   }
-  if (playlistEvents.length > 0) {
-    store.dispatch(addPlaylists(playlistEvents.map(parsePlaylistEvent)));
+  if (livePlaylistEvents.length > 0) {
+    store.dispatch(addPlaylists(livePlaylistEvents.map(parsePlaylistEvent)));
   }
 
   // Step 7d: Load music library state from IndexedDB
@@ -330,12 +398,12 @@ export async function performLogin(
     store.dispatch(setRecentlyPlayedIds(musicLib.recentlyPlayedIds));
   }
 
-  // Step 7e: Subscribe for user's own music events from relays
+  // Step 7e: Subscribe for user's own music events + deletion events from relays
   // Events flow through processIncomingEvent → Redux + IndexedDB persistence
   subscriptionManager.subscribe({
     filters: [
       {
-        kinds: [EVENT_KINDS.MUSIC_TRACK, EVENT_KINDS.MUSIC_ALBUM, EVENT_KINDS.MUSIC_PLAYLIST],
+        kinds: [EVENT_KINDS.MUSIC_TRACK, EVENT_KINDS.MUSIC_ALBUM, EVENT_KINDS.MUSIC_PLAYLIST, EVENT_KINDS.DELETION],
         authors: [pubkey],
         limit: 500,
       },
@@ -353,9 +421,17 @@ export async function performLogin(
   await loadFriendRequestState();
   startFriendRequestPersistence();
 
-  // Step 7f-c: Load persisted notification state (unread counts, preferences, mutes)
+  // Step 7f-c: Load persisted notification state (unread counts, preferences, mutes).
+  // MUST complete before background chat subs so lastReadTimestamps are available
+  // for the notification evaluator to skip already-read messages.
   await loadNotificationState();
   startNotificationPersistence();
+
+  // Step 7f-d: NOW start background chat subs — notification state is restored,
+  // so re-fetched messages will be correctly filtered by lastReadTimestamps.
+  if (savedSpaces.length > 0) {
+    startBackgroundChatSubs(savedSpaces);
+  }
 
   // Step 7g: Subscribe for gift-wrapped DMs (kind:1059) addressed to us.
   // Use a persisted timestamp so we catch all wraps since the last session.

@@ -27,7 +27,7 @@ function CollaboratorRow({
   const name = profile?.display_name || profile?.name || pubkey.slice(0, 8) + "...";
 
   return (
-    <div className="flex items-center gap-2 rounded-lg px-2 py-1.5 transition-colors hover:bg-white/[0.03]">
+    <div className="flex items-center gap-2 rounded-lg px-2 py-1.5 transition-colors hover:bg-surface">
       <Avatar src={profile?.picture} alt={name} size="sm" />
       <span className="flex-1 truncate text-sm text-body">{name}</span>
       {isOwner && onRemove && (
@@ -171,6 +171,23 @@ export function AlbumDetail() {
                 <> &middot; {collaborators.length} collaborator{collaborators.length !== 1 ? "s" : ""}</>
               )}
             </p>
+            {(album.genre || album.hashtags.length > 0) && (
+              <div className="mt-1.5 flex flex-wrap gap-1">
+                {album.genre && (
+                  <span className="rounded-full bg-card px-2 py-0.5 text-xs text-soft">
+                    {album.genre}
+                  </span>
+                )}
+                {album.hashtags.map((tag) => (
+                  <span
+                    key={tag}
+                    className="rounded-full bg-card px-2 py-0.5 text-xs text-muted"
+                  >
+                    #{tag}
+                  </span>
+                ))}
+              </div>
+            )}
             <div className="mt-3 flex flex-wrap gap-2">
               <button
                 onClick={() => playQueue(queueIds, 0)}
@@ -186,7 +203,7 @@ export function AlbumDetail() {
                   playQueue(shuffled, 0);
                 }}
                 disabled={queueIds.length === 0}
-                className="flex items-center gap-1.5 rounded-full border border-white/[0.04] px-4 py-1.5 text-sm text-soft transition-colors hover:border-white/[0.08] hover:text-heading disabled:opacity-50"
+                className="flex items-center gap-1.5 rounded-full border border-edge px-4 py-1.5 text-sm text-soft transition-colors hover:border-edge-light hover:text-heading disabled:opacity-50"
               >
                 <Shuffle size={14} />
                 Shuffle
@@ -201,7 +218,7 @@ export function AlbumDetail() {
                       setTimeout(() => setCopied(false), 2000);
                     }
                   }}
-                  className="flex items-center gap-1.5 rounded-full border border-white/[0.04] px-4 py-1.5 text-sm text-soft transition-colors hover:border-white/[0.08] hover:text-heading"
+                  className="flex items-center gap-1.5 rounded-full border border-edge px-4 py-1.5 text-sm text-soft transition-colors hover:border-edge-light hover:text-heading"
                 >
                   <Link2 size={14} />
                   {copied ? "Copied!" : "Copy Link"}
@@ -216,7 +233,7 @@ export function AlbumDetail() {
                       saveAlbum(album.addressableId);
                     }
                   }}
-                  className="flex items-center gap-1.5 rounded-full border border-white/[0.04] px-4 py-1.5 text-sm text-soft transition-colors hover:border-white/[0.08] hover:text-heading"
+                  className="flex items-center gap-1.5 rounded-full border border-edge px-4 py-1.5 text-sm text-soft transition-colors hover:border-edge-light hover:text-heading"
                 >
                   <Heart
                     size={14}
@@ -231,7 +248,7 @@ export function AlbumDetail() {
                   className={`flex items-center gap-1.5 rounded-full border px-4 py-1.5 text-sm transition-colors ${
                     showMembers
                       ? "border-pulse/40 text-heading"
-                      : "border-white/[0.04] text-soft hover:border-white/[0.08] hover:text-heading"
+                      : "border-edge text-soft hover:border-edge-light hover:text-heading"
                   }`}
                 >
                   <Users size={14} />
@@ -261,8 +278,8 @@ export function AlbumDetail() {
 
       {/* Collaborators side panel */}
       {showMembers && (
-        <div className="flex w-64 shrink-0 flex-col border-l border-white/[0.04]">
-          <div className="flex h-12 items-center border-b border-white/[0.04] px-4">
+        <div className="flex w-64 shrink-0 flex-col border-l border-edge">
+          <div className="flex h-12 items-center border-b border-edge px-4">
             <Users size={16} className="mr-2 text-soft" />
             <span className="text-sm font-semibold text-body">Members</span>
             <button
@@ -305,7 +322,7 @@ export function AlbumDetail() {
 
             {/* Add collaborator (owner only) */}
             {isOwner && (
-              <div className="mt-3 border-t border-white/[0.04] pt-3 px-1">
+              <div className="mt-3 border-t border-edge pt-3 px-1">
                 <div className="mb-1.5 flex items-center gap-1 text-[10px] font-semibold uppercase tracking-wider text-muted">
                   <UserPlus size={10} />
                   Add Collaborator
@@ -325,7 +342,7 @@ export function AlbumDetail() {
                       }
                     }}
                     placeholder="npub or hex pubkey..."
-                    className="w-full rounded-xl border border-white/[0.04] bg-white/[0.04] px-3 py-1.5 text-sm text-heading placeholder-muted focus:border-pulse/40 focus:outline-none transition-colors"
+                    className="w-full rounded-xl border border-edge bg-field px-3 py-1.5 text-sm text-heading placeholder-muted focus:border-pulse/40 focus:outline-none transition-colors"
                   />
                   <button
                     onClick={handleAddCollaborator}

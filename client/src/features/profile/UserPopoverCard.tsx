@@ -276,14 +276,14 @@ export function UserPopoverCard({
                       navigate(`/profile/${pubkey}`);
                       onClose();
                     }}
-                    className="flex w-full items-center gap-2.5 px-3 py-2 text-xs text-heading hover:bg-white/[0.08] transition-colors"
+                    className="flex w-full items-center gap-2.5 px-3 py-2 text-xs text-heading hover:bg-surface-hover transition-colors"
                   >
                     <ExternalLink size={13} />
                     View Full Profile
                   </button>
                   <button
                     onClick={handleCopyPubkey}
-                    className="flex w-full items-center gap-2.5 px-3 py-2 text-xs text-heading hover:bg-white/[0.08] transition-colors"
+                    className="flex w-full items-center gap-2.5 px-3 py-2 text-xs text-heading hover:bg-surface-hover transition-colors"
                   >
                     <Copy size={13} />
                     {copied ? "Copied!" : "Copy Public Key"}
@@ -293,7 +293,7 @@ export function UserPopoverCard({
 
                   <button
                     onClick={handleMute}
-                    className="flex w-full items-center gap-2.5 px-3 py-2 text-xs text-heading hover:bg-white/[0.08] transition-colors"
+                    className="flex w-full items-center gap-2.5 px-3 py-2 text-xs text-heading hover:bg-surface-hover transition-colors"
                   >
                     <VolumeX size={13} />
                     {isMuted ? "Unmute" : "Mute"}
@@ -350,7 +350,7 @@ export function UserPopoverCard({
                   </span>
                 )}
                 {iFollow && !(friendStatus === "friends" && isMutual) && !isMe && (
-                  <span className="inline-flex items-center gap-1 rounded-full bg-white/[0.08] px-2 py-0.5 text-[10px] font-semibold text-muted shrink-0">
+                  <span className="inline-flex items-center gap-1 rounded-full bg-surface-hover px-2 py-0.5 text-[10px] font-semibold text-muted shrink-0">
                     Following
                   </span>
                 )}
@@ -388,7 +388,7 @@ export function UserPopoverCard({
               {mutualSpaces.slice(0, 5).map((space) => (
                 <span
                   key={space.id}
-                  className="inline-flex items-center rounded-full bg-white/[0.08] px-2.5 py-0.5 text-[11px] text-soft"
+                  className="inline-flex items-center rounded-full bg-surface-hover px-2.5 py-0.5 text-[11px] text-soft"
                 >
                   {space.name}
                 </span>
@@ -411,7 +411,7 @@ export function UserPopoverCard({
                 navigate(`/profile/${pubkey}`);
                 onClose();
               }}
-              className="flex items-center gap-1.5 rounded-lg bg-white/[0.08] px-3 py-1.5 text-xs font-medium text-heading hover:bg-white/[0.14] transition-colors"
+              className="flex items-center gap-1.5 rounded-lg bg-surface-hover px-3 py-1.5 text-xs font-medium text-heading hover:bg-surface-hover/80 transition-colors"
             >
               <ExternalLink size={12} />
               Profile
@@ -425,7 +425,7 @@ export function UserPopoverCard({
                       onMessage(pubkey);
                       onClose();
                     }}
-                    className="flex items-center gap-1.5 rounded-lg bg-white/[0.08] px-3 py-1.5 text-xs font-medium text-heading hover:bg-white/[0.14] transition-colors"
+                    className="flex items-center gap-1.5 rounded-lg bg-surface-hover px-3 py-1.5 text-xs font-medium text-heading hover:bg-surface-hover/80 transition-colors"
                   >
                     <MessageCircle size={12} />
                     Message
@@ -437,7 +437,7 @@ export function UserPopoverCard({
                   disabled={followLoading}
                   className={`flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-medium transition-colors ml-auto ${
                     iFollow
-                      ? "bg-white/[0.06] text-muted hover:bg-red-500/10 hover:text-red-400"
+                      ? "bg-surface-hover text-muted hover:bg-red-500/10 hover:text-red-400"
                       : "bg-pulse/20 text-pulse hover:bg-pulse/30"
                   }`}
                 >
@@ -475,7 +475,7 @@ export function UserPopoverCard({
               {friendStatus === "pending_outgoing" && (
                 <button
                   onClick={() => cancelFriendRequestAction(pubkey)}
-                  className="flex items-center gap-1.5 rounded-lg bg-white/[0.06] px-3 py-1.5 text-xs font-medium text-muted hover:bg-red-500/10 hover:text-red-400 transition-colors w-full justify-center"
+                  className="flex items-center gap-1.5 rounded-lg bg-surface-hover px-3 py-1.5 text-xs font-medium text-muted hover:bg-red-500/10 hover:text-red-400 transition-colors w-full justify-center"
                   title="Cancel request"
                 >
                   <Clock size={12} />
@@ -515,7 +515,7 @@ export function UserPopoverCard({
                   <div className="flex items-center gap-2 justify-end">
                     <button
                       onClick={() => setShowUnfriendConfirm(false)}
-                      className="rounded-md px-2 py-1 text-[10px] text-soft hover:bg-white/[0.06] transition-colors"
+                      className="rounded-md px-2 py-1 text-[10px] text-soft hover:bg-surface-hover transition-colors"
                     >
                       Cancel
                     </button>
@@ -540,7 +540,7 @@ export function UserPopoverCard({
               <div className="flex items-center gap-2 justify-end">
                 <button
                   onClick={() => setShowUnfollowConfirm(false)}
-                  className="rounded-md px-2 py-1 text-[10px] text-soft hover:bg-white/[0.06] transition-colors"
+                  className="rounded-md px-2 py-1 text-[10px] text-soft hover:bg-surface-hover transition-colors"
                 >
                   Cancel
                 </button>

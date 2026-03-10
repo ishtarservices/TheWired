@@ -21,7 +21,7 @@ export function ArticleReader({ article, onBack }: ArticleReaderProps) {
 
   return (
     <div className="flex-1 overflow-y-auto">
-      <div className="border-b border-white/[0.04] px-6 py-3">
+      <div className="border-b border-edge px-6 py-3">
         <Button variant="ghost" size="sm" onClick={onBack} className="gap-1">
           <ArrowLeft size={16} />
           Back

@@ -1,3 +1,5 @@
+import { matchEmbed } from "../content/embedPatterns";
+
 /** Recognized media file extensions */
 const IMAGE_EXTENSIONS = /\.(jpg|jpeg|png|gif|webp|avif|svg|bmp)$/i;
 const VIDEO_EXTENSIONS = /\.(mp4|webm|mov|m4v|mkv|avi|m3u8)$/i;
@@ -83,6 +85,15 @@ export function stripMediaUrls(content: string): string {
   // Collapse multiple blank lines into at most one
   cleaned = cleaned.replace(/\n{3,}/g, "\n\n").trim();
   return cleaned;
+}
+
+/** Check if content contains any embeddable URLs (YouTube, Twitter, etc.) */
+export function hasEmbedUrls(content: string): boolean {
+  for (const match of content.matchAll(URL_REGEX)) {
+    const url = cleanTrailingPunctuation(match[0]);
+    if (matchEmbed(url)) return true;
+  }
+  return false;
 }
 
 /** Remove trailing punctuation that's not part of the URL */

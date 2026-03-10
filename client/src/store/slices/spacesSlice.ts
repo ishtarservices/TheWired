@@ -123,6 +123,15 @@ export const spacesSlice = createSlice({
     clearSpacePendingInvites(state, action: PayloadAction<string>) {
       state.pendingInvites = state.pendingInvites.filter((i) => i.spaceId !== action.payload);
     },
+    updateSpaceFeedSources(
+      state,
+      action: PayloadAction<{ spaceId: string; pubkeys: string[] }>,
+    ) {
+      const space = state.list.find((s) => s.id === action.payload.spaceId);
+      if (space) {
+        space.feedPubkeys = action.payload.pubkeys;
+      }
+    },
   },
 });
 
@@ -144,4 +153,5 @@ export const {
   addPendingInvite,
   removePendingInvite,
   clearSpacePendingInvites,
+  updateSpaceFeedSources,
 } = spacesSlice.actions;

@@ -16,13 +16,15 @@ export const searchRoutes: FastifyPluginAsync = async (server) => {
   });
 
   server.get("/music", async (request) => {
-    const { q, type, limit } = request.query as {
+    const { q, type, limit, genre } = request.query as {
       q: string;
       type?: "track" | "album";
       limit?: string;
+      genre?: string;
     };
     const results = await searchService.searchMusic(q, {
       type,
+      genre,
       limit: limit ? parseInt(limit) : 20,
     });
     return { data: results };

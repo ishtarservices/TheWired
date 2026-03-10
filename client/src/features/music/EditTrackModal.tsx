@@ -7,6 +7,8 @@ import { buildTrackEvent } from "./musicEventBuilder";
 import { signAndPublish } from "@/lib/nostr/publish";
 import { selectAudioSource } from "./trackParser";
 import { FeaturedArtistsInput } from "./FeaturedArtistsInput";
+import { HashtagInput } from "./HashtagInput";
+import { GenrePicker } from "./GenrePicker";
 import type { MusicTrack } from "@/types/music";
 
 interface EditTrackModalProps {
@@ -23,6 +25,7 @@ export function EditTrackModal({ track, onClose }: EditTrackModalProps) {
   const [title, setTitle] = useState(track.title);
   const [artist, setArtist] = useState(track.artist);
   const [genre, setGenre] = useState(track.genre ?? "");
+  const [hashtags, setHashtags] = useState<string[]>(track.hashtags);
   const [albumRef, setAlbumRef] = useState(track.albumRef ?? "");
   const [featuredArtists, setFeaturedArtists] = useState<string[]>(track.featuredArtists);
   const [coverFile, setCoverFile] = useState<File | null>(null);
@@ -60,6 +63,7 @@ export function EditTrackModal({ track, onClose }: EditTrackModalProps) {
         slug: existingDTag,
         duration: track.duration,
         genre: genre || undefined,
+        hashtags: hashtags.length > 0 ? hashtags : undefined,
         audioUrl,
         imageUrl,
         albumRef: albumRef || undefined,
@@ -78,7 +82,7 @@ export function EditTrackModal({ track, onClose }: EditTrackModalProps) {
 
   return (
     <Modal open={true} onClose={onClose}>
-      <div className="w-full max-w-md rounded-2xl border border-white/[0.04] card-glass p-6 shadow-xl">
+      <div className="w-full max-w-md rounded-2xl border border-edge card-glass p-6 shadow-xl">
         <div className="mb-4 flex items-center justify-between">
           <h2 className="text-lg font-semibold text-heading">Edit Track</h2>
           <button onClick={onClose} className="text-soft hover:text-heading">
@@ -93,7 +97,7 @@ export function EditTrackModal({ track, onClose }: EditTrackModalProps) {
               type="text"
               value={title}
               onChange={(e) => setTitle(e.target.value)}
-              className="w-full rounded-xl border border-white/[0.04] bg-white/[0.04] px-3 py-1.5 text-sm text-heading outline-none focus:border-pulse/30"
+              className="w-full rounded-xl border border-edge bg-field px-3 py-1.5 text-sm text-heading outline-none focus:border-pulse/30"
               placeholder="Track title"
             />
           </div>
@@ -104,21 +108,14 @@ export function EditTrackModal({ track, onClose }: EditTrackModalProps) {
               type="text"
               value={artist}
               onChange={(e) => setArtist(e.target.value)}
-              className="w-full rounded-xl border border-white/[0.04] bg-white/[0.04] px-3 py-1.5 text-sm text-heading outline-none focus:border-pulse/30"
+              className="w-full rounded-xl border border-edge bg-field px-3 py-1.5 text-sm text-heading outline-none focus:border-pulse/30"
               placeholder="Artist name"
             />
           </div>
 
-          <div>
-            <label className="mb-1 block text-xs font-medium text-soft">Genre</label>
-            <input
-              type="text"
-              value={genre}
-              onChange={(e) => setGenre(e.target.value)}
-              className="w-full rounded-xl border border-white/[0.04] bg-white/[0.04] px-3 py-1.5 text-sm text-heading outline-none focus:border-pulse/30"
-              placeholder="e.g. Electronic, Rock, Jazz"
-            />
-          </div>
+          <GenrePicker value={genre} onChange={setGenre} />
+
+          <HashtagInput value={hashtags} onChange={setHashtags} />
 
           {/* Album */}
           <div>
@@ -126,7 +123,7 @@ export function EditTrackModal({ track, onClose }: EditTrackModalProps) {
             <select
               value={albumRef}
               onChange={(e) => setAlbumRef(e.target.value)}
-              className="w-full rounded-xl border border-white/[0.04] bg-white/[0.04] px-3 py-1.5 text-sm text-heading outline-none focus:border-pulse/30"
+              className="w-full rounded-xl border border-edge bg-field px-3 py-1.5 text-sm text-heading outline-none focus:border-pulse/30"
             >
               <option value="">None (single)</option>
               {userAlbums.map((a) => (

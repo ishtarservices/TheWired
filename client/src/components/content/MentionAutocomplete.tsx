@@ -1,14 +1,14 @@
 import { useEffect, useState, useRef, useCallback } from "react";
-import { createPortal } from "react-dom";
 import { Avatar } from "@/components/ui/Avatar";
 import { profileCache } from "@/lib/nostr/profileCache";
 import type { Kind0Profile } from "@/types/profile";
 
 interface MentionAutocompleteProps {
   query: string;
-  anchorRect: DOMRect;
   onSelect: (pubkey: string, displayName: string) => void;
   onClose: () => void;
+  /** When provided, prioritize these pubkeys (e.g. space members) in results */
+  scopedPubkeys?: string[];
 }
 
 interface SearchResult {
@@ -18,19 +18,32 @@ interface SearchResult {
 
 export function MentionAutocomplete({
   query,
-  anchorRect,
   onSelect,
   onClose,
+  scopedPubkeys,
 }: MentionAutocompleteProps) {
   const [results, setResults] = useState<SearchResult[]>([]);
   const [activeIndex, setActiveIndex] = useState(0);
   const listRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
-    const r = profileCache.searchCached(query, 8);
+    let r: SearchResult[];
+    if (scopedPubkeys?.length) {
+      if (query === "") {
+        // Empty query (user just typed "@"): show all scoped members
+        r = scopedPubkeys.slice(0, 8).map((pk) => ({
+          pubkey: pk,
+          profile: profileCache.getCached(pk) ?? {},
+        }));
+      } else {
+        r = profileCache.searchScoped(query, scopedPubkeys, 8);
+      }
+    } else {
+      r = query === "" ? [] : profileCache.searchCached(query, 8);
+    }
     setResults(r);
     setActiveIndex(0);
-  }, [query]);
+  }, [query, scopedPubkeys]);
 
   const handleKeyDown = useCallback(
     (e: KeyboardEvent) => {
@@ -39,15 +52,18 @@ export function MentionAutocomplete({
       switch (e.key) {
         case "ArrowDown":
           e.preventDefault();
+          e.stopImmediatePropagation();
           setActiveIndex((i) => (i + 1) % results.length);
           break;
         case "ArrowUp":
           e.preventDefault();
+          e.stopImmediatePropagation();
           setActiveIndex((i) => (i - 1 + results.length) % results.length);
           break;
         case "Enter":
         case "Tab": {
           e.preventDefault();
+          e.stopImmediatePropagation();
           const selected = results[activeIndex];
           if (selected) {
             const name =
@@ -60,6 +76,7 @@ export function MentionAutocomplete({
         }
         case "Escape":
           e.preventDefault();
+          e.stopImmediatePropagation();
           onClose();
           break;
       }
@@ -82,18 +99,10 @@ export function MentionAutocomplete({
 
   if (results.length === 0) return null;
 
-  // Position above the anchor (caret position)
-  const top = anchorRect.top - 4;
-  const left = anchorRect.left;
-
-  return createPortal(
+  return (
     <div
       ref={listRef}
-      className="fixed z-50 max-h-64 w-72 overflow-y-auto rounded-lg border border-white/[0.08] bg-surface shadow-xl"
-      style={{
-        bottom: window.innerHeight - top,
-        left: Math.min(left, window.innerWidth - 300),
-      }}
+      className="absolute bottom-full left-0 z-50 mb-1 max-h-64 w-72 overflow-y-auto rounded-lg border border-edge-light bg-panel shadow-xl"
     >
       {results.map((r, i) => {
         const name = r.profile.display_name || r.profile.name || r.pubkey.slice(0, 8);
@@ -102,7 +111,7 @@ export function MentionAutocomplete({
             key={r.pubkey}
             type="button"
             className={`flex w-full items-center gap-3 px-3 py-2 text-left transition-colors ${
-              i === activeIndex ? "bg-white/[0.08]" : "hover:bg-white/[0.04]"
+              i === activeIndex ? "bg-surface-hover" : "hover:bg-surface-hover"
             }`}
             onMouseEnter={() => setActiveIndex(i)}
             onMouseDown={(e) => {
@@ -125,7 +134,6 @@ export function MentionAutocomplete({
           </button>
         );
       })}
-    </div>,
-    document.body,
+    </div>
   );
 }

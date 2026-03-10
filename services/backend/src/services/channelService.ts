@@ -122,19 +122,22 @@ export const channelService = {
     }
   },
 
-  /** Seed default channels for a new space */
+  /** Seed default channels for a new space (race-safe via unique constraint) */
   async seedDefaultChannels(spaceId: string) {
-    const values = DEFAULT_CHANNELS.map((ch) => ({
-      id: nanoid(12),
-      spaceId,
-      type: ch.type,
-      label: ch.label,
-      position: ch.position,
-      isDefault: true,
-      adminOnly: false,
-      slowModeSeconds: 0,
-    }));
-
-    await db.insert(spaceChannels).values(values).onConflictDoNothing();
+    for (const ch of DEFAULT_CHANNELS) {
+      await db
+        .insert(spaceChannels)
+        .values({
+          id: nanoid(12),
+          spaceId,
+          type: ch.type,
+          label: ch.label,
+          position: ch.position,
+          isDefault: true,
+          adminOnly: false,
+          slowModeSeconds: 0,
+        })
+        .onConflictDoNothing({ target: [spaceChannels.spaceId, spaceChannels.type, spaceChannels.label] });
+    }
   },
 };

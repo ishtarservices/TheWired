@@ -69,7 +69,7 @@ export function LoginScreen() {
                   }}
                   placeholder="nsec1... or hex secret key"
                   disabled={loading}
-                  className="flex-1 rounded-xl bg-white/[0.04] ring-1 ring-white/[0.06] px-3 py-2 text-sm text-heading placeholder-muted focus:ring-pulse/30 focus:shadow-[0_0_12px_rgba(139,92,246,0.1)] focus:outline-none"
+                  className="flex-1 rounded-xl bg-field ring-1 ring-edge px-3 py-2 text-sm text-heading placeholder-muted focus:ring-pulse/30 focus:shadow-[0_0_12px_rgba(139,92,246,0.1)] focus:outline-none"
                 />
                 <Button
                   onClick={handleImport}

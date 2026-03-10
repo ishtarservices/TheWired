@@ -44,8 +44,8 @@ export function DMMessage({ message }: DMMessageProps) {
         <div
           className={`rounded-2xl px-4 py-2 text-sm ${
             isMe
-              ? "bg-pulse/20 text-heading rounded-br-sm"
-              : "bg-white/6 text-body rounded-bl-sm"
+              ? "bg-pulse-dim text-heading rounded-br-sm border border-pulse/15"
+              : "bg-card text-body rounded-bl-sm border border-edge"
           }`}
         >
           <RichContent content={message.content} />

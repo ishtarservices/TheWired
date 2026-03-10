@@ -160,7 +160,7 @@ export function RelaySettingsTab() {
               return (
                 <div
                   key={relay.url}
-                  className={`flex items-center gap-2 rounded-xl border border-white/[0.04] bg-white/[0.04] px-3 py-2 transition-opacity ${isDisabled ? "opacity-50" : ""}`}
+                  className={`flex items-center gap-2 rounded-xl border border-edge bg-field px-3 py-2 transition-opacity ${isDisabled ? "opacity-50" : ""}`}
                 >
                   <button
                     role="switch"
@@ -193,7 +193,7 @@ export function RelaySettingsTab() {
                       changeMode(relay.url, e.target.value as RelayMode)
                     }
                     disabled={isDisabled}
-                    className="rounded-xl border border-white/[0.04] bg-white/[0.04] px-1.5 py-0.5 text-xs text-soft focus:border-neon focus:outline-none disabled:opacity-50"
+                    className="rounded-xl border border-edge bg-field px-1.5 py-0.5 text-xs text-soft focus:border-neon focus:outline-none disabled:opacity-50"
                   >
                     <option value="read+write">read+write</option>
                     <option value="read">read</option>
@@ -226,7 +226,7 @@ export function RelaySettingsTab() {
               setError(null);
             }}
             placeholder="wss://relay.example.com"
-            className="flex-1 rounded-xl border border-white/[0.04] bg-white/[0.04] px-3 py-2 text-sm text-heading placeholder:text-faint focus:border-neon focus:outline-none transition-colors"
+            className="flex-1 rounded-xl border border-edge bg-field px-3 py-2 text-sm text-heading placeholder:text-faint focus:border-neon focus:outline-none transition-colors"
             onKeyDown={(e) => {
               if (e.key === "Enter") addRelay();
             }}
@@ -234,7 +234,7 @@ export function RelaySettingsTab() {
           <select
             value={newMode}
             onChange={(e) => setNewMode(e.target.value as RelayMode)}
-            className="rounded-xl border border-white/[0.04] bg-white/[0.04] px-2 py-2 text-xs text-soft focus:border-neon focus:outline-none"
+            className="rounded-xl border border-edge bg-field px-2 py-2 text-xs text-soft focus:border-neon focus:outline-none"
           >
             <option value="read+write">read+write</option>
             <option value="read">read</option>

@@ -99,7 +99,7 @@ export function PopoverMenuItem({
         "flex w-full items-center gap-2 rounded-lg mx-1 px-3.5 py-2.5 text-sm transition-colors",
         variant === "danger"
           ? "text-red-400 hover:bg-red-500/10"
-          : "text-body hover:bg-white/[0.04] hover:text-heading",
+          : "text-body hover:bg-surface-hover hover:text-heading",
       )}
     >
       {icon}
@@ -109,5 +109,5 @@ export function PopoverMenuItem({
 }
 
 export function PopoverMenuSeparator() {
-  return <div className="my-1.5 border-t border-white/[0.04]" />;
+  return <div className="my-1.5 border-t border-edge" />;
 }

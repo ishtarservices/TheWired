@@ -8,7 +8,7 @@ interface FeedToolbarProps {
 
 export function FeedToolbar({ isRefreshing, onRefresh, children }: FeedToolbarProps) {
   return (
-    <div className="flex items-center gap-2 border-b border-white/[0.04] px-5 py-2.5">
+    <div className="flex items-center gap-2 border-b border-edge px-5 py-2.5">
       {children}
       <div className="flex-1" />
       <button

@@ -264,7 +264,9 @@ export function NotesFeed() {
         {notes.length === 0 ? (
           <div className="flex h-full items-center justify-center">
             <p className="text-sm text-muted">
-              No notes yet from space members
+              {activeSpace?.mode === "read"
+                ? "No notes yet -- add feed sources to see content here"
+                : "No notes yet from space members"}
             </p>
           </div>
         ) : (

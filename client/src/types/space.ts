@@ -8,6 +8,8 @@ export interface Space {
   isPrivate: boolean;
   adminPubkeys: string[];
   memberPubkeys: string[];
+  /** Curated pubkeys whose content appears in feed-mode spaces */
+  feedPubkeys: string[];
   mode: "read" | "read-write";
   creatorPubkey: string;
   createdAt: number;

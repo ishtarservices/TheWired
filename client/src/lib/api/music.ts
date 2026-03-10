@@ -85,6 +85,25 @@ export async function getMyUploads(
   return res.json();
 }
 
+/**
+ * Report a play event for a track (fire-and-forget).
+ */
+export async function reportPlay(eventId: string): Promise<void> {
+  const url = `${getApiBaseUrl()}/music/play`;
+  const headers: Record<string, string> = {
+    "Content-Type": "application/json",
+  };
+  headers["Authorization"] = await buildNip98Header(url, "POST");
+
+  fetch(url, {
+    method: "POST",
+    headers,
+    body: JSON.stringify({ trackId: eventId }),
+  }).catch(() => {
+    // fire-and-forget, don't block playback
+  });
+}
+
 export async function getTrendingTracks(
   opts?: { period?: string; limit?: number },
 ): Promise<{ data: unknown[] }> {
@@ -138,6 +157,81 @@ export async function resolveMusic(
     if (res.status === 404) throw new Error("Not found");
     throw new Error(`Resolve failed: ${res.statusText}`);
   }
+  return res.json();
+}
+
+export async function getGenres(): Promise<{ data: { genre: string; count: number }[] }> {
+  const res = await fetch(`${getApiBaseUrl()}/music/genres`);
+  if (!res.ok) throw new Error("Failed to fetch genres");
+  return res.json();
+}
+
+export async function getPopularTags(
+  limit = 20,
+): Promise<{ data: { tag: string; count: number }[] }> {
+  const res = await fetch(`${getApiBaseUrl()}/music/tags/popular?limit=${limit}`);
+  if (!res.ok) throw new Error("Failed to fetch tags");
+  return res.json();
+}
+
+export async function browseMusic(params: {
+  genre?: string;
+  tag?: string;
+  sort?: "trending" | "recent" | "plays";
+  limit?: number;
+  offset?: number;
+}): Promise<{ data: { tracks: unknown[]; total: number } }> {
+  const qs = new URLSearchParams();
+  if (params.genre) qs.set("genre", params.genre);
+  if (params.tag) qs.set("tag", params.tag);
+  if (params.sort) qs.set("sort", params.sort);
+  if (params.limit) qs.set("limit", String(params.limit));
+  if (params.offset) qs.set("offset", String(params.offset));
+
+  const res = await fetch(`${getApiBaseUrl()}/music/browse?${qs.toString()}`);
+  if (!res.ok) throw new Error("Failed to browse music");
+  return res.json();
+}
+
+export async function getUnderground(_opts?: { genre?: string; limit?: number }) {
+  // TODO: Phase 4
+  return { data: [] };
+}
+
+export async function getRecommended(_opts?: { limit?: number }) {
+  // TODO: Phase 5
+  return { data: [] };
+}
+
+/**
+ * Delete a music item (track or album) from the backend.
+ * The backend verifies that the authenticated pubkey matches the content author.
+ */
+export async function deleteMusic(
+  type: "track" | "album",
+  pubkey: string,
+  slug: string,
+): Promise<void> {
+  const url = `${getApiBaseUrl()}/music/${type}/${pubkey}/${encodeURIComponent(slug)}`;
+  const headers: Record<string, string> = {};
+  headers["Authorization"] = await buildNip98Header(url, "DELETE");
+
+  const res = await fetch(url, { method: "DELETE", headers });
+  if (!res.ok && res.status !== 404) {
+    throw new Error(`Delete failed: ${res.statusText}`);
+  }
+}
+
+/**
+ * Rebuild genre/tag counts from scratch (fixes stale Redis counters).
+ */
+export async function rebuildMusicCounts(): Promise<{ data: { genres: number; tags: number; tracksAndAlbums: number } }> {
+  const url = `${getApiBaseUrl()}/music/rebuild-counts`;
+  const headers: Record<string, string> = {};
+  headers["Authorization"] = await buildNip98Header(url, "POST");
+
+  const res = await fetch(url, { method: "POST", headers });
+  if (!res.ok) throw new Error(`Rebuild failed: ${res.statusText}`);
   return res.json();
 }
 

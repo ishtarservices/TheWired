@@ -34,6 +34,25 @@ interface MusicState {
     trendingAlbumIds: string[];
     recentlyPlayedIds: string[];
     newReleaseIds: string[];
+    undergroundTrackIds: string[];
+    recommendedTrackIds: string[];
+  };
+
+  explore: {
+    genres: { genre: string; count: number }[];
+    popularTags: { tag: string; count: number }[];
+    activeGenre: string | null;
+    activeTag: string | null;
+    browseResults: string[];
+    browseSort: "trending" | "recent" | "plays";
+    isLoading: boolean;
+  };
+
+  search: {
+    query: string;
+    trackResults: string[]; // addressableIds
+    albumResults: string[]; // addressableIds
+    isLoading: boolean;
   };
 
   activeView: MusicView;
@@ -75,6 +94,25 @@ const initialState: MusicState = {
     trendingAlbumIds: [],
     recentlyPlayedIds: [],
     newReleaseIds: [],
+    undergroundTrackIds: [],
+    recommendedTrackIds: [],
+  },
+
+  explore: {
+    genres: [],
+    popularTags: [],
+    activeGenre: null,
+    activeTag: null,
+    browseResults: [],
+    browseSort: "trending",
+    isLoading: false,
+  },
+
+  search: {
+    query: "",
+    trackResults: [],
+    albumResults: [],
+    isLoading: false,
   },
 
   activeView: "home",
@@ -115,6 +153,66 @@ export const musicSlice = createSlice({
       for (const p of action.payload) {
         state.playlists[p.addressableId] = p;
       }
+    },
+
+    removeTrack(state, action: PayloadAction<string>) {
+      const id = action.payload;
+      const track = state.tracks[id];
+      if (!track) return;
+
+      delete state.tracks[id];
+
+      // Clean up artist index
+      const artistIds = state.tracksByArtist[track.pubkey];
+      if (artistIds) {
+        state.tracksByArtist[track.pubkey] = artistIds.filter((t) => t !== id);
+      }
+      // Clean up featured artist indices
+      for (const fp of track.featuredArtists) {
+        const fpIds = state.tracksByArtist[fp];
+        if (fpIds) {
+          state.tracksByArtist[fp] = fpIds.filter((t) => t !== id);
+        }
+      }
+      // Clean up album index
+      if (track.albumRef) {
+        const albumTracks = state.tracksByAlbum[track.albumRef];
+        if (albumTracks) {
+          state.tracksByAlbum[track.albumRef] = albumTracks.filter((t) => t !== id);
+        }
+      }
+      // Clean up library
+      state.library.savedTrackIds = state.library.savedTrackIds.filter((t) => t !== id);
+      // Clean up queue
+      state.player.queue = state.player.queue.filter((t) => t !== id);
+      state.player.originalQueue = state.player.originalQueue.filter((t) => t !== id);
+      if (state.player.currentTrackId === id) {
+        state.player.currentTrackId = null;
+        state.player.isPlaying = false;
+      }
+      // Clean up discovery
+      state.discovery.trendingTrackIds = state.discovery.trendingTrackIds.filter((t) => t !== id);
+      state.discovery.recentlyPlayedIds = state.discovery.recentlyPlayedIds.filter((t) => t !== id);
+      state.discovery.newReleaseIds = state.discovery.newReleaseIds.filter((t) => t !== id);
+      state.discovery.undergroundTrackIds = state.discovery.undergroundTrackIds.filter((t) => t !== id);
+      state.discovery.recommendedTrackIds = state.discovery.recommendedTrackIds.filter((t) => t !== id);
+      state.explore.browseResults = state.explore.browseResults.filter((t) => t !== id);
+    },
+    removeAlbum(state, action: PayloadAction<string>) {
+      const id = action.payload;
+      delete state.albums[id];
+      delete state.tracksByAlbum[id];
+      state.library.savedAlbumIds = state.library.savedAlbumIds.filter((a) => a !== id);
+      state.discovery.trendingAlbumIds = state.discovery.trendingAlbumIds.filter((a) => a !== id);
+      if (state.activeDetailId === id) {
+        state.activeDetailId = null;
+        state.activeView = "home";
+      }
+    },
+    removePlaylist(state, action: PayloadAction<string>) {
+      const id = action.payload;
+      delete state.playlists[id];
+      state.library.userPlaylists = state.library.userPlaylists.filter((p) => p !== id);
     },
 
     // ── Indexing ────────────────────────────────────────────
@@ -329,6 +427,50 @@ export const musicSlice = createSlice({
     setNewReleaseIds(state, action: PayloadAction<string[]>) {
       state.discovery.newReleaseIds = action.payload;
     },
+    setUndergroundTrackIds(state, action: PayloadAction<string[]>) {
+      state.discovery.undergroundTrackIds = action.payload;
+    },
+    setRecommendedTrackIds(state, action: PayloadAction<string[]>) {
+      state.discovery.recommendedTrackIds = action.payload;
+    },
+
+    // ── Explore ──────────────────────────────────────────
+    setExploreGenres(state, action: PayloadAction<{ genre: string; count: number }[]>) {
+      state.explore.genres = action.payload;
+    },
+    setExplorePopularTags(state, action: PayloadAction<{ tag: string; count: number }[]>) {
+      state.explore.popularTags = action.payload;
+    },
+    setActiveGenre(state, action: PayloadAction<string | null>) {
+      state.explore.activeGenre = action.payload;
+    },
+    setActiveTag(state, action: PayloadAction<string | null>) {
+      state.explore.activeTag = action.payload;
+    },
+    setExploreResults(state, action: PayloadAction<string[]>) {
+      state.explore.browseResults = action.payload;
+    },
+    setExploreSort(state, action: PayloadAction<"trending" | "recent" | "plays">) {
+      state.explore.browseSort = action.payload;
+    },
+    setExploreLoading(state, action: PayloadAction<boolean>) {
+      state.explore.isLoading = action.payload;
+    },
+
+    // ── Search ────────────────────────────────────────────────
+    setSearchQuery(state, action: PayloadAction<string>) {
+      state.search.query = action.payload;
+    },
+    setSearchResults(
+      state,
+      action: PayloadAction<{ trackIds: string[]; albumIds: string[] }>,
+    ) {
+      state.search.trackResults = action.payload.trackIds;
+      state.search.albumResults = action.payload.albumIds;
+    },
+    setSearchLoading(state, action: PayloadAction<boolean>) {
+      state.search.isLoading = action.payload;
+    },
 
     // ── UI ──────────────────────────────────────────────────
     setMusicView(state, action: PayloadAction<MusicView>) {
@@ -355,6 +497,9 @@ export const {
   addAlbums,
   addPlaylist,
   addPlaylists,
+  removeTrack,
+  removeAlbum,
+  removePlaylist,
   indexTrackByArtist,
   indexTrackByAlbum,
   setSavedTrackIds,
@@ -388,6 +533,18 @@ export const {
   setRecentlyPlayedIds,
   addRecentlyPlayed,
   setNewReleaseIds,
+  setUndergroundTrackIds,
+  setRecommendedTrackIds,
+  setExploreGenres,
+  setExplorePopularTags,
+  setActiveGenre,
+  setActiveTag,
+  setExploreResults,
+  setExploreSort,
+  setExploreLoading,
+  setSearchQuery,
+  setSearchResults,
+  setSearchLoading,
   setMusicView,
   setActiveDetailId,
   toggleQueuePanel,

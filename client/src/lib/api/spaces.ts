@@ -62,3 +62,26 @@ export async function validateSpaces(ids: string[]) {
     body: { ids },
   });
 }
+
+// ── Feed Sources ──────────────────────────────────────────────────
+
+/** Fetch curated feed source pubkeys for a space */
+export async function fetchFeedSources(spaceId: string) {
+  return api<string[]>(`/spaces/${encodeURIComponent(spaceId)}/feed-sources`);
+}
+
+/** Add pubkeys as feed sources (admin only) */
+export async function addFeedSources(spaceId: string, pubkeys: string[]) {
+  return api<string[]>(`/spaces/${encodeURIComponent(spaceId)}/feed-sources`, {
+    method: "POST",
+    body: { pubkeys },
+  });
+}
+
+/** Remove a feed source pubkey (admin only) */
+export async function removeFeedSource(spaceId: string, pubkey: string) {
+  return api<{ removed: boolean }>(
+    `/spaces/${encodeURIComponent(spaceId)}/feed-sources/${encodeURIComponent(pubkey)}`,
+    { method: "DELETE" },
+  );
+}

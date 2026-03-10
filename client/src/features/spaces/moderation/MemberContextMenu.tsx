@@ -67,7 +67,7 @@ export function MemberContextMenu({
           <div className="flex gap-2">
             <button
               onClick={() => setConfirmAction(null)}
-              className="flex-1 rounded-lg mx-1 px-3.5 py-2.5 text-xs text-soft hover:bg-white/[0.04]"
+              className="flex-1 rounded-lg mx-1 px-3.5 py-2.5 text-xs text-soft hover:bg-surface-hover"
             >
               Cancel
             </button>
@@ -93,12 +93,12 @@ export function MemberContextMenu({
             value={banReason}
             onChange={(e) => setBanReason(e.target.value)}
             placeholder="Reason (optional)"
-            className="w-full rounded-md rounded-xl bg-white/[0.04] border border-white/[0.04] px-2 py-1 text-xs text-heading placeholder-muted focus:border-neon focus:outline-none"
+            className="w-full rounded-md rounded-xl bg-field border border-edge px-2 py-1 text-xs text-heading placeholder-muted focus:border-neon focus:outline-none"
           />
           <div className="flex gap-2">
             <button
               onClick={() => { setConfirmAction(null); setBanReason(""); }}
-              className="flex-1 rounded-lg mx-1 px-3.5 py-2.5 text-xs text-soft hover:bg-white/[0.04]"
+              className="flex-1 rounded-lg mx-1 px-3.5 py-2.5 text-xs text-soft hover:bg-surface-hover"
             >
               Cancel
             </button>

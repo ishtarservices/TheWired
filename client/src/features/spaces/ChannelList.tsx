@@ -1,13 +1,14 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { useNavigate, useLocation } from "react-router-dom";
 import { cn } from "@/lib/utils";
-import { MessageSquare, FileText, Image, BookOpen, Music, Plus } from "lucide-react";
+import { MessageSquare, FileText, Image, BookOpen, Music, Plus, BellOff } from "lucide-react";
 import { useSpace } from "./useSpace";
 import { useSpaceChannels } from "./useSpaceChannels";
 import { useAppSelector } from "../../store/hooks";
 import { usePermissions } from "./usePermissions";
-import { useChannelUnread, useChannelMentions } from "../notifications/useNotifications";
+import { useChannelUnread, useChannelMentions, useChannelMuted } from "../notifications/useNotifications";
 import { CreateChannelModal } from "./CreateChannelModal";
+import { ChannelContextMenu } from "./ChannelContextMenu";
 import type { SpaceChannelType } from "../../types/space";
 
 const CHANNEL_ICONS: Record<SpaceChannelType, typeof MessageSquare> = {
@@ -26,6 +27,12 @@ export function ChannelList() {
   const currentPubkey = useAppSelector((s) => s.identity.pubkey);
   const { can } = usePermissions(activeSpace?.id ?? null);
   const [createModalOpen, setCreateModalOpen] = useState(false);
+  const [ctxMenu, setCtxMenu] = useState<{ channelId: string; x: number; y: number } | null>(null);
+
+  const handleChannelContextMenu = useCallback((e: React.MouseEvent, channelId: string) => {
+    e.preventDefault();
+    setCtxMenu({ channelId, x: e.clientX, y: e.clientY });
+  }, []);
 
   // When channels load and the current activeChannelId is null or doesn't match
   // any loaded channel (e.g. stale "chat" fallback), auto-select the best default
@@ -100,6 +107,7 @@ export function ChannelList() {
             slowModeSeconds={ch.slowModeSeconds}
             Icon={Icon}
             onClick={() => handleSelectChannel(ch.id)}
+            onContextMenu={(e) => handleChannelContextMenu(e, channelActiveId)}
           />
         );
       })}
@@ -110,6 +118,15 @@ export function ChannelList() {
         spaceId={activeSpace.id}
         existingChannels={channels}
       />
+
+      {ctxMenu && (
+        <ChannelContextMenu
+          open
+          onClose={() => setCtxMenu(null)}
+          channelId={ctxMenu.channelId}
+          position={{ x: ctxMenu.x, y: ctxMenu.y }}
+        />
+      )}
     </div>
   );
 }
@@ -122,6 +139,7 @@ function ChannelButton({
   slowModeSeconds,
   Icon,
   onClick,
+  onContextMenu,
 }: {
   channelId: string;
   label: string;
@@ -129,32 +147,44 @@ function ChannelButton({
   slowModeSeconds: number;
   Icon: typeof MessageSquare;
   onClick: () => void;
+  onContextMenu: (e: React.MouseEvent) => void;
 }) {
   const unread = useChannelUnread(channelId);
   const mentions = useChannelMentions(channelId);
+  const isMuted = useChannelMuted(channelId);
+  const hasUnread = unread > 0 || mentions > 0;
 
   return (
     <button
       onClick={onClick}
+      onContextMenu={onContextMenu}
       className={cn(
         "flex w-full items-center gap-2 rounded-xl px-3 py-2 text-sm transition-all duration-150",
         isActive
-          ? "bg-white/[0.05] text-heading"
-          : "text-soft hover:bg-white/[0.04] hover:text-heading",
+          ? "bg-surface-hover text-heading"
+          : hasUnread && !isMuted
+            ? "text-heading font-semibold hover:bg-surface-hover"
+            : "text-soft hover:bg-surface-hover hover:text-heading",
       )}
     >
       <Icon size={16} />
-      <span>{label}</span>
+      <span className="truncate">{label}</span>
       <span className="ml-auto flex items-center gap-1.5">
+        {isMuted && (
+          <BellOff size={11} className="shrink-0 text-muted" />
+        )}
         {mentions > 0 && (
           <span className="flex h-4 min-w-4 items-center justify-center rounded-full bg-pulse px-1 text-[10px] font-bold text-white">
             @{mentions}
           </span>
         )}
-        {unread > 0 && mentions === 0 && (
-          <span className="flex h-4 min-w-4 items-center justify-center rounded-full bg-white/20 px-1 text-[10px] font-bold text-white">
+        {unread > 0 && mentions === 0 && !isMuted && (
+          <span className="flex h-4 min-w-4 items-center justify-center rounded-full bg-surface-hover px-1 text-[10px] font-bold text-white">
             {unread}
           </span>
+        )}
+        {unread > 0 && mentions === 0 && isMuted && (
+          <span className="h-2 w-2 rounded-full bg-surface-hover shrink-0" />
         )}
         {slowModeSeconds > 0 && (
           <span className="text-[10px] text-muted" title={`Slow mode: ${slowModeSeconds}s`}>

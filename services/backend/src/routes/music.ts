@@ -6,11 +6,16 @@ import { sql } from "drizzle-orm";
 interface RelayEvent {
   id: string;
   pubkey: string;
-  created_at: number;
+  created_at: number | string;
   kind: number;
   tags: string[][];
   content: string;
   sig: string;
+}
+
+/** Normalize PG bigint fields to JS numbers for JSON serialization */
+function normalizeEvent(row: RelayEvent): RelayEvent {
+  return { ...row, created_at: Number(row.created_at) };
 }
 
 export const musicRoutes: FastifyPluginAsync = async (server) => {
@@ -34,7 +39,7 @@ export const musicRoutes: FastifyPluginAsync = async (server) => {
         return reply.status(404).send({ error: "Album not found", code: "NOT_FOUND" });
       }
 
-      const albumEvent = rows[0];
+      const albumEvent = normalizeEvent(rows[0]);
 
       // Batch-fetch associated track events from album's a-tags
       const trackRefs = albumEvent.tags
@@ -54,7 +59,7 @@ export const musicRoutes: FastifyPluginAsync = async (server) => {
               ORDER BY created_at DESC
               LIMIT 1`,
         )) as unknown as RelayEvent[];
-        if (tRows.length > 0) trackEvents.push(tRows[0]);
+        if (tRows.length > 0) trackEvents.push(normalizeEvent(tRows[0]));
       }
 
       return { data: { event: albumEvent, tracks: trackEvents } };
@@ -81,7 +86,7 @@ export const musicRoutes: FastifyPluginAsync = async (server) => {
         return reply.status(404).send({ error: "Track not found", code: "NOT_FOUND" });
       }
 
-      return { data: { event: rows[0] } };
+      return { data: { event: normalizeEvent(rows[0]) } };
     },
   );
   // POST /music/upload -- Upload audio file
@@ -114,6 +119,112 @@ export const musicRoutes: FastifyPluginAsync = async (server) => {
     const rows = await musicService.listUploads(pubkey, { limit, offset });
     return { data: rows };
   });
+
+  // POST /music/rebuild-counts -- Rebuild genre/tag counts from scratch.
+  // No auth required — this is an internal endpoint only reachable on the backend port.
+  // External access goes through the gateway which won't expose this route.
+  server.post("/rebuild-counts", async () => {
+    const result = await musicService.rebuildCounts();
+    return { data: result };
+  });
+
+  // GET /music/genres -- Genre list with track counts
+  server.get("/genres", async () => {
+    const genres = await musicService.getGenreCounts();
+    return { data: genres };
+  });
+
+  // GET /music/tags/popular -- Top hashtags
+  server.get("/tags/popular", async (request) => {
+    const { limit } = request.query as { limit?: string };
+    const tags = await musicService.getPopularTags(limit ? parseInt(limit, 10) : 20);
+    return { data: tags };
+  });
+
+  // GET /music/browse -- Filtered browse
+  server.get("/browse", async (request) => {
+    const { genre, tag, sort, limit, offset } = request.query as {
+      genre?: string;
+      tag?: string;
+      sort?: string;
+      limit?: string;
+      offset?: string;
+    };
+    const results = await musicService.browse({
+      genre,
+      tag,
+      sort: (sort as "trending" | "recent" | "plays") ?? "trending",
+      limit: limit ? parseInt(limit, 10) : 20,
+      offset: offset ? parseInt(offset, 10) : 0,
+    });
+    return { data: results };
+  });
+
+  // GET /music/underground -- TODO: Phase 4
+  server.get("/underground", async () => {
+    return { data: [] };
+  });
+
+  // GET /music/recommended -- TODO: Phase 5
+  server.get("/recommended", async () => {
+    return { data: [] };
+  });
+
+  // POST /music/play -- Record a play
+  server.post("/play", async (request, reply) => {
+    const pubkey = (request.headers["x-auth-pubkey"] as string) ?? null;
+    if (!pubkey) {
+      return reply.status(401).send({ error: "Authentication required", code: "UNAUTHORIZED" });
+    }
+
+    const { trackId } = request.body as { trackId?: string };
+    if (!trackId) {
+      return reply.status(400).send({ error: "trackId required", code: "BAD_REQUEST" });
+    }
+
+    const recorded = await musicService.recordPlay(trackId, pubkey);
+    return { data: { recorded } };
+  });
+
+  // DELETE /music/track/:pubkey/:slug -- Delete a track (owner only)
+  server.delete<{ Params: { pubkey: string; slug: string } }>(
+    "/track/:pubkey/:slug",
+    async (request, reply) => {
+      const authPubkey = (request.headers["x-auth-pubkey"] as string) ?? null;
+      if (!authPubkey) {
+        return reply.status(401).send({ error: "Authentication required", code: "UNAUTHORIZED" });
+      }
+      const { pubkey, slug } = request.params;
+      if (authPubkey !== pubkey) {
+        return reply.status(403).send({ error: "Can only delete your own content", code: "FORBIDDEN" });
+      }
+      const deleted = await musicService.deleteMusic(31683, pubkey, slug);
+      if (!deleted) {
+        return reply.status(404).send({ error: "Track not found", code: "NOT_FOUND" });
+      }
+      return { data: { deleted: true } };
+    },
+  );
+
+  // DELETE /music/album/:pubkey/:slug -- Delete an album (owner only)
+  server.delete<{ Params: { pubkey: string; slug: string } }>(
+    "/album/:pubkey/:slug",
+    async (request, reply) => {
+      const authPubkey = (request.headers["x-auth-pubkey"] as string) ?? null;
+      if (!authPubkey) {
+        return reply.status(401).send({ error: "Authentication required", code: "UNAUTHORIZED" });
+      }
+      const { pubkey, slug } = request.params;
+      if (authPubkey !== pubkey) {
+        return reply.status(403).send({ error: "Can only delete your own content", code: "FORBIDDEN" });
+      }
+      const deleted = await musicService.deleteMusic(33123, pubkey, slug);
+      if (!deleted) {
+        return reply.status(404).send({ error: "Album not found", code: "NOT_FOUND" });
+      }
+      return { data: { deleted: true } };
+    },
+  );
 
   // POST /music/upload/cover -- Upload cover art
   server.post("/upload/cover", async (request, reply) => {
