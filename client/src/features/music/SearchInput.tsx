@@ -9,6 +9,7 @@ import {
 } from "@/store/slices/musicSlice";
 import { useAudioPlayer } from "./useAudioPlayer";
 import { resolveMusic } from "@/lib/api/music";
+import { putEvent } from "@/lib/db/eventStore";
 import { parseTrackEvent } from "./trackParser";
 import { addTrack } from "@/store/slices/musicSlice";
 
@@ -60,7 +61,9 @@ export function SearchInput() {
         const slug = slugParts.join(":");
         const res = await resolveMusic("track", pubkey, slug);
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        const parsed = parseTrackEvent((res.data as any).event);
+        const rawEvent = (res.data as any).event;
+        putEvent(rawEvent).catch(() => {});
+        const parsed = parseTrackEvent(rawEvent);
         dispatch(addTrack(parsed));
         play(parsed.addressableId);
       } catch {

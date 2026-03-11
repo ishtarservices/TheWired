@@ -8,7 +8,14 @@ import { getRedis } from "../lib/redis.js";
 import { getMeilisearchClient } from "../lib/meilisearch.js";
 import { verifyEvent } from "../lib/nostr/eventVerifier.js";
 import { enqueueNotification } from "../services/notificationEnqueue.js";
+import { revisionService } from "../services/revisionService.js";
+import { proposalService } from "../services/proposalService.js";
 import { eq, and, sql } from "drizzle-orm";
+
+/** Escape a string for use in Meilisearch filter expressions */
+function escapeMsFilter(value: string): string {
+  return value.replace(/[\\"]/g, "");
+}
 
 interface NostrEvent {
   id: string;
@@ -55,7 +62,7 @@ export function startRelayIngester() {
         JSON.stringify([
           "REQ",
           "ingester",
-          { kinds: [0, 1, 5, 7, 9, 22, 30023, 34236, 31683, 33123, 30119, 9735, 9021, 9022, 39000], since },
+          { kinds: [0, 1, 5, 7, 9, 22, 30023, 34236, 31683, 33123, 30119, 31685, 9735, 9021, 9022, 39000], since },
         ]),
       );
 
@@ -130,6 +137,9 @@ export function startRelayIngester() {
         break;
       case 33123:
         await indexMusicAlbum(event);
+        break;
+      case 31685:
+        await indexProposal(event);
         break;
       default:
         break;
@@ -337,6 +347,16 @@ export function startRelayIngester() {
     const imageUrl = getTagValue(event, "image") ?? getTagValue(event, "thumb") ?? "";
     const hashtags = event.tags.filter((t) => t[0] === "t").map((t) => t[1]);
 
+    // Extract artist and featured pubkeys from role-tagged p-tags
+    const pTags = event.tags.filter((t) => t[0] === "p" && t[1]);
+    const hasRoles = pTags.some((t) => t[3]);
+    const artistPubkeys = hasRoles
+      ? pTags.filter((t) => t[3] === "artist").map((t) => t[1])
+      : [];
+    const featuredPubkeys = hasRoles
+      ? pTags.filter((t) => t[3] === "featured").map((t) => t[1])
+      : pTags.filter((t) => t[1] !== event.pubkey).map((t) => t[1]);
+
     await ms.index("tracks").addDocuments([
       {
         id: event.id,
@@ -347,15 +367,16 @@ export function startRelayIngester() {
         image_url: imageUrl,
         hashtags,
         pubkey: event.pubkey,
+        artist_pubkeys: artistPubkeys,
+        featured_pubkeys: featuredPubkeys,
         created_at: event.created_at,
       },
     ]);
 
-    // Track genre and tag popularity — deduplicate so re-processing the same
-    // event (relay reconnect, replay) doesn't inflate counts.
-    const alreadyCounted = await redis.sismember("music:counted_events", event.id);
-    if (!alreadyCounted) {
-      await redis.sadd("music:counted_events", event.id);
+    // Track genre and tag popularity — use atomic SADD (returns 1 if new) to
+    // prevent race conditions when two events arrive simultaneously.
+    const wasNew = await redis.sadd("music:counted_events", event.id);
+    if (wasNew) {
       const pipeline = redis.pipeline();
       if (genre) {
         pipeline.zincrby("music:genre_counts", 1, genre);
@@ -366,6 +387,14 @@ export function startRelayIngester() {
       if (genre || hashtags.length > 0) {
         await pipeline.exec();
       }
+    }
+
+    // Capture revision for version history
+    try {
+      const addressableId = `31683:${event.pubkey}:${dTag}`;
+      await revisionService.captureRevision(addressableId, event);
+    } catch (err) {
+      console.error("[ingester] Failed to capture track revision:", (err as Error).message);
     }
   }
 
@@ -381,6 +410,16 @@ export function startRelayIngester() {
     const imageUrl = getTagValue(event, "image") ?? getTagValue(event, "thumb") ?? "";
     const hashtags = event.tags.filter((t) => t[0] === "t").map((t) => t[1]);
 
+    // Extract artist and featured pubkeys from role-tagged p-tags
+    const pTags = event.tags.filter((t) => t[0] === "p" && t[1]);
+    const hasRoles = pTags.some((t) => t[3]);
+    const artistPubkeys = hasRoles
+      ? pTags.filter((t) => t[3] === "artist").map((t) => t[1])
+      : [];
+    const featuredPubkeys = hasRoles
+      ? pTags.filter((t) => t[3] === "featured").map((t) => t[1])
+      : pTags.filter((t) => t[1] !== event.pubkey).map((t) => t[1]);
+
     await ms.index("albums").addDocuments([
       {
         id: event.id,
@@ -391,14 +430,15 @@ export function startRelayIngester() {
         image_url: imageUrl,
         hashtags,
         pubkey: event.pubkey,
+        artist_pubkeys: artistPubkeys,
+        featured_pubkeys: featuredPubkeys,
         created_at: event.created_at,
       },
     ]);
 
-    // Track genre and tag popularity — deduplicated
-    const alreadyCounted = await redis.sismember("music:counted_events", event.id);
-    if (!alreadyCounted) {
-      await redis.sadd("music:counted_events", event.id);
+    // Track genre and tag popularity — use atomic SADD to prevent race conditions
+    const wasNew = await redis.sadd("music:counted_events", event.id);
+    if (wasNew) {
       const pipeline = redis.pipeline();
       if (genre) {
         pipeline.zincrby("music:genre_counts", 1, genre);
@@ -409,6 +449,32 @@ export function startRelayIngester() {
       if (genre || hashtags.length > 0) {
         await pipeline.exec();
       }
+    }
+
+    // Capture revision for version history
+    try {
+      const addressableId = `33123:${event.pubkey}:${dTag}`;
+      await revisionService.captureRevision(addressableId, event);
+    } catch (err) {
+      console.error("[ingester] Failed to capture album revision:", (err as Error).message);
+    }
+
+    // Flag saved versions as having updates
+    try {
+      const addressableId = `33123:${event.pubkey}:${dTag}`;
+      await db.execute(
+        sql`UPDATE app.saved_album_versions SET has_update = true WHERE addressable_id = ${addressableId}`,
+      );
+    } catch (err) {
+      console.error("[ingester] Failed to flag saved versions:", (err as Error).message);
+    }
+  }
+
+  async function indexProposal(event: NostrEvent) {
+    try {
+      await proposalService.indexProposal(event);
+    } catch (err) {
+      console.error("[ingester] Failed to index proposal:", (err as Error).message);
     }
   }
 
@@ -440,7 +506,7 @@ export function startRelayIngester() {
         // Delete from Meilisearch tracks index — only docs created before the deletion
         try {
           const results = await ms.index("tracks").search("", {
-            filter: `pubkey = "${addrPubkey}"`,
+            filter: `pubkey = "${escapeMsFilter(addrPubkey)}"`,
             limit: 100,
           });
           const matchingHits = results.hits.filter(
@@ -482,7 +548,7 @@ export function startRelayIngester() {
         // Delete from Meilisearch albums index — only docs created before the deletion
         try {
           const results = await ms.index("albums").search("", {
-            filter: `pubkey = "${addrPubkey}"`,
+            filter: `pubkey = "${escapeMsFilter(addrPubkey)}"`,
             limit: 100,
           });
           const matchingHits = results.hits.filter(

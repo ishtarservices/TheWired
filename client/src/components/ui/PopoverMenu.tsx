@@ -27,19 +27,39 @@ export function PopoverMenu({ open, onClose, children, position = "above", ancho
     return () => document.removeEventListener("keydown", onKey);
   }, [open, onClose]);
 
-  // Compute fixed position from anchor element when using portal mode
+  // Compute fixed position from anchor element when using portal mode.
+  // Measures the menu after render and flips above/below if it would overflow.
   useLayoutEffect(() => {
     if (!usePortal || !open || !anchorRef?.current) return;
     const rect = anchorRef.current.getBoundingClientRect();
+    const menuHeight = ref.current?.offsetHeight ?? 300;
+    const gap = 4;
     const style: React.CSSProperties = {};
-    if (position === "below") {
-      style.top = rect.bottom + 4;
+
+    const spaceBelow = window.innerHeight - rect.bottom - gap;
+    const spaceAbove = rect.top - gap;
+
+    const preferBelow = position === "below";
+    const fitsBelow = menuHeight <= spaceBelow;
+    const fitsAbove = menuHeight <= spaceAbove;
+
+    // Place below if preferred and fits, or if above doesn't fit either but below has more room
+    const placeBelow = preferBelow
+      ? (fitsBelow || !fitsAbove)
+      : (!fitsAbove && fitsBelow);
+
+    if (placeBelow) {
+      // Clamp so menu doesn't overflow bottom
+      const top = rect.bottom + gap;
+      style.top = Math.min(top, window.innerHeight - menuHeight - 8);
     } else {
-      style.bottom = window.innerHeight - rect.top + 4;
+      // Clamp so menu doesn't overflow top
+      const bottom = window.innerHeight - rect.top + gap;
+      style.bottom = Math.min(bottom, window.innerHeight - 8);
     }
+
     // Anchor right edge to the anchor's right edge
     const rightOffset = window.innerWidth - rect.right;
-    // If menu would overflow left edge, flip to left-anchored
     if (rightOffset + 160 > window.innerWidth) {
       style.left = rect.left;
     } else {
@@ -59,8 +79,9 @@ export function PopoverMenu({ open, onClose, children, position = "above", ancho
   const menuEl = (
     <div
       ref={ref}
+      onClick={(e) => e.stopPropagation()}
       className={cn(
-        "w-max min-w-[160px] rounded-xl card-glass py-1.5 shadow-xl transition-all duration-150",
+        "w-max min-w-[160px] max-h-[calc(100vh-2rem)] overflow-y-auto rounded-xl card-glass py-1.5 shadow-xl transition-all duration-150",
         usePortal ? "fixed z-50" : "absolute right-0 z-40",
         !usePortal && (position === "above" ? "bottom-full mb-1" : "top-full mt-1"),
         open
@@ -94,7 +115,10 @@ export function PopoverMenuItem({
 }: PopoverMenuItemProps) {
   return (
     <button
-      onClick={onClick}
+      onClick={(e) => {
+        e.stopPropagation();
+        onClick();
+      }}
       className={cn(
         "flex w-full items-center gap-2 rounded-lg mx-1 px-3.5 py-2.5 text-sm transition-colors",
         variant === "danger"

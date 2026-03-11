@@ -1,8 +1,8 @@
 import { useMemo, useState } from "react";
-import { ArrowLeft, Play, Shuffle, Disc3, Link2, Heart, Users, UserPlus, X } from "lucide-react";
+import { ArrowLeft, Play, Shuffle, Disc3, Link2, Heart, Plus, Check, Trash2, Users, UserPlus, X, Clock, GitPullRequest, RefreshCw } from "lucide-react";
 import { nip19 } from "nostr-tools";
 import { useAppSelector, useAppDispatch } from "@/store/hooks";
-import { setMusicView, addAlbum } from "@/store/slices/musicSlice";
+import { goBack, setActiveDetailId, addAlbum } from "@/store/slices/musicSlice";
 import { TrackRow } from "../TrackRow";
 import { useAudioPlayer } from "../useAudioPlayer";
 import { useLibrary } from "../useLibrary";
@@ -13,6 +13,8 @@ import { signAndPublish } from "@/lib/nostr/publish";
 import { parseAlbumEvent } from "../albumParser";
 import { Avatar } from "@/components/ui/Avatar";
 import { useProfile } from "@/features/profile/useProfile";
+import { useSavedVersions } from "../useSavedVersions";
+import { ReleaseNotesModal } from "../ReleaseNotesModal";
 
 function CollaboratorRow({
   pubkey,
@@ -70,17 +72,41 @@ export function AlbumDetail() {
   );
   const pubkey = useAppSelector((s) => s.identity.pubkey);
   const { playQueue } = useAudioPlayer();
-  const { saveAlbum, unsaveAlbum, isAlbumSaved } = useLibrary();
+  const { saveTrack, saveAlbum, unsaveAlbum, isAlbumSaved, favoriteAlbum, unfavoriteAlbum, isAlbumFavorited } = useLibrary();
+  const { savedVersions, acknowledgeUpdate } = useSavedVersions();
+  const hasUpdate = albumId ? savedVersions[albumId]?.hasUpdate ?? false : false;
   const [copied, setCopied] = useState(false);
+  const [showReleaseNotes, setShowReleaseNotes] = useState(false);
+  const [confirmRemove, setConfirmRemove] = useState(false);
   const [showMembers, setShowMembers] = useState(false);
   const [addInput, setAddInput] = useState("");
   const [addError, setAddError] = useState<string | null>(null);
 
-  const albumTracks = useMemo(() => {
-    // Use album's trackRefs first, fallback to indexed tracks
+  const savedTrackIds = useAppSelector((s) => s.music.library.savedTrackIds);
+  const savedAlbumIds = useAppSelector((s) => s.music.library.savedAlbumIds);
+
+  // All tracks in this album (catalog-level)
+  const allAlbumTracks = useMemo(() => {
     const refs = album?.trackRefs ?? tracksByAlbum ?? [];
     return refs.map((id) => tracks[id]).filter(Boolean);
   }, [album?.trackRefs, tracksByAlbum, tracks]);
+
+  // For non-owner albums that are in the user's library, filter to only saved tracks.
+  // Owner/collaborator albums and albums being browsed (not in library) show all tracks.
+  const isOwnerOrCollab = !!pubkey && (pubkey === album?.pubkey || (album?.featuredArtists.includes(pubkey) ?? false));
+  const albumInLibrary = albumId ? savedAlbumIds.includes(albumId) : false;
+  const shouldFilterByLibrary = !isOwnerOrCollab && albumInLibrary;
+
+  const albumTracks = useMemo(() => {
+    if (!shouldFilterByLibrary) return allAlbumTracks;
+    return allAlbumTracks.filter((t) => savedTrackIds.includes(t.addressableId));
+  }, [allAlbumTracks, shouldFilterByLibrary, savedTrackIds]);
+
+  // Count of album tracks not yet in library (for "Add remaining" button)
+  const unsavedTrackCount = useMemo(() => {
+    if (!shouldFilterByLibrary) return 0;
+    return allAlbumTracks.length - albumTracks.length;
+  }, [shouldFilterByLibrary, allAlbumTracks.length, albumTracks.length]);
 
   if (!album) {
     return (
@@ -105,7 +131,9 @@ export function AlbumDetail() {
       genre: album.genre || undefined,
       imageUrl: album.imageUrl,
       trackRefs: album.trackRefs.length > 0 ? album.trackRefs : undefined,
+      artistPubkeys: album.artistPubkeys.length > 0 ? album.artistPubkeys : undefined,
       featuredArtists: newFeaturedArtists.length > 0 ? newFeaturedArtists : undefined,
+      hashtags: album.hashtags.length > 0 ? album.hashtags : undefined,
       projectType: album.projectType,
       visibility: album.visibility,
     });
@@ -145,7 +173,7 @@ export function AlbumDetail() {
         {/* Header */}
         <div className="flex items-end gap-6 bg-gradient-to-b from-card-hover/30 to-transparent p-6">
           <button
-            onClick={() => dispatch(setMusicView("albums"))}
+            onClick={() => dispatch(goBack())}
             className="self-start rounded p-1 text-soft hover:text-heading"
           >
             <ArrowLeft size={20} />
@@ -225,22 +253,54 @@ export function AlbumDetail() {
                 </button>
               )}
               {pubkey !== album.pubkey && album.visibility !== "local" && (
-                <button
-                  onClick={() => {
-                    if (isAlbumSaved(album.addressableId)) {
-                      unsaveAlbum(album.addressableId);
-                    } else {
-                      saveAlbum(album.addressableId);
-                    }
-                  }}
-                  className="flex items-center gap-1.5 rounded-full border border-edge px-4 py-1.5 text-sm text-soft transition-colors hover:border-edge-light hover:text-heading"
-                >
-                  <Heart
-                    size={14}
-                    className={isAlbumSaved(album.addressableId) ? "fill-red-500 text-red-500" : ""}
-                  />
-                  {isAlbumSaved(album.addressableId) ? "Saved" : "Save"}
-                </button>
+                <>
+                  {confirmRemove ? (
+                    <button
+                      onClick={() => {
+                        unsaveAlbum(album.addressableId);
+                        setConfirmRemove(false);
+                      }}
+                      className="flex items-center gap-1.5 rounded-full border border-red-500/30 bg-red-500/10 px-4 py-1.5 text-sm text-red-400 transition-colors hover:bg-red-500/20"
+                    >
+                      <Trash2 size={14} />
+                      Confirm Remove
+                    </button>
+                  ) : (
+                    <button
+                      onClick={() => {
+                        if (isAlbumSaved(album.addressableId)) {
+                          setConfirmRemove(true);
+                        } else {
+                          saveAlbum(album.addressableId);
+                        }
+                      }}
+                      className="flex items-center gap-1.5 rounded-full border border-edge px-4 py-1.5 text-sm text-soft transition-colors hover:border-edge-light hover:text-heading"
+                    >
+                      {isAlbumSaved(album.addressableId) ? (
+                        <Check size={14} className="text-green-400" />
+                      ) : (
+                        <Plus size={14} />
+                      )}
+                      {isAlbumSaved(album.addressableId) ? "In Library" : "Add to Library"}
+                    </button>
+                  )}
+                  <button
+                    onClick={() => {
+                      if (isAlbumFavorited(album.addressableId)) {
+                        unfavoriteAlbum(album.addressableId);
+                      } else {
+                        favoriteAlbum(album.addressableId);
+                      }
+                    }}
+                    className="flex items-center gap-1.5 rounded-full border border-edge px-4 py-1.5 text-sm text-soft transition-colors hover:border-edge-light hover:text-heading"
+                  >
+                    <Heart
+                      size={14}
+                      className={isAlbumFavorited(album.addressableId) ? "fill-red-500 text-red-500" : ""}
+                    />
+                    {isAlbumFavorited(album.addressableId) ? "Favorited" : "Favorite"}
+                  </button>
+                </>
               )}
               {(isOwner || isCollaborator) && (
                 <button
@@ -255,9 +315,60 @@ export function AlbumDetail() {
                   Members
                 </button>
               )}
+              {(isOwner || isCollaborator) && (
+                <button
+                  onClick={() =>
+                    dispatch(
+                      setActiveDetailId({
+                        view: "project-history",
+                        id: album.addressableId,
+                      }),
+                    )
+                  }
+                  className="flex items-center gap-1.5 rounded-full border border-edge px-4 py-1.5 text-sm text-soft transition-colors hover:border-edge-light hover:text-heading"
+                >
+                  <Clock size={14} />
+                  History
+                </button>
+              )}
+              {(isOwner || isCollaborator) && (
+                <button
+                  onClick={() =>
+                    dispatch(
+                      setActiveDetailId({
+                        view: "project-proposals",
+                        id: album.addressableId,
+                      }),
+                    )
+                  }
+                  className="flex items-center gap-1.5 rounded-full border border-edge px-4 py-1.5 text-sm text-soft transition-colors hover:border-edge-light hover:text-heading"
+                >
+                  <GitPullRequest size={14} />
+                  Proposals
+                </button>
+              )}
             </div>
           </div>
         </div>
+
+        {/* Update Available banner */}
+        {hasUpdate && !isOwner && (
+          <div className="mx-6 mt-2 flex items-center gap-3 rounded-xl border border-pulse/30 bg-pulse/5 px-4 py-3">
+            <RefreshCw size={16} className="shrink-0 text-pulse" />
+            <div className="flex-1">
+              <p className="text-sm font-medium text-heading">Update Available</p>
+              <p className="text-xs text-soft">
+                The artist has released a new version of this project.
+              </p>
+            </div>
+            <button
+              onClick={() => setShowReleaseNotes(true)}
+              className="shrink-0 rounded-lg bg-pulse/20 px-3 py-1.5 text-xs font-medium text-pulse hover:bg-pulse/30 transition-colors"
+            >
+              View Details
+            </button>
+          </div>
+        )}
 
         {/* Track list */}
         <div className="px-6 py-4">
@@ -273,10 +384,38 @@ export function AlbumDetail() {
           ) : (
             <p className="text-sm text-soft">No tracks in this album yet</p>
           )}
+          {unsavedTrackCount > 0 && (
+            <button
+              onClick={() => {
+                for (const t of allAlbumTracks) {
+                  if (!savedTrackIds.includes(t.addressableId)) {
+                    saveTrack(t.addressableId);
+                  }
+                }
+              }}
+              className="mt-3 flex items-center gap-1.5 rounded-lg border border-dashed border-edge px-3 py-2 text-sm text-soft transition-colors hover:border-edge-light hover:text-heading"
+            >
+              <Plus size={14} />
+              Add {unsavedTrackCount} remaining track{unsavedTrackCount !== 1 ? "s" : ""}
+            </button>
+          )}
         </div>
       </div>
 
       {/* Collaborators side panel */}
+      {showReleaseNotes && albumId && (
+        <ReleaseNotesModal
+          albumId={albumId}
+          onClose={() => setShowReleaseNotes(false)}
+          onUpdate={() => {
+            if (album) {
+              acknowledgeUpdate(album.addressableId, album.eventId, album.createdAt);
+            }
+            setShowReleaseNotes(false);
+          }}
+        />
+      )}
+
       {showMembers && (
         <div className="flex w-64 shrink-0 flex-col border-l border-edge">
           <div className="flex h-12 items-center border-b border-edge px-4">

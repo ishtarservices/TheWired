@@ -1,20 +1,21 @@
 import { useMemo } from "react";
 import { useAppSelector } from "@/store/hooks";
+import { selectLibraryTracks } from "../musicSelectors";
 import { TrackRow } from "../TrackRow";
 
 export function RecentlyAdded() {
-  const tracks = useAppSelector((s) => s.music.tracks);
+  const pubkey = useAppSelector((s) => s.identity.pubkey);
+  const libraryTracksSelector = useMemo(() => selectLibraryTracks(pubkey), [pubkey]);
+  const libraryTracks = useAppSelector(libraryTracksSelector);
 
-  const sortedTracks = useMemo(() => {
-    return Object.values(tracks).sort((a, b) => b.createdAt - a.createdAt);
-  }, [tracks]);
+  const queueIds = libraryTracks.map((t) => t.addressableId);
 
-  const queueIds = sortedTracks.map((t) => t.addressableId);
-
-  if (sortedTracks.length === 0) {
+  if (libraryTracks.length === 0) {
     return (
       <div className="flex flex-1 items-center justify-center">
-        <p className="text-sm text-soft">No recently added tracks</p>
+        <p className="text-sm text-soft">
+          No recently added tracks. Save or upload tracks to see them here.
+        </p>
       </div>
     );
   }
@@ -23,15 +24,16 @@ export function RecentlyAdded() {
     <div className="flex-1 overflow-y-auto p-4">
       <h2 className="mb-3 text-lg font-semibold text-heading">Recently Added</h2>
 
-      <div className="grid grid-cols-[2rem_1fr_1fr_4rem] gap-4 border-b border-edge px-3 pb-2 text-xs font-semibold uppercase tracking-[0.15em] text-muted">
+      <div className="grid grid-cols-[2rem_1fr_1fr_4rem_2rem] gap-4 border-b border-edge px-3 pb-2 text-xs font-semibold uppercase tracking-[0.15em] text-muted">
         <span>#</span>
         <span>Title</span>
         <span>Genre</span>
         <span className="text-right">Time</span>
+        <span />
       </div>
 
       <div className="mt-1">
-        {sortedTracks.map((track, i) => (
+        {libraryTracks.map((track, i) => (
           <TrackRow
             key={track.addressableId}
             track={track}

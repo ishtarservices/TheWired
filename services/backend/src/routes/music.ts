@@ -1,7 +1,8 @@
 import type { FastifyPluginAsync } from "fastify";
 import { musicService } from "../services/musicService.js";
 import { db } from "../db/connection.js";
-import { sql } from "drizzle-orm";
+import { eq, and, sql } from "drizzle-orm";
+import { savedAlbumVersions } from "../db/schema/savedVersions.js";
 
 interface RelayEvent {
   id: string;
@@ -121,9 +122,12 @@ export const musicRoutes: FastifyPluginAsync = async (server) => {
   });
 
   // POST /music/rebuild-counts -- Rebuild genre/tag counts from scratch.
-  // No auth required — this is an internal endpoint only reachable on the backend port.
-  // External access goes through the gateway which won't expose this route.
-  server.post("/rebuild-counts", async () => {
+  // Requires authentication to prevent abuse (expensive operation).
+  server.post("/rebuild-counts", async (request, reply) => {
+    const pubkey = (request.headers["x-auth-pubkey"] as string) ?? null;
+    if (!pubkey) {
+      return reply.status(401).send({ error: "Authentication required", code: "UNAUTHORIZED" });
+    }
     const result = await musicService.rebuildCounts();
     return { data: result };
   });
@@ -150,12 +154,39 @@ export const musicRoutes: FastifyPluginAsync = async (server) => {
       limit?: string;
       offset?: string;
     };
+    const validSorts = ["trending", "recent", "plays"];
+    const parsedSort = sort && validSorts.includes(sort) ? sort as "trending" | "recent" | "plays" : "trending";
+    const parsedLimit = Math.min(Math.max(parseInt(limit ?? "20", 10) || 20, 1), 100);
+    const parsedOffset = Math.max(parseInt(offset ?? "0", 10) || 0, 0);
     const results = await musicService.browse({
-      genre,
-      tag,
-      sort: (sort as "trending" | "recent" | "plays") ?? "trending",
-      limit: limit ? parseInt(limit, 10) : 20,
-      offset: offset ? parseInt(offset, 10) : 0,
+      genre: genre?.slice(0, 200),
+      tag: tag?.slice(0, 200),
+      sort: parsedSort,
+      limit: parsedLimit,
+      offset: parsedOffset,
+    });
+    return { data: results };
+  });
+
+  // GET /music/browse/albums -- Filtered album browse
+  server.get("/browse/albums", async (request) => {
+    const { genre, tag, sort, limit, offset } = request.query as {
+      genre?: string;
+      tag?: string;
+      sort?: string;
+      limit?: string;
+      offset?: string;
+    };
+    const validSorts = ["trending", "recent", "plays"];
+    const parsedSort = sort && validSorts.includes(sort) ? sort as "trending" | "recent" | "plays" : "recent";
+    const parsedLimit = Math.min(Math.max(parseInt(limit ?? "20", 10) || 20, 1), 100);
+    const parsedOffset = Math.max(parseInt(offset ?? "0", 10) || 0, 0);
+    const results = await musicService.browseAlbums({
+      genre: genre?.slice(0, 200),
+      tag: tag?.slice(0, 200),
+      sort: parsedSort,
+      limit: parsedLimit,
+      offset: parsedOffset,
     });
     return { data: results };
   });
@@ -225,6 +256,84 @@ export const musicRoutes: FastifyPluginAsync = async (server) => {
       return { data: { deleted: true } };
     },
   );
+
+  // POST /music/save-version -- fan saves their current version
+  server.post("/save-version", async (request, reply) => {
+    const pubkey = (request.headers["x-auth-pubkey"] as string) ?? null;
+    if (!pubkey) {
+      return reply.status(401).send({ error: "Authentication required", code: "UNAUTHORIZED" });
+    }
+    const { addressableId, eventId, createdAt } = request.body as {
+      addressableId: string;
+      eventId: string;
+      createdAt: number;
+    };
+
+    await db
+      .insert(savedAlbumVersions)
+      .values({
+        pubkey,
+        addressableId,
+        savedEventId: eventId,
+        savedCreatedAt: createdAt,
+        hasUpdate: false,
+      })
+      .onConflictDoUpdate({
+        target: [savedAlbumVersions.pubkey, savedAlbumVersions.addressableId],
+        set: {
+          savedEventId: eventId,
+          savedCreatedAt: createdAt,
+          hasUpdate: false,
+        },
+      });
+
+    return { data: { saved: true } };
+  });
+
+  // GET /music/saved-updates -- albums with updates available
+  server.get("/saved-updates", async (request, reply) => {
+    const pubkey = (request.headers["x-auth-pubkey"] as string) ?? null;
+    if (!pubkey) {
+      return reply.status(401).send({ error: "Authentication required", code: "UNAUTHORIZED" });
+    }
+
+    const rows = await db
+      .select()
+      .from(savedAlbumVersions)
+      .where(and(
+        eq(savedAlbumVersions.pubkey, pubkey),
+        eq(savedAlbumVersions.hasUpdate, true),
+      ));
+
+    return { data: rows };
+  });
+
+  // POST /music/acknowledge-update -- mark update as seen
+  server.post("/acknowledge-update", async (request, reply) => {
+    const pubkey = (request.headers["x-auth-pubkey"] as string) ?? null;
+    if (!pubkey) {
+      return reply.status(401).send({ error: "Authentication required", code: "UNAUTHORIZED" });
+    }
+    const { addressableId, eventId, createdAt } = request.body as {
+      addressableId: string;
+      eventId: string;
+      createdAt: number;
+    };
+
+    await db
+      .update(savedAlbumVersions)
+      .set({
+        hasUpdate: false,
+        savedEventId: eventId,
+        savedCreatedAt: createdAt,
+      })
+      .where(and(
+        eq(savedAlbumVersions.pubkey, pubkey),
+        eq(savedAlbumVersions.addressableId, addressableId),
+      ));
+
+    return { data: { acknowledged: true } };
+  });
 
   // POST /music/upload/cover -- Upload cover art
   server.post("/upload/cover", async (request, reply) => {

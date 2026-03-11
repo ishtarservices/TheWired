@@ -1,6 +1,6 @@
 import type { UnsignedEvent } from "@/types/nostr";
 import { EVENT_KINDS } from "@/types/nostr";
-import type { MusicVisibility, ProjectType } from "@/types/music";
+import type { MusicVisibility, ProjectType, ProposalChange } from "@/types/music";
 
 interface TrackEventParams {
   title: string;
@@ -17,8 +17,11 @@ interface TrackEventParams {
   hashtags?: string[];
   albumRef?: string;
   license?: string;
+  artistPubkeys?: string[];
   featuredArtists?: string[];
   visibility?: MusicVisibility;
+  revisionSummary?: string;
+  sharingDisabled?: boolean;
   spaceId?: string;
 }
 
@@ -30,10 +33,13 @@ interface AlbumEventParams {
   imageUrl?: string;
   imageMime?: string;
   trackRefs?: string[];
+  artistPubkeys?: string[];
   featuredArtists?: string[];
   hashtags?: string[];
   projectType?: ProjectType;
   visibility?: MusicVisibility;
+  revisionSummary?: string;
+  sharingDisabled?: boolean;
   spaceId?: string;
 }
 
@@ -75,10 +81,17 @@ export function buildTrackEvent(
   if (params.license) tags.push(["license", params.license]);
   if (params.albumRef) tags.push(["a", params.albumRef]);
 
-  // Featured artists as p-tags
+  // Artist identity p-tags (role: "artist")
+  if (params.artistPubkeys) {
+    for (const pk of params.artistPubkeys) {
+      tags.push(["p", pk, "", "artist"]);
+    }
+  }
+
+  // Featured artists as p-tags (role: "featured")
   if (params.featuredArtists) {
-    for (const npub of params.featuredArtists) {
-      tags.push(["p", npub]);
+    for (const pk of params.featuredArtists) {
+      tags.push(["p", pk, "", "featured"]);
     }
   }
 
@@ -94,6 +107,13 @@ export function buildTrackEvent(
     for (const t of params.hashtags) {
       tags.push(["t", t.toLowerCase()]);
     }
+  }
+
+  if (params.revisionSummary) {
+    tags.push(["revision_summary", params.revisionSummary]);
+  }
+  if (params.sharingDisabled) {
+    tags.push(["sharing", "disabled"]);
   }
 
   addVisibilityTags(tags, params.visibility, params.spaceId);
@@ -123,10 +143,17 @@ export function buildAlbumEvent(
     tags.push(["project_type", params.projectType]);
   }
 
-  // Featured artists as p-tags
+  // Artist identity p-tags (role: "artist")
+  if (params.artistPubkeys) {
+    for (const pk of params.artistPubkeys) {
+      tags.push(["p", pk, "", "artist"]);
+    }
+  }
+
+  // Featured artists as p-tags (role: "featured")
   if (params.featuredArtists) {
-    for (const npub of params.featuredArtists) {
-      tags.push(["p", npub]);
+    for (const pk of params.featuredArtists) {
+      tags.push(["p", pk, "", "featured"]);
     }
   }
 
@@ -140,6 +167,13 @@ export function buildAlbumEvent(
     for (const t of params.hashtags) {
       tags.push(["t", t.toLowerCase()]);
     }
+  }
+
+  if (params.revisionSummary) {
+    tags.push(["revision_summary", params.revisionSummary]);
+  }
+  if (params.sharingDisabled) {
+    tags.push(["sharing", "disabled"]);
   }
 
   addVisibilityTags(tags, params.visibility, params.spaceId);
@@ -178,5 +212,68 @@ export function buildPlaylistEvent(
     kind: EVENT_KINDS.MUSIC_PLAYLIST,
     tags,
     content: params.description ?? "",
+  };
+}
+
+export function buildTrackNotesEvent(
+  pubkey: string,
+  params: {
+    trackDTag: string;
+    trackAddressableId: string;
+    linerNotes?: string;
+    productionNotes?: string;
+    credits?: { role: string; name: string; pubkey?: string }[];
+  },
+): UnsignedEvent {
+  const tags: string[][] = [
+    ["d", `notes:${params.trackDTag}`],
+    ["a", params.trackAddressableId],
+  ];
+
+  const content = JSON.stringify({
+    linerNotes: params.linerNotes ?? "",
+    productionNotes: params.productionNotes ?? "",
+    credits: params.credits ?? [],
+  });
+
+  return {
+    pubkey,
+    created_at: Math.floor(Date.now() / 1000),
+    kind: EVENT_KINDS.MUSIC_TRACK_NOTES,
+    tags,
+    content,
+  };
+}
+
+export function buildProposalEvent(
+  pubkey: string,
+  params: {
+    proposalId: string;
+    targetAlbum: string;
+    ownerPubkey: string;
+    title: string;
+    description?: string;
+    changes: ProposalChange[];
+  },
+): UnsignedEvent {
+  const tags: string[][] = [
+    ["d", params.proposalId],
+    ["a", params.targetAlbum],
+    ["p", params.ownerPubkey],
+    ["status", "open"],
+  ];
+
+  const content = JSON.stringify({
+    title: params.title,
+    description: params.description,
+    changes: params.changes,
+  });
+
+  return {
+    pubkey,
+    created_at: Math.floor(Date.now() / 1000),
+    kind: EVENT_KINDS.MUSIC_PROPOSAL,
+    tags,
+    content,
   };
 }

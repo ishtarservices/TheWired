@@ -43,6 +43,8 @@ export function CreateAlbumModal({ open, onClose, album }: CreateAlbumModalProps
   const [genre, setGenre] = useState("");
   const [hashtags, setHashtags] = useState<string[]>([]);
   const [selectedTrackRefs, setSelectedTrackRefs] = useState<string[]>([]);
+  const [iAmArtist, setIAmArtist] = useState(true);
+  const [artistPubkeys, setArtistPubkeys] = useState<string[]>([]);
   const [featuredArtists, setFeaturedArtists] = useState<string[]>([]);
   const [visibility, setVisibility] = useState<MusicVisibility>("public");
   const [spaceId, setSpaceId] = useState("");
@@ -73,6 +75,13 @@ export function CreateAlbumModal({ open, onClose, album }: CreateAlbumModalProps
       setHashtags(album.hashtags ?? []);
       setProjectType(album.projectType);
       setSelectedTrackRefs(album.trackRefs);
+      setArtistPubkeys(album.artistPubkeys ?? []);
+      // "I am the artist" is true only if the uploader's pubkey is in artistPubkeys.
+      // Empty artistPubkeys with a custom artist name means text-only artist (not the uploader).
+      setIAmArtist(
+        album.artistPubkeys.includes(pubkey!) ||
+        (album.artistPubkeys.length === 0 && album.artist === pubkey),
+      );
       setFeaturedArtists(album.featuredArtists);
       setVisibility(album.visibility);
     } else {
@@ -82,6 +91,8 @@ export function CreateAlbumModal({ open, onClose, album }: CreateAlbumModalProps
       setHashtags([]);
       setProjectType("album");
       setSelectedTrackRefs([]);
+      setIAmArtist(true);
+      setArtistPubkeys([]);
       setFeaturedArtists([]);
       setVisibility("public");
       setSpaceId("");
@@ -225,6 +236,7 @@ export function CreateAlbumModal({ open, onClose, album }: CreateAlbumModalProps
         : title.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
 
       const albumAddrId = `33123:${pubkey}:${slug}`;
+      const resolvedArtistPubkeys = iAmArtist ? [pubkey] : artistPubkeys;
 
       // Upload new tracks sequentially with progress
       const newTrackAddrIds: string[] = [];
@@ -274,6 +286,7 @@ export function CreateAlbumModal({ open, onClose, album }: CreateAlbumModalProps
               audioMime: result.mimeType,
               imageUrl: trackImageUrl,
               albumRef: albumAddrId,
+              artistPubkeys: resolvedArtistPubkeys.length > 0 ? resolvedArtistPubkeys : undefined,
               visibility,
               spaceId: visibility === "space" ? spaceId : undefined,
             });
@@ -305,6 +318,7 @@ export function CreateAlbumModal({ open, onClose, album }: CreateAlbumModalProps
         genre: genre || undefined,
         imageUrl,
         trackRefs: allTrackRefs.length > 0 ? allTrackRefs : undefined,
+        artistPubkeys: resolvedArtistPubkeys.length > 0 ? resolvedArtistPubkeys : undefined,
         featuredArtists: featuredArtists.length > 0 ? featuredArtists : undefined,
         hashtags: hashtags.length > 0 ? hashtags : undefined,
         projectType,
@@ -395,6 +409,26 @@ export function CreateAlbumModal({ open, onClose, album }: CreateAlbumModalProps
               </div>
             </div>
           </div>
+
+          {/* Artist identity */}
+          <label className="flex items-center gap-2 text-xs text-soft">
+            <input
+              type="checkbox"
+              checked={iAmArtist}
+              onChange={(e) => setIAmArtist(e.target.checked)}
+              className="h-4 w-4 rounded border-2 border-edge bg-field checked:bg-pulse checked:border-pulse accent-purple-400"
+            />
+            I am the artist
+          </label>
+
+          {!iAmArtist && (
+            <FeaturedArtistsInput
+              value={artistPubkeys}
+              onChange={setArtistPubkeys}
+              label="Artist Identity (npub)"
+              placeholder="Paste artist npub or hex pubkey..."
+            />
+          )}
 
           {/* Genre + Type Row */}
           <div className="grid grid-cols-2 gap-3">
@@ -501,7 +535,7 @@ export function CreateAlbumModal({ open, onClose, album }: CreateAlbumModalProps
                   <span className="w-7 text-center">#</span>
                   <span className="flex-1">Title</span>
                   <span className="w-12 text-right">Time</span>
-                  <span className="w-14" />
+                  <span className="w-28" />
                 </div>
 
                 {parsedTracks.map((track, idx) => (
@@ -577,7 +611,7 @@ export function CreateAlbumModal({ open, onClose, album }: CreateAlbumModalProps
                     </span>
 
                     {/* Status / Actions */}
-                    <div className="flex w-14 shrink-0 items-center justify-end gap-0.5">
+                    <div className="flex w-28 shrink-0 items-center justify-end gap-1">
                       {track.status === "uploading" && (
                         <div className="h-3 w-3 animate-spin rounded-full border border-pulse/30 border-t-pulse" />
                       )}
@@ -668,7 +702,7 @@ export function CreateAlbumModal({ open, onClose, album }: CreateAlbumModalProps
                       type="checkbox"
                       checked={selectedTrackRefs.includes(track.addressableId)}
                       onChange={() => toggleTrack(track.addressableId)}
-                      className="accent-heading"
+                      className="h-4 w-4 rounded border-2 border-edge bg-field checked:bg-pulse checked:border-pulse accent-purple-400"
                     />
                     <span className="truncate">{track.title}</span>
                     <span className="ml-auto text-xs text-muted">{track.artist}</span>

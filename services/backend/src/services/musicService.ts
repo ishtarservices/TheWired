@@ -33,6 +33,12 @@ const ALLOWED_IMAGE_TYPES = new Set([
   "image/gif",
 ]);
 
+/** Escape a string for use in Meilisearch filter expressions to prevent injection */
+function escapeMsFilter(value: string): string {
+  // Remove double quotes and backslashes which could break out of filter expressions
+  return value.replace(/[\\"]/g, "");
+}
+
 async function ensureDir(dir: string) {
   await mkdir(dir, { recursive: true });
 }
@@ -317,8 +323,8 @@ export const musicService = {
     if (params.sort === "plays") {
       // Sort by play count: get all matching event IDs from Meilisearch, then rank by Redis play_count
       const filters: string[] = [];
-      if (params.genre) filters.push(`genre = "${params.genre}"`);
-      if (params.tag) filters.push(`hashtags = "${params.tag}"`);
+      if (params.genre) filters.push(`genre = "${escapeMsFilter(params.genre)}"`);
+      if (params.tag) filters.push(`hashtags = "${escapeMsFilter(params.tag)}"`);
 
       const results = await ms.index("tracks").search("", {
         filter: filters.length > 0 ? filters.join(" AND ") : undefined,
@@ -343,14 +349,14 @@ export const musicService = {
       }
     } else if (params.sort === "trending" && params.genre) {
       // Use Redis trending sorted sets
-      const key = `trending:music:tracks:genre:${params.genre.toLowerCase()}`;
+      const key = `trending:music:tracks:genre:${escapeMsFilter(params.genre).toLowerCase()}`;
       eventIds = await redis.zrevrange(key, offset, offset + limit - 1);
       total = eventIds.length;
     } else {
       // Meilisearch filtered search — "recent" or "trending" fallback
       const filters: string[] = [];
-      if (params.genre) filters.push(`genre = "${params.genre}"`);
-      if (params.tag) filters.push(`hashtags = "${params.tag}"`);
+      if (params.genre) filters.push(`genre = "${escapeMsFilter(params.genre)}"`);
+      if (params.tag) filters.push(`hashtags = "${escapeMsFilter(params.tag)}"`);
 
       const results = await ms.index("tracks").search("", {
         filter: filters.length > 0 ? filters.join(" AND ") : undefined,
@@ -391,6 +397,58 @@ export const musicService = {
     return { tracks: events, total };
   },
 
+  async browseAlbums(params: {
+    genre?: string;
+    tag?: string;
+    sort?: "trending" | "recent" | "plays";
+    limit?: number;
+    offset?: number;
+  }) {
+    const { getMeilisearchClient } = await import("../lib/meilisearch.js");
+    const ms = getMeilisearchClient();
+    const limit = params.limit ?? 20;
+    const offset = params.offset ?? 0;
+
+    const filters: string[] = [];
+    if (params.genre) filters.push(`genre = "${escapeMsFilter(params.genre)}"`);
+    if (params.tag) filters.push(`hashtags = "${escapeMsFilter(params.tag)}"`);
+
+    const results = await ms.index("albums").search("", {
+      filter: filters.length > 0 ? filters.join(" AND ") : undefined,
+      sort: ["created_at:desc"],
+      limit,
+      offset,
+    });
+
+    const eventIds = results.hits.map((h: Record<string, unknown>) => h.id as string);
+    const total = results.estimatedTotalHits ?? 0;
+
+    if (eventIds.length === 0) {
+      return { albums: [], total: 0 };
+    }
+
+    const idPlaceholders = sql.join(eventIds.map((id) => sql`${id}`), sql`, `);
+    const rows = (await db.execute(
+      sql`SELECT id, pubkey, kind, tags, content, created_at, sig
+          FROM relay.events
+          WHERE id IN (${idPlaceholders})`,
+    )) as unknown as {
+      id: string;
+      pubkey: string;
+      kind: number;
+      tags: string[][];
+      content: string;
+      created_at: number;
+      sig: string;
+    }[];
+
+    const normalized = rows.map((r) => ({ ...r, created_at: Number(r.created_at) }));
+    const byId = new Map(normalized.map((r) => [r.id, r]));
+    const events = eventIds.map((id) => byId.get(id)).filter(Boolean);
+
+    return { albums: events, total };
+  },
+
   async recordPlay(eventId: string, pubkey: string) {
     const { getRedis } = await import("../lib/redis.js");
     const redis = getRedis();
@@ -403,12 +461,106 @@ export const musicService = {
     // Increment play count
     await redis.incr(`play_count:${eventId}`);
 
+    // Track unique listeners (HyperLogLog)
+    await redis.pfadd(`unique_listeners:${eventId}`, pubkey);
+
+    // Track daily plays
+    const today = new Date().toISOString().split("T")[0];
+    const dailyKey = `daily_plays:${eventId}:${today}`;
+    await redis.incr(dailyKey);
+    await redis.expire(dailyKey, 90 * 24 * 3600); // 90-day TTL
+
     // Record in listening history (sorted set, cap at 500)
     const ts = Math.floor(Date.now() / 1000);
     await redis.zadd(`listening_history:${pubkey}`, ts, eventId);
     await redis.zremrangebyrank(`listening_history:${pubkey}`, 0, -501);
 
     return true;
+  },
+
+  async getInsights(addressableId: string) {
+    const { getRedis } = await import("../lib/redis.js");
+    const { getMeilisearchClient } = await import("../lib/meilisearch.js");
+    const redis = getRedis();
+    const ms = getMeilisearchClient();
+
+    // Find the event ID for this addressable ID
+    const [kindStr] = addressableId.split(":");
+    const kind = parseInt(kindStr, 10);
+    const indexName = kind === 31683 ? "tracks" : "albums";
+
+    const results = await ms.index(indexName).search("", {
+      filter: `addressable_id = "${escapeMsFilter(addressableId)}"`,
+      limit: 1,
+    });
+
+    if (results.hits.length === 0) {
+      return { totalPlays: 0, uniqueListeners: 0, dailyPlays: [], trend: "stable" as const };
+    }
+
+    const eventId = results.hits[0].id as string;
+
+    // Total plays
+    const totalPlaysStr = await redis.get(`play_count:${eventId}`);
+    const totalPlays = totalPlaysStr ? parseInt(totalPlaysStr, 10) : 0;
+
+    // Unique listeners (HyperLogLog)
+    const uniqueListeners = await redis.pfcount(`unique_listeners:${eventId}`);
+
+    // Daily plays for last 30 days
+    const dailyPlays: { date: string; count: number }[] = [];
+    const now = new Date();
+    for (let i = 29; i >= 0; i--) {
+      const date = new Date(now);
+      date.setDate(date.getDate() - i);
+      const dateStr = date.toISOString().split("T")[0];
+      const countStr = await redis.get(`daily_plays:${eventId}:${dateStr}`);
+      dailyPlays.push({ date: dateStr, count: countStr ? parseInt(countStr, 10) : 0 });
+    }
+
+    // Trend: compare last 7 days to previous 7 days
+    const last7 = dailyPlays.slice(-7).reduce((s, d) => s + d.count, 0);
+    const prev7 = dailyPlays.slice(-14, -7).reduce((s, d) => s + d.count, 0);
+    const trend = last7 > prev7 * 1.1 ? "up" as const : last7 < prev7 * 0.9 ? "down" as const : "stable" as const;
+
+    return { totalPlays, uniqueListeners, dailyPlays, trend };
+  },
+
+  async getArtistSummary(pubkey: string) {
+    const { getRedis } = await import("../lib/redis.js");
+    const { getMeilisearchClient } = await import("../lib/meilisearch.js");
+    const redis = getRedis();
+    const ms = getMeilisearchClient();
+
+    // Find all tracks by this pubkey
+    const results = await ms.index("tracks").search("", {
+      filter: `pubkey = "${escapeMsFilter(pubkey)}"`,
+      limit: 500,
+    });
+
+    let totalPlays = 0;
+    let totalListeners = 0;
+    const trackBreakdown: { addressableId: string; title: string; plays: number }[] = [];
+
+    for (const hit of results.hits) {
+      const eventId = hit.id as string;
+      const addrId = hit.addressable_id as string;
+      const title = hit.title as string;
+
+      const playsStr = await redis.get(`play_count:${eventId}`);
+      const plays = playsStr ? parseInt(playsStr, 10) : 0;
+      totalPlays += plays;
+
+      const listeners = await redis.pfcount(`unique_listeners:${eventId}`);
+      totalListeners += listeners;
+
+      trackBreakdown.push({ addressableId: addrId, title, plays });
+    }
+
+    // Sort by plays descending
+    trackBreakdown.sort((a, b) => b.plays - a.plays);
+
+    return { totalPlays, totalListeners, trackBreakdown, trackCount: results.hits.length };
   },
 
   async deleteMusic(
@@ -440,7 +592,7 @@ export const musicService = {
       await ms.index(indexName).deleteDocuments(docIds);
     } catch { /* doc may not exist */ }
 
-    // Decrement genre/tag counts
+    // Decrement genre/tag counts and clean up play/listener keys
     for (const row of deleted) {
       const tags = row.tags;
       const genre = tags.find((t) => t[0] === "genre")?.[1];
@@ -448,6 +600,8 @@ export const musicService = {
       if (genre) await redis.zincrby("music:genre_counts", -1, genre);
       for (const t of hashtags) await redis.zincrby("music:tag_counts", -1, t);
       await redis.srem("music:counted_events", row.id);
+      // Clean up play count and listener tracking keys
+      await redis.del(`play_count:${row.id}`, `unique_listeners:${row.id}`);
     }
     await redis.zremrangebyscore("music:genre_counts", "-inf", "0");
     await redis.zremrangebyscore("music:tag_counts", "-inf", "0");

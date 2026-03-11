@@ -11,6 +11,7 @@ import {
   setActiveDetailId,
 } from "@/store/slices/musicSlice";
 import { api } from "@/lib/api/client";
+import { putEvent } from "@/lib/db/eventStore";
 import { parseTrackEvent } from "../trackParser";
 import { parseAlbumEvent } from "../albumParser";
 import { TrackCard } from "../TrackCard";
@@ -66,7 +67,10 @@ export function SearchResults() {
               const slug = slugParts.join(":");
               const res = await resolveMusic("track", pubkey, slug);
               // eslint-disable-next-line @typescript-eslint/no-explicit-any
-              return parseTrackEvent((res.data as any).event);
+              const rawEvent = (res.data as any).event;
+              // Persist to IndexedDB so it survives app restart
+              putEvent(rawEvent).catch(() => {});
+              return parseTrackEvent(rawEvent);
             }),
           );
           const parsed = resolved
@@ -86,7 +90,10 @@ export function SearchResults() {
               const slug = slugParts.join(":");
               const res = await resolveMusic("album", pubkey, slug);
               // eslint-disable-next-line @typescript-eslint/no-explicit-any
-              return parseAlbumEvent((res.data as any).event);
+              const rawEvent = (res.data as any).event;
+              // Persist to IndexedDB so it survives app restart
+              putEvent(rawEvent).catch(() => {});
+              return parseAlbumEvent(rawEvent);
             }),
           );
           const parsed = resolved

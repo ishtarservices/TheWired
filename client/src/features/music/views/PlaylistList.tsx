@@ -1,25 +1,37 @@
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
 import { ListMusic, Plus } from "lucide-react";
 import { useAppSelector, useAppDispatch } from "@/store/hooks";
 import { setActiveDetailId } from "@/store/slices/musicSlice";
+import { CreatePlaylistModal } from "../CreatePlaylistModal";
 
 export function PlaylistList() {
   const dispatch = useAppDispatch();
   const playlists = useAppSelector((s) => s.music.playlists);
   const userPlaylistIds = useAppSelector((s) => s.music.library.userPlaylists);
+  const [createOpen, setCreateOpen] = useState(false);
 
+  const pubkey = useAppSelector((s) => s.identity.pubkey);
   const displayPlaylists = useMemo(() => {
     if (userPlaylistIds.length > 0) {
       return userPlaylistIds.map((id) => playlists[id]).filter(Boolean);
     }
-    return Object.values(playlists).sort((a, b) => b.createdAt - a.createdAt);
-  }, [userPlaylistIds, playlists]);
+    // Show only own playlists when user has no saved playlist IDs
+    if (pubkey) {
+      return Object.values(playlists)
+        .filter((p) => p.pubkey === pubkey)
+        .sort((a, b) => b.createdAt - a.createdAt);
+    }
+    return [];
+  }, [userPlaylistIds, playlists, pubkey]);
 
   return (
     <div className="flex-1 overflow-y-auto p-4">
       <div className="mb-3 flex items-center justify-between">
         <h2 className="text-lg font-semibold text-heading">Playlists</h2>
-        <button className="flex items-center gap-1.5 rounded-xl border border-edge px-3 py-1.5 text-sm text-soft transition-colors hover:border-edge-light hover:text-heading press-effect">
+        <button
+          onClick={() => setCreateOpen(true)}
+          className="flex items-center gap-1.5 rounded-xl border border-edge px-3 py-1.5 text-sm text-soft transition-colors hover:border-edge-light hover:text-heading press-effect"
+        >
           <Plus size={14} />
           <span>Create</span>
         </button>
@@ -65,6 +77,11 @@ export function PlaylistList() {
           ))}
         </div>
       )}
+
+      <CreatePlaylistModal
+        open={createOpen}
+        onClose={() => setCreateOpen(false)}
+      />
     </div>
   );
 }

@@ -2,7 +2,7 @@ import { cn } from "@/lib/utils";
 import { X, GripVertical } from "lucide-react";
 import { useAppSelector, useAppDispatch } from "@/store/hooks";
 import { toggleQueuePanel, removeFromQueue } from "@/store/slices/musicSlice";
-import { useAudioPlayer } from "./useAudioPlayer";
+import { setCurrentTrack } from "@/store/slices/musicSlice";
 import { getTrackImage } from "./trackImage";
 import { useResizeHandle } from "@/components/layout/useResizeHandle";
 
@@ -13,7 +13,6 @@ export function QueuePanel() {
   const queueIndex = useAppSelector((s) => s.music.player.queueIndex);
   const tracks = useAppSelector((s) => s.music.tracks);
   const albums = useAppSelector((s) => s.music.albums);
-  const { playQueue } = useAudioPlayer();
   const { width, isDragging, onMouseDown, onDoubleClick } = useResizeHandle({
     defaultWidth: 288,
     side: "left",
@@ -72,7 +71,7 @@ export function QueuePanel() {
               return (
                 <div
                   key={`${trackId}-${idx}`}
-                  onClick={() => playQueue(queue, idx)}
+                  onClick={() => dispatch(setCurrentTrack({ trackId, queueIndex: idx }))}
                   className={`group flex cursor-pointer items-center gap-2 rounded-lg px-3 py-1.5 transition-colors hover:bg-surface ${
                     isCurrent ? "bg-pulse/8" : ""
                   }`}

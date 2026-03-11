@@ -1,5 +1,6 @@
 import { getApiBaseUrl } from "./client";
 import { buildNip98Header } from "./nip98";
+import type { TrackInsights, ArtistSummary } from "@/types/music";
 
 interface UploadAudioResponse {
   url: string;
@@ -193,6 +194,25 @@ export async function browseMusic(params: {
   return res.json();
 }
 
+export async function browseAlbums(params: {
+  genre?: string;
+  tag?: string;
+  sort?: "trending" | "recent" | "plays";
+  limit?: number;
+  offset?: number;
+}): Promise<{ data: { albums: unknown[]; total: number } }> {
+  const qs = new URLSearchParams();
+  if (params.genre) qs.set("genre", params.genre);
+  if (params.tag) qs.set("tag", params.tag);
+  if (params.sort) qs.set("sort", params.sort);
+  if (params.limit) qs.set("limit", String(params.limit));
+  if (params.offset) qs.set("offset", String(params.offset));
+
+  const res = await fetch(`${getApiBaseUrl()}/music/browse/albums?${qs.toString()}`);
+  if (!res.ok) throw new Error("Failed to browse albums");
+  return res.json();
+}
+
 export async function getUnderground(_opts?: { genre?: string; limit?: number }) {
   // TODO: Phase 4
   return { data: [] };
@@ -242,5 +262,31 @@ export async function searchMusic(
     `${getApiBaseUrl()}/search/music?q=${encodeURIComponent(query)}`,
   );
   if (!res.ok) throw new Error("Failed to search music");
+  return res.json();
+}
+
+/**
+ * Fetch play insights for a specific track or album.
+ */
+export async function getTrackInsights(
+  addressableId: string,
+): Promise<{ data: TrackInsights }> {
+  const url = `${getApiBaseUrl()}/music/insights/${addressableId}`;
+  const res = await fetch(url);
+  if (!res.ok) throw new Error("Failed to fetch insights");
+  return res.json();
+}
+
+/**
+ * Fetch artist-level summary (total plays, listeners, track breakdown).
+ * Requires authentication (NIP-98).
+ */
+export async function getArtistSummary(): Promise<{ data: ArtistSummary }> {
+  const url = `${getApiBaseUrl()}/music/insights-summary`;
+  const headers: Record<string, string> = {};
+  headers["Authorization"] = await buildNip98Header(url, "GET");
+
+  const res = await fetch(url, { headers });
+  if (!res.ok) throw new Error("Failed to fetch artist summary");
   return res.json();
 }

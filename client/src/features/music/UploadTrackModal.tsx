@@ -49,6 +49,8 @@ export function UploadTrackModal({ open, onClose, defaultAlbumRef }: UploadTrack
   const [genre, setGenre] = useState("");
   const [hashtags, setHashtags] = useState<string[]>([]);
   const [albumRef, setAlbumRef] = useState(defaultAlbumRef ?? "");
+  const [iAmArtist, setIAmArtist] = useState(true);
+  const [artistPubkeys, setArtistPubkeys] = useState<string[]>([]);
   const [featuredArtists, setFeaturedArtists] = useState<string[]>([]);
   const [visibility, setVisibility] = useState<MusicVisibility>("public");
   const [spaceId, setSpaceId] = useState("");
@@ -105,6 +107,9 @@ export function UploadTrackModal({ open, onClose, defaultAlbumRef }: UploadTrack
 
       // Build and publish the track event
       const slug = title.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
+      // Compute artist pubkeys for the event
+      const resolvedArtistPubkeys = iAmArtist ? [pubkey] : artistPubkeys;
+
       const unsigned = buildTrackEvent(pubkey, {
         title,
         artist: artist || pubkey,
@@ -118,6 +123,7 @@ export function UploadTrackModal({ open, onClose, defaultAlbumRef }: UploadTrack
         imageUrl,
         hashtags: hashtags.length > 0 ? hashtags : undefined,
         albumRef: albumRef || undefined,
+        artistPubkeys: resolvedArtistPubkeys.length > 0 ? resolvedArtistPubkeys : undefined,
         featuredArtists: featuredArtists.length > 0 ? featuredArtists : undefined,
         visibility,
         spaceId: visibility === "space" ? spaceId : undefined,
@@ -204,6 +210,26 @@ export function UploadTrackModal({ open, onClose, defaultAlbumRef }: UploadTrack
               placeholder="Artist name"
             />
           </div>
+
+          {/* Artist identity */}
+          <label className="flex items-center gap-2 text-xs text-soft">
+            <input
+              type="checkbox"
+              checked={iAmArtist}
+              onChange={(e) => setIAmArtist(e.target.checked)}
+              className="h-4 w-4 rounded border-2 border-edge bg-field checked:bg-pulse checked:border-pulse accent-purple-400"
+            />
+            I am the artist
+          </label>
+
+          {!iAmArtist && (
+            <FeaturedArtistsInput
+              value={artistPubkeys}
+              onChange={setArtistPubkeys}
+              label="Artist Identity (npub)"
+              placeholder="Paste artist npub or hex pubkey..."
+            />
+          )}
 
           {/* Genre */}
           <GenrePicker value={genre} onChange={setGenre} />

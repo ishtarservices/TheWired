@@ -33,10 +33,21 @@ export function parseAlbumEvent(event: NostrEvent): MusicAlbum {
     .filter((t) => t[0] === "t")
     .map((t) => t[1]);
 
-  // Extract featured artists from p-tags (excluding the event author)
-  const featuredArtists = event.tags
-    .filter((t) => t[0] === "p" && t[1] && t[1] !== event.pubkey)
-    .map((t) => t[1]);
+  // Detect whether any p-tag has a role field (index [3]).
+  const pTags = event.tags.filter((t) => t[0] === "p" && t[1]);
+  const hasRoledPTags = pTags.some((t) => t[3]);
+
+  const artistPubkeys = hasRoledPTags
+    ? pTags.filter((t) => t[3] === "artist").map((t) => t[1])
+    : [];
+
+  const featuredArtists = hasRoledPTags
+    ? pTags.filter((t) => t[3] === "featured").map((t) => t[1])
+    : pTags.filter((t) => t[1] !== event.pubkey).map((t) => t[1]);
+
+  const visibility = parseVisibility(event);
+  const sharingDisabled = event.tags.some((t) => t[0] === "sharing" && t[1] === "disabled");
+  const revisionSummary = event.tags.find((t) => t[0] === "revision_summary")?.[1];
 
   return {
     addressableId: `33123:${event.pubkey}:${dTag}`,
@@ -44,6 +55,7 @@ export function parseAlbumEvent(event: NostrEvent): MusicAlbum {
     pubkey: event.pubkey,
     title,
     artist,
+    artistPubkeys,
     featuredArtists,
     projectType,
     imageUrl,
@@ -54,6 +66,8 @@ export function parseAlbumEvent(event: NostrEvent): MusicAlbum {
     trackCount: trackRefs.length,
     totalDuration,
     createdAt: event.created_at,
-    visibility: parseVisibility(event),
+    visibility,
+    sharingDisabled: sharingDisabled || undefined,
+    revisionSummary,
   };
 }

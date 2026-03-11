@@ -35,8 +35,13 @@ import {
   addPlaylists,
   indexTrackByArtist,
   indexTrackByAlbum,
+  indexTrackByArtistName,
+  indexAlbumByArtist,
+  indexAlbumByArtistName,
   setSavedTrackIds,
   setSavedAlbumIds,
+  setFavoritedTrackIds,
+  setFavoritedAlbumIds,
   setFollowedArtists,
   setUserPlaylists,
   setRecentlyPlayedIds,
@@ -370,11 +375,19 @@ export async function performLogin(
     const tracks = liveTrackEvents.map(parseTrackEvent);
     store.dispatch(addTracks(tracks));
     for (const track of tracks) {
-      store.dispatch(indexTrackByArtist({ pubkey: track.pubkey, addressableId: track.addressableId }));
-      if (track.featuredArtists) {
-        for (const fp of track.featuredArtists) {
-          store.dispatch(indexTrackByArtist({ pubkey: fp, addressableId: track.addressableId }));
+      // Index by artist pubkeys
+      if (track.artistPubkeys.length > 0) {
+        for (const pk of track.artistPubkeys) {
+          store.dispatch(indexTrackByArtist({ pubkey: pk, addressableId: track.addressableId }));
         }
+      } else if (track.artist && track.artist !== track.pubkey) {
+        store.dispatch(indexTrackByArtistName({ normalizedName: track.artist.toLowerCase().trim(), addressableId: track.addressableId }));
+      } else {
+        store.dispatch(indexTrackByArtist({ pubkey: track.pubkey, addressableId: track.addressableId }));
+      }
+      // Featured artists
+      for (const fp of track.featuredArtists) {
+        store.dispatch(indexTrackByArtist({ pubkey: fp, addressableId: track.addressableId }));
       }
       if (track.albumRef) {
         store.dispatch(indexTrackByAlbum({ albumAddrId: track.albumRef, trackAddrId: track.addressableId }));
@@ -382,7 +395,22 @@ export async function performLogin(
     }
   }
   if (liveAlbumEvents.length > 0) {
-    store.dispatch(addAlbums(liveAlbumEvents.map(parseAlbumEvent)));
+    const albums = liveAlbumEvents.map(parseAlbumEvent);
+    store.dispatch(addAlbums(albums));
+    for (const album of albums) {
+      if (album.artistPubkeys.length > 0) {
+        for (const pk of album.artistPubkeys) {
+          store.dispatch(indexAlbumByArtist({ pubkey: pk, addressableId: album.addressableId }));
+        }
+      } else if (album.artist && album.artist !== album.pubkey) {
+        store.dispatch(indexAlbumByArtistName({ normalizedName: album.artist.toLowerCase().trim(), addressableId: album.addressableId }));
+      } else {
+        store.dispatch(indexAlbumByArtist({ pubkey: album.pubkey, addressableId: album.addressableId }));
+      }
+      for (const fp of album.featuredArtists) {
+        store.dispatch(indexAlbumByArtist({ pubkey: fp, addressableId: album.addressableId }));
+      }
+    }
   }
   if (livePlaylistEvents.length > 0) {
     store.dispatch(addPlaylists(livePlaylistEvents.map(parsePlaylistEvent)));
@@ -393,6 +421,12 @@ export async function performLogin(
   if (musicLib) {
     store.dispatch(setSavedTrackIds(musicLib.savedTrackIds));
     store.dispatch(setSavedAlbumIds(musicLib.savedAlbumIds));
+    if (musicLib.favoritedTrackIds) {
+      store.dispatch(setFavoritedTrackIds(musicLib.favoritedTrackIds));
+    }
+    if (musicLib.favoritedAlbumIds) {
+      store.dispatch(setFavoritedAlbumIds(musicLib.favoritedAlbumIds));
+    }
     store.dispatch(setFollowedArtists(musicLib.followedArtists));
     store.dispatch(setUserPlaylists(musicLib.userPlaylists));
     store.dispatch(setRecentlyPlayedIds(musicLib.recentlyPlayedIds));
@@ -410,6 +444,34 @@ export async function performLogin(
     ],
     relayUrls: BOOTSTRAP_RELAYS,
   });
+
+  // Step 7e-b: Re-fetch any saved items that are missing from Redux.
+  // This handles albums/tracks from API responses that weren't persisted to IndexedDB,
+  // or events that were evicted by TTL. Events arrive via eventPipeline → IndexedDB + Redux.
+  if (musicLib) {
+    const currentMusic = store.getState().music;
+    const missingIds = [
+      ...musicLib.savedAlbumIds.filter((id) => !currentMusic.albums[id]),
+      ...musicLib.savedTrackIds.filter((id) => !currentMusic.tracks[id]),
+    ];
+    if (missingIds.length > 0) {
+      // Group by kind:author to minimize filter count
+      const groups = new Map<string, string[]>();
+      for (const addrId of missingIds) {
+        const parts = addrId.split(":");
+        const key = `${parts[0]}:${parts[1]}`;
+        const dTag = parts.slice(2).join(":");
+        if (!groups.has(key)) groups.set(key, []);
+        groups.get(key)!.push(dTag);
+      }
+      const filters: import("../../types/nostr").NostrFilter[] = [];
+      for (const [key, dTags] of groups) {
+        const [kindStr, authorPk] = key.split(":");
+        filters.push({ kinds: [parseInt(kindStr, 10)], authors: [authorPk], "#d": dTags });
+      }
+      subscriptionManager.subscribe({ filters, relayUrls: BOOTSTRAP_RELAYS });
+    }
+  }
 
   // Step 7f: Load persisted DMs from IndexedDB BEFORE subscribing to relays.
   // This populates processedWrapIds so relay echoes are deduped and

@@ -10,13 +10,18 @@ import { ArtistDetail } from "./views/ArtistDetail";
 import { AlbumDetail } from "./views/AlbumDetail";
 import { PlaylistDetail } from "./views/PlaylistDetail";
 import { RecentlyAdded } from "./views/RecentlyAdded";
+import { FavoritesList } from "./views/FavoritesList";
 import { MyUploads } from "./views/MyUploads";
 import { ExploreMusic } from "./views/ExploreMusic";
 import { SearchResults } from "./views/SearchResults";
+import { ProjectHistory } from "./views/ProjectHistory";
+import { ProjectProposals } from "./views/ProjectProposals";
+import { InsightsDashboard } from "./views/InsightsDashboard";
 
 const VIEW_COMPONENTS: Record<MusicView, React.ComponentType> = {
   home: MusicHome,
   "recently-added": RecentlyAdded,
+  favorites: FavoritesList,
   artists: ArtistList,
   albums: AlbumGrid,
   songs: SongList,
@@ -28,6 +33,9 @@ const VIEW_COMPONENTS: Record<MusicView, React.ComponentType> = {
   "album-detail": AlbumDetail,
   "playlist-detail": PlaylistDetail,
   search: SearchResults,
+  "project-history": ProjectHistory,
+  "project-proposals": ProjectProposals,
+  insights: InsightsDashboard,
 };
 
 /**

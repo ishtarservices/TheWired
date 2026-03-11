@@ -6,6 +6,8 @@ const LOCAL_IDS_KEY = "music_local_ids";
 interface MusicLibraryState {
   savedTrackIds: string[];
   savedAlbumIds: string[];
+  favoritedTrackIds: string[];
+  favoritedAlbumIds: string[];
   followedArtists: string[];
   userPlaylists: string[];
   recentlyPlayedIds: string[];

@@ -1,16 +1,26 @@
 import { createSlice, type PayloadAction } from "@reduxjs/toolkit";
-import type { MusicTrack, MusicAlbum, MusicPlaylist, MusicView, RepeatMode } from "../../types/music";
+import type { MusicTrack, MusicAlbum, MusicPlaylist, MusicView, RepeatMode, TrackNotes, MusicRevision, TrackInsights, MusicProposal, SavedAlbumVersion } from "../../types/music";
 
 interface MusicState {
   tracks: Record<string, MusicTrack>;
   albums: Record<string, MusicAlbum>;
   playlists: Record<string, MusicPlaylist>;
+  trackNotes: Record<string, TrackNotes>;
+  revisions: Record<string, MusicRevision[]>;
+  insights: Record<string, TrackInsights>;
+  proposals: Record<string, MusicProposal[]>;
+  savedVersions: Record<string, SavedAlbumVersion>;
   tracksByArtist: Record<string, string[]>;
+  tracksByArtistName: Record<string, string[]>;
   tracksByAlbum: Record<string, string[]>;
+  albumsByArtist: Record<string, string[]>;
+  albumsByArtistName: Record<string, string[]>;
 
   library: {
     savedTrackIds: string[];
     savedAlbumIds: string[];
+    favoritedTrackIds: string[];
+    favoritedAlbumIds: string[];
     followedArtists: string[];
     userPlaylists: string[];
   };
@@ -44,7 +54,9 @@ interface MusicState {
     activeGenre: string | null;
     activeTag: string | null;
     browseResults: string[];
+    browseAlbumResults: string[];
     browseSort: "trending" | "recent" | "plays";
+    browseTab: "tracks" | "albums";
     isLoading: boolean;
   };
 
@@ -54,6 +66,10 @@ interface MusicState {
     albumResults: string[]; // addressableIds
     isLoading: boolean;
   };
+
+  downloadedTrackIds: string[];
+
+  previousView: MusicView | null;
 
   activeView: MusicView;
   activeDetailId: string | null;
@@ -65,12 +81,22 @@ const initialState: MusicState = {
   tracks: {},
   albums: {},
   playlists: {},
+  trackNotes: {},
+  revisions: {},
+  insights: {},
+  proposals: {},
+  savedVersions: {},
   tracksByArtist: {},
+  tracksByArtistName: {},
   tracksByAlbum: {},
+  albumsByArtist: {},
+  albumsByArtistName: {},
 
   library: {
     savedTrackIds: [],
     savedAlbumIds: [],
+    favoritedTrackIds: [],
+    favoritedAlbumIds: [],
     followedArtists: [],
     userPlaylists: [],
   },
@@ -104,7 +130,9 @@ const initialState: MusicState = {
     activeGenre: null,
     activeTag: null,
     browseResults: [],
+    browseAlbumResults: [],
     browseSort: "trending",
+    browseTab: "tracks",
     isLoading: false,
   },
 
@@ -114,6 +142,10 @@ const initialState: MusicState = {
     albumResults: [],
     isLoading: false,
   },
+
+  downloadedTrackIds: [],
+
+  previousView: null,
 
   activeView: "home",
   activeDetailId: null,
@@ -131,28 +163,70 @@ export const musicSlice = createSlice({
   reducers: {
     // ── Catalog ─────────────────────────────────────────────
     addTrack(state, action: PayloadAction<MusicTrack>) {
-      state.tracks[action.payload.addressableId] = action.payload;
+      const existing = state.tracks[action.payload.addressableId];
+      if (!existing || action.payload.createdAt >= existing.createdAt) {
+        state.tracks[action.payload.addressableId] = action.payload;
+      }
     },
     addTracks(state, action: PayloadAction<MusicTrack[]>) {
       for (const t of action.payload) {
-        state.tracks[t.addressableId] = t;
+        const existing = state.tracks[t.addressableId];
+        if (!existing || t.createdAt >= existing.createdAt) {
+          state.tracks[t.addressableId] = t;
+        }
       }
     },
     addAlbum(state, action: PayloadAction<MusicAlbum>) {
-      state.albums[action.payload.addressableId] = action.payload;
+      const existing = state.albums[action.payload.addressableId];
+      if (!existing || action.payload.createdAt >= existing.createdAt) {
+        state.albums[action.payload.addressableId] = action.payload;
+      }
     },
     addAlbums(state, action: PayloadAction<MusicAlbum[]>) {
       for (const a of action.payload) {
-        state.albums[a.addressableId] = a;
+        const existing = state.albums[a.addressableId];
+        if (!existing || a.createdAt >= existing.createdAt) {
+          state.albums[a.addressableId] = a;
+        }
       }
     },
     addPlaylist(state, action: PayloadAction<MusicPlaylist>) {
-      state.playlists[action.payload.addressableId] = action.payload;
+      const existing = state.playlists[action.payload.addressableId];
+      if (!existing || action.payload.createdAt >= existing.createdAt) {
+        state.playlists[action.payload.addressableId] = action.payload;
+      }
     },
     addPlaylists(state, action: PayloadAction<MusicPlaylist[]>) {
       for (const p of action.payload) {
-        state.playlists[p.addressableId] = p;
+        const existing = state.playlists[p.addressableId];
+        if (!existing || p.createdAt >= existing.createdAt) {
+          state.playlists[p.addressableId] = p;
+        }
       }
+    },
+    setTrackNotes(state, action: PayloadAction<TrackNotes>) {
+      state.trackNotes[action.payload.trackRef] = action.payload;
+    },
+    setRevisions(state, action: PayloadAction<{ addressableId: string; revisions: MusicRevision[] }>) {
+      state.revisions[action.payload.addressableId] = action.payload.revisions;
+    },
+    setInsights(state, action: PayloadAction<{ addressableId: string; insights: TrackInsights }>) {
+      state.insights[action.payload.addressableId] = action.payload.insights;
+    },
+    setProposals(state, action: PayloadAction<{ albumId: string; proposals: MusicProposal[] }>) {
+      state.proposals[action.payload.albumId] = action.payload.proposals;
+    },
+    setSavedVersions(state, action: PayloadAction<Record<string, SavedAlbumVersion>>) {
+      state.savedVersions = action.payload;
+    },
+    markVersionUpdate(state, action: PayloadAction<{ addressableId: string; hasUpdate: boolean }>) {
+      const ver = state.savedVersions[action.payload.addressableId];
+      if (ver) {
+        ver.hasUpdate = action.payload.hasUpdate;
+      }
+    },
+    setSavedVersion(state, action: PayloadAction<SavedAlbumVersion>) {
+      state.savedVersions[action.payload.addressableId] = action.payload;
     },
 
     removeTrack(state, action: PayloadAction<string>) {
@@ -162,17 +236,26 @@ export const musicSlice = createSlice({
 
       delete state.tracks[id];
 
-      // Clean up artist index
-      const artistIds = state.tracksByArtist[track.pubkey];
-      if (artistIds) {
-        state.tracksByArtist[track.pubkey] = artistIds.filter((t) => t !== id);
+      // Clean up artist pubkey indices
+      for (const pk of track.artistPubkeys) {
+        const arr = state.tracksByArtist[pk];
+        if (arr) state.tracksByArtist[pk] = arr.filter((t) => t !== id);
       }
       // Clean up featured artist indices
       for (const fp of track.featuredArtists) {
         const fpIds = state.tracksByArtist[fp];
-        if (fpIds) {
-          state.tracksByArtist[fp] = fpIds.filter((t) => t !== id);
-        }
+        if (fpIds) state.tracksByArtist[fp] = fpIds.filter((t) => t !== id);
+      }
+      // Clean up legacy uploader-as-artist index
+      const uploaderIds = state.tracksByArtist[track.pubkey];
+      if (uploaderIds) {
+        state.tracksByArtist[track.pubkey] = uploaderIds.filter((t) => t !== id);
+      }
+      // Clean up artist name index
+      if (track.artist) {
+        const normalized = track.artist.toLowerCase().trim();
+        const nameIds = state.tracksByArtistName[normalized];
+        if (nameIds) state.tracksByArtistName[normalized] = nameIds.filter((t) => t !== id);
       }
       // Clean up album index
       if (track.albumRef) {
@@ -183,12 +266,30 @@ export const musicSlice = createSlice({
       }
       // Clean up library
       state.library.savedTrackIds = state.library.savedTrackIds.filter((t) => t !== id);
-      // Clean up queue
-      state.player.queue = state.player.queue.filter((t) => t !== id);
+      state.library.favoritedTrackIds = state.library.favoritedTrackIds.filter((t) => t !== id);
+      // Clean up downloads
+      state.downloadedTrackIds = state.downloadedTrackIds.filter((t) => t !== id);
+      // Clean up track notes
+      delete state.trackNotes[id];
+      // Clean up queue — adjust queueIndex to keep pointing at the same track
+      const oldQueue = state.player.queue;
+      const oldIndex = state.player.queueIndex;
+      state.player.queue = oldQueue.filter((t) => t !== id);
       state.player.originalQueue = state.player.originalQueue.filter((t) => t !== id);
       if (state.player.currentTrackId === id) {
-        state.player.currentTrackId = null;
-        state.player.isPlaying = false;
+        // Current track removed — try to play next, or reset
+        state.player.currentTrackId = state.player.queue[Math.min(oldIndex, state.player.queue.length - 1)] ?? null;
+        state.player.queueIndex = state.player.currentTrackId
+          ? state.player.queue.indexOf(state.player.currentTrackId)
+          : 0;
+        if (!state.player.currentTrackId) state.player.isPlaying = false;
+      } else {
+        // Recalculate index — count how many items before the old index were removed
+        let removedBefore = 0;
+        for (let i = 0; i < oldIndex && i < oldQueue.length; i++) {
+          if (oldQueue[i] === id) removedBefore++;
+        }
+        state.player.queueIndex = oldIndex - removedBefore;
       }
       // Clean up discovery
       state.discovery.trendingTrackIds = state.discovery.trendingTrackIds.filter((t) => t !== id);
@@ -197,13 +298,37 @@ export const musicSlice = createSlice({
       state.discovery.undergroundTrackIds = state.discovery.undergroundTrackIds.filter((t) => t !== id);
       state.discovery.recommendedTrackIds = state.discovery.recommendedTrackIds.filter((t) => t !== id);
       state.explore.browseResults = state.explore.browseResults.filter((t) => t !== id);
+      state.search.trackResults = state.search.trackResults.filter((t) => t !== id);
     },
     removeAlbum(state, action: PayloadAction<string>) {
       const id = action.payload;
+      const album = state.albums[id];
+      if (album) {
+        // Clean up album artist indexes
+        for (const pk of album.artistPubkeys) {
+          const arr = state.albumsByArtist[pk];
+          if (arr) state.albumsByArtist[pk] = arr.filter((a) => a !== id);
+        }
+        for (const fp of album.featuredArtists) {
+          const arr = state.albumsByArtist[fp];
+          if (arr) state.albumsByArtist[fp] = arr.filter((a) => a !== id);
+        }
+        const uploaderArr = state.albumsByArtist[album.pubkey];
+        if (uploaderArr) state.albumsByArtist[album.pubkey] = uploaderArr.filter((a) => a !== id);
+        if (album.artist) {
+          const normalized = album.artist.toLowerCase().trim();
+          const nameArr = state.albumsByArtistName[normalized];
+          if (nameArr) state.albumsByArtistName[normalized] = nameArr.filter((a) => a !== id);
+        }
+      }
       delete state.albums[id];
       delete state.tracksByAlbum[id];
       state.library.savedAlbumIds = state.library.savedAlbumIds.filter((a) => a !== id);
+      state.library.favoritedAlbumIds = state.library.favoritedAlbumIds.filter((a) => a !== id);
       state.discovery.trendingAlbumIds = state.discovery.trendingAlbumIds.filter((a) => a !== id);
+      state.discovery.newReleaseIds = state.discovery.newReleaseIds.filter((a) => a !== id);
+      state.search.albumResults = state.search.albumResults.filter((a) => a !== id);
+      state.explore.browseAlbumResults = state.explore.browseAlbumResults.filter((a) => a !== id);
       if (state.activeDetailId === id) {
         state.activeDetailId = null;
         state.activeView = "home";
@@ -232,13 +357,39 @@ export const musicSlice = createSlice({
       if (!state.tracksByAlbum[albumAddrId]) state.tracksByAlbum[albumAddrId] = [];
       pushUnique(state.tracksByAlbum[albumAddrId], trackAddrId);
     },
+    indexTrackByArtistName(
+      state,
+      action: PayloadAction<{ normalizedName: string; addressableId: string }>,
+    ) {
+      const { normalizedName, addressableId } = action.payload;
+      if (!state.tracksByArtistName[normalizedName]) state.tracksByArtistName[normalizedName] = [];
+      pushUnique(state.tracksByArtistName[normalizedName], addressableId);
+    },
+    indexAlbumByArtist(
+      state,
+      action: PayloadAction<{ pubkey: string; addressableId: string }>,
+    ) {
+      const { pubkey, addressableId } = action.payload;
+      if (!state.albumsByArtist[pubkey]) state.albumsByArtist[pubkey] = [];
+      pushUnique(state.albumsByArtist[pubkey], addressableId);
+    },
+    indexAlbumByArtistName(
+      state,
+      action: PayloadAction<{ normalizedName: string; addressableId: string }>,
+    ) {
+      const { normalizedName, addressableId } = action.payload;
+      if (!state.albumsByArtistName[normalizedName]) state.albumsByArtistName[normalizedName] = [];
+      pushUnique(state.albumsByArtistName[normalizedName], addressableId);
+    },
 
     // ── Library ─────────────────────────────────────────────
     setSavedTrackIds(state, action: PayloadAction<string[]>) {
       state.library.savedTrackIds = action.payload;
     },
     addSavedTrack(state, action: PayloadAction<string>) {
-      pushUnique(state.library.savedTrackIds, action.payload);
+      if (!state.library.savedTrackIds.includes(action.payload)) {
+        state.library.savedTrackIds = [action.payload, ...state.library.savedTrackIds];
+      }
     },
     removeSavedTrack(state, action: PayloadAction<string>) {
       state.library.savedTrackIds = state.library.savedTrackIds.filter(
@@ -249,13 +400,42 @@ export const musicSlice = createSlice({
       state.library.savedAlbumIds = action.payload;
     },
     addSavedAlbum(state, action: PayloadAction<string>) {
-      pushUnique(state.library.savedAlbumIds, action.payload);
+      if (!state.library.savedAlbumIds.includes(action.payload)) {
+        state.library.savedAlbumIds = [action.payload, ...state.library.savedAlbumIds];
+      }
     },
     removeSavedAlbum(state, action: PayloadAction<string>) {
       state.library.savedAlbumIds = state.library.savedAlbumIds.filter(
         (id) => id !== action.payload,
       );
     },
+    setFavoritedTrackIds(state, action: PayloadAction<string[]>) {
+      state.library.favoritedTrackIds = action.payload;
+    },
+    setFavoritedAlbumIds(state, action: PayloadAction<string[]>) {
+      state.library.favoritedAlbumIds = action.payload;
+    },
+    addFavoritedTrack(state, action: PayloadAction<string>) {
+      if (!state.library.favoritedTrackIds.includes(action.payload)) {
+        state.library.favoritedTrackIds = [action.payload, ...state.library.favoritedTrackIds];
+      }
+    },
+    removeFavoritedTrack(state, action: PayloadAction<string>) {
+      state.library.favoritedTrackIds = state.library.favoritedTrackIds.filter(
+        (id) => id !== action.payload,
+      );
+    },
+    addFavoritedAlbum(state, action: PayloadAction<string>) {
+      if (!state.library.favoritedAlbumIds.includes(action.payload)) {
+        state.library.favoritedAlbumIds = [action.payload, ...state.library.favoritedAlbumIds];
+      }
+    },
+    removeFavoritedAlbum(state, action: PayloadAction<string>) {
+      state.library.favoritedAlbumIds = state.library.favoritedAlbumIds.filter(
+        (id) => id !== action.payload,
+      );
+    },
+
     setFollowedArtists(state, action: PayloadAction<string[]>) {
       state.library.followedArtists = action.payload;
     },
@@ -301,10 +481,8 @@ export const musicSlice = createSlice({
     },
     nextTrack(state) {
       if (state.player.queue.length === 0) return;
-      if (state.player.repeat === "one") {
-        state.player.position = 0;
-        return;
-      }
+      // Note: repeat-one is handled by the onEnded listener (restarts audio directly).
+      // The reducer always advances so the Next button works as expected.
       const nextIndex = state.player.queueIndex + 1;
       if (nextIndex < state.player.queue.length) {
         state.player.queueIndex = nextIndex;
@@ -392,9 +570,9 @@ export const musicSlice = createSlice({
       if (idx >= 0 && idx < state.player.queue.length) {
         const removedId = state.player.queue[idx];
         state.player.queue.splice(idx, 1);
-        state.player.originalQueue = state.player.originalQueue.filter(
-          (id) => id !== removedId,
-        );
+        // Remove only the first occurrence from originalQueue (preserves duplicates)
+        const origIdx = state.player.originalQueue.indexOf(removedId);
+        if (origIdx !== -1) state.player.originalQueue.splice(origIdx, 1);
         if (idx < state.player.queueIndex) {
           state.player.queueIndex--;
         } else if (idx === state.player.queueIndex) {
@@ -404,6 +582,9 @@ export const musicSlice = createSlice({
           }
           state.player.currentTrackId =
             state.player.queue[state.player.queueIndex] ?? null;
+          if (!state.player.currentTrackId) {
+            state.player.isPlaying = false;
+          }
         }
       }
     },
@@ -450,8 +631,14 @@ export const musicSlice = createSlice({
     setExploreResults(state, action: PayloadAction<string[]>) {
       state.explore.browseResults = action.payload;
     },
+    setExploreAlbumResults(state, action: PayloadAction<string[]>) {
+      state.explore.browseAlbumResults = action.payload;
+    },
     setExploreSort(state, action: PayloadAction<"trending" | "recent" | "plays">) {
       state.explore.browseSort = action.payload;
+    },
+    setExploreTab(state, action: PayloadAction<"tracks" | "albums">) {
+      state.explore.browseTab = action.payload;
     },
     setExploreLoading(state, action: PayloadAction<boolean>) {
       state.explore.isLoading = action.payload;
@@ -472,14 +659,34 @@ export const musicSlice = createSlice({
       state.search.isLoading = action.payload;
     },
 
+    // ── Downloads ─────────────────────────────────────────
+    addDownloadedTrack(state, action: PayloadAction<string>) {
+      if (!state.downloadedTrackIds.includes(action.payload)) {
+        state.downloadedTrackIds.push(action.payload);
+      }
+    },
+    removeDownloadedTrack(state, action: PayloadAction<string>) {
+      state.downloadedTrackIds = state.downloadedTrackIds.filter(
+        (id) => id !== action.payload,
+      );
+    },
+
     // ── UI ──────────────────────────────────────────────────
     setMusicView(state, action: PayloadAction<MusicView>) {
+      state.previousView = null;
       state.activeView = action.payload;
       state.activeDetailId = null;
     },
     setActiveDetailId(state, action: PayloadAction<{ view: MusicView; id: string }>) {
+      // Save current view so detail views can go back
+      state.previousView = state.activeView;
       state.activeView = action.payload.view;
       state.activeDetailId = action.payload.id;
+    },
+    goBack(state) {
+      state.activeView = state.previousView ?? "home";
+      state.activeDetailId = null;
+      state.previousView = null;
     },
     toggleQueuePanel(state) {
       state.queueVisible = !state.queueVisible;
@@ -497,17 +704,33 @@ export const {
   addAlbums,
   addPlaylist,
   addPlaylists,
+  setTrackNotes,
+  setRevisions,
+  setInsights,
+  setProposals,
+  setSavedVersions,
+  markVersionUpdate,
+  setSavedVersion,
   removeTrack,
   removeAlbum,
   removePlaylist,
   indexTrackByArtist,
   indexTrackByAlbum,
+  indexTrackByArtistName,
+  indexAlbumByArtist,
+  indexAlbumByArtistName,
   setSavedTrackIds,
   addSavedTrack,
   removeSavedTrack,
   setSavedAlbumIds,
   addSavedAlbum,
   removeSavedAlbum,
+  setFavoritedTrackIds,
+  setFavoritedAlbumIds,
+  addFavoritedTrack,
+  removeFavoritedTrack,
+  addFavoritedAlbum,
+  removeFavoritedAlbum,
   setFollowedArtists,
   addFollowedArtist,
   removeFollowedArtist,
@@ -540,13 +763,18 @@ export const {
   setActiveGenre,
   setActiveTag,
   setExploreResults,
+  setExploreAlbumResults,
   setExploreSort,
+  setExploreTab,
   setExploreLoading,
   setSearchQuery,
   setSearchResults,
   setSearchLoading,
+  addDownloadedTrack,
+  removeDownloadedTrack,
   setMusicView,
   setActiveDetailId,
+  goBack,
   toggleQueuePanel,
   setViewMode,
 } = musicSlice.actions;

@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { useNavigate, useLocation } from "react-router-dom";
 import { cn } from "@/lib/utils";
-import { Home, Clock, Users, Disc3, Music, ListMusic, Upload, FolderUp, Compass } from "lucide-react";
+import { Home, Clock, Heart, Users, Disc3, Music, ListMusic, Upload, FolderUp, Compass, BarChart3 } from "lucide-react";
 import { useAppDispatch, useAppSelector } from "@/store/hooks";
 import { setMusicView } from "@/store/slices/musicSlice";
 import { UploadTrackModal } from "./UploadTrackModal";
@@ -18,11 +18,13 @@ const navItems: NavItem[] = [
   { view: "home", label: "Home", icon: Home },
   { view: "explore", label: "Explore", icon: Compass },
   { view: "recently-added", label: "Recently Added", icon: Clock },
+  { view: "favorites", label: "Favorites", icon: Heart },
   { view: "artists", label: "Artists", icon: Users },
   { view: "albums", label: "Projects", icon: Disc3 },
   { view: "songs", label: "Songs", icon: Music },
   { view: "playlists", label: "Playlists", icon: ListMusic },
   { view: "my-uploads", label: "My Music", icon: FolderUp, requiresAuth: true },
+  { view: "insights" as MusicView, label: "Insights", icon: BarChart3, requiresAuth: true },
 ];
 
 export function MusicSidebar() {
@@ -48,8 +50,12 @@ export function MusicSidebar() {
         </div>
         {navItems.map((item) => {
           if (item.requiresAuth && !pubkey) return null;
+          // Highlight parent nav when viewing a detail sub-view
           const isActive =
-            activeView === item.view;
+            activeView === item.view ||
+            (item.view === "albums" && (activeView === "album-detail" || activeView === "project-history" || activeView === "project-proposals")) ||
+            (item.view === "artists" && activeView === "artist-detail") ||
+            (item.view === "playlists" && activeView === "playlist-detail");
           return (
             <button
               key={item.view}

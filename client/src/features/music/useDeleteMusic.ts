@@ -4,9 +4,22 @@ import { removeTrack, removeAlbum } from "@/store/slices/musicSlice";
 import { buildDeletionEvent } from "@/lib/nostr/eventBuilder";
 import { signAndPublish } from "@/lib/nostr/publish";
 import { deleteEvent } from "@/lib/db/eventStore";
-import { removeLocalEventId, getLocalEventIds } from "@/lib/db/musicStore";
+import { removeLocalEventId, getLocalEventIds, saveMusicLibrary } from "@/lib/db/musicStore";
 import { deleteMusic } from "@/lib/api/music";
+import { removeCachedAudio } from "@/lib/db/audioCache";
+import { store } from "@/store";
 import type { MusicTrack, MusicAlbum } from "@/types/music";
+
+/** Persist library state after deletions modify savedTrackIds/savedAlbumIds */
+function persistLibraryAfterDelete() {
+  const { savedTrackIds, savedAlbumIds, favoritedTrackIds, favoritedAlbumIds, followedArtists, userPlaylists } =
+    store.getState().music.library;
+  const { recentlyPlayedIds } = store.getState().music.discovery;
+  saveMusicLibrary({
+    savedTrackIds, savedAlbumIds, favoritedTrackIds, favoritedAlbumIds,
+    followedArtists, userPlaylists, recentlyPlayedIds,
+  }).catch((err) => console.error("[music] Failed to persist library after delete:", err));
+}
 
 /** Extract the d-tag (slug) from an addressable ID like "31683:pubkey:slug" */
 function getSlug(addressableId: string): string {
@@ -50,7 +63,9 @@ export function useDeleteMusic() {
 
         // Remove from IndexedDB + Redux immediately
         await deleteEvent(track.eventId).catch(() => {});
+        removeCachedAudio(track.addressableId).catch(() => {});
         dispatch(removeTrack(track.addressableId));
+        persistLibraryAfterDelete();
       } finally {
         setDeleting(false);
       }
@@ -132,6 +147,7 @@ export function useDeleteMusic() {
           }
         }
         dispatch(removeAlbum(album.addressableId));
+        persistLibraryAfterDelete();
       } finally {
         setDeleting(false);
       }

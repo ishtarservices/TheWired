@@ -1,5 +1,6 @@
-import { useCallback, useEffect, useRef } from "react";
+import { useCallback, useEffect } from "react";
 import { useAppDispatch, useAppSelector } from "@/store/hooks";
+import { store } from "@/store";
 import {
   setCurrentTrack,
   togglePlay,
@@ -18,12 +19,15 @@ import {
 } from "@/store/slices/musicSlice";
 import { selectAudioSource } from "./trackParser";
 import { reportPlay } from "@/lib/api/music";
+import { getCachedAudio } from "@/lib/db/audioCache";
 import type { RepeatMode } from "@/types/music";
 
 // Module-level audio element singleton — persists across navigation
 let audio: HTMLAudioElement | null = null;
 // Track the currently loaded track ID at module level to prevent restart on remount
 let loadedTrackId: string | null = null;
+// Track object URLs so we can revoke them to prevent memory leaks
+let currentObjectUrl: string | null = null;
 
 function getAudio(): HTMLAudioElement {
   if (!audio) {
@@ -36,6 +40,48 @@ function getAudio(): HTMLAudioElement {
 // Throttle position updates to ~4Hz
 let lastPositionUpdate = 0;
 
+// ── Module-level audio event listeners (registered once, not per-component) ──
+// This prevents the bug where multiple components calling useAudioPlayer()
+// each register their own onEnded handler, causing nextTrack() to fire N times.
+let listenersRegistered = false;
+
+function setupAudioListeners() {
+  if (listenersRegistered) return;
+  listenersRegistered = true;
+
+  const el = getAudio();
+
+  el.addEventListener("timeupdate", () => {
+    const now = Date.now();
+    if (now - lastPositionUpdate > 250) {
+      lastPositionUpdate = now;
+      store.dispatch(updatePosition(el.currentTime));
+    }
+  });
+
+  el.addEventListener("loadedmetadata", () => {
+    store.dispatch(setDuration(el.duration));
+  });
+
+  el.addEventListener("ended", () => {
+    const p = store.getState().music.player;
+    if (p.repeat === "one") {
+      el.currentTime = 0;
+      el.play();
+    } else {
+      store.dispatch(nextTrack());
+    }
+  });
+
+  el.addEventListener("pause", () => {
+    store.dispatch(setIsPlaying(false));
+  });
+
+  el.addEventListener("play", () => {
+    store.dispatch(setIsPlaying(true));
+  });
+}
+
 export function useAudioPlayer() {
   const dispatch = useAppDispatch();
   const player = useAppSelector((s) => s.music.player);
@@ -44,59 +90,8 @@ export function useAudioPlayer() {
     ? tracks[player.currentTrackId]
     : null;
 
-  const playerRef = useRef(player);
-  playerRef.current = player;
-  const tracksRef = useRef(tracks);
-  tracksRef.current = tracks;
-
-  // Set up audio event listeners once
-  useEffect(() => {
-    const el = getAudio();
-
-    const onTimeUpdate = () => {
-      const now = Date.now();
-      if (now - lastPositionUpdate > 250) {
-        lastPositionUpdate = now;
-        dispatch(updatePosition(el.currentTime));
-      }
-    };
-
-    const onLoadedMetadata = () => {
-      dispatch(setDuration(el.duration));
-    };
-
-    const onEnded = () => {
-      const p = playerRef.current;
-      if (p.repeat === "one") {
-        el.currentTime = 0;
-        el.play();
-      } else {
-        dispatch(nextTrack());
-      }
-    };
-
-    const onPause = () => {
-      dispatch(setIsPlaying(false));
-    };
-
-    const onPlay = () => {
-      dispatch(setIsPlaying(true));
-    };
-
-    el.addEventListener("timeupdate", onTimeUpdate);
-    el.addEventListener("loadedmetadata", onLoadedMetadata);
-    el.addEventListener("ended", onEnded);
-    el.addEventListener("pause", onPause);
-    el.addEventListener("play", onPlay);
-
-    return () => {
-      el.removeEventListener("timeupdate", onTimeUpdate);
-      el.removeEventListener("loadedmetadata", onLoadedMetadata);
-      el.removeEventListener("ended", onEnded);
-      el.removeEventListener("pause", onPause);
-      el.removeEventListener("play", onPlay);
-    };
-  }, [dispatch]);
+  // Register audio listeners once at module level (idempotent)
+  setupAudioListeners();
 
   // Sync volume to audio element
   useEffect(() => {
@@ -107,27 +102,58 @@ export function useAudioPlayer() {
 
   // Load and play when current track changes
   useEffect(() => {
-    if (!currentTrack) return;
+    if (!currentTrack) {
+      loadedTrackId = null;
+      return;
+    }
 
     // Skip if this track is already loaded (prevents restart on component remount)
     if (loadedTrackId === currentTrack.addressableId) return;
 
     const el = getAudio();
-    const url = selectAudioSource(currentTrack.variants);
-    if (!url) return;
+    const remoteUrl = selectAudioSource(currentTrack.variants);
+    if (!remoteUrl) return;
 
-    loadedTrackId = currentTrack.addressableId;
+    const targetId = currentTrack.addressableId;
+    loadedTrackId = targetId;
 
-    if (el.src !== url) {
-      el.src = url;
-    }
-    el.currentTime = 0;
-    el.play().then(() => {
-      // Report play count (fire-and-forget)
-      reportPlay(currentTrack.eventId);
-    }).catch(() => {
-      // Autoplay might be blocked
-    });
+    const loadAndPlay = async () => {
+      // Revoke previous object URL to prevent memory leak
+      if (currentObjectUrl) {
+        URL.revokeObjectURL(currentObjectUrl);
+        currentObjectUrl = null;
+      }
+
+      // Check offline cache first
+      const cached = await getCachedAudio(targetId).catch(() => null);
+
+      // Guard: if user switched tracks during the async gap, abort
+      if (loadedTrackId !== targetId) return;
+
+      let src: string;
+      if (cached) {
+        src = URL.createObjectURL(cached.blob);
+        currentObjectUrl = src;
+      } else {
+        src = remoteUrl;
+      }
+
+      if (el.src !== src) {
+        el.src = src;
+      }
+      el.currentTime = 0;
+      try {
+        await el.play();
+        // Final guard before reporting play
+        if (loadedTrackId === targetId) {
+          reportPlay(currentTrack.eventId);
+        }
+      } catch {
+        // Autoplay might be blocked
+      }
+    };
+
+    loadAndPlay();
 
     // Update Media Session
     if ("mediaSession" in navigator) {

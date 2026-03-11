@@ -27,8 +27,16 @@ export function EditTrackModal({ track, onClose }: EditTrackModalProps) {
   const [genre, setGenre] = useState(track.genre ?? "");
   const [hashtags, setHashtags] = useState<string[]>(track.hashtags);
   const [albumRef, setAlbumRef] = useState(track.albumRef ?? "");
+  const [iAmArtist, setIAmArtist] = useState(
+    track.artistPubkeys.includes(pubkey!) ||
+    (track.artistPubkeys.length === 0 && track.artist === pubkey),
+  );
+  const [artistPubkeys, setArtistPubkeys] = useState<string[]>(
+    track.artistPubkeys.filter((pk) => pk !== pubkey),
+  );
   const [featuredArtists, setFeaturedArtists] = useState<string[]>(track.featuredArtists);
   const [coverFile, setCoverFile] = useState<File | null>(null);
+  const [revisionSummary, setRevisionSummary] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const coverInputRef = useRef<HTMLInputElement>(null);
@@ -57,6 +65,8 @@ export function EditTrackModal({ track, onClose }: EditTrackModalProps) {
       // Extract existing d-tag to publish as replacement
       const existingDTag = track.addressableId.split(":").slice(2).join(":");
 
+      const resolvedArtistPubkeys = iAmArtist ? [pubkey] : artistPubkeys;
+
       const unsigned = buildTrackEvent(pubkey, {
         title,
         artist: artist || pubkey,
@@ -67,8 +77,10 @@ export function EditTrackModal({ track, onClose }: EditTrackModalProps) {
         audioUrl,
         imageUrl,
         albumRef: albumRef || undefined,
+        artistPubkeys: resolvedArtistPubkeys.length > 0 ? resolvedArtistPubkeys : undefined,
         featuredArtists: featuredArtists.length > 0 ? featuredArtists : undefined,
         visibility: track.visibility,
+        revisionSummary: revisionSummary.trim() || undefined,
       });
 
       await signAndPublish(unsigned);
@@ -112,6 +124,26 @@ export function EditTrackModal({ track, onClose }: EditTrackModalProps) {
               placeholder="Artist name"
             />
           </div>
+
+          {/* Artist identity */}
+          <label className="flex items-center gap-2 text-xs text-soft">
+            <input
+              type="checkbox"
+              checked={iAmArtist}
+              onChange={(e) => setIAmArtist(e.target.checked)}
+              className="h-4 w-4 rounded border-2 border-edge bg-field checked:bg-pulse checked:border-pulse accent-purple-400"
+            />
+            I am the artist
+          </label>
+
+          {!iAmArtist && (
+            <FeaturedArtistsInput
+              value={artistPubkeys}
+              onChange={setArtistPubkeys}
+              label="Artist Identity (npub)"
+              placeholder="Paste artist npub or hex pubkey..."
+            />
+          )}
 
           <GenrePicker value={genre} onChange={setGenre} />
 
@@ -157,6 +189,21 @@ export function EditTrackModal({ track, onClose }: EditTrackModalProps) {
                   ? "Replace cover image"
                   : "Choose image (optional)"}
             </button>
+          </div>
+
+          {/* Revision summary */}
+          <div>
+            <label className="mb-1 block text-xs font-medium text-soft">
+              What changed? <span className="text-muted">(optional)</span>
+            </label>
+            <input
+              type="text"
+              value={revisionSummary}
+              onChange={(e) => setRevisionSummary(e.target.value)}
+              className="w-full rounded-xl border border-edge bg-field px-3 py-1.5 text-sm text-heading outline-none focus:border-pulse/30"
+              placeholder="e.g. Fixed vocal mix, updated cover art..."
+              maxLength={200}
+            />
           </div>
 
           {error && <p className="text-xs text-red-400">{error}</p>}

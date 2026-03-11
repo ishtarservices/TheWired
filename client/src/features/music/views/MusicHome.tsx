@@ -7,6 +7,7 @@ import {
   setActiveTag,
   setMusicView,
 } from "@/store/slices/musicSlice";
+import { selectLibraryTracks, selectLibraryAlbums } from "../musicSelectors";
 import { getGenres, getPopularTags } from "@/lib/api/music";
 import { TrackCard } from "../TrackCard";
 import { AlbumCard } from "../AlbumCard";
@@ -16,23 +17,29 @@ export function MusicHome() {
   const dispatch = useAppDispatch();
   const tracks = useAppSelector((s) => s.music.tracks);
   const albums = useAppSelector((s) => s.music.albums);
+  const pubkey = useAppSelector((s) => s.identity.pubkey);
   const trendingTrackIds = useAppSelector((s) => s.music.discovery.trendingTrackIds);
   const trendingAlbumIds = useAppSelector((s) => s.music.discovery.trendingAlbumIds);
   const newReleaseIds = useAppSelector((s) => s.music.discovery.newReleaseIds);
   const exploreGenres = useAppSelector((s) => s.music.explore.genres);
   const popularTags = useAppSelector((s) => s.music.explore.popularTags);
 
+  const libraryTracksSelector = useMemo(() => selectLibraryTracks(pubkey), [pubkey]);
+  const libraryAlbumsSelector = useMemo(() => selectLibraryAlbums(pubkey), [pubkey]);
+  const libraryTracks = useAppSelector(libraryTracksSelector);
+  const libraryAlbums = useAppSelector(libraryAlbumsSelector);
+
   // Load genres and tags once
   useEffect(() => {
     if (exploreGenres.length === 0) {
       getGenres()
         .then((res) => dispatch(setExploreGenres(res.data)))
-        .catch(() => {});
+        .catch((err) => console.debug("[music] Failed to load genres:", err));
     }
     if (popularTags.length === 0) {
       getPopularTags()
         .then((res) => dispatch(setExplorePopularTags(res.data)))
-        .catch(() => {});
+        .catch((err) => console.debug("[music] Failed to load tags:", err));
     }
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -51,20 +58,9 @@ export function MusicHome() {
     [newReleaseIds, albums],
   );
 
-  // Also show recently ingested tracks as fallback (exclude unlisted from discovery)
-  const recentTracks = useMemo(() => {
-    return Object.values(tracks)
-      .filter((t) => t.visibility === "public")
-      .sort((a, b) => b.createdAt - a.createdAt)
-      .slice(0, 12);
-  }, [tracks]);
-
-  const recentAlbums = useMemo(() => {
-    return Object.values(albums)
-      .filter((a) => a.visibility === "public")
-      .sort((a, b) => b.createdAt - a.createdAt)
-      .slice(0, 8);
-  }, [albums]);
+  // Library tracks (saved + own) for the fallback section
+  const recentTracks = libraryTracks.slice(0, 12);
+  const recentAlbums = libraryAlbums.slice(0, 8);
 
   const displayTracks = trendingTracks.length > 0 ? trendingTracks : recentTracks;
   const displayAlbums = newReleases.length > 0 ? newReleases : recentAlbums;
@@ -77,7 +73,7 @@ export function MusicHome() {
         <div className="text-center">
           <h2 className="text-lg font-semibold text-heading">Music</h2>
           <p className="mt-1 text-sm text-soft">
-            No music yet. Upload tracks or discover music from the network.
+            Upload tracks or save music to build your library.
           </p>
         </div>
       </div>
@@ -136,11 +132,11 @@ export function MusicHome() {
         </section>
       )}
 
-      {/* Trending / Recent Tracks */}
+      {/* Trending / Library Tracks */}
       {displayTracks.length > 0 && (
         <section className="mb-8">
           <h2 className="mb-3 text-lg font-semibold text-heading">
-            {trendingTracks.length > 0 ? "Trending Tracks" : "Recent Tracks"}
+            {trendingTracks.length > 0 ? "Trending Tracks" : "Your Library"}
           </h2>
           <div className="flex gap-3 overflow-x-auto pb-2">
             {displayTracks.map((track, i) => (
@@ -160,7 +156,7 @@ export function MusicHome() {
       {displayAlbums.length > 0 && (
         <section className="mb-8">
           <h2 className="mb-3 text-lg font-semibold text-heading">
-            {newReleases.length > 0 ? "New Releases" : "Albums"}
+            {newReleases.length > 0 ? "New Releases" : "Projects"}
           </h2>
           <div className="flex gap-3 overflow-x-auto pb-2">
             {displayAlbums.map((album) => (

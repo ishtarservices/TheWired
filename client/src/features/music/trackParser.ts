@@ -33,10 +33,20 @@ export function parseTrackEvent(event: NostrEvent): MusicTrack {
     .filter((t) => t[0] === "t")
     .map((t) => t[1]);
 
-  // Extract featured artists from p-tags (excluding the event author)
-  const featuredArtists = event.tags
-    .filter((t) => t[0] === "p" && t[1] && t[1] !== event.pubkey)
-    .map((t) => t[1]);
+  // Detect whether any p-tag has a role field (index [3]).
+  // If none do, this is a legacy event — treat all non-author p-tags as featured.
+  const pTags = event.tags.filter((t) => t[0] === "p" && t[1]);
+  const hasRoledPTags = pTags.some((t) => t[3]);
+
+  // Extract artist pubkeys from p-tags with role "artist"
+  const artistPubkeys = hasRoledPTags
+    ? pTags.filter((t) => t[3] === "artist").map((t) => t[1])
+    : [];
+
+  // Extract featured artists from p-tags
+  const featuredArtists = hasRoledPTags
+    ? pTags.filter((t) => t[3] === "featured").map((t) => t[1])
+    : pTags.filter((t) => t[1] !== event.pubkey).map((t) => t[1]);
 
   let variants = parseImetaTags(event);
 
@@ -63,12 +73,17 @@ export function parseTrackEvent(event: NostrEvent): MusicTrack {
     ? parseFloat(durationStr)
     : variants[0]?.duration;
 
+  const visibility = parseVisibility(event);
+  const sharingDisabled = event.tags.some((t) => t[0] === "sharing" && t[1] === "disabled");
+  const revisionSummary = event.tags.find((t) => t[0] === "revision_summary")?.[1];
+
   return {
     addressableId: `31683:${event.pubkey}:${dTag}`,
     eventId: event.id,
     pubkey: event.pubkey,
     title,
     artist,
+    artistPubkeys,
     featuredArtists,
     albumRef,
     duration,
@@ -79,7 +94,9 @@ export function parseTrackEvent(event: NostrEvent): MusicTrack {
     blurhash,
     createdAt: event.created_at,
     license,
-    visibility: parseVisibility(event),
+    visibility,
+    sharingDisabled: sharingDisabled || undefined,
+    revisionSummary,
   };
 }
 

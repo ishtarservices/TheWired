@@ -3,23 +3,31 @@ import { X } from "lucide-react";
 import { useAppSelector, useAppDispatch } from "@/store/hooks";
 import {
   addTracks,
+  addAlbums,
   setExploreGenres,
   setExplorePopularTags,
   setActiveGenre,
   setActiveTag,
   setExploreResults,
+  setExploreAlbumResults,
   setExploreSort,
+  setExploreTab,
   setExploreLoading,
 } from "@/store/slices/musicSlice";
-import { getGenres, getPopularTags, browseMusic } from "@/lib/api/music";
+import { getGenres, getPopularTags, browseMusic, browseAlbums } from "@/lib/api/music";
+import { putEvents } from "@/lib/db/eventStore";
+import type { NostrEvent } from "@/types/nostr";
 import { parseTrackEvent } from "../trackParser";
+import { parseAlbumEvent } from "../albumParser";
 import { GenreCard } from "../GenreCard";
 import { TrackCard } from "../TrackCard";
+import { AlbumCard } from "../AlbumCard";
 
 export function ExploreMusic() {
   const dispatch = useAppDispatch();
   const explore = useAppSelector((s) => s.music.explore);
   const tracks = useAppSelector((s) => s.music.tracks);
+  const albums = useAppSelector((s) => s.music.albums);
 
   // Load genres and popular tags on mount
   useEffect(() => {
@@ -31,9 +39,8 @@ export function ExploreMusic() {
       .catch(() => {});
   }, [dispatch]);
 
-  const loadBrowse = useCallback(
+  const loadBrowseTracks = useCallback(
     async (genre: string | null, tag: string | null, sort: "trending" | "recent" | "plays") => {
-      // When no filter is active, default to "recent" since trending requires a genre key in Redis
       const effectiveSort = (!genre && !tag && sort === "trending") ? "recent" : sort;
       dispatch(setExploreLoading(true));
       try {
@@ -43,10 +50,12 @@ export function ExploreMusic() {
           sort: effectiveSort,
           limit: 24,
         });
-        // Backend now returns full relay events — parse them into MusicTrack objects
-        const parsed = res.data.tracks.map((evt: any) => parseTrackEvent(evt));
+        const rawEvents = res.data.tracks;
+        const parsed = rawEvents.map((evt: any) => parseTrackEvent(evt));
         dispatch(addTracks(parsed));
         dispatch(setExploreResults(parsed.map((t) => t.addressableId)));
+        // Persist raw events to IndexedDB so they survive app restart
+        putEvents(rawEvents as NostrEvent[]).catch(() => {});
       } catch {
         dispatch(setExploreResults([]));
       } finally {
@@ -56,10 +65,39 @@ export function ExploreMusic() {
     [dispatch],
   );
 
-  // Reload on filter/sort changes
+  const loadBrowseAlbums = useCallback(
+    async (genre: string | null, tag: string | null) => {
+      dispatch(setExploreLoading(true));
+      try {
+        const res = await browseAlbums({
+          genre: genre ?? undefined,
+          tag: tag ?? undefined,
+          sort: "recent",
+          limit: 24,
+        });
+        const rawAlbumEvents = res.data.albums;
+        const parsed = rawAlbumEvents.map((evt: any) => parseAlbumEvent(evt));
+        dispatch(addAlbums(parsed));
+        dispatch(setExploreAlbumResults(parsed.map((a) => a.addressableId)));
+        // Persist raw events to IndexedDB so they survive app restart
+        putEvents(rawAlbumEvents as NostrEvent[]).catch(() => {});
+      } catch {
+        dispatch(setExploreAlbumResults([]));
+      } finally {
+        dispatch(setExploreLoading(false));
+      }
+    },
+    [dispatch],
+  );
+
+  // Reload on filter/sort/tab changes
   useEffect(() => {
-    loadBrowse(explore.activeGenre, explore.activeTag, explore.browseSort);
-  }, [explore.activeGenre, explore.activeTag, explore.browseSort, loadBrowse]);
+    if (explore.browseTab === "albums") {
+      loadBrowseAlbums(explore.activeGenre, explore.activeTag);
+    } else {
+      loadBrowseTracks(explore.activeGenre, explore.activeTag, explore.browseSort);
+    }
+  }, [explore.activeGenre, explore.activeTag, explore.browseSort, explore.browseTab, loadBrowseTracks, loadBrowseAlbums]);
 
   const handleGenreClick = (genre: string) => {
     dispatch(setActiveGenre(explore.activeGenre === genre ? null : genre));
@@ -77,6 +115,8 @@ export function ExploreMusic() {
 
   const browseTrackIds = explore.browseResults;
   const browseTracks = browseTrackIds.map((id) => tracks[id]).filter(Boolean);
+  const browseAlbumIds = explore.browseAlbumResults;
+  const browseAlbumList = browseAlbumIds.map((id) => albums[id]).filter(Boolean);
 
   return (
     <div className="flex-1 overflow-y-auto p-6">
@@ -152,26 +192,47 @@ export function ExploreMusic() {
         </div>
       )}
 
-      {/* Section heading + sort tabs */}
+      {/* Tab switcher + sort */}
       <div className="mb-4 flex items-center justify-between">
-        <h3 className="text-sm font-medium text-soft">
-          {explore.activeGenre || explore.activeTag ? "Results" : "Recent Uploads"}
-        </h3>
         <div className="flex gap-1">
-          {sortOptions.map((opt) => (
-            <button
-              key={opt.value}
-              onClick={() => dispatch(setExploreSort(opt.value))}
-              className={`rounded-lg px-3 py-1.5 text-xs font-medium transition-colors ${
-                explore.browseSort === opt.value
-                  ? "bg-pulse/15 text-heading"
-                  : "text-soft hover:text-heading"
-              }`}
-            >
-              {opt.label}
-            </button>
-          ))}
+          <button
+            onClick={() => dispatch(setExploreTab("tracks"))}
+            className={`rounded-lg px-3 py-1.5 text-xs font-medium transition-colors ${
+              explore.browseTab === "tracks"
+                ? "bg-pulse/15 text-heading"
+                : "text-soft hover:text-heading"
+            }`}
+          >
+            Tracks
+          </button>
+          <button
+            onClick={() => dispatch(setExploreTab("albums"))}
+            className={`rounded-lg px-3 py-1.5 text-xs font-medium transition-colors ${
+              explore.browseTab === "albums"
+                ? "bg-pulse/15 text-heading"
+                : "text-soft hover:text-heading"
+            }`}
+          >
+            Albums
+          </button>
         </div>
+        {explore.browseTab === "tracks" && (
+          <div className="flex gap-1">
+            {sortOptions.map((opt) => (
+              <button
+                key={opt.value}
+                onClick={() => dispatch(setExploreSort(opt.value))}
+                className={`rounded-lg px-3 py-1.5 text-xs font-medium transition-colors ${
+                  explore.browseSort === opt.value
+                    ? "bg-pulse/15 text-heading"
+                    : "text-soft hover:text-heading"
+                }`}
+              >
+                {opt.label}
+              </button>
+            ))}
+          </div>
+        )}
       </div>
 
       {/* Results grid */}
@@ -179,22 +240,36 @@ export function ExploreMusic() {
         <div className="flex items-center justify-center py-12">
           <div className="h-6 w-6 animate-spin rounded-full border-2 border-pulse border-t-transparent" />
         </div>
-      ) : browseTracks.length > 0 ? (
+      ) : explore.browseTab === "tracks" ? (
+        browseTracks.length > 0 ? (
+          <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6">
+            {browseTracks.map((track, i) => (
+              <TrackCard
+                key={track.addressableId}
+                track={track}
+                queueTracks={browseTrackIds}
+                queueIndex={i}
+              />
+            ))}
+          </div>
+        ) : (
+          <p className="py-8 text-center text-sm text-soft">
+            {explore.activeGenre || explore.activeTag
+              ? "No tracks found for the selected filters."
+              : "No tracks uploaded yet."}
+          </p>
+        )
+      ) : browseAlbumList.length > 0 ? (
         <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6">
-          {browseTracks.map((track, i) => (
-            <TrackCard
-              key={track.addressableId}
-              track={track}
-              queueTracks={browseTrackIds}
-              queueIndex={i}
-            />
+          {browseAlbumList.map((album) => (
+            <AlbumCard key={album.addressableId} album={album} />
           ))}
         </div>
       ) : (
         <p className="py-8 text-center text-sm text-soft">
           {explore.activeGenre || explore.activeTag
-            ? "No results found for the selected filters."
-            : "No tracks uploaded yet."}
+            ? "No albums found for the selected filters."
+            : "No albums uploaded yet."}
         </p>
       )}
     </div>

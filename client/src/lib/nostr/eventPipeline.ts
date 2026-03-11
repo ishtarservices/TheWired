@@ -6,7 +6,7 @@ import { verifyBridge } from "./verifyWorkerBridge";
 import { store } from "../../store";
 import { putEvent, deleteEvent } from "../db/eventStore";
 import { addEvent, indexChatMessage, indexReel, indexLongForm, indexLiveStream, indexNote, indexSpaceFeed, indexMusicTrack, indexMusicAlbum, indexReaction, indexReply, indexRepost, indexRepostByAuthor, indexQuote } from "../../store/slices/eventsSlice";
-import { addTrack, indexTrackByArtist, indexTrackByAlbum, addAlbum, addPlaylist, removeTrack, removeAlbum, removePlaylist } from "../../store/slices/musicSlice";
+import { addTrack, indexTrackByArtist, indexTrackByAlbum, indexTrackByArtistName, indexAlbumByArtist, indexAlbumByArtistName, addAlbum, addPlaylist, setTrackNotes, removeTrack, removeAlbum, removePlaylist } from "../../store/slices/musicSlice";
 import { addDMMessage } from "../../store/slices/dmSlice";
 import { parseTrackEvent } from "../../features/music/trackParser";
 import { parseAlbumEvent } from "../../features/music/albumParser";
@@ -198,7 +198,18 @@ function indexEvent(event: NostrEvent): void {
       store.dispatch(indexMusicTrack({ contextId, eventId: event.id }));
       const track = parseTrackEvent(event);
       store.dispatch(addTrack(track));
-      store.dispatch(indexTrackByArtist({ pubkey: event.pubkey, addressableId: track.addressableId }));
+      // Index by artist pubkeys
+      if (track.artistPubkeys.length > 0) {
+        for (const pk of track.artistPubkeys) {
+          store.dispatch(indexTrackByArtist({ pubkey: pk, addressableId: track.addressableId }));
+        }
+      } else if (track.artist && track.artist !== event.pubkey) {
+        // Text-only artist (no npub linked) — index by normalized name
+        store.dispatch(indexTrackByArtistName({ normalizedName: track.artist.toLowerCase().trim(), addressableId: track.addressableId }));
+      } else {
+        // Legacy fallback: uploader is the artist
+        store.dispatch(indexTrackByArtist({ pubkey: event.pubkey, addressableId: track.addressableId }));
+      }
       // Also index by each featured artist
       for (const fp of track.featuredArtists) {
         store.dispatch(indexTrackByArtist({ pubkey: fp, addressableId: track.addressableId }));
@@ -213,11 +224,45 @@ function indexEvent(event: NostrEvent): void {
       store.dispatch(indexMusicAlbum({ contextId, eventId: event.id }));
       const album = parseAlbumEvent(event);
       store.dispatch(addAlbum(album));
+      // Index by artist pubkeys
+      if (album.artistPubkeys.length > 0) {
+        for (const pk of album.artistPubkeys) {
+          store.dispatch(indexAlbumByArtist({ pubkey: pk, addressableId: album.addressableId }));
+        }
+      } else if (album.artist && album.artist !== event.pubkey) {
+        store.dispatch(indexAlbumByArtistName({ normalizedName: album.artist.toLowerCase().trim(), addressableId: album.addressableId }));
+      } else {
+        store.dispatch(indexAlbumByArtist({ pubkey: event.pubkey, addressableId: album.addressableId }));
+      }
+      // Also index by each featured artist
+      for (const fp of album.featuredArtists) {
+        store.dispatch(indexAlbumByArtist({ pubkey: fp, addressableId: album.addressableId }));
+      }
       break;
     }
     case EVENT_KINDS.MUSIC_PLAYLIST: {
       const playlist = parsePlaylistEvent(event);
       store.dispatch(addPlaylist(playlist));
+      break;
+    }
+    case EVENT_KINDS.MUSIC_TRACK_NOTES: {
+      try {
+        const content = JSON.parse(event.content);
+        const trackRef = event.tags.find((t) => t[0] === "a")?.[1];
+        const dTag = event.tags.find((t) => t[0] === "d")?.[1] ?? "";
+        if (trackRef) {
+          store.dispatch(setTrackNotes({
+            addressableId: `31686:${event.pubkey}:${dTag}`,
+            trackRef,
+            linerNotes: content.linerNotes,
+            productionNotes: content.productionNotes,
+            credits: content.credits ?? [],
+            createdAt: event.created_at,
+          }));
+        }
+      } catch {
+        // invalid content JSON
+      }
       break;
     }
     case EVENT_KINDS.DELETION: {

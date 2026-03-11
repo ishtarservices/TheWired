@@ -1,18 +1,15 @@
-import { memo, useState } from "react";
-import { Play, MoreHorizontal, Pencil, Upload, Link2, Heart, Trash2 } from "lucide-react";
+import { memo, useState, useRef } from "react";
+import { Play, MoreHorizontal, HardDriveDownload } from "lucide-react";
 import type { MusicTrack } from "@/types/music";
-import { useAppSelector } from "@/store/hooks";
+import { useAppSelector, useAppDispatch } from "@/store/hooks";
+import { setActiveDetailId } from "@/store/slices/musicSlice";
 import { useAudioPlayer } from "./useAudioPlayer";
-import { useLibrary } from "./useLibrary";
-import { useDeleteMusic } from "./useDeleteMusic";
-import { PopoverMenu, PopoverMenuItem, PopoverMenuSeparator } from "@/components/ui/PopoverMenu";
 import { EditTrackModal } from "./EditTrackModal";
 import { FeaturedArtistsDisplay } from "./FeaturedArtistsDisplay";
+import { TrackActionMenu } from "./TrackActionMenu";
 import { publishExisting } from "@/lib/nostr/publish";
 import { getEvent } from "@/lib/db/eventStore";
 import { removeLocalEventId } from "@/lib/db/musicStore";
-import { buildMusicLink } from "./musicLinks";
-import { copyToClipboard } from "@/lib/clipboard";
 
 interface TrackRowProps {
   track: MusicTrack;
@@ -32,19 +29,23 @@ export const TrackRow = memo(function TrackRow({
   index,
   queueTracks,
 }: TrackRowProps) {
+  const dispatch = useAppDispatch();
   const { playQueue, play, togglePlay, player } = useAudioPlayer();
-  const { saveTrack, unsaveTrack, isTrackSaved } = useLibrary();
   const pubkey = useAppSelector((s) => s.identity.pubkey);
+  const albumName = useAppSelector((s) =>
+    track.albumRef ? s.music.albums[track.albumRef]?.title : undefined,
+  );
+  const isDownloaded = useAppSelector((s) =>
+    s.music.downloadedTrackIds.includes(track.addressableId),
+  );
   const isOwner = pubkey === track.pubkey;
   const isLocal = track.visibility === "local";
-  const saved = !isLocal && isTrackSaved(track.addressableId);
   const isCurrent = player.currentTrackId === track.addressableId;
   const isPlaying = isCurrent && player.isPlaying;
-  const { deleteTrack, deleting } = useDeleteMusic();
   const [menuOpen, setMenuOpen] = useState(false);
   const [editOpen, setEditOpen] = useState(false);
-  const [confirmDelete, setConfirmDelete] = useState(false);
   const [publishing, setPublishing] = useState(false);
+  const menuBtnRef = useRef<HTMLButtonElement>(null);
 
   const handlePlay = () => {
     // If this track is already current, toggle play/pause instead of restarting
@@ -108,10 +109,31 @@ export const TrackRow = memo(function TrackRow({
               LOCAL
             </span>
           )}
+          {isDownloaded && (
+            <span title="Available offline" className="ml-1.5 inline-block align-middle">
+              <HardDriveDownload size={12} className="text-pulse/70" />
+            </span>
+          )}
         </p>
         <p className="truncate text-xs text-soft">
           {track.artist}
           <FeaturedArtistsDisplay pubkeys={track.featuredArtists} />
+          {albumName && (
+            <>
+              {" "}
+              <span className="text-muted">&middot;</span>{" "}
+              <button
+                type="button"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  dispatch(setActiveDetailId({ view: "album-detail", id: track.albumRef! }));
+                }}
+                className="cursor-pointer text-muted hover:text-heading hover:underline"
+              >
+                {albumName}
+              </button>
+            </>
+          )}
         </p>
       </div>
 
@@ -138,80 +160,29 @@ export const TrackRow = memo(function TrackRow({
       {/* Action menu */}
       <div className="relative flex items-center justify-center">
         {(isOwner || !isLocal) && (
-          <button
-            onClick={(e) => {
-              e.stopPropagation();
-              setMenuOpen((v) => !v);
-            }}
-            className="opacity-0 group-hover:opacity-100 text-muted hover:text-heading transition-opacity"
-          >
-            <MoreHorizontal size={16} />
-          </button>
-        )}
-        {menuOpen && (
-          <PopoverMenu open={menuOpen} onClose={() => setMenuOpen(false)} position="below">
-            {!isOwner && !isLocal && (
-              <PopoverMenuItem
-                icon={<Heart size={14} className={saved ? "fill-red-500 text-red-500" : ""} />}
-                label={saved ? "Remove from Library" : "Add to Library"}
-                onClick={() => {
-                  setMenuOpen(false);
-                  if (saved) unsaveTrack(track.addressableId);
-                  else saveTrack(track.addressableId);
-                }}
-              />
-            )}
-            {!isLocal && (
-              <PopoverMenuItem
-                icon={<Link2 size={14} />}
-                label="Copy Link"
-                onClick={() => {
-                  setMenuOpen(false);
-                  copyToClipboard(buildMusicLink(track.addressableId));
-                }}
-              />
-            )}
-            {isOwner && (
-              <>
-                {!isLocal && <PopoverMenuSeparator />}
-                <PopoverMenuItem
-                  icon={<Pencil size={14} />}
-                  label="Edit Track"
-                  onClick={() => {
-                    setMenuOpen(false);
-                    setEditOpen(true);
-                  }}
-                />
-                {isLocal && (
-                  <PopoverMenuItem
-                    icon={<Upload size={14} />}
-                    label={publishing ? "Publishing..." : "Publish to Relays"}
-                    onClick={handlePublish}
-                  />
-                )}
-                <PopoverMenuSeparator />
-                {confirmDelete ? (
-                  <PopoverMenuItem
-                    icon={<Trash2 size={14} />}
-                    label={deleting ? "Deleting..." : "Confirm Delete"}
-                    variant="danger"
-                    onClick={async () => {
-                      setMenuOpen(false);
-                      setConfirmDelete(false);
-                      await deleteTrack(track);
-                    }}
-                  />
-                ) : (
-                  <PopoverMenuItem
-                    icon={<Trash2 size={14} />}
-                    label="Delete Track"
-                    variant="danger"
-                    onClick={() => setConfirmDelete(true)}
-                  />
-                )}
-              </>
-            )}
-          </PopoverMenu>
+          <>
+            <button
+              ref={menuBtnRef}
+              onClick={(e) => {
+                e.stopPropagation();
+                setMenuOpen((v) => !v);
+              }}
+              className="opacity-0 group-hover:opacity-100 text-muted hover:text-heading transition-opacity"
+            >
+              <MoreHorizontal size={16} />
+            </button>
+            <TrackActionMenu
+              track={track}
+              isOwner={isOwner}
+              isLocal={isLocal}
+              open={menuOpen}
+              onClose={() => setMenuOpen(false)}
+              onEdit={() => setEditOpen(true)}
+              onPublish={handlePublish}
+              publishing={publishing}
+              anchorRef={menuBtnRef}
+            />
+          </>
         )}
       </div>
 

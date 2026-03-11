@@ -1,35 +1,21 @@
 import { useMemo } from "react";
 import { useAppSelector } from "@/store/hooks";
+import { selectLibraryTracks } from "../musicSelectors";
 import { TrackRow } from "../TrackRow";
 
 export function SongList() {
-  const tracks = useAppSelector((s) => s.music.tracks);
-  const savedTrackIds = useAppSelector((s) => s.music.library.savedTrackIds);
   const myPubkey = useAppSelector((s) => s.identity.pubkey);
-
-  const allTracks = useMemo(() => {
-    const all = Object.values(tracks);
-    const ownTracks = myPubkey ? all.filter((t) => t.pubkey === myPubkey) : [];
-
-    if (savedTrackIds.length > 0) {
-      const saved = savedTrackIds.map((id) => tracks[id]).filter(Boolean);
-      // Merge own tracks that aren't already in saved list
-      const savedSet = new Set(savedTrackIds);
-      const extraOwn = ownTracks.filter((t) => !savedSet.has(t.addressableId));
-      return [...saved, ...extraOwn];
-    }
-    // Fallback: show public + own (regardless of visibility)
-    const ownSet = new Set(ownTracks.map((t) => t.addressableId));
-    const publicTracks = all.filter((t) => t.visibility === "public" && !ownSet.has(t.addressableId));
-    return [...ownTracks, ...publicTracks].sort((a, b) => b.createdAt - a.createdAt);
-  }, [savedTrackIds, tracks, myPubkey]);
+  const libraryTracksSelector = useMemo(() => selectLibraryTracks(myPubkey), [myPubkey]);
+  const allTracks = useAppSelector(libraryTracksSelector);
 
   const queueIds = allTracks.map((t) => t.addressableId);
 
   if (allTracks.length === 0) {
     return (
       <div className="flex flex-1 items-center justify-center">
-        <p className="text-sm text-soft">No songs yet</p>
+        <p className="text-sm text-soft">
+          Your library is empty. Save tracks or upload your own music.
+        </p>
       </div>
     );
   }

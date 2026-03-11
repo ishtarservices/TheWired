@@ -1,6 +1,7 @@
 const KIND_TO_TYPE: Record<string, string> = {
   "33123": "album",
   "31683": "track",
+  "30119": "playlist",
 };
 
 /**

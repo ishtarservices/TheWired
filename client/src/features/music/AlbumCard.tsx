@@ -1,14 +1,15 @@
 import { memo, useRef, useState } from "react";
-import { Disc3, MoreHorizontal, Pencil, Link2, Heart, Trash2 } from "lucide-react";
+import { Disc3, MoreHorizontal, Pencil, Link2, Heart, Plus, Check, Trash2, ListPlus } from "lucide-react";
 import type { MusicAlbum } from "@/types/music";
 import { useAppDispatch, useAppSelector } from "@/store/hooks";
-import { setActiveDetailId } from "@/store/slices/musicSlice";
+import { setActiveDetailId, addToQueue } from "@/store/slices/musicSlice";
 import { PopoverMenu, PopoverMenuItem, PopoverMenuSeparator } from "@/components/ui/PopoverMenu";
 import { CreateAlbumModal } from "./CreateAlbumModal";
 import { useLibrary } from "./useLibrary";
 import { useDeleteMusic } from "./useDeleteMusic";
 import { buildMusicLink } from "./musicLinks";
 import { copyToClipboard } from "@/lib/clipboard";
+import { UpdateAvailableBadge } from "./UpdateAvailableBadge";
 
 interface AlbumCardProps {
   album: MusicAlbum;
@@ -19,13 +20,29 @@ export const AlbumCard = memo(function AlbumCard({ album }: AlbumCardProps) {
   const pubkey = useAppSelector((s) => s.identity.pubkey);
   const isOwner = pubkey === album.pubkey;
   const isLocal = album.visibility === "local";
-  const { saveAlbum, unsaveAlbum, isAlbumSaved } = useLibrary();
+  const { saveAlbum, unsaveAlbum, isAlbumSaved, favoriteAlbum, unfavoriteAlbum, isAlbumFavorited } = useLibrary();
   const saved = isAlbumSaved(album.addressableId);
+  const favorited = isAlbumFavorited(album.addressableId);
+  const [confirmRemove, setConfirmRemove] = useState(false);
   const { deleteAlbum, deleting } = useDeleteMusic();
   const menuBtnRef = useRef<HTMLButtonElement>(null);
   const [menuOpen, setMenuOpen] = useState(false);
   const [editOpen, setEditOpen] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
+  const hasUpdate = useAppSelector(
+    (s) => s.music.savedVersions[album.addressableId]?.hasUpdate ?? false,
+  );
+
+  const tracksByAlbum = useAppSelector((s) => s.music.tracksByAlbum[album.addressableId]);
+  const handleAddToQueue = () => {
+    setMenuOpen(false);
+    const trackRefs = album.trackRefs.length > 0
+      ? album.trackRefs
+      : tracksByAlbum ?? [];
+    for (const trackRef of trackRefs) {
+      dispatch(addToQueue(trackRef));
+    }
+  };
 
   return (
     <>
@@ -37,7 +54,12 @@ export const AlbumCard = memo(function AlbumCard({ album }: AlbumCardProps) {
         }
         className="group relative flex w-full flex-col rounded-xl border border-edge card-glass transition-all hover:border-edge-light hover-lift"
       >
-        <div className="aspect-square w-full overflow-hidden rounded-t-xl">
+        <div className="relative aspect-square w-full overflow-hidden rounded-t-xl">
+          {hasUpdate && (
+            <div className="absolute left-2 top-2 z-10">
+              <UpdateAvailableBadge />
+            </div>
+          )}
           {album.imageUrl ? (
             <img
               src={album.imageUrl}
@@ -65,17 +87,52 @@ export const AlbumCard = memo(function AlbumCard({ album }: AlbumCardProps) {
                 <MoreHorizontal size={16} />
               </button>
               {menuOpen && (
-                <PopoverMenu open={menuOpen} onClose={() => setMenuOpen(false)} position="below" anchorRef={menuBtnRef}>
-                  {!isOwner && !isLocal && (
+                <PopoverMenu open={menuOpen} onClose={() => { setMenuOpen(false); setConfirmRemove(false); }} position="below" anchorRef={menuBtnRef}>
+                  {/* Add to Queue (all tracks) */}
+                  {(album.trackRefs.length > 0 || (tracksByAlbum && tracksByAlbum.length > 0)) && (
                     <PopoverMenuItem
-                      icon={<Heart size={14} className={saved ? "fill-red-500 text-red-500" : ""} />}
-                      label={saved ? "Remove from Library" : "Add to Library"}
-                      onClick={() => {
-                        setMenuOpen(false);
-                        if (saved) unsaveAlbum(album.addressableId);
-                        else saveAlbum(album.addressableId);
-                      }}
+                      icon={<ListPlus size={14} />}
+                      label="Add to Queue"
+                      onClick={handleAddToQueue}
                     />
+                  )}
+                  {!isOwner && !isLocal && (
+                    <>
+                      {saved && confirmRemove ? (
+                        <PopoverMenuItem
+                          icon={<Trash2 size={14} />}
+                          label="Confirm Remove"
+                          variant="danger"
+                          onClick={() => {
+                            setMenuOpen(false);
+                            setConfirmRemove(false);
+                            unsaveAlbum(album.addressableId);
+                          }}
+                        />
+                      ) : (
+                        <PopoverMenuItem
+                          icon={saved ? <Check size={14} className="text-green-400" /> : <Plus size={14} />}
+                          label={saved ? "Remove from Library" : "Add to Library"}
+                          onClick={() => {
+                            if (saved) {
+                              setConfirmRemove(true);
+                            } else {
+                              setMenuOpen(false);
+                              saveAlbum(album.addressableId);
+                            }
+                          }}
+                        />
+                      )}
+                      <PopoverMenuItem
+                        icon={<Heart size={14} className={favorited ? "fill-red-500 text-red-500" : ""} />}
+                        label={favorited ? "Remove from Favorites" : "Add to Favorites"}
+                        onClick={() => {
+                          setMenuOpen(false);
+                          if (favorited) unfavoriteAlbum(album.addressableId);
+                          else favoriteAlbum(album.addressableId);
+                        }}
+                      />
+                    </>
                   )}
                   {!isLocal && (
                     <PopoverMenuItem
