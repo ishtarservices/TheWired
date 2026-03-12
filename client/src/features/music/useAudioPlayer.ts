@@ -223,7 +223,14 @@ export function useAudioPlayer() {
   }, [dispatch]);
 
   const prev = useCallback(() => {
-    dispatch(prevTrack());
+    const el = getAudio();
+    // If past 3 seconds, restart current track by seeking the audio element directly
+    if (el.currentTime > 2) {
+      el.currentTime = 0;
+      dispatch(updatePosition(0));
+    } else {
+      dispatch(prevTrack());
+    }
   }, [dispatch]);
 
   const seek = useCallback(

@@ -22,7 +22,7 @@ import { useDeleteMusic } from "./useDeleteMusic";
 import { useDownload } from "./useDownload";
 import { buildMusicLink } from "./musicLinks";
 import { copyToClipboard } from "@/lib/clipboard";
-import { addToQueue, setActiveDetailId } from "@/store/slices/musicSlice";
+import { addToQueue, insertNextInQueue, setActiveDetailId } from "@/store/slices/musicSlice";
 import { selectAudioSource } from "./trackParser";
 import { buildTrackEvent } from "./musicEventBuilder";
 import { signAndPublish } from "@/lib/nostr/publish";
@@ -122,6 +122,11 @@ export function TrackActionMenu({
   const handleAddToQueue = () => {
     onClose();
     dispatch(addToQueue(track.addressableId));
+  };
+
+  const handlePlayNext = () => {
+    onClose();
+    dispatch(insertNextInQueue(track.addressableId));
   };
 
   const handleToggleSharing = async () => {
@@ -235,6 +240,11 @@ export function TrackActionMenu({
             />
             <PopoverMenuItem
               icon={<ListPlus size={14} />}
+              label="Play Next"
+              onClick={handlePlayNext}
+            />
+            <PopoverMenuItem
+              icon={<ListPlus size={14} />}
               label="Add to Queue"
               onClick={handleAddToQueue}
             />
@@ -328,6 +338,11 @@ export function TrackActionMenu({
         ) : (
           <>
             {/* ── Non-owner view ── */}
+            <PopoverMenuItem
+              icon={<ListPlus size={14} />}
+              label="Play Next"
+              onClick={handlePlayNext}
+            />
             <PopoverMenuItem
               icon={<ListPlus size={14} />}
               label="Add to Queue"

@@ -14,11 +14,12 @@ import {
   setExploreTab,
   setExploreLoading,
 } from "@/store/slices/musicSlice";
-import { getGenres, getPopularTags, browseMusic, browseAlbums } from "@/lib/api/music";
+import { getGenres, getPopularTags, browseMusic, browseAlbums, resolveMusic } from "@/lib/api/music";
 import { putEvents } from "@/lib/db/eventStore";
 import type { NostrEvent } from "@/types/nostr";
 import { parseTrackEvent } from "../trackParser";
 import { parseAlbumEvent } from "../albumParser";
+import { store } from "@/store";
 import { GenreCard } from "../GenreCard";
 import { TrackCard } from "../TrackCard";
 import { AlbumCard } from "../AlbumCard";
@@ -56,6 +57,32 @@ export function ExploreMusic() {
         dispatch(setExploreResults(parsed.map((t) => t.addressableId)));
         // Persist raw events to IndexedDB so they survive app restart
         putEvents(rawEvents as NostrEvent[]).catch(() => {});
+
+        // Resolve missing parent albums so TrackCard can display album names
+        const currentAlbums = store.getState().music.albums;
+        const missingAlbumRefs = new Set<string>();
+        for (const t of parsed) {
+          if (t.albumRef && !currentAlbums[t.albumRef]) {
+            missingAlbumRefs.add(t.albumRef);
+          }
+        }
+        for (const ref of missingAlbumRefs) {
+          // albumRef format: "33123:pubkey:slug"
+          const parts = ref.split(":");
+          if (parts.length >= 3) {
+            const [, pubkey, ...slugParts] = parts;
+            resolveMusic("album", pubkey, slugParts.join(":"))
+              .then((albumRes) => {
+                const albumEvt = (albumRes.data as { event: any }).event;
+                if (albumEvt) {
+                  const albumParsed = parseAlbumEvent(albumEvt);
+                  dispatch(addAlbums([albumParsed]));
+                  putEvents([albumEvt as NostrEvent]).catch(() => {});
+                }
+              })
+              .catch(() => {});
+          }
+        }
       } catch {
         dispatch(setExploreResults([]));
       } finally {

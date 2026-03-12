@@ -565,6 +565,31 @@ export const musicSlice = createSlice({
       state.player.queue.push(action.payload);
       state.player.originalQueue.push(action.payload);
     },
+    insertNextInQueue(state, action: PayloadAction<string>) {
+      const insertAt = state.player.queueIndex + 1;
+      state.player.queue.splice(insertAt, 0, action.payload);
+      // Also insert into originalQueue right after the current track's position there
+      const currentId = state.player.currentTrackId;
+      if (currentId) {
+        const origIdx = state.player.originalQueue.indexOf(currentId);
+        state.player.originalQueue.splice(origIdx + 1, 0, action.payload);
+      } else {
+        state.player.originalQueue.push(action.payload);
+      }
+    },
+    reorderQueue(state, action: PayloadAction<{ from: number; to: number }>) {
+      const { from, to } = action.payload;
+      if (from === to) return;
+      const queue = state.player.queue;
+      if (from < 0 || from >= queue.length || to < 0 || to >= queue.length) return;
+      const [moved] = queue.splice(from, 1);
+      queue.splice(to, 0, moved);
+      // Adjust queueIndex to follow the currently playing track
+      const currentId = state.player.currentTrackId;
+      if (currentId) {
+        state.player.queueIndex = queue.indexOf(currentId);
+      }
+    },
     removeFromQueue(state, action: PayloadAction<number>) {
       const idx = action.payload;
       if (idx >= 0 && idx < state.player.queue.length) {
@@ -750,6 +775,8 @@ export const {
   setRepeat,
   toggleShuffle,
   addToQueue,
+  insertNextInQueue,
+  reorderQueue,
   removeFromQueue,
   setTrendingTrackIds,
   setTrendingAlbumIds,
