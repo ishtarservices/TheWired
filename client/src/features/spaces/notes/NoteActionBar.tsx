@@ -1,5 +1,5 @@
 import { memo } from "react";
-import { MessageCircle, Repeat2, Heart, Quote } from "lucide-react";
+import { MessageCircle, Repeat2, Heart, Quote, Share } from "lucide-react";
 import type { NoteEngagement } from "../useNoteEngagement";
 
 interface NoteActionBarProps {
@@ -10,6 +10,7 @@ interface NoteActionBarProps {
   onRepost: () => void;
   onLike: () => void;
   onQuote: () => void;
+  onShare?: () => void;
 }
 
 function formatCount(n: number): string {
@@ -26,6 +27,7 @@ export const NoteActionBar = memo(function NoteActionBar({
   onRepost,
   onLike,
   onQuote,
+  onShare,
 }: NoteActionBarProps) {
   return (
     <div className="mt-2 flex items-center gap-8">
@@ -79,6 +81,17 @@ export const NoteActionBar = memo(function NoteActionBar({
         <Quote size={16} className="group-hover:text-neon" />
         <span>{formatCount(engagement.quoteCount)}</span>
       </button>
+
+      {/* Share */}
+      {onShare && (
+        <button
+          onClick={onShare}
+          disabled={!canInteract}
+          className="group flex items-center gap-1.5 text-xs text-muted transition-colors hover:text-pulse disabled:cursor-not-allowed disabled:opacity-40"
+        >
+          <Share size={16} className="group-hover:text-pulse" />
+        </button>
+      )}
     </div>
   );
 });

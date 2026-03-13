@@ -1,4 +1,5 @@
 import { useState, useMemo, useEffect, useCallback, useRef, memo } from "react";
+import { nip19 } from "nostr-tools";
 import { ChevronDown, ChevronUp, ImageIcon, Film } from "lucide-react";
 import { useAppSelector } from "../../store/hooks";
 import { selectSpaceRootNotes, selectSpaceRootNoteIds } from "./spaceSelectors";
@@ -24,6 +25,8 @@ import { NoteActionBar } from "./notes/NoteActionBar";
 import { QuotedNote } from "./notes/QuotedNote";
 import { ReplyComposer } from "./notes/ReplyComposer";
 import { ThreadView } from "./notes/ThreadView";
+import { RecipientPickerModal } from "../../components/sharing/RecipientPickerModal";
+import { sendDM } from "../dm/dmService";
 import type { NostrEvent } from "../../types/nostr";
 
 function InlineImage({ url }: { url: string }) {
@@ -89,6 +92,7 @@ const NoteCard = memo(function NoteCard({ event }: { event: NostrEvent }) {
   const [showMedia, setShowMedia] = useState(false);
   const [showReplyComposer, setShowReplyComposer] = useState(false);
   const [threadExpanded, setThreadExpanded] = useState(false);
+  const [sharePickerOpen, setSharePickerOpen] = useState(false);
   const avatarRef = useRef<HTMLButtonElement>(null);
 
   const engagement = useNoteEngagement(event.id);
@@ -162,6 +166,18 @@ const NoteCard = memo(function NoteCard({ event }: { event: NostrEvent }) {
     setThreadExpanded((v) => !v);
   }, []);
 
+  const handleShare = useCallback(() => {
+    setSharePickerOpen(true);
+  }, []);
+
+  const handleShareToDM = useCallback(
+    async (recipientPubkey: string) => {
+      const nevent = nip19.neventEncode({ id: event.id });
+      await sendDM(recipientPubkey, `nostr:${nevent}`);
+    },
+    [event.id],
+  );
+
   return (
     <div className="rounded-lg border-neon-glow bg-card p-4 hover-lift transition-all duration-150 hover:glow-neon">
       <div className="mb-2 flex items-center gap-2">
@@ -223,6 +239,7 @@ const NoteCard = memo(function NoteCard({ event }: { event: NostrEvent }) {
         onRepost={handleRepost}
         onLike={handleLike}
         onQuote={handleQuote}
+        onShare={handleShare}
       />
 
       {showReplyComposer && (
@@ -238,6 +255,15 @@ const NoteCard = memo(function NoteCard({ event }: { event: NostrEvent }) {
           eventId={event.id}
           expanded={threadExpanded}
           onToggle={handleToggleThread}
+        />
+      )}
+
+      {sharePickerOpen && (
+        <RecipientPickerModal
+          open={sharePickerOpen}
+          onClose={() => setSharePickerOpen(false)}
+          onSelect={handleShareToDM}
+          title="Forward Note"
         />
       )}
     </div>

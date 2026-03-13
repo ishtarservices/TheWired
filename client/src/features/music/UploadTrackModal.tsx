@@ -30,9 +30,11 @@ interface UploadTrackModalProps {
   open: boolean;
   onClose: () => void;
   defaultAlbumRef?: string;
+  defaultVisibility?: MusicVisibility;
+  defaultSpaceId?: string;
 }
 
-export function UploadTrackModal({ open, onClose, defaultAlbumRef }: UploadTrackModalProps) {
+export function UploadTrackModal({ open, onClose, defaultAlbumRef, defaultVisibility, defaultSpaceId }: UploadTrackModalProps) {
   const pubkey = useAppSelector((s) => s.identity.pubkey);
   const ownAlbums = useAppSelector((s) => {
     if (!pubkey) return [];
@@ -52,8 +54,8 @@ export function UploadTrackModal({ open, onClose, defaultAlbumRef }: UploadTrack
   const [iAmArtist, setIAmArtist] = useState(true);
   const [artistPubkeys, setArtistPubkeys] = useState<string[]>([]);
   const [featuredArtists, setFeaturedArtists] = useState<string[]>([]);
-  const [visibility, setVisibility] = useState<MusicVisibility>("public");
-  const [spaceId, setSpaceId] = useState("");
+  const [visibility, setVisibility] = useState<MusicVisibility>(defaultVisibility ?? "public");
+  const [spaceId, setSpaceId] = useState(defaultSpaceId ?? "");
   const [audioFile, setAudioFile] = useState<File | null>(null);
   const [coverFile, setCoverFile] = useState<File | null>(null);
   const [uploading, setUploading] = useState(false);
@@ -144,15 +146,15 @@ export function UploadTrackModal({ open, onClose, defaultAlbumRef }: UploadTrack
 
   return (
     <Modal open={open} onClose={onClose}>
-      <div className="w-full max-w-md rounded-2xl border border-edge card-glass p-6 shadow-xl">
-        <div className="mb-4 flex items-center justify-between">
+      <div className="w-full max-w-md max-h-[90vh] rounded-2xl border border-edge card-glass shadow-xl flex flex-col">
+        <div className="shrink-0 flex items-center justify-between p-6 pb-0 mb-4">
           <h2 className="text-lg font-semibold text-heading">Upload Track</h2>
           <button onClick={onClose} className="text-soft hover:text-heading">
             <X size={18} />
           </button>
         </div>
 
-        <div className="space-y-3">
+        <div className="space-y-3 overflow-y-auto px-6 pb-6">
           {/* Audio file */}
           <div>
             <label className="mb-1 block text-xs font-medium text-soft">

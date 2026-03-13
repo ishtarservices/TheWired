@@ -13,6 +13,8 @@ import {
   MessageSquare,
   BarChart3,
   Share2,
+  Send,
+  Globe,
 } from "lucide-react";
 import type { MusicTrack } from "@/types/music";
 import { useAppSelector, useAppDispatch } from "@/store/hooks";
@@ -25,11 +27,22 @@ import { copyToClipboard } from "@/lib/clipboard";
 import { addToQueue, insertNextInQueue, setActiveDetailId } from "@/store/slices/musicSlice";
 import { selectAudioSource } from "./trackParser";
 import { buildTrackEvent } from "./musicEventBuilder";
-import { signAndPublish } from "@/lib/nostr/publish";
+import { signAndPublish, publishExisting } from "@/lib/nostr/publish";
+import { relayManager } from "@/lib/nostr/relayManager";
+import { indexSpaceFeed } from "@/store/slices/eventsSlice";
+import { trackFeedTimestamp } from "@/store/slices/feedSlice";
+import { store } from "@/store";
+import { buildChatMessage } from "@/lib/nostr/eventBuilder";
+import type { UnsignedEvent } from "@/types/nostr";
 import { ReplaceAudioModal } from "./ReplaceAudioModal";
 import { TrackNotesModal } from "./TrackNotesModal";
 import { MoveTrackModal } from "./MoveTrackModal";
 import { AddToPlaylistModal } from "./AddToPlaylistModal";
+import { RecipientPickerModal } from "@/components/sharing/RecipientPickerModal";
+import { SpacePickerModal } from "@/components/sharing/SpacePickerModal";
+import { sendDM } from "@/features/dm/dmService";
+import { buildNaddrReference } from "@/lib/nostr/naddrEncode";
+import type { Space, SpaceChannel } from "@/types/space";
 
 interface TrackActionMenuProps {
   track: MusicTrack;
@@ -88,6 +101,8 @@ export function TrackActionMenu({
   const [playlistOpen, setPlaylistOpen] = useState(false);
   const [sharingToggling, setSharingToggling] = useState(false);
   const [exporting, setExporting] = useState(false);
+  const [dmPickerOpen, setDmPickerOpen] = useState(false);
+  const [spacePickerOpen, setSpacePickerOpen] = useState(false);
 
   const sharingDisabled = !!track.sharingDisabled;
 
@@ -117,6 +132,69 @@ export function TrackActionMenu({
   const handleCopyLink = () => {
     onClose();
     copyToClipboard(buildMusicLink(track.addressableId));
+  };
+
+  const handleSendToDM = async (recipientPubkey: string) => {
+    const content = buildNaddrReference(track.addressableId);
+    await sendDM(recipientPubkey, content);
+  };
+
+  const handleShareToSpace = async (space: Space, channel: SpaceChannel) => {
+    if (!pubkey) return;
+
+    const originalEvent = store.getState().events.entities[track.eventId];
+    if (!originalEvent) return;
+
+    // Best-effort relay connection — don't block on failure
+    relayManager.connect(space.hostRelay, "read+write");
+    try {
+      await relayManager.waitForConnection(space.hostRelay, 5000);
+    } catch {
+      // Continue anyway — publish will try all connected write relays as fallback
+    }
+
+    if (channel.type === "music") {
+      // Direct music share: republish original track event to space relay
+      await publishExisting(originalEvent, [space.hostRelay]);
+      const contextId = `${space.id}:${channel.id}`;
+      dispatch(indexSpaceFeed({ contextId, eventId: track.eventId }));
+      dispatch(trackFeedTimestamp({ contextId, createdAt: originalEvent.created_at }));
+      dispatch(indexSpaceFeed({ contextId: `${space.id}:music`, eventId: track.eventId }));
+      dispatch(trackFeedTimestamp({ contextId: `${space.id}:music`, createdAt: originalEvent.created_at }));
+    } else {
+      // Share as a message with a nostr:naddr embed (renders as MusicEmbedCard)
+      const naddr = buildNaddrReference(track.addressableId);
+
+      if (channel.type === "chat") {
+        // Kind:9 chat message, h-tagged to the space + channel
+        const unsigned = buildChatMessage(pubkey, space.id, naddr, undefined, channel.id);
+        await signAndPublish(unsigned, [space.hostRelay]);
+      } else {
+        // Kind:1 note for notes/other channel types
+        const unsigned: UnsignedEvent = {
+          pubkey,
+          created_at: Math.floor(Date.now() / 1000),
+          kind: 1,
+          tags: [],
+          content: naddr,
+        };
+        await signAndPublish(unsigned, [space.hostRelay]);
+      }
+
+      // Also republish the original track event so it appears in #music
+      // and the MusicEmbedCard can resolve the track data from the relay
+      await publishExisting(originalEvent, [space.hostRelay]);
+
+      // Index track into the music channel feed
+      const allChannels = store.getState().spaces.channels[space.id] ?? [];
+      const musicCh = allChannels.find((c) => c.type === "music");
+      if (musicCh) {
+        dispatch(indexSpaceFeed({ contextId: `${space.id}:${musicCh.id}`, eventId: track.eventId }));
+        dispatch(trackFeedTimestamp({ contextId: `${space.id}:${musicCh.id}`, createdAt: originalEvent.created_at }));
+      }
+      dispatch(indexSpaceFeed({ contextId: `${space.id}:music`, eventId: track.eventId }));
+      dispatch(trackFeedTimestamp({ contextId: `${space.id}:music`, createdAt: originalEvent.created_at }));
+    }
   };
 
   const handleAddToQueue = () => {
@@ -316,6 +394,26 @@ export function TrackActionMenu({
                 onClick={handleCopyLink}
               />
             )}
+            {!isLocal && (
+              <PopoverMenuItem
+                icon={<Send size={14} />}
+                label="Send to DM"
+                onClick={() => {
+                  onClose();
+                  setDmPickerOpen(true);
+                }}
+              />
+            )}
+            {!isLocal && (
+              <PopoverMenuItem
+                icon={<Globe size={14} />}
+                label="Share to Space"
+                onClick={() => {
+                  onClose();
+                  setSpacePickerOpen(true);
+                }}
+              />
+            )}
             <PopoverMenuSeparator />
 
             {/* Danger section */}
@@ -388,6 +486,22 @@ export function TrackActionMenu({
                   label="Copy Link"
                   onClick={handleCopyLink}
                 />
+                <PopoverMenuItem
+                  icon={<Send size={14} />}
+                  label="Send to DM"
+                  onClick={() => {
+                    onClose();
+                    setDmPickerOpen(true);
+                  }}
+                />
+                <PopoverMenuItem
+                  icon={<Globe size={14} />}
+                  label="Share to Space"
+                  onClick={() => {
+                    onClose();
+                    setSpacePickerOpen(true);
+                  }}
+                />
                 {downloaded ? (
                   <PopoverMenuItem
                     icon={<Download size={14} className="text-green-400" />}
@@ -445,6 +559,21 @@ export function TrackActionMenu({
           open={playlistOpen}
           onClose={() => setPlaylistOpen(false)}
           trackAddrId={track.addressableId}
+        />
+      )}
+      {dmPickerOpen && (
+        <RecipientPickerModal
+          open={dmPickerOpen}
+          onClose={() => setDmPickerOpen(false)}
+          onSelect={handleSendToDM}
+        />
+      )}
+      {spacePickerOpen && (
+        <SpacePickerModal
+          open={spacePickerOpen}
+          onClose={() => setSpacePickerOpen(false)}
+          onSelect={handleShareToSpace}
+          channelTypes={["chat", "notes", "music"]}
         />
       )}
     </>

@@ -379,12 +379,29 @@ function indexEventIntoSpaceFeeds(event: NostrEvent): void {
   }
 }
 
+/** Validate that a string is a 64-character hex pubkey */
+const HEX64_RE = /^[0-9a-f]{64}$/i;
+
 /** Handle incoming gift wrap (kind:1059) — decrypt and route to DM or friend request */
 async function handleGiftWrap(event: NostrEvent): Promise<void> {
+  const myPubkey = store.getState().identity.pubkey;
+  if (!myPubkey) return;
+
+  // Only process wraps addressed to us. Recipient wraps from our own sends
+  // bounce back from relays but can't be decrypted — some NIP-07 extensions
+  // return garbage instead of throwing, creating ghost DM conversations.
+  const recipientTag = event.tags.find((t) => t[0] === "p")?.[1];
+  if (recipientTag && recipientTag !== myPubkey) return;
+
   try {
     const dm = await unwrapGiftWrap(event);
-    const myPubkey = store.getState().identity.pubkey;
-    if (!myPubkey) return;
+
+    // Validate unwrapped data — guard against corrupted decryptions from
+    // wraps not addressed to us (some NIP-07 extensions don't throw on
+    // wrong-key decryption, returning garbage that may survive JSON.parse)
+    if (!dm.sender || !HEX64_RE.test(dm.sender) || !Array.isArray(dm.tags)) {
+      return;
+    }
 
     // Check for friend request type tags before DM routing
     const typeTag = dm.tags.find((t) => t[0] === "type")?.[1];
@@ -407,6 +424,11 @@ async function handleGiftWrap(event: NostrEvent): Promise<void> {
     const partnerPubkey = isOwnMessage
       ? dm.tags.find((t) => t[0] === "p" && t[1] !== myPubkey)?.[1] ?? dm.sender
       : dm.sender;
+
+    // Reject if partner pubkey is invalid (corrupted decryption artifact)
+    if (!HEX64_RE.test(partnerPubkey) || (partnerPubkey === myPubkey && !isOwnMessage)) {
+      return;
+    }
 
     // Snapshot DM state BEFORE dispatch so we can gate the notification on
     // whether this wrap was already processed (e.g. restored from IndexedDB).

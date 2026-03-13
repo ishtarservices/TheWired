@@ -3,6 +3,7 @@ import { FileText } from "lucide-react";
 import { parseContent, type ContentSegment } from "@/lib/content/parseContent";
 import { MentionLink } from "./MentionLink";
 import { EmbedRenderer } from "./EmbedRenderer";
+import { MusicEmbedCard } from "./MusicEmbedCard";
 import { MediaLightbox } from "../ui/MediaLightbox";
 
 interface RichContentProps {
@@ -44,6 +45,15 @@ function RichSegment({
       );
 
     case "addr-ref":
+      if (segment.kind === 31683 || segment.kind === 33123) {
+        return (
+          <MusicEmbedCard
+            kind={segment.kind}
+            pubkey={segment.pubkey}
+            identifier={segment.identifier}
+          />
+        );
+      }
       return (
         <span className="font-mono text-xs text-neon/70 bg-surface px-1 py-0.5 rounded">
           {segment.identifier || "addr"}

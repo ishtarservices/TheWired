@@ -127,7 +127,7 @@ export function DMConversation({ partnerPubkey, onBack }: DMConversationProps) {
               {i === dividerIndex && (
                 <UnreadDivider ref={dividerRef} onFaded={handleDividerFaded} />
               )}
-              <DMMessage message={msg} />
+              <DMMessage message={msg} partnerPubkey={partnerPubkey} />
             </div>
           ))
         )}

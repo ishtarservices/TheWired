@@ -223,9 +223,30 @@ export async function unwrapGiftWrap(
     content: string;
   };
 
+  // Validate rumor kind — must be kind:14 (DM). Some NIP-07 extensions
+  // return garbage on wrong-key decryption that can survive JSON.parse
+  // (e.g. returning the seal itself as the "decrypted" content). Checking
+  // the kind catches this: a seal (kind:13) mistakenly returned as a rumor
+  // would fail here, preventing its encrypted content from leaking through.
+  if (rumor.kind !== EVENT_KINDS.DM_MESSAGE) {
+    throw new Error(
+      `Expected rumor (kind:${EVENT_KINDS.DM_MESSAGE}), got kind:${rumor.kind}`,
+    );
+  }
+
   // Verify sender consistency
   if (rumor.pubkey !== seal.pubkey) {
     throw new Error("Rumor pubkey does not match seal pubkey");
+  }
+
+  // Guard against content that is still encrypted (base64 ciphertext).
+  // If nip44Decrypt silently returned garbage that parsed as JSON with a
+  // base64-only content field, reject it.
+  if (
+    typeof rumor.content !== "string" ||
+    (rumor.content.length > 50 && /^[A-Za-z0-9+/=]+$/.test(rumor.content))
+  ) {
+    throw new Error("Rumor content appears to still be encrypted");
   }
 
   return {

@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useCallback } from "react";
 import { MessageCircle, Users, X } from "lucide-react";
 import { Avatar } from "@/components/ui/Avatar";
 import { useProfile } from "@/features/profile/useProfile";
@@ -7,6 +7,7 @@ import { useDMContacts } from "./useDMContacts";
 import { useFriends } from "./useFriends";
 import { useAppSelector } from "@/store/hooks";
 import { acceptFriendRequestAction, declineFriendRequestAction } from "@/lib/nostr/friendRequest";
+import { DMConversationContextMenu } from "./DMConversationContextMenu";
 import type { DMContact } from "@/store/slices/dmSlice";
 
 type SidebarTab = "messages" | "friends";
@@ -24,6 +25,16 @@ export function DMSidebar({ activePartner, onSelectContact }: DMSidebarProps) {
     s.friendRequests.requests.filter(
       (r) => r.direction === "incoming" && r.status === "pending",
     ),
+  );
+
+  const [ctxMenu, setCtxMenu] = useState<{ pubkey: string; x: number; y: number } | null>(null);
+
+  const handleContactContextMenu = useCallback(
+    (pubkey: string, e: React.MouseEvent) => {
+      e.preventDefault();
+      setCtxMenu({ pubkey, x: e.clientX, y: e.clientY });
+    },
+    [],
   );
 
   return (
@@ -67,14 +78,23 @@ export function DMSidebar({ activePartner, onSelectContact }: DMSidebarProps) {
               No conversations yet
             </div>
           ) : (
-            contacts.map((contact) => (
-              <DMContactItem
-                key={contact.pubkey}
-                contact={contact}
-                isActive={activePartner === contact.pubkey}
-                onClick={() => onSelectContact(contact.pubkey)}
+            <>
+              {contacts.map((contact) => (
+                <DMContactItem
+                  key={contact.pubkey}
+                  contact={contact}
+                  isActive={activePartner === contact.pubkey}
+                  onClick={() => onSelectContact(contact.pubkey)}
+                  onContextMenu={(e) => handleContactContextMenu(contact.pubkey, e)}
+                />
+              ))}
+              <DMConversationContextMenu
+                open={!!ctxMenu}
+                onClose={() => setCtxMenu(null)}
+                position={ctxMenu ?? { x: 0, y: 0 }}
+                partnerPubkey={ctxMenu?.pubkey ?? ""}
               />
-            ))
+            </>
           )
         ) : (
           <>
@@ -127,10 +147,12 @@ function DMContactItem({
   contact,
   isActive,
   onClick,
+  onContextMenu,
 }: {
   contact: DMContact;
   isActive: boolean;
   onClick: () => void;
+  onContextMenu: (e: React.MouseEvent) => void;
 }) {
   const { profile } = useProfile(contact.pubkey);
   const displayName =
@@ -140,6 +162,7 @@ function DMContactItem({
   return (
     <button
       onClick={onClick}
+      onContextMenu={onContextMenu}
       className={`flex w-full items-center gap-3 px-4 py-3 text-left transition-colors ${
         isActive ? "bg-surface-hover" : "hover:bg-surface"
       }`}

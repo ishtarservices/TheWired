@@ -1,4 +1,4 @@
-import { useRef, useMemo } from "react";
+import { useRef, useMemo, useState, useCallback } from "react";
 import { RichContent } from "@/components/content/RichContent";
 import { Avatar } from "@/components/ui/Avatar";
 import { useProfile } from "@/features/profile/useProfile";
@@ -6,15 +6,17 @@ import { useUserPopover } from "@/features/profile/UserPopoverContext";
 import { useRelativeTime } from "@/hooks/useRelativeTime";
 import { useAppSelector } from "@/store/hooks";
 import { matchEmbed } from "@/lib/content/embedPatterns";
+import { DMMessageContextMenu } from "./DMMessageContextMenu";
 import type { DMMessage as DMMessageType } from "@/store/slices/dmSlice";
 
 const URL_RE = /https?:\/\/\S+/;
 
 interface DMMessageProps {
   message: DMMessageType;
+  partnerPubkey: string;
 }
 
-export function DMMessage({ message }: DMMessageProps) {
+export function DMMessage({ message, partnerPubkey }: DMMessageProps) {
   const myPubkey = useAppSelector((s) => s.identity.pubkey);
   const isMe = message.senderPubkey === myPubkey;
   const { profile } = useProfile(message.senderPubkey);
@@ -26,8 +28,18 @@ export function DMMessage({ message }: DMMessageProps) {
     return urlMatch ? !!matchEmbed(urlMatch[0]) : false;
   }, [message.content]);
 
+  const [ctxMenu, setCtxMenu] = useState<{ x: number; y: number } | null>(null);
+
+  const handleContextMenu = useCallback((e: React.MouseEvent) => {
+    e.preventDefault();
+    setCtxMenu({ x: e.clientX, y: e.clientY });
+  }, []);
+
   return (
-    <div className={`flex gap-3 px-4 py-2 ${isMe ? "flex-row-reverse" : ""}`}>
+    <div
+      className={`flex gap-3 px-4 py-2 ${isMe ? "flex-row-reverse" : ""}`}
+      onContextMenu={handleContextMenu}
+    >
       {!isMe && (
         <button
           ref={avatarRef}
@@ -56,6 +68,14 @@ export function DMMessage({ message }: DMMessageProps) {
           {timeAgo}
         </div>
       </div>
+      <DMMessageContextMenu
+        open={!!ctxMenu}
+        onClose={() => setCtxMenu(null)}
+        position={ctxMenu ?? { x: 0, y: 0 }}
+        partnerPubkey={partnerPubkey}
+        wrapId={message.wrapId}
+        content={message.content}
+      />
     </div>
   );
 }

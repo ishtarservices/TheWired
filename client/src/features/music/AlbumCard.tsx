@@ -1,5 +1,5 @@
 import { memo, useRef, useState } from "react";
-import { Disc3, MoreHorizontal, Pencil, Link2, Heart, Plus, Check, Trash2, ListPlus } from "lucide-react";
+import { Disc3, MoreHorizontal, Pencil, Link2, Heart, Plus, Check, Trash2, ListPlus, Send, Globe } from "lucide-react";
 import type { MusicAlbum } from "@/types/music";
 import { useAppDispatch, useAppSelector } from "@/store/hooks";
 import { setActiveDetailId, addToQueue } from "@/store/slices/musicSlice";
@@ -10,12 +10,25 @@ import { useDeleteMusic } from "./useDeleteMusic";
 import { buildMusicLink } from "./musicLinks";
 import { copyToClipboard } from "@/lib/clipboard";
 import { UpdateAvailableBadge } from "./UpdateAvailableBadge";
+import { RecipientPickerModal } from "@/components/sharing/RecipientPickerModal";
+import { SpacePickerModal } from "@/components/sharing/SpacePickerModal";
+import { sendDM } from "@/features/dm/dmService";
+import { buildNaddrReference } from "@/lib/nostr/naddrEncode";
+import { signAndPublish, publishExisting } from "@/lib/nostr/publish";
+import { relayManager } from "@/lib/nostr/relayManager";
+import { indexSpaceFeed } from "@/store/slices/eventsSlice";
+import { trackFeedTimestamp } from "@/store/slices/feedSlice";
+import { store } from "@/store";
+import { buildChatMessage } from "@/lib/nostr/eventBuilder";
+import type { UnsignedEvent } from "@/types/nostr";
+import type { Space, SpaceChannel } from "@/types/space";
 
 interface AlbumCardProps {
   album: MusicAlbum;
+  onNavigate?: () => void;
 }
 
-export const AlbumCard = memo(function AlbumCard({ album }: AlbumCardProps) {
+export const AlbumCard = memo(function AlbumCard({ album, onNavigate }: AlbumCardProps) {
   const dispatch = useAppDispatch();
   const pubkey = useAppSelector((s) => s.identity.pubkey);
   const isOwner = pubkey === album.pubkey;
@@ -29,6 +42,8 @@ export const AlbumCard = memo(function AlbumCard({ album }: AlbumCardProps) {
   const [menuOpen, setMenuOpen] = useState(false);
   const [editOpen, setEditOpen] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
+  const [dmPickerOpen, setDmPickerOpen] = useState(false);
+  const [spacePickerOpen, setSpacePickerOpen] = useState(false);
   const hasUpdate = useAppSelector(
     (s) => s.music.savedVersions[album.addressableId]?.hasUpdate ?? false,
   );
@@ -47,11 +62,15 @@ export const AlbumCard = memo(function AlbumCard({ album }: AlbumCardProps) {
   return (
     <>
       <button
-        onClick={() =>
-          dispatch(
-            setActiveDetailId({ view: "album-detail", id: album.addressableId }),
-          )
-        }
+        onClick={() => {
+          if (onNavigate) {
+            onNavigate();
+          } else {
+            dispatch(
+              setActiveDetailId({ view: "album-detail", id: album.addressableId }),
+            );
+          }
+        }}
         className="group relative flex w-full flex-col rounded-xl border border-edge card-glass transition-all hover:border-edge-light hover-lift"
       >
         <div className="relative aspect-square w-full overflow-hidden rounded-t-xl">
@@ -144,6 +163,26 @@ export const AlbumCard = memo(function AlbumCard({ album }: AlbumCardProps) {
                       }}
                     />
                   )}
+                  {!isLocal && (
+                    <PopoverMenuItem
+                      icon={<Send size={14} />}
+                      label="Send to DM"
+                      onClick={() => {
+                        setMenuOpen(false);
+                        setDmPickerOpen(true);
+                      }}
+                    />
+                  )}
+                  {!isLocal && (
+                    <PopoverMenuItem
+                      icon={<Globe size={14} />}
+                      label="Share to Space"
+                      onClick={() => {
+                        setMenuOpen(false);
+                        setSpacePickerOpen(true);
+                      }}
+                    />
+                  )}
                   {isOwner && (
                     <>
                       {!isLocal && <PopoverMenuSeparator />}
@@ -211,6 +250,75 @@ export const AlbumCard = memo(function AlbumCard({ album }: AlbumCardProps) {
           open={editOpen}
           onClose={() => setEditOpen(false)}
           album={album}
+        />
+      )}
+      {dmPickerOpen && (
+        <RecipientPickerModal
+          open={dmPickerOpen}
+          onClose={() => setDmPickerOpen(false)}
+          onSelect={async (recipientPubkey) => {
+            const content = buildNaddrReference(album.addressableId);
+            await sendDM(recipientPubkey, content);
+          }}
+        />
+      )}
+      {spacePickerOpen && (
+        <SpacePickerModal
+          open={spacePickerOpen}
+          onClose={() => setSpacePickerOpen(false)}
+          channelTypes={["chat", "notes", "music"]}
+          onSelect={async (space: Space, channel: SpaceChannel) => {
+            if (!pubkey) return;
+            const originalEvent = store.getState().events.entities[album.eventId];
+            if (!originalEvent) return;
+
+            // Best-effort relay connection
+            relayManager.connect(space.hostRelay, "read+write");
+            try {
+              await relayManager.waitForConnection(space.hostRelay, 5000);
+            } catch {
+              // Continue anyway
+            }
+
+            if (channel.type === "music") {
+              // Direct music share: republish original album event
+              await publishExisting(originalEvent, [space.hostRelay]);
+              const contextId = `${space.id}:${channel.id}`;
+              dispatch(indexSpaceFeed({ contextId, eventId: album.eventId }));
+              dispatch(trackFeedTimestamp({ contextId, createdAt: originalEvent.created_at }));
+              dispatch(indexSpaceFeed({ contextId: `${space.id}:music`, eventId: album.eventId }));
+              dispatch(trackFeedTimestamp({ contextId: `${space.id}:music`, createdAt: originalEvent.created_at }));
+            } else {
+              // Share as a message with a nostr:naddr embed
+              const naddr = buildNaddrReference(album.addressableId);
+
+              if (channel.type === "chat") {
+                const unsigned = buildChatMessage(pubkey, space.id, naddr, undefined, channel.id);
+                await signAndPublish(unsigned, [space.hostRelay]);
+              } else {
+                const unsigned: UnsignedEvent = {
+                  pubkey,
+                  created_at: Math.floor(Date.now() / 1000),
+                  kind: 1,
+                  tags: [],
+                  content: naddr,
+                };
+                await signAndPublish(unsigned, [space.hostRelay]);
+              }
+
+              // Also republish album event so it appears in #music
+              await publishExisting(originalEvent, [space.hostRelay]);
+
+              const allChannels = store.getState().spaces.channels[space.id] ?? [];
+              const musicCh = allChannels.find((c) => c.type === "music");
+              if (musicCh) {
+                dispatch(indexSpaceFeed({ contextId: `${space.id}:${musicCh.id}`, eventId: album.eventId }));
+                dispatch(trackFeedTimestamp({ contextId: `${space.id}:${musicCh.id}`, createdAt: originalEvent.created_at }));
+              }
+              dispatch(indexSpaceFeed({ contextId: `${space.id}:music`, eventId: album.eventId }));
+              dispatch(trackFeedTimestamp({ contextId: `${space.id}:music`, createdAt: originalEvent.created_at }));
+            }
+          }}
         />
       )}
     </>

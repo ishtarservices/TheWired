@@ -128,7 +128,47 @@ export const dmSlice = createSlice({
       state.loading = action.payload;
     },
 
-    /** Bulk-restore persisted DM state from IndexedDB on startup */
+    /** Delete a single message locally by wrapId */
+    deleteDMMessage(
+      state,
+      action: PayloadAction<{ partnerPubkey: string; wrapId: string }>,
+    ) {
+      const { partnerPubkey, wrapId } = action.payload;
+      const msgs = state.messages[partnerPubkey];
+      if (!msgs) return;
+      state.messages[partnerPubkey] = msgs.filter((m) => m.wrapId !== wrapId);
+
+      // Update contact preview if we deleted the latest message
+      const remaining = state.messages[partnerPubkey];
+      const contact = state.contacts.find((c) => c.pubkey === partnerPubkey);
+      if (contact && remaining.length > 0) {
+        const last = remaining[remaining.length - 1];
+        contact.lastMessageAt = last.createdAt;
+        contact.lastMessagePreview =
+          last.content.length > 50
+            ? last.content.slice(0, 50) + "..."
+            : last.content;
+      } else if (contact && remaining.length === 0) {
+        // No messages left — remove the contact entirely
+        state.contacts = state.contacts.filter((c) => c.pubkey !== partnerPubkey);
+        delete state.messages[partnerPubkey];
+      }
+    },
+
+    /** Delete an entire conversation locally */
+    deleteDMConversation(state, action: PayloadAction<string>) {
+      const pubkey = action.payload;
+      delete state.messages[pubkey];
+      state.contacts = state.contacts.filter((c) => c.pubkey !== pubkey);
+      delete state.unreadDividers[pubkey];
+      if (state.activeConversation === pubkey) {
+        state.activeConversation = null;
+      }
+    },
+
+    /** Bulk-restore persisted DM state from IndexedDB on startup.
+     *  Filters out corrupted messages (e.g. undecrypted ciphertext that leaked
+     *  through due to NIP-07 extension bugs). */
     restoreDMState(
       state,
       action: PayloadAction<{
@@ -138,8 +178,30 @@ export const dmSlice = createSlice({
       }>,
     ) {
       const { messages, contacts, processedWrapIds } = action.payload;
-      if (messages) state.messages = messages;
-      if (contacts) state.contacts = contacts;
+
+      if (messages) {
+        // Scrub corrupted messages: reject entries whose content is
+        // entirely base64 (likely undecrypted NIP-44 ciphertext)
+        const BASE64_ONLY = /^[A-Za-z0-9+/=]+$/;
+        const cleaned: Record<string, DMMessage[]> = {};
+        for (const [pubkey, msgs] of Object.entries(messages)) {
+          const valid = msgs.filter(
+            (m) =>
+              typeof m.content === "string" &&
+              !(m.content.length > 50 && BASE64_ONLY.test(m.content)),
+          );
+          if (valid.length > 0) cleaned[pubkey] = valid;
+        }
+        state.messages = cleaned;
+
+        // Rebuild contacts to match cleaned messages (drop contacts with no valid messages)
+        if (contacts) {
+          state.contacts = contacts.filter((c) => cleaned[c.pubkey]?.length);
+        }
+      } else if (contacts) {
+        state.contacts = contacts;
+      }
+
       if (processedWrapIds) state.processedWrapIds = processedWrapIds;
     },
   },
@@ -151,5 +213,7 @@ export const {
   markConversationRead,
   clearDMUnreadDivider,
   setDMLoading,
+  deleteDMMessage,
+  deleteDMConversation,
   restoreDMState,
 } = dmSlice.actions;

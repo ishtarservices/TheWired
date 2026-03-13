@@ -1,52 +1,236 @@
-import { PanelLeftClose, PanelLeftOpen, PanelRightClose, PanelRightOpen, Sun, Moon } from "lucide-react";
+import {
+  PanelLeftClose,
+  PanelLeftOpen,
+  PanelRightClose,
+  PanelRightOpen,
+  Sun,
+  Moon,
+  ArrowLeft,
+  ArrowRight,
+  LayoutGrid,
+  Music2,
+  MessageCircle,
+  Settings,
+  Radio,
+  User,
+} from "lucide-react";
+import { useLocation } from "react-router-dom";
 import { Button } from "../ui/Button";
 import { useTheme } from "../../contexts/ThemeContext";
 import { SearchInput } from "../../features/music/SearchInput";
 import { UserSearchInput } from "../../features/search/UserSearchInput";
 import { NotificationBell } from "../../features/notifications/NotificationBell";
 import { useAppSelector } from "../../store/hooks";
+import { useNavigationHistory } from "../../hooks/useNavigationHistory";
+import { useProfile } from "../../features/profile/useProfile";
+import type { MusicView } from "../../types/music";
 
 interface TopBarProps {
   sidebarExpanded: boolean;
   onToggleSidebar: () => void;
-  channelName?: string;
   memberListVisible?: boolean;
   onToggleMemberList?: () => void;
   hasActiveSpace?: boolean;
 }
 
+const musicViewLabels: Record<MusicView, string> = {
+  home: "Music",
+  explore: "Explore",
+  "recently-added": "Recently Added",
+  favorites: "Favorites",
+  artists: "Artists",
+  albums: "Projects",
+  songs: "Songs",
+  playlists: "Playlists",
+  "my-uploads": "My Music",
+  search: "Search Results",
+  insights: "Insights",
+  "project-history": "Project History",
+  "project-proposals": "Proposals",
+  "artist-detail": "Artist",
+  "album-detail": "Project",
+  "playlist-detail": "Playlist",
+  "for-you": "For You",
+};
+
 export function TopBar({
   sidebarExpanded,
   onToggleSidebar,
-  channelName,
   memberListVisible,
   onToggleMemberList,
   hasActiveSpace,
 }: TopBarProps) {
   const { theme, toggleTheme } = useTheme();
+  const { canGoBack, canGoForward, goBack, goForward } =
+    useNavigationHistory();
+
+  const location = useLocation();
   const sidebarMode = useAppSelector((s) => s.ui.sidebarMode);
+  const activeSpaceId = useAppSelector((s) => s.spaces.activeSpaceId);
+  const activeChannelId = useAppSelector((s) => s.spaces.activeChannelId);
+  const spaces = useAppSelector((s) => s.spaces.list);
+  const allChannels = useAppSelector((s) => s.spaces.channels);
+  const musicView = useAppSelector((s) => s.music.activeView);
+  const musicDetailId = useAppSelector((s) => s.music.activeDetailId);
+  const albums = useAppSelector((s) => s.music.albums);
+  const playlists = useAppSelector((s) => s.music.playlists);
+  const dmPubkey = useAppSelector((s) => s.dm.activeConversation);
+
+  // Profile lookups — hooks are called unconditionally, pass null when not needed
+  const profileMatch = location.pathname.match(/^\/profile\/([0-9a-f]+)$/);
+  const profilePubkey = profileMatch ? profileMatch[1] : null;
+  const artistPubkey =
+    musicView === "artist-detail" ? musicDetailId : null;
+
+  const { profile: viewedProfile } = useProfile(profilePubkey);
+  const { profile: dmProfile } = useProfile(dmPubkey);
+  const { profile: artistProfile } = useProfile(artistPubkey);
+
+  // Compute context-aware location info
+  const loc = getLocationInfo();
+
+  function getLocationInfo(): {
+    icon: React.ReactNode;
+    title: string;
+    subtitle?: string;
+  } {
+    // Route-level overrides
+    if (location.pathname === "/settings") {
+      return { icon: <Settings size={18} />, title: "Settings" };
+    }
+    if (location.pathname === "/relays") {
+      return { icon: <Radio size={18} />, title: "Relays" };
+    }
+    if (profilePubkey) {
+      return {
+        icon: <User size={18} />,
+        title:
+          viewedProfile?.display_name ||
+          viewedProfile?.name ||
+          "Profile",
+      };
+    }
+
+    // Sidebar-mode based
+    if (sidebarMode === "spaces") {
+      const space = spaces.find((s) => s.id === activeSpaceId);
+      if (!space) {
+        return { icon: <LayoutGrid size={18} />, title: "Spaces" };
+      }
+      const channelPart = activeChannelId
+        ?.split(":")
+        .slice(1)
+        .join(":");
+      const spaceChannels = activeSpaceId
+        ? allChannels[activeSpaceId]
+        : undefined;
+      const channel = spaceChannels?.find((c) => c.id === channelPart);
+
+      return {
+        icon: space.picture ? (
+          <img
+            src={space.picture}
+            alt=""
+            className="h-5 w-5 rounded-full object-cover"
+          />
+        ) : (
+          <LayoutGrid size={18} />
+        ),
+        title: space.name,
+        subtitle: channel ? channel.label : undefined,
+      };
+    }
+
+    if (sidebarMode === "music") {
+      let title = musicViewLabels[musicView] || "Music";
+
+      if (musicView === "album-detail" && musicDetailId) {
+        const album = albums[musicDetailId];
+        if (album) title = album.title;
+      }
+      if (musicView === "artist-detail" && artistProfile) {
+        title =
+          artistProfile.display_name || artistProfile.name || "Artist";
+      }
+      if (musicView === "playlist-detail" && musicDetailId) {
+        const playlist = playlists[musicDetailId];
+        if (playlist) title = playlist.title;
+      }
+
+      return { icon: <Music2 size={18} />, title };
+    }
+
+    if (sidebarMode === "messages") {
+      if (dmPubkey && dmProfile) {
+        return {
+          icon: <MessageCircle size={18} />,
+          title:
+            dmProfile.display_name || dmProfile.name || "Messages",
+        };
+      }
+      return { icon: <MessageCircle size={18} />, title: "Messages" };
+    }
+
+    return { icon: <LayoutGrid size={18} />, title: "The Wired" };
+  }
 
   return (
-    <div className="relative z-10 flex h-14 items-center border-b border-edge glass px-3">
-      <Button variant="ghost" size="sm" onClick={onToggleSidebar}>
-        {sidebarExpanded ? (
-          <PanelLeftClose size={18} />
-        ) : (
-          <PanelLeftOpen size={18} />
-        )}
-      </Button>
-      <h2 className="ml-3 text-sm font-semibold tracking-wide text-heading">
-        {channelName ?? "The Wired"}
-      </h2>
+    <div
+      data-tauri-drag-region
+      className="relative z-10 flex h-12 items-center border-b border-edge glass"
+    >
+      {/* Left section: sidebar toggle + nav buttons + location title */}
+      <div className="flex items-center gap-1 pl-2">
+        <Button variant="ghost" size="sm" onClick={onToggleSidebar}>
+          {sidebarExpanded ? (
+            <PanelLeftClose size={18} />
+          ) : (
+            <PanelLeftOpen size={18} />
+          )}
+        </Button>
 
-      <div className="ml-auto flex items-center gap-3">
-        {/* Mode-aware search */}
+        {/* Back / Forward */}
+        <button
+          onClick={goBack}
+          disabled={!canGoBack}
+          className="rounded-md p-1.5 text-soft transition-colors hover:bg-surface-hover hover:text-heading disabled:opacity-30 disabled:hover:bg-transparent disabled:hover:text-soft"
+          title="Go back"
+        >
+          <ArrowLeft size={16} strokeWidth={2.5} />
+        </button>
+        <button
+          onClick={goForward}
+          disabled={!canGoForward}
+          className="rounded-md p-1.5 text-soft transition-colors hover:bg-surface-hover hover:text-heading disabled:opacity-30 disabled:hover:bg-transparent disabled:hover:text-soft"
+          title="Go forward"
+        >
+          <ArrowRight size={16} strokeWidth={2.5} />
+        </button>
+
+        {/* Separator */}
+        <div className="mx-2 h-4 w-px bg-edge" />
+
+        {/* Location indicator */}
+        <div className="flex items-center gap-2 text-heading">
+          <span className="flex-shrink-0 text-soft">{loc.icon}</span>
+          <span className="text-sm font-semibold tracking-wide truncate max-w-[200px]">
+            {loc.title}
+          </span>
+          {loc.subtitle && (
+            <>
+              <span className="text-xs text-muted">/</span>
+              <span className="text-sm text-soft truncate max-w-[160px]">
+                {loc.subtitle}
+              </span>
+            </>
+          )}
+        </div>
+      </div>
+
+      {/* Right section: search, notifications, theme, member list */}
+      <div className="ml-auto flex items-center gap-3 pr-3">
         {sidebarMode === "music" ? <SearchInput /> : <UserSearchInput />}
-
-        {/* Notification bell */}
         <NotificationBell />
-
-        {/* Theme toggle */}
         <button
           onClick={toggleTheme}
           className="rounded-xl p-2 text-soft transition-colors hover:bg-surface-hover hover:text-heading"
@@ -54,8 +238,6 @@ export function TopBar({
         >
           {theme === "dark" ? <Sun size={15} /> : <Moon size={15} />}
         </button>
-
-        {/* Right panel toggle */}
         {hasActiveSpace && onToggleMemberList && (
           <Button variant="ghost" size="sm" onClick={onToggleMemberList}>
             {memberListVisible ? (

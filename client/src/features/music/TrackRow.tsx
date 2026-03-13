@@ -15,6 +15,7 @@ interface TrackRowProps {
   track: MusicTrack;
   index: number;
   queueTracks?: string[];
+  onAlbumClick?: (albumId: string) => void;
 }
 
 function formatDuration(seconds?: number): string {
@@ -28,6 +29,7 @@ export const TrackRow = memo(function TrackRow({
   track,
   index,
   queueTracks,
+  onAlbumClick,
 }: TrackRowProps) {
   const dispatch = useAppDispatch();
   const { playQueue, play, togglePlay, player } = useAudioPlayer();
@@ -126,7 +128,11 @@ export const TrackRow = memo(function TrackRow({
                 type="button"
                 onClick={(e) => {
                   e.stopPropagation();
-                  dispatch(setActiveDetailId({ view: "album-detail", id: track.albumRef! }));
+                  if (onAlbumClick) {
+                    onAlbumClick(track.albumRef!);
+                  } else {
+                    dispatch(setActiveDetailId({ view: "album-detail", id: track.albumRef! }));
+                  }
                 }}
                 className="cursor-pointer text-muted hover:text-heading hover:underline"
               >
