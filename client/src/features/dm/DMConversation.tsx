@@ -111,7 +111,7 @@ export function DMConversation({ partnerPubkey, onBack }: DMConversationProps) {
       </div>
 
       {/* Messages */}
-      <div ref={scrollRef} className="flex-1 overflow-y-auto py-4">
+      <div ref={scrollRef} className="flex-1 overflow-y-auto py-4" style={{ overflowAnchor: "auto" }}>
         {messages.length === 0 ? (
           <div className="flex h-full items-center justify-center">
             <div className="text-center">

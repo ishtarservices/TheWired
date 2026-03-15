@@ -215,33 +215,59 @@ export function buildPlaylistEvent(
   };
 }
 
-export function buildTrackNotesEvent(
+export function buildAnnotationEvent(
   pubkey: string,
   params: {
-    trackDTag: string;
-    trackAddressableId: string;
-    linerNotes?: string;
-    productionNotes?: string;
-    credits?: { role: string; name: string; pubkey?: string }[];
+    /** Unique ID for this annotation (nanoid or similar) */
+    annotationId: string;
+    /** Addressable ID of the target track or album */
+    targetRef: string;
+    /** Freeform text content (markdown) */
+    content: string;
+    /** Optional soft label */
+    label?: string;
+    /** Custom label text */
+    customLabel?: string;
+    /** Private annotation (only author can see) */
+    isPrivate?: boolean;
+    /** Pin this annotation to the top */
+    isPinned?: boolean;
+    /** Scope annotation to a space */
+    spaceId?: string;
   },
 ): UnsignedEvent {
   const tags: string[][] = [
-    ["d", `notes:${params.trackDTag}`],
-    ["a", params.trackAddressableId],
+    ["d", `ann:${params.annotationId}`],
+    ["a", params.targetRef],
   ];
 
-  const content = JSON.stringify({
-    linerNotes: params.linerNotes ?? "",
-    productionNotes: params.productionNotes ?? "",
-    credits: params.credits ?? [],
-  });
+  if (params.label) {
+    tags.push(["label", params.label === "custom" && params.customLabel ? params.customLabel : params.label]);
+  }
+  if (params.isPrivate) {
+    tags.push(["visibility", "private"]);
+  }
+  if (params.isPinned) {
+    tags.push(["pinned", "true"]);
+  }
+
+  // Space-scoping via h-tag
+  if (params.spaceId) {
+    tags.push(["h", params.spaceId]);
+  }
+
+  // If annotating someone else's content, tag the owner
+  const [, ownerPubkey] = params.targetRef.split(":");
+  if (ownerPubkey && ownerPubkey !== pubkey) {
+    tags.push(["p", ownerPubkey]);
+  }
 
   return {
     pubkey,
     created_at: Math.floor(Date.now() / 1000),
     kind: EVENT_KINDS.MUSIC_TRACK_NOTES,
     tags,
-    content,
+    content: params.content,
   };
 }
 

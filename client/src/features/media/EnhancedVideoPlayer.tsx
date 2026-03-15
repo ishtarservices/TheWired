@@ -14,6 +14,7 @@ import {
   ThumbsUp,
   ThumbsDown,
 } from "lucide-react";
+import { usePlaybackSpeed, VALID_SPEEDS } from "@/hooks/usePlaybackSpeed";
 
 interface EnhancedVideoPlayerProps {
   src: string;
@@ -24,7 +25,7 @@ interface EnhancedVideoPlayerProps {
   className?: string;
 }
 
-const PLAYBACK_SPEEDS = [0.25, 0.5, 0.75, 1, 1.25, 1.5, 1.75, 2];
+const PLAYBACK_SPEEDS = VALID_SPEEDS;
 
 function formatTime(seconds: number): string {
   if (!isFinite(seconds) || seconds < 0) return "0:00";
@@ -54,7 +55,7 @@ export function EnhancedVideoPlayer({
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [showControls, setShowControls] = useState(true);
   const [showSpeedMenu, setShowSpeedMenu] = useState(false);
-  const [playbackRate, setPlaybackRate] = useState(1);
+  const [playbackRate, setPlaybackRate] = usePlaybackSpeed();
   const [liked, setLiked] = useState(false);
   const [disliked, setDisliked] = useState(false);
   const [bookmarked, setBookmarked] = useState(false);

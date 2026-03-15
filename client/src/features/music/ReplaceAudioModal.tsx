@@ -1,5 +1,5 @@
 import { useState, useRef } from "react";
-import { X, Upload, Music, FileAudio } from "lucide-react";
+import { X, Upload, Music, FileAudio, ChevronLeft } from "lucide-react";
 import { Modal } from "@/components/ui/Modal";
 import { useAppSelector } from "@/store/hooks";
 import { uploadAudio } from "@/lib/api/music";
@@ -24,6 +24,7 @@ const ALLOWED_AUDIO_TYPES = new Set([
 interface ReplaceAudioModalProps {
   track: MusicTrack;
   onClose: () => void;
+  onBack?: () => void;
 }
 
 function formatDuration(seconds?: number): string {
@@ -59,7 +60,7 @@ function formatMime(mime?: string): string {
   return map[mime] ?? mime;
 }
 
-export function ReplaceAudioModal({ track, onClose }: ReplaceAudioModalProps) {
+export function ReplaceAudioModal({ track, onClose, onBack }: ReplaceAudioModalProps) {
   const pubkey = useAppSelector((s) => s.identity.pubkey);
   const [audioFile, setAudioFile] = useState<File | null>(null);
   const [newDuration, setNewDuration] = useState<number | undefined>(undefined);
@@ -140,7 +141,14 @@ export function ReplaceAudioModal({ track, onClose }: ReplaceAudioModalProps) {
     <Modal open={true} onClose={onClose}>
       <div className="w-full max-w-md rounded-2xl border border-edge card-glass p-6 shadow-xl">
         <div className="mb-4 flex items-center justify-between">
-          <h2 className="text-lg font-semibold text-heading">Replace Audio</h2>
+          <div className="flex items-center gap-2">
+            {onBack && (
+              <button onClick={onBack} className="text-soft hover:text-heading">
+                <ChevronLeft size={18} />
+              </button>
+            )}
+            <h2 className="text-lg font-semibold text-heading">Replace Audio</h2>
+          </div>
           <button onClick={onClose} className="text-soft hover:text-heading">
             <X size={18} />
           </button>

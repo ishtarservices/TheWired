@@ -1,11 +1,11 @@
 import { createSlice, type PayloadAction } from "@reduxjs/toolkit";
-import type { MusicTrack, MusicAlbum, MusicPlaylist, MusicView, RepeatMode, TrackNotes, MusicRevision, TrackInsights, MusicProposal, SavedAlbumVersion } from "../../types/music";
+import type { MusicTrack, MusicAlbum, MusicPlaylist, MusicView, RepeatMode, MusicAnnotation, MusicRevision, TrackInsights, MusicProposal, SavedAlbumVersion } from "../../types/music";
 
 interface MusicState {
   tracks: Record<string, MusicTrack>;
   albums: Record<string, MusicAlbum>;
   playlists: Record<string, MusicPlaylist>;
-  trackNotes: Record<string, TrackNotes>;
+  annotations: Record<string, MusicAnnotation[]>;
   revisions: Record<string, MusicRevision[]>;
   insights: Record<string, TrackInsights>;
   proposals: Record<string, MusicProposal[]>;
@@ -81,7 +81,7 @@ const initialState: MusicState = {
   tracks: {},
   albums: {},
   playlists: {},
-  trackNotes: {},
+  annotations: {},
   revisions: {},
   insights: {},
   proposals: {},
@@ -204,8 +204,32 @@ export const musicSlice = createSlice({
         }
       }
     },
-    setTrackNotes(state, action: PayloadAction<TrackNotes>) {
-      state.trackNotes[action.payload.trackRef] = action.payload;
+    addAnnotation(state, action: PayloadAction<MusicAnnotation>) {
+      const ann = action.payload;
+      const list = state.annotations[ann.targetRef] ?? [];
+      // Replace if same addressableId exists (update), otherwise append
+      const idx = list.findIndex((a) => a.addressableId === ann.addressableId);
+      if (idx >= 0) {
+        if (ann.createdAt >= list[idx].createdAt) {
+          list[idx] = ann;
+        }
+      } else {
+        list.push(ann);
+      }
+      // Sort: pinned first, then newest first
+      list.sort((a, b) => {
+        if (a.isPinned !== b.isPinned) return a.isPinned ? -1 : 1;
+        return b.createdAt - a.createdAt;
+      });
+      state.annotations[ann.targetRef] = list;
+    },
+    removeAnnotation(state, action: PayloadAction<{ targetRef: string; addressableId: string }>) {
+      const list = state.annotations[action.payload.targetRef];
+      if (list) {
+        state.annotations[action.payload.targetRef] = list.filter(
+          (a) => a.addressableId !== action.payload.addressableId,
+        );
+      }
     },
     setRevisions(state, action: PayloadAction<{ addressableId: string; revisions: MusicRevision[] }>) {
       state.revisions[action.payload.addressableId] = action.payload.revisions;
@@ -269,8 +293,8 @@ export const musicSlice = createSlice({
       state.library.favoritedTrackIds = state.library.favoritedTrackIds.filter((t) => t !== id);
       // Clean up downloads
       state.downloadedTrackIds = state.downloadedTrackIds.filter((t) => t !== id);
-      // Clean up track notes
-      delete state.trackNotes[id];
+      // Clean up annotations
+      delete state.annotations[id];
       // Clean up queue — adjust queueIndex to keep pointing at the same track
       const oldQueue = state.player.queue;
       const oldIndex = state.player.queueIndex;
@@ -729,7 +753,8 @@ export const {
   addAlbums,
   addPlaylist,
   addPlaylists,
-  setTrackNotes,
+  addAnnotation,
+  removeAnnotation,
   setRevisions,
   setInsights,
   setProposals,

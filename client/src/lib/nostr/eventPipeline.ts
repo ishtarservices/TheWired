@@ -6,11 +6,12 @@ import { verifyBridge } from "./verifyWorkerBridge";
 import { store } from "../../store";
 import { putEvent, deleteEvent } from "../db/eventStore";
 import { addEvent, indexChatMessage, indexReel, indexLongForm, indexLiveStream, indexNote, indexSpaceFeed, indexMusicTrack, indexMusicAlbum, indexReaction, indexReply, indexRepost, indexRepostByAuthor, indexQuote } from "../../store/slices/eventsSlice";
-import { addTrack, indexTrackByArtist, indexTrackByAlbum, indexTrackByArtistName, indexAlbumByArtist, indexAlbumByArtistName, addAlbum, addPlaylist, setTrackNotes, removeTrack, removeAlbum, removePlaylist } from "../../store/slices/musicSlice";
+import { addTrack, indexTrackByArtist, indexTrackByAlbum, indexTrackByArtistName, indexAlbumByArtist, indexAlbumByArtistName, addAlbum, addPlaylist, addAnnotation, removeAnnotation, removeTrack, removeAlbum, removePlaylist } from "../../store/slices/musicSlice";
 import { addDMMessage } from "../../store/slices/dmSlice";
 import { parseTrackEvent } from "../../features/music/trackParser";
 import { parseAlbumEvent } from "../../features/music/albumParser";
 import { parsePlaylistEvent } from "../../features/music/playlistParser";
+import { parseAnnotationEvent } from "../../features/music/annotationParser";
 import { incrementEventCount } from "../../store/slices/relaysSlice";
 import { trackFeedTimestamp } from "../../store/slices/feedSlice";
 import { SPACE_CHANNEL_ROUTES } from "../../features/spaces/spaceChannelRoutes";
@@ -246,22 +247,9 @@ function indexEvent(event: NostrEvent): void {
       break;
     }
     case EVENT_KINDS.MUSIC_TRACK_NOTES: {
-      try {
-        const content = JSON.parse(event.content);
-        const trackRef = event.tags.find((t) => t[0] === "a")?.[1];
-        const dTag = event.tags.find((t) => t[0] === "d")?.[1] ?? "";
-        if (trackRef) {
-          store.dispatch(setTrackNotes({
-            addressableId: `31686:${event.pubkey}:${dTag}`,
-            trackRef,
-            linerNotes: content.linerNotes,
-            productionNotes: content.productionNotes,
-            credits: content.credits ?? [],
-            createdAt: event.created_at,
-          }));
-        }
-      } catch {
-        // invalid content JSON
+      const annotation = parseAnnotationEvent(event);
+      if (annotation) {
+        store.dispatch(addAnnotation(annotation));
       }
       break;
     }
@@ -296,6 +284,15 @@ function indexEvent(event: NostrEvent): void {
             if (playlist && playlist.createdAt <= event.created_at) {
               deleteEvent(playlist.eventId).catch(() => {});
               store.dispatch(removePlaylist(addr));
+            }
+          } else if (kind === EVENT_KINDS.MUSIC_TRACK_NOTES) {
+            // Find and remove matching annotation
+            for (const [targetRef, anns] of Object.entries(state.music.annotations)) {
+              const match = anns.find((a) => a.addressableId === addr);
+              if (match && match.createdAt <= event.created_at) {
+                store.dispatch(removeAnnotation({ targetRef, addressableId: addr }));
+                break;
+              }
             }
           }
         }

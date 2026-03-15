@@ -89,21 +89,38 @@ export type ArtistEntry =
 
 export type RepeatMode = "none" | "one" | "all";
 
-/** Track notes (kind:31686) */
-export interface TrackNotes {
+/** A freeform annotation attached to a track or album (kind:31686) */
+export interface MusicAnnotation {
+  /** Addressable ID of this annotation event: 31686:pubkey:dTag */
   addressableId: string;
-  trackRef: string;
-  linerNotes?: string;
-  productionNotes?: string;
-  credits: TrackCredit[];
+  /** Raw event ID (hex hash) — needed for reposts and quotes */
+  eventId: string;
+  /** Addressable ID of the target track (31683:...) or album (33123:...) */
+  targetRef: string;
+  /** Author of this annotation */
+  authorPubkey: string;
+  /** Freeform markdown content */
+  content: string;
+  /** Optional soft label for display grouping */
+  label?: AnnotationLabel;
+  /** Custom label text when label is "custom" */
+  customLabel?: string;
+  /** Whether this annotation is private (only visible to the author) */
+  isPrivate: boolean;
+  /** Whether this annotation is pinned to the top */
+  isPinned: boolean;
+  /** Space ID if this annotation is space-scoped */
+  spaceId?: string;
   createdAt: number;
 }
 
-export interface TrackCredit {
-  role: string;
-  name: string;
-  pubkey?: string;
-}
+export type AnnotationLabel =
+  | "story"
+  | "credits"
+  | "thanks"
+  | "process"
+  | "lyrics"
+  | "custom";
 
 /** A single revision in the project timeline */
 export interface MusicRevision {

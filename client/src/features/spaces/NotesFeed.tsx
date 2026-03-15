@@ -1,6 +1,6 @@
 import { useState, useMemo, useEffect, useCallback, useRef, memo } from "react";
 import { nip19 } from "nostr-tools";
-import { ChevronDown, ChevronUp, ImageIcon, Film } from "lucide-react";
+import { ChevronDown, ChevronUp, ImageIcon, Film, Gauge } from "lucide-react";
 import { useAppSelector } from "../../store/hooks";
 import { selectSpaceRootNotes, selectSpaceRootNoteIds } from "./spaceSelectors";
 import { Avatar } from "../../components/ui/Avatar";
@@ -21,6 +21,7 @@ import { useNoteEngagement } from "./useNoteEngagement";
 import { useNoteActions } from "./useNoteActions";
 import { useNoteEngagementSub } from "./useNoteEngagementSub";
 import { parseQuoteRef } from "./noteParser";
+import { usePlaybackSpeed, VALID_SPEEDS } from "@/hooks/usePlaybackSpeed";
 import { NoteActionBar } from "./notes/NoteActionBar";
 import { QuotedNote } from "./notes/QuotedNote";
 import { ReplyComposer } from "./notes/ReplyComposer";
@@ -55,14 +56,62 @@ function InlineImage({ url }: { url: string }) {
 }
 
 function InlineVideo({ url }: { url: string }) {
+  const videoRef = useRef<HTMLVideoElement>(null);
+  const [playbackRate, setPlaybackRate] = usePlaybackSpeed();
+  const [showSpeedMenu, setShowSpeedMenu] = useState(false);
+
+  useEffect(() => {
+    if (videoRef.current) videoRef.current.playbackRate = playbackRate;
+  }, [playbackRate]);
+
   return (
-    <video
-      src={url}
-      controls
-      playsInline
-      preload="metadata"
-      className="max-h-80 rounded-md bg-black"
-    />
+    <div className="group/video relative inline-block max-h-80">
+      <video
+        ref={videoRef}
+        src={url}
+        controls
+        playsInline
+        preload="metadata"
+        className="max-h-80 rounded-md bg-black"
+        onRateChange={(e) => {
+          // Sync if user changes speed via native controls
+          const rate = (e.target as HTMLVideoElement).playbackRate;
+          if (rate !== playbackRate) setPlaybackRate(rate);
+        }}
+      />
+      {/* Speed overlay button */}
+      <div className="absolute right-2 top-2 z-10">
+        <button
+          onClick={() => setShowSpeedMenu((v) => !v)}
+          className={`flex items-center gap-0.5 rounded-md px-1.5 py-0.5 text-[11px] font-medium backdrop-blur-sm transition-colors ${
+            playbackRate !== 1
+              ? "bg-indigo-500/20 text-indigo-300"
+              : "bg-black/50 text-white/70 opacity-0 group-hover/video:opacity-100"
+          }`}
+          title="Playback speed"
+        >
+          <Gauge size={12} />
+          <span>{playbackRate}x</span>
+        </button>
+        {showSpeedMenu && (
+          <div className="absolute right-0 top-full mt-1 rounded-xl border border-edge card-glass py-1 shadow-lg">
+            {VALID_SPEEDS.map((speed) => (
+              <button
+                key={speed}
+                onClick={() => { setPlaybackRate(speed); setShowSpeedMenu(false); }}
+                className={`block w-full px-3 py-1 text-left text-xs transition-colors ${
+                  speed === playbackRate
+                    ? "bg-pulse/15 text-pulse-soft"
+                    : "text-body hover:bg-surface-hover"
+                }`}
+              >
+                {speed}x
+              </button>
+            ))}
+          </div>
+        )}
+      </div>
+    </div>
   );
 }
 

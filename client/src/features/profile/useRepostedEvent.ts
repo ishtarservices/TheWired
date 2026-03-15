@@ -36,9 +36,12 @@ export function useRepostedEvent(repostEvent: NostrEvent): NostrEvent | null {
     targetId ? eventsSelectors.selectById(s.events, targetId) : undefined,
   );
 
-  // If not in store, subscribe by ID
+  // If not in store, subscribe by ID.
+  // Only depend on targetId — NOT on `event`. The subscription should stay
+  // open until cleanup (unmount or targetId change). Once the event arrives
+  // via processIncomingEvent → Redux, the selector above will return it.
   useEffect(() => {
-    if (!targetId || event) return;
+    if (!targetId) return;
 
     const subId = subscriptionManager.subscribe({
       filters: [{ ids: [targetId] }],
@@ -47,7 +50,7 @@ export function useRepostedEvent(repostEvent: NostrEvent): NostrEvent | null {
     return () => {
       subscriptionManager.close(subId);
     };
-  }, [targetId, event]);
+  }, [targetId]);
 
   return event ?? null;
 }

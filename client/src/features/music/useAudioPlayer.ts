@@ -29,7 +29,8 @@ let loadedTrackId: string | null = null;
 // Track object URLs so we can revoke them to prevent memory leaks
 let currentObjectUrl: string | null = null;
 
-function getAudio(): HTMLAudioElement {
+/** Expose the singleton audio element for direct access (e.g. waveform visualization) */
+export function getAudio(): HTMLAudioElement {
   if (!audio) {
     audio = new Audio();
     audio.preload = "auto";

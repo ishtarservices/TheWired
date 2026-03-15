@@ -1,5 +1,5 @@
 import { useState, useMemo } from "react";
-import { X } from "lucide-react";
+import { X, ChevronLeft } from "lucide-react";
 import { Modal } from "@/components/ui/Modal";
 import { useAppSelector } from "@/store/hooks";
 import { buildTrackEvent, buildAlbumEvent } from "./musicEventBuilder";
@@ -10,9 +10,10 @@ import type { MusicTrack } from "@/types/music";
 interface MoveTrackModalProps {
   track: MusicTrack;
   onClose: () => void;
+  onBack?: () => void;
 }
 
-export function MoveTrackModal({ track, onClose }: MoveTrackModalProps) {
+export function MoveTrackModal({ track, onClose, onBack }: MoveTrackModalProps) {
   const pubkey = useAppSelector((s) => s.identity.pubkey);
   const albums = useAppSelector((s) => s.music.albums);
 
@@ -126,7 +127,14 @@ export function MoveTrackModal({ track, onClose }: MoveTrackModalProps) {
     <Modal open={true} onClose={onClose}>
       <div className="w-full max-w-md rounded-2xl border border-edge card-glass p-6 shadow-xl">
         <div className="mb-4 flex items-center justify-between">
-          <h2 className="text-lg font-semibold text-heading">Move Track</h2>
+          <div className="flex items-center gap-2">
+            {onBack && (
+              <button onClick={onBack} className="text-soft hover:text-heading">
+                <ChevronLeft size={18} />
+              </button>
+            )}
+            <h2 className="text-lg font-semibold text-heading">Move Track</h2>
+          </div>
           <button onClick={onClose} className="text-soft hover:text-heading">
             <X size={18} />
           </button>

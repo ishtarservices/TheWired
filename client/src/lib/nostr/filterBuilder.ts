@@ -1,4 +1,5 @@
 import type { NostrFilter } from "../../types/nostr";
+import { EVENT_KINDS } from "../../types/nostr";
 import type { ChannelRoute } from "../../types/space";
 
 /** Build a Nostr filter for a channel within a group */
@@ -82,4 +83,28 @@ export function buildSpaceFeedFilter(
   limit: number,
 ): NostrFilter {
   return { authors: memberPubkeys, kinds, limit };
+}
+
+/** Build a filter for fetching annotations on a track/album */
+export function buildAnnotationFilter(
+  targetRef: string,
+  opts?: { limit?: number },
+): NostrFilter {
+  return {
+    kinds: [EVENT_KINDS.MUSIC_TRACK_NOTES],
+    "#a": [targetRef],
+    limit: opts?.limit ?? 100,
+  };
+}
+
+/** Build a filter for fetching a user's own annotations */
+export function buildUserAnnotationsFilter(
+  pubkey: string,
+  limit = 200,
+): NostrFilter {
+  return {
+    kinds: [EVENT_KINDS.MUSIC_TRACK_NOTES],
+    authors: [pubkey],
+    limit,
+  };
 }

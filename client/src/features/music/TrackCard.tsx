@@ -6,7 +6,7 @@ import { setActiveDetailId } from "@/store/slices/musicSlice";
 import { useAudioPlayer } from "./useAudioPlayer";
 import { useLibrary } from "./useLibrary";
 import { FeaturedArtistsDisplay } from "./FeaturedArtistsDisplay";
-import { TrackActionMenu } from "./TrackActionMenu";
+import { TrackActionPanel } from "./TrackActionPanel";
 import { EditTrackModal } from "./EditTrackModal";
 import { getTrackImage } from "./trackImage";
 import { publishExisting } from "@/lib/nostr/publish";
@@ -25,7 +25,7 @@ export const TrackCard = memo(function TrackCard({
   queueIndex,
 }: TrackCardProps) {
   const dispatch = useAppDispatch();
-  const { playQueue, play, player } = useAudioPlayer();
+  const { playQueue, play, pause, resume, player } = useAudioPlayer();
   const albums = useAppSelector((s) => s.music.albums);
   const pubkey = useAppSelector((s) => s.identity.pubkey);
   const { saveTrack, unsaveTrack, isTrackSaved, favoriteTrack, unfavoriteTrack, isTrackFavorited } = useLibrary();
@@ -46,7 +46,11 @@ export const TrackCard = memo(function TrackCard({
   const menuBtnRef = useRef<HTMLButtonElement>(null);
 
   const handleClick = () => {
-    if (queueTracks && queueIndex !== undefined) {
+    if (isPlaying) {
+      pause();
+    } else if (player.currentTrackId === track.addressableId) {
+      resume();
+    } else if (queueTracks && queueIndex !== undefined) {
       playQueue(queueTracks, queueIndex);
     } else {
       play(track.addressableId);
@@ -173,7 +177,7 @@ export const TrackCard = memo(function TrackCard({
         </div>
       </button>
 
-      <TrackActionMenu
+      <TrackActionPanel
         track={track}
         isOwner={isOwner}
         isLocal={isLocal}

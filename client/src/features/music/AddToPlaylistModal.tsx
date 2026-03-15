@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { X, ListMusic, Check } from "lucide-react";
+import { X, ListMusic, Check, ChevronLeft } from "lucide-react";
 import { Modal } from "@/components/ui/Modal";
 import { useAppSelector, useAppDispatch } from "@/store/hooks";
 import { selectUserPlaylists } from "./musicSelectors";
@@ -10,10 +10,11 @@ import { signAndPublish } from "@/lib/nostr/publish";
 interface AddToPlaylistModalProps {
   open: boolean;
   onClose: () => void;
+  onBack?: () => void;
   trackAddrId: string;
 }
 
-export function AddToPlaylistModal({ open, onClose, trackAddrId }: AddToPlaylistModalProps) {
+export function AddToPlaylistModal({ open, onClose, onBack, trackAddrId }: AddToPlaylistModalProps) {
   const dispatch = useAppDispatch();
   const pubkey = useAppSelector((s) => s.identity.pubkey);
   const playlists = useAppSelector(selectUserPlaylists);
@@ -59,7 +60,14 @@ export function AddToPlaylistModal({ open, onClose, trackAddrId }: AddToPlaylist
     <Modal open={open} onClose={onClose}>
       <div className="w-full max-w-sm rounded-2xl border border-edge card-glass p-6 shadow-xl">
         <div className="mb-4 flex items-center justify-between">
-          <h2 className="text-lg font-semibold text-heading">Add to Playlist</h2>
+          <div className="flex items-center gap-2">
+            {onBack && (
+              <button onClick={onBack} className="text-soft hover:text-heading">
+                <ChevronLeft size={18} />
+              </button>
+            )}
+            <h2 className="text-lg font-semibold text-heading">Add to Playlist</h2>
+          </div>
           <button onClick={onClose} className="text-soft hover:text-heading">
             <X size={18} />
           </button>

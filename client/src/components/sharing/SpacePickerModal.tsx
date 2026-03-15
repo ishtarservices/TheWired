@@ -7,6 +7,7 @@ import type { Space, SpaceChannel, SpaceChannelType } from "@/types/space";
 interface SpacePickerModalProps {
   open: boolean;
   onClose: () => void;
+  onBack?: () => void;
   onSelect: (space: Space, channel: SpaceChannel) => void | Promise<void>;
   title?: string;
   /** Only show channels of these types. Shows all non-admin channels if omitted. */
@@ -83,6 +84,7 @@ function ChannelRow({
 export function SpacePickerModal({
   open,
   onClose,
+  onBack,
   onSelect,
   title = "Share to Space",
   channelTypes,
@@ -156,7 +158,14 @@ export function SpacePickerModal({
               </h2>
             </div>
           ) : (
-            <h2 className="text-lg font-semibold text-heading">{title}</h2>
+            <div className="flex items-center gap-2">
+              {onBack && (
+                <button onClick={onBack} className="text-soft hover:text-heading">
+                  <ChevronLeft size={18} />
+                </button>
+              )}
+              <h2 className="text-lg font-semibold text-heading">{title}</h2>
+            </div>
           )}
           <button onClick={handleClose} className="text-soft hover:text-heading">
             <X size={18} />

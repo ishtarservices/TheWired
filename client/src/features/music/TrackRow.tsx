@@ -6,7 +6,7 @@ import { setActiveDetailId } from "@/store/slices/musicSlice";
 import { useAudioPlayer } from "./useAudioPlayer";
 import { EditTrackModal } from "./EditTrackModal";
 import { FeaturedArtistsDisplay } from "./FeaturedArtistsDisplay";
-import { TrackActionMenu } from "./TrackActionMenu";
+import { TrackActionPanel } from "./TrackActionPanel";
 import { publishExisting } from "@/lib/nostr/publish";
 import { getEvent } from "@/lib/db/eventStore";
 import { removeLocalEventId } from "@/lib/db/musicStore";
@@ -77,124 +77,126 @@ export const TrackRow = memo(function TrackRow({
   };
 
   return (
-    <div
-      onClick={handlePlay}
-      className={`group grid cursor-pointer grid-cols-[2rem_1fr_1fr_4rem_2rem] items-center gap-4 rounded-lg px-3 py-1.5 text-sm transition-colors hover:bg-surface ${
-        isCurrent ? "text-neon" : "text-soft"
-      }`}
-    >
-      {/* Index / play icon */}
-      <div className="flex items-center justify-center">
-        {isPlaying ? (
-          <div className="flex items-center gap-0.5">
-            <span className="block h-2.5 w-0.5 animate-pulse bg-neon" />
-            <span className="block h-2.5 w-0.5 animate-pulse bg-neon delay-75" />
-          </div>
-        ) : (
-          <>
-            <span className="group-hover:hidden">{index + 1}</span>
-            <Play
-              size={14}
-              fill="currentColor"
-              className="hidden group-hover:block"
-            />
-          </>
-        )}
-      </div>
-
-      {/* Title + artist */}
-      <div className="min-w-0">
-        <p className={`truncate text-sm ${isCurrent ? "text-neon" : "text-heading"}`}>
-          {track.title}
-          {isLocal && (
-            <span className="ml-1.5 inline-block rounded bg-card px-1 py-0.5 text-[10px] text-muted">
-              LOCAL
-            </span>
-          )}
-          {isDownloaded && (
-            <span title="Available offline" className="ml-1.5 inline-block align-middle">
-              <HardDriveDownload size={12} className="text-pulse/70" />
-            </span>
-          )}
-        </p>
-        <p className="truncate text-xs text-soft">
-          {track.artist}
-          <FeaturedArtistsDisplay pubkeys={track.featuredArtists} />
-          {albumName && (
+    <div>
+      <div
+        onClick={handlePlay}
+        className={`group grid cursor-pointer grid-cols-[2rem_1fr_1fr_4rem_2rem] items-center gap-4 rounded-lg px-3 py-1.5 text-sm transition-colors hover:bg-surface ${
+          isCurrent ? "text-neon" : "text-soft"
+        }`}
+      >
+        {/* Index / play icon */}
+        <div className="flex items-center justify-center">
+          {isPlaying ? (
+            <div className="flex items-center gap-0.5">
+              <span className="block h-2.5 w-0.5 animate-pulse bg-neon" />
+              <span className="block h-2.5 w-0.5 animate-pulse bg-neon delay-75" />
+            </div>
+          ) : (
             <>
-              {" "}
-              <span className="text-muted">&middot;</span>{" "}
-              <button
-                type="button"
-                onClick={(e) => {
-                  e.stopPropagation();
-                  if (onAlbumClick) {
-                    onAlbumClick(track.albumRef!);
-                  } else {
-                    dispatch(setActiveDetailId({ view: "album-detail", id: track.albumRef! }));
-                  }
-                }}
-                className="cursor-pointer text-muted hover:text-heading hover:underline"
-              >
-                {albumName}
-              </button>
+              <span className="group-hover:hidden">{index + 1}</span>
+              <Play
+                size={14}
+                fill="currentColor"
+                className="hidden group-hover:block"
+              />
             </>
           )}
-        </p>
-      </div>
+        </div>
 
-      {/* Genre + hashtags */}
-      <div className="flex min-w-0 items-center gap-1 overflow-hidden">
-        {track.genre && (
-          <span className="shrink-0 text-xs text-muted">{track.genre}</span>
-        )}
-        {track.hashtags.slice(0, 2).map((tag) => (
-          <span
-            key={tag}
-            className="shrink-0 rounded-full bg-card px-1.5 py-0.5 text-[10px] text-muted"
-          >
-            #{tag}
-          </span>
-        ))}
-      </div>
+        {/* Title + artist */}
+        <div className="min-w-0">
+          <p className={`truncate text-sm ${isCurrent ? "text-neon" : "text-heading"}`}>
+            {track.title}
+            {isLocal && (
+              <span className="ml-1.5 inline-block rounded bg-card px-1 py-0.5 text-[10px] text-muted">
+                LOCAL
+              </span>
+            )}
+            {isDownloaded && (
+              <span title="Available offline" className="ml-1.5 inline-block align-middle">
+                <HardDriveDownload size={12} className="text-pulse/70" />
+              </span>
+            )}
+          </p>
+          <p className="truncate text-xs text-soft">
+            {track.artist}
+            <FeaturedArtistsDisplay pubkeys={track.featuredArtists} />
+            {albumName && (
+              <>
+                {" "}
+                <span className="text-muted">&middot;</span>{" "}
+                <button
+                  type="button"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    if (onAlbumClick) {
+                      onAlbumClick(track.albumRef!);
+                    } else {
+                      dispatch(setActiveDetailId({ view: "album-detail", id: track.albumRef! }));
+                    }
+                  }}
+                  className="cursor-pointer text-muted hover:text-heading hover:underline"
+                >
+                  {albumName}
+                </button>
+              </>
+            )}
+          </p>
+        </div>
 
-      {/* Duration */}
-      <span className="text-right text-xs text-muted">
-        {formatDuration(track.duration)}
-      </span>
-
-      {/* Action menu */}
-      <div className="relative flex items-center justify-center">
-        {(isOwner || !isLocal) && (
-          <>
-            <button
-              ref={menuBtnRef}
-              onClick={(e) => {
-                e.stopPropagation();
-                setMenuOpen((v) => !v);
-              }}
-              className="opacity-0 group-hover:opacity-100 text-muted hover:text-heading transition-opacity"
+        {/* Genre + hashtags */}
+        <div className="flex min-w-0 items-center gap-1 overflow-hidden">
+          {track.genre && (
+            <span className="shrink-0 text-xs text-muted">{track.genre}</span>
+          )}
+          {track.hashtags.slice(0, 2).map((tag) => (
+            <span
+              key={tag}
+              className="shrink-0 rounded-full bg-card px-1.5 py-0.5 text-[10px] text-muted"
             >
-              <MoreHorizontal size={16} />
-            </button>
-            <TrackActionMenu
-              track={track}
-              isOwner={isOwner}
-              isLocal={isLocal}
-              open={menuOpen}
-              onClose={() => setMenuOpen(false)}
-              onEdit={() => setEditOpen(true)}
-              onPublish={handlePublish}
-              publishing={publishing}
-              anchorRef={menuBtnRef}
-            />
-          </>
+              #{tag}
+            </span>
+          ))}
+        </div>
+
+        {/* Duration */}
+        <span className="text-right text-xs text-muted">
+          {formatDuration(track.duration)}
+        </span>
+
+        {/* Action menu */}
+        <div className="relative flex items-center justify-center">
+          {(isOwner || !isLocal) && (
+            <>
+              <button
+                ref={menuBtnRef}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setMenuOpen((v) => !v);
+                }}
+                className="opacity-0 group-hover:opacity-100 text-muted hover:text-heading transition-opacity"
+              >
+                <MoreHorizontal size={16} />
+              </button>
+              <TrackActionPanel
+                track={track}
+                isOwner={isOwner}
+                isLocal={isLocal}
+                open={menuOpen}
+                onClose={() => setMenuOpen(false)}
+                onEdit={() => setEditOpen(true)}
+                onPublish={handlePublish}
+                publishing={publishing}
+                anchorRef={menuBtnRef}
+              />
+            </>
+          )}
+        </div>
+
+        {editOpen && (
+          <EditTrackModal track={track} onClose={() => setEditOpen(false)} />
         )}
       </div>
-
-      {editOpen && (
-        <EditTrackModal track={track} onClose={() => setEditOpen(false)} />
-      )}
     </div>
   );
 });

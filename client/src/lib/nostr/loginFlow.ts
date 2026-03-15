@@ -33,6 +33,7 @@ import {
   addTracks,
   addAlbums,
   addPlaylists,
+  addAnnotation,
   indexTrackByArtist,
   indexTrackByAlbum,
   indexTrackByArtistName,
@@ -49,6 +50,7 @@ import {
 import { parseTrackEvent } from "../../features/music/trackParser";
 import { parseAlbumEvent } from "../../features/music/albumParser";
 import { parsePlaylistEvent } from "../../features/music/playlistParser";
+import { parseAnnotationEvent } from "../../features/music/annotationParser";
 import { BOOTSTRAP_RELAYS, APP_RELAY } from "./constants";
 import { signAndPublish } from "./publish";
 import { buildDMRelayListEvent } from "./eventBuilder";
@@ -322,10 +324,11 @@ export async function performLogin(
 
   // Step 7c: Load music events from IndexedDB, filtering out any that have
   // been deleted (kind:5 events referencing them via "a" tags)
-  const [trackEvents, albumEvents, playlistEvents, deletionEvents] = await Promise.all([
+  const [trackEvents, albumEvents, playlistEvents, annotationEvents, deletionEvents] = await Promise.all([
     getEventsByKind(EVENT_KINDS.MUSIC_TRACK, 500),
     getEventsByKind(EVENT_KINDS.MUSIC_ALBUM, 200),
     getEventsByKind(EVENT_KINDS.MUSIC_PLAYLIST, 200),
+    getEventsByKind(EVENT_KINDS.MUSIC_TRACK_NOTES, 500),
     getEventsByKind(EVENT_KINDS.DELETION, 500),
   ]);
 
@@ -416,6 +419,17 @@ export async function performLogin(
     store.dispatch(addPlaylists(livePlaylistEvents.map(parsePlaylistEvent)));
   }
 
+  // Restore annotations from IndexedDB, filtering deletions
+  const liveAnnotationEvents = annotationEvents.filter(
+    (e) => !deletedEventIds.has(e.id) && !isDeletedByAddr(e, EVENT_KINDS.MUSIC_TRACK_NOTES),
+  );
+  for (const evt of liveAnnotationEvents) {
+    const annotation = parseAnnotationEvent(evt);
+    if (annotation) {
+      store.dispatch(addAnnotation(annotation));
+    }
+  }
+
   // Step 7d: Load music library state from IndexedDB
   const musicLib = await loadMusicLibrary();
   if (musicLib) {
@@ -437,7 +451,7 @@ export async function performLogin(
   subscriptionManager.subscribe({
     filters: [
       {
-        kinds: [EVENT_KINDS.MUSIC_TRACK, EVENT_KINDS.MUSIC_ALBUM, EVENT_KINDS.MUSIC_PLAYLIST, EVENT_KINDS.DELETION],
+        kinds: [EVENT_KINDS.MUSIC_TRACK, EVENT_KINDS.MUSIC_ALBUM, EVENT_KINDS.MUSIC_PLAYLIST, EVENT_KINDS.MUSIC_TRACK_NOTES, EVENT_KINDS.DELETION],
         authors: [pubkey],
         limit: 500,
       },

@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { X, Search, Send } from "lucide-react";
+import { X, Search, Send, ChevronLeft } from "lucide-react";
 import { Modal } from "@/components/ui/Modal";
 import { Avatar } from "@/components/ui/Avatar";
 import { useAppSelector } from "@/store/hooks";
@@ -9,6 +9,7 @@ import { useProfile } from "@/features/profile/useProfile";
 interface RecipientPickerModalProps {
   open: boolean;
   onClose: () => void;
+  onBack?: () => void;
   onSelect: (pubkey: string) => void;
   title?: string;
 }
@@ -42,6 +43,7 @@ function ContactRow({
 export function RecipientPickerModal({
   open,
   onClose,
+  onBack,
   onSelect,
   title = "Send to DM",
 }: RecipientPickerModalProps) {
@@ -89,7 +91,14 @@ export function RecipientPickerModal({
     <Modal open={open} onClose={onClose}>
       <div className="w-full max-w-sm rounded-2xl border border-edge card-glass p-6 shadow-xl">
         <div className="mb-4 flex items-center justify-between">
-          <h2 className="text-lg font-semibold text-heading">{title}</h2>
+          <div className="flex items-center gap-2">
+            {onBack && (
+              <button onClick={onBack} className="text-soft hover:text-heading">
+                <ChevronLeft size={18} />
+              </button>
+            )}
+            <h2 className="text-lg font-semibold text-heading">{title}</h2>
+          </div>
           <button onClick={onClose} className="text-soft hover:text-heading">
             <X size={18} />
           </button>

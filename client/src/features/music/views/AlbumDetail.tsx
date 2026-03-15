@@ -15,6 +15,7 @@ import { Avatar } from "@/components/ui/Avatar";
 import { useProfile } from "@/features/profile/useProfile";
 import { useSavedVersions } from "../useSavedVersions";
 import { ReleaseNotesModal } from "../ReleaseNotesModal";
+import { AnnotationsPanel } from "../AnnotationsPanel";
 
 function CollaboratorRow({
   pubkey,
@@ -398,6 +399,15 @@ export function AlbumDetail() {
               <Plus size={14} />
               Add {unsavedTrackCount} remaining track{unsavedTrackCount !== 1 ? "s" : ""}
             </button>
+          )}
+
+          {/* Annotations */}
+          {albumId && (
+            <AnnotationsPanel
+              targetRef={albumId}
+              targetName={album.title}
+              ownerPubkey={album.pubkey}
+            />
           )}
         </div>
       </div>
