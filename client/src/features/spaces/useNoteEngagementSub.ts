@@ -1,21 +1,26 @@
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useMemo } from "react";
 import { subscriptionManager } from "../../lib/nostr/subscriptionManager";
 
 const BATCH_LIMIT = 100;
 
 /** Batch subscribe for reactions, reposts, and reply counts for visible notes */
 export function useNoteEngagementSub(noteEventIds: string[], relayUrl: string | undefined) {
+  // Stabilize the ID key so the effect only fires when content actually changes
+  const idsKey = useMemo(
+    () => noteEventIds.slice(0, BATCH_LIMIT).join(","),
+    [noteEventIds],
+  );
+
   const prevIdsRef = useRef<string>("");
 
   useEffect(() => {
-    if (!relayUrl || noteEventIds.length === 0) return;
+    if (!relayUrl || !idsKey) return;
 
     // Only re-subscribe if the ID set actually changed
-    const idsKey = noteEventIds.slice(0, BATCH_LIMIT).join(",");
     if (idsKey === prevIdsRef.current) return;
     prevIdsRef.current = idsKey;
 
-    const ids = noteEventIds.slice(0, BATCH_LIMIT);
+    const ids = idsKey.split(",");
     const subIds: string[] = [];
 
     // Reactions (kind:7)
@@ -48,5 +53,5 @@ export function useNoteEngagementSub(noteEventIds: string[], relayUrl: string | 
       }
       prevIdsRef.current = "";
     };
-  }, [noteEventIds, relayUrl]);
+  }, [idsKey, relayUrl]);
 }

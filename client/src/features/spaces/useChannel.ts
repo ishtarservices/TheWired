@@ -1,34 +1,37 @@
 import { useMemo } from "react";
 import { useAppSelector } from "../../store/hooks";
-import { eventsSelectors } from "../../store/slices/eventsSlice";
+import type { NostrEvent } from "../../types/nostr";
 
-/** Get events for the active channel */
+const EMPTY: string[] = [];
+
+/** Get events for the active channel by selecting only the specific index */
 export function useChannelEvents(channelType: string) {
   const activeSpaceId = useAppSelector((s) => s.spaces.activeSpaceId);
-  const events = useAppSelector((s) => s.events);
 
-  return useMemo(() => {
-    if (!activeSpaceId) return [];
-
-    let eventIds: string[] = [];
-
+  // Select only the specific index array -- NOT the entire events slice
+  const eventIds = useAppSelector((s) => {
+    if (!activeSpaceId) return EMPTY;
     switch (channelType) {
       case "chat":
-        eventIds = events.chatMessages[activeSpaceId] ?? [];
-        break;
+        return s.events.chatMessages[activeSpaceId] ?? EMPTY;
       case "reels":
-        eventIds = events.reels[activeSpaceId] ?? [];
-        break;
+        return s.events.reels[activeSpaceId] ?? EMPTY;
       case "long-form":
-        eventIds = events.longform[activeSpaceId] ?? [];
-        break;
+        return s.events.longform[activeSpaceId] ?? EMPTY;
       case "live":
-        eventIds = events.liveStreams[activeSpaceId] ?? [];
-        break;
+        return s.events.liveStreams[activeSpaceId] ?? EMPTY;
+      default:
+        return EMPTY;
     }
+  });
 
-    return eventIds
-      .map((id) => eventsSelectors.selectById(events, id))
-      .filter(Boolean);
-  }, [activeSpaceId, channelType, events]);
+  const entities = useAppSelector((s) => s.events.entities);
+
+  return useMemo(
+    () =>
+      eventIds
+        .map((id) => entities[id])
+        .filter((e): e is NostrEvent => !!e),
+    [eventIds, entities],
+  );
 }

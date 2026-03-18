@@ -21,8 +21,12 @@ interface DMState {
   activeConversation: string | null;
   loading: boolean;
   processedWrapIds: string[];
+  /** O(1) lookup mirror of processedWrapIds */
+  processedWrapIdSet: Record<string, true>;
   /** Captured unread count when opening a conversation, for divider positioning */
   unreadDividers: Record<string, number>;
+  /** Monotonic counter bumped on every mutation — drives persistence fingerprint */
+  mutationCounter: number;
 }
 
 const initialState: DMState = {
@@ -31,8 +35,39 @@ const initialState: DMState = {
   activeConversation: null,
   loading: false,
   processedWrapIds: [],
+  processedWrapIdSet: {},
   unreadDividers: {},
+  mutationCounter: 0,
 };
+
+/** Truncate a string for message preview display */
+function truncatePreview(text: string, max = 50): string {
+  return text.length > max ? text.slice(0, max) + "..." : text;
+}
+
+/** Insert a message in sorted (ascending createdAt) order via binary search */
+function insertSorted(arr: DMMessage[], msg: DMMessage): void {
+  let lo = 0;
+  let hi = arr.length;
+  while (lo < hi) {
+    const mid = (lo + hi) >>> 1;
+    if (arr[mid].createdAt < msg.createdAt) lo = mid + 1;
+    else hi = mid;
+  }
+  arr.splice(lo, 0, msg);
+}
+
+/** Insert a contact in sorted (descending lastMessageAt) order */
+function insertContactSorted(arr: DMContact[], contact: DMContact): void {
+  let lo = 0;
+  let hi = arr.length;
+  while (lo < hi) {
+    const mid = (lo + hi) >>> 1;
+    if (arr[mid].lastMessageAt > contact.lastMessageAt) lo = mid + 1;
+    else hi = mid;
+  }
+  arr.splice(lo, 0, contact);
+}
 
 export const dmSlice = createSlice({
   name: "dm",
@@ -49,12 +84,17 @@ export const dmSlice = createSlice({
       const { partnerPubkey, message, myPubkey } = action.payload;
       const isOwnMessage = message.senderPubkey === myPubkey;
 
-      // Dedup by wrapId
-      if (state.processedWrapIds.includes(message.wrapId)) return;
+      // O(1) dedup via lookup map
+      if (state.processedWrapIdSet[message.wrapId]) return;
       state.processedWrapIds.push(message.wrapId);
+      state.processedWrapIdSet[message.wrapId] = true;
+
       // Keep processedWrapIds bounded
       if (state.processedWrapIds.length > 5000) {
-        state.processedWrapIds = state.processedWrapIds.slice(-3000);
+        const evicted = state.processedWrapIds.splice(0, state.processedWrapIds.length - 3000);
+        for (const id of evicted) {
+          delete state.processedWrapIdSet[id];
+        }
       }
 
       // Add message (secondary dedup: skip if wrapId already in message list,
@@ -63,16 +103,13 @@ export const dmSlice = createSlice({
         state.messages[partnerPubkey] = [];
       }
       if (state.messages[partnerPubkey].some((m) => m.wrapId === message.wrapId)) return;
-      state.messages[partnerPubkey].push(message);
-      // Sort by createdAt ascending
-      state.messages[partnerPubkey].sort((a, b) => a.createdAt - b.createdAt);
+
+      // Binary insert instead of push+sort
+      insertSorted(state.messages[partnerPubkey], message);
 
       // Update contact
       const contactIdx = state.contacts.findIndex((c) => c.pubkey === partnerPubkey);
-      const preview =
-        message.content.length > 50
-          ? message.content.slice(0, 50) + "..."
-          : message.content;
+      const preview = truncatePreview(message.content);
 
       if (contactIdx >= 0) {
         const contact = state.contacts[contactIdx];
@@ -84,18 +121,21 @@ export const dmSlice = createSlice({
         if (!isOwnMessage && state.activeConversation !== partnerPubkey) {
           contact.unreadCount += 1;
         }
+        // Re-sort: remove and re-insert at correct position
+        state.contacts.splice(contactIdx, 1);
+        insertContactSorted(state.contacts, contact);
       } else {
         const isUnread = !isOwnMessage && state.activeConversation !== partnerPubkey;
-        state.contacts.push({
+        const newContact: DMContact = {
           pubkey: partnerPubkey,
           lastMessageAt: message.createdAt,
           lastMessagePreview: preview,
           unreadCount: isUnread ? 1 : 0,
-        });
+        };
+        insertContactSorted(state.contacts, newContact);
       }
 
-      // Sort contacts by lastMessageAt desc
-      state.contacts.sort((a, b) => b.lastMessageAt - a.lastMessageAt);
+      state.mutationCounter += 1;
     },
 
     setActiveConversation(state, action: PayloadAction<string | null>) {
@@ -144,15 +184,14 @@ export const dmSlice = createSlice({
       if (contact && remaining.length > 0) {
         const last = remaining[remaining.length - 1];
         contact.lastMessageAt = last.createdAt;
-        contact.lastMessagePreview =
-          last.content.length > 50
-            ? last.content.slice(0, 50) + "..."
-            : last.content;
+        contact.lastMessagePreview = truncatePreview(last.content);
       } else if (contact && remaining.length === 0) {
         // No messages left — remove the contact entirely
         state.contacts = state.contacts.filter((c) => c.pubkey !== partnerPubkey);
         delete state.messages[partnerPubkey];
       }
+
+      state.mutationCounter += 1;
     },
 
     /** Delete an entire conversation locally */
@@ -164,6 +203,7 @@ export const dmSlice = createSlice({
       if (state.activeConversation === pubkey) {
         state.activeConversation = null;
       }
+      state.mutationCounter += 1;
     },
 
     /** Bulk-restore persisted DM state from IndexedDB on startup.
@@ -202,7 +242,27 @@ export const dmSlice = createSlice({
         state.contacts = contacts;
       }
 
-      if (processedWrapIds) state.processedWrapIds = processedWrapIds;
+      if (processedWrapIds) {
+        state.processedWrapIds = processedWrapIds;
+        // Rebuild the O(1) lookup set
+        const set: Record<string, true> = {};
+        for (const id of processedWrapIds) {
+          set[id] = true;
+        }
+        state.processedWrapIdSet = set;
+      }
+
+      // If a conversation is currently being viewed (e.g. user navigated
+      // before persistence finished loading), clear that contact's unread
+      // count to prevent stale badges after restore.
+      if (state.activeConversation) {
+        const active = state.contacts.find(
+          (c) => c.pubkey === state.activeConversation,
+        );
+        if (active && active.unreadCount > 0) {
+          active.unreadCount = 0;
+        }
+      }
     },
   },
 });

@@ -430,7 +430,7 @@ async function handleGiftWrap(event: NostrEvent): Promise<void> {
     // Snapshot DM state BEFORE dispatch so we can gate the notification on
     // whether this wrap was already processed (e.g. restored from IndexedDB).
     const dmState = store.getState().dm;
-    const alreadyProcessed = dmState.processedWrapIds.includes(dm.wrapId);
+    const alreadyProcessed = !!dmState.processedWrapIdSet[dm.wrapId];
 
     // Use receive-time for display instead of the rumor's randomized created_at.
     // NIP-17 randomizes the rumor timestamp for wire-level privacy — it's not

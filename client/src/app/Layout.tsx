@@ -3,7 +3,7 @@ import { Sidebar } from "../components/layout/Sidebar";
 import { CenterPanel } from "../components/layout/CenterPanel";
 import { RightPanel } from "../components/layout/RightPanel";
 import { TopBar } from "../components/layout/TopBar";
-import { PlaybackBar } from "../features/music/PlaybackBar";
+import { FloatingPlaybackBar } from "../features/music/playbackBar/FloatingPlaybackBar";
 import { QueuePanel } from "../features/music/QueuePanel";
 import { UserPopoverProvider } from "../features/profile/UserPopoverContext";
 import { NotificationToastStack } from "../features/notifications/NotificationToast";
@@ -37,7 +37,7 @@ export function Layout() {
           <RightPanel visible={showRightPanel} />
           <QueuePanel />
         </div>
-        {hasTrack && <PlaybackBar />}
+        {hasTrack && <FloatingPlaybackBar />}
         <NotificationToastStack />
       </div>
     </UserPopoverProvider>

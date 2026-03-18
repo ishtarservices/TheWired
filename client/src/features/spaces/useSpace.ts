@@ -22,14 +22,18 @@ import {
 } from "../../lib/db/spaceStore";
 import {
   clearChannelUnread,
+  clearSpaceUnread,
   updateLastRead,
   addNotification,
   markChannelNotificationsRead,
   setUnreadDivider,
 } from "../../store/slices/notificationSlice";
+import { clearFeedMeta } from "../../store/slices/feedSlice";
 import { fetchMembers, getSpace, fetchFeedSources } from "../../lib/api/spaces";
 import { ApiRequestError } from "../../lib/api/client";
 import { updateSpaceFeedSources } from "../../store/slices/spacesSlice";
+import { selectActiveSpace, parseChannelIdPart } from "./spaceSelectors";
+import { clearSpaceFeed } from "../../store/slices/eventsSlice";
 import type { Space, SpaceChannel } from "../../types/space";
 
 /** Pick the best default channel for a space, respecting position and isDefault flag */
@@ -62,6 +66,24 @@ function activateChannel(channelId: string, dispatch: ReturnType<typeof useAppDi
   dispatch(updateLastRead({ contextId: channelId, timestamp: Math.floor(Date.now() / 1000) }));
 }
 
+/**
+ * Unified cleanup for all slices when a space is removed/deleted.
+ * Ensures no stale data lingers in notifications, feed metadata,
+ * events indices, or spaceConfig.
+ */
+function cleanupSpaceState(spaceId: string, dispatch: ReturnType<typeof useAppDispatch>) {
+  leaveClientSpace(spaceId);
+  closeBgChatSub(spaceId);
+  dispatch(removeSpace(spaceId));
+  dispatch(clearSpaceUnread(spaceId));
+  dispatch(clearSpaceFeed(spaceId));
+  dispatch(clearFeedMeta(`${spaceId}:notes`));
+  dispatch(clearFeedMeta(`${spaceId}:media`));
+  dispatch(clearFeedMeta(`${spaceId}:articles`));
+  dispatch(clearFeedMeta(`${spaceId}:music`));
+  removeSpaceFromStore(spaceId);
+}
+
 export function useSpace() {
   const dispatch = useAppDispatch();
   const spaces = useAppSelector((s) => s.spaces.list);
@@ -69,7 +91,7 @@ export function useSpace() {
   const activeChannelId = useAppSelector((s) => s.spaces.activeChannelId);
   const allChannels = useAppSelector((s) => s.spaces.channels);
 
-  const activeSpace = spaces.find((s) => s.id === activeSpaceId) ?? null;
+  const activeSpace = useAppSelector(selectActiveSpace);
 
   /** Fetch members from backend and merge into Redux + IndexedDB */
   const syncMembers = useCallback(
@@ -93,10 +115,7 @@ export function useSpace() {
       } catch (err) {
         // Space deleted on backend — clean up locally
         if (err instanceof ApiRequestError && err.status === 404) {
-          leaveClientSpace(spaceId);
-          closeBgChatSub(spaceId);
-          dispatch(removeSpace(spaceId));
-          removeSpaceFromStore(spaceId);
+          cleanupSpaceState(spaceId, dispatch);
           dispatch(
             addNotification({
               id: `space-gone-${spaceId}`,
@@ -137,7 +156,7 @@ export function useSpace() {
           const state = store.getState();
           if (state.spaces.activeSpaceId === spaceId && state.spaces.activeChannelId) {
             const spaceChannels = state.spaces.channels[spaceId];
-            const channelIdPart = state.spaces.activeChannelId.split(":").slice(1).join(":");
+            const channelIdPart = parseChannelIdPart(state.spaces.activeChannelId);
             const channel = spaceChannels?.find((c) => c.id === channelIdPart);
             if (channel) {
               switchSpaceChannel(updated, channel.type);
@@ -190,10 +209,7 @@ export function useSpace() {
       // Background existence check — if the space was deleted, getSpace returns 404
       getSpace(spaceId).catch((err) => {
         if (err instanceof ApiRequestError && err.status === 404) {
-          leaveClientSpace(spaceId);
-          closeBgChatSub(spaceId);
-          dispatch(removeSpace(spaceId));
-          removeSpaceFromStore(spaceId);
+          cleanupSpaceState(spaceId, dispatch);
           dispatch(
             addNotification({
               id: `space-gone-${spaceId}`,
@@ -238,7 +254,7 @@ export function useSpace() {
     if (!activeSpaceId || !activeChannelId) return null;
     const spaceChannels = allChannels[activeSpaceId];
     if (!spaceChannels) return null;
-    const channelIdPart = activeChannelId.split(":").slice(1).join(":");
+    const channelIdPart = parseChannelIdPart(activeChannelId);
     return spaceChannels.find((c) => c.id === channelIdPart) ?? null;
   }, [activeSpaceId, activeChannelId, allChannels]);
 
@@ -261,10 +277,7 @@ export function useSpace() {
 
   const deleteSpace = useCallback(
     (spaceId: string) => {
-      leaveClientSpace(spaceId);
-      closeBgChatSub(spaceId);
-      dispatch(removeSpace(spaceId));
-      removeSpaceFromStore(spaceId);
+      cleanupSpaceState(spaceId, dispatch);
     },
     [dispatch],
   );

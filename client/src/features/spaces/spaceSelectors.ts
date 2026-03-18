@@ -1,8 +1,7 @@
 import { createSelector } from "@reduxjs/toolkit";
 import type { RootState } from "../../store";
 import type { NostrEvent } from "../../types/nostr";
-import type { SpaceChannel, SpaceChannelType } from "../../types/space";
-import { isRootNote } from "./noteParser";
+import type { Space, SpaceChannel, SpaceChannelType } from "../../types/space";
 
 /** Resolve the context ID for a channel type within a space */
 export function getContextId(
@@ -18,12 +17,31 @@ export function getContextId(
   return `${spaceId}:${channelType}`;
 }
 
+/** Extract the channel ID part from a composite "spaceId:channelId" string */
+export function parseChannelIdPart(activeChannelId: string | null): string {
+  if (!activeChannelId) return "";
+  return activeChannelId.split(":").slice(1).join(":");
+}
+
+// ── Input selectors (shared across multiple memoized selectors) ──
+
+const selectActiveSpaceId = (state: RootState) => state.spaces.activeSpaceId;
+const selectSpaceList = (state: RootState) => state.spaces.list;
+const selectSpaceFeeds = (state: RootState) => state.events.spaceFeeds;
+const selectEntities = (state: RootState) => state.events.entities;
+const selectLongform = (state: RootState) => state.events.longform;
+
 /** Select event IDs array for a specific space feed context */
 const selectSpaceFeedIds = (state: RootState, contextId: string) =>
   state.events.spaceFeeds[contextId] ?? [];
 
-/** Select just the entities map (not the whole events slice) */
-const selectEntities = (state: RootState) => state.events.entities;
+// ── Memoized selectors ──
+
+/** Memoized: the currently active Space object (or null) */
+export const selectActiveSpace = createSelector(
+  [selectActiveSpaceId, selectSpaceList],
+  (id, list): Space | null => (id ? list.find((s) => s.id === id) ?? null : null),
+);
 
 /**
  * Memoized selector: returns NostrEvent[] for a space feed context.
@@ -40,11 +58,7 @@ export const selectSpaceFeedEvents = createSelector(
 
 /** Memoized: notes for active space, sorted desc */
 export const selectSpaceNotes = createSelector(
-  [
-    (state: RootState) => state.spaces.activeSpaceId,
-    (state: RootState) => state.events.spaceFeeds,
-    selectEntities,
-  ],
+  [selectActiveSpaceId, selectSpaceFeeds, selectEntities],
   (activeSpaceId, spaceFeeds, entities) => {
     if (!activeSpaceId) return [];
     const ids = spaceFeeds[`${activeSpaceId}:notes`] ?? [];
@@ -55,22 +69,21 @@ export const selectSpaceNotes = createSelector(
   },
 );
 
-/** Memoized: root notes only (no replies) for active space, sorted desc */
+/** Memoized: root notes only (no replies) for active space, sorted desc.
+ *  Composes from selectSpaceNotes to avoid duplicating logic. */
 export const selectSpaceRootNotes = createSelector(
-  [
-    (state: RootState) => state.spaces.activeSpaceId,
-    (state: RootState) => state.events.spaceFeeds,
-    selectEntities,
-  ],
-  (activeSpaceId, spaceFeeds, entities) => {
-    if (!activeSpaceId) return [];
-    const ids = spaceFeeds[`${activeSpaceId}:notes`] ?? [];
-    return ids
-      .map((id) => entities[id])
-      .filter((e): e is NostrEvent => !!e)
-      .filter(isRootNote)
-      .sort((a, b) => b.created_at - a.created_at);
-  },
+  [selectSpaceNotes],
+  (notes) => notes.filter((e) => {
+    if (e.kind !== 1) return false;
+    // A root note has no "e" tags with root/reply markers AND no positional "e" tags
+    const eTags = e.tags.filter((t) => t[0] === "e");
+    if (eTags.length === 0) return true;
+    const rootTag = eTags.find((t) => t[3] === "root");
+    const replyTag = eTags.find((t) => t[3] === "reply");
+    if (rootTag || replyTag) return false;
+    // Deprecated positional: any e-tag means it's a reply
+    return false;
+  }),
 );
 
 /** Memoized: just the IDs of root notes (for engagement subscription) */
@@ -79,13 +92,9 @@ export const selectSpaceRootNoteIds = createSelector(
   (notes) => notes.map((n) => n.id),
 );
 
-/** Memoized: media event IDs for active space (unsorted -- caller sorts) */
+/** Memoized: media events for active space (unsorted -- caller sorts) */
 export const selectSpaceMediaEvents = createSelector(
-  [
-    (state: RootState) => state.spaces.activeSpaceId,
-    (state: RootState) => state.events.spaceFeeds,
-    selectEntities,
-  ],
+  [selectActiveSpaceId, selectSpaceFeeds, selectEntities],
   (activeSpaceId, spaceFeeds, entities) => {
     if (!activeSpaceId) return [];
     const ids = spaceFeeds[`${activeSpaceId}:media`] ?? [];
@@ -97,12 +106,7 @@ export const selectSpaceMediaEvents = createSelector(
 
 /** Memoized: articles for active space */
 export const selectSpaceArticles = createSelector(
-  [
-    (state: RootState) => state.spaces.activeSpaceId,
-    (state: RootState) => state.events.spaceFeeds,
-    (state: RootState) => state.events.longform,
-    selectEntities,
-  ],
+  [selectActiveSpaceId, selectSpaceFeeds, selectLongform, selectEntities],
   (activeSpaceId, spaceFeeds, longform, entities) => {
     if (!activeSpaceId) return [];
     // Articles may be in spaceFeeds or longform index

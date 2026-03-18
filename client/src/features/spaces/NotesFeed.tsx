@@ -2,7 +2,7 @@ import { useState, useMemo, useEffect, useCallback, useRef, memo } from "react";
 import { nip19 } from "nostr-tools";
 import { ChevronDown, ChevronUp, ImageIcon, Film, Gauge } from "lucide-react";
 import { useAppSelector } from "../../store/hooks";
-import { selectSpaceRootNotes, selectSpaceRootNoteIds } from "./spaceSelectors";
+import { selectSpaceRootNotes, selectSpaceRootNoteIds, selectActiveSpace } from "./spaceSelectors";
 import { Avatar } from "../../components/ui/Avatar";
 import { RichContent } from "../../components/content/RichContent";
 import { useProfile } from "../profile/useProfile";
@@ -323,10 +323,7 @@ export function NotesFeed() {
   const notes = useAppSelector(selectSpaceRootNotes);
   const noteIds = useAppSelector(selectSpaceRootNoteIds);
   const activeChannelId = useAppSelector((s) => s.spaces.activeChannelId);
-  const activeSpace = useAppSelector((s) => {
-    const id = s.spaces.activeSpaceId;
-    return id ? s.spaces.list.find((sp) => sp.id === id) : undefined;
-  });
+  const activeSpace = useAppSelector(selectActiveSpace);
   const scrollRef = useScrollRestore(activeChannelId);
   const { meta, refresh, loadMore } = useFeedPagination("notes");
 

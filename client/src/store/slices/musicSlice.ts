@@ -37,6 +37,8 @@ interface MusicState {
     repeat: RepeatMode;
     shuffle: boolean;
     originalQueue: string[];
+    barMode: "expanded" | "mini";
+    nowPlayingOpen: boolean;
   };
 
   discovery: {
@@ -113,6 +115,8 @@ const initialState: MusicState = {
     repeat: "none",
     shuffle: false,
     originalQueue: [],
+    barMode: "expanded",
+    nowPlayingOpen: false,
   },
 
   discovery: {
@@ -740,6 +744,12 @@ export const musicSlice = createSlice({
     toggleQueuePanel(state) {
       state.queueVisible = !state.queueVisible;
     },
+    setBarMode(state, action: PayloadAction<"expanded" | "mini">) {
+      state.player.barMode = action.payload;
+    },
+    toggleNowPlaying(state) {
+      state.player.nowPlayingOpen = !state.player.nowPlayingOpen;
+    },
     setViewMode(state, action: PayloadAction<"grid" | "list">) {
       state.viewMode = action.payload;
     },
@@ -828,5 +838,7 @@ export const {
   setActiveDetailId,
   goBack,
   toggleQueuePanel,
+  setBarMode,
+  toggleNowPlaying,
   setViewMode,
 } = musicSlice.actions;

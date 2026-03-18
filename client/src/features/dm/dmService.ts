@@ -49,10 +49,14 @@ export async function sendDM(
 
   // Publish self-wrap to our own DM relays (falls back to all write relays)
   const ownRelays = getOwnDMRelays();
-  relayManager.publish(selfWrap, ownRelays.length > 0 ? ownRelays : undefined);
+  const selfSent = relayManager.publish(selfWrap, ownRelays.length > 0 ? ownRelays : undefined);
 
   if (sent === 0) {
     throw new Error("Failed to publish DM: no write relays available.");
+  }
+
+  if (selfSent === 0) {
+    console.warn("Self-wrap publish failed — message won't sync to other devices");
   }
 
   // Optimistic local display with real timestamp (not the randomized rumor timestamp).

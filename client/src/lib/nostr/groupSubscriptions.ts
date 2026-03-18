@@ -226,6 +226,9 @@ export function leaveClientSpace(spaceId: string): void {
  * Refresh a space feed channel: fetch newer events (since newestAt).
  * Creates a one-shot subscription that closes after EOSE.
  */
+/** Timeout for one-shot pagination subscriptions (ms) */
+const PAGINATION_TIMEOUT_MS = 30_000;
+
 export function refreshSpaceFeed(
   space: Space,
   channelType: string,
@@ -256,13 +259,25 @@ export function refreshSpaceFeed(
   // Feed-mode: broadcast to all read relays
   const relayUrls = space.mode === "read" ? undefined : [space.hostRelay];
 
-  subscriptionManager.subscribe({
+  let settled = false;
+  const subId = subscriptionManager.subscribe({
     filters: [filter],
     relayUrls,
     onEOSE: () => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timeout);
       store.dispatch(setRefreshing({ contextId, value: false }));
     },
   });
+
+  // Safety timeout: if EOSE never arrives, unblock UI and close sub
+  const timeout = setTimeout(() => {
+    if (settled) return;
+    settled = true;
+    store.dispatch(setRefreshing({ contextId, value: false }));
+    subscriptionManager.close(subId);
+  }, PAGINATION_TIMEOUT_MS);
 }
 
 /**
@@ -298,10 +313,15 @@ export function loadMoreSpaceFeed(
   // Feed-mode: broadcast to all read relays
   const relayUrls = space.mode === "read" ? undefined : [space.hostRelay];
 
+  let settled = false;
   const subId = subscriptionManager.subscribe({
     filters: [filter],
     relayUrls,
     onEOSE: () => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timeout);
+
       store.dispatch(setLoadingMore({ contextId, value: false }));
 
       // Check if oldestAt changed -- if not, no new events arrived => no more to load
@@ -314,4 +334,12 @@ export function loadMoreSpaceFeed(
       subscriptionManager.close(subId);
     },
   });
+
+  // Safety timeout: if EOSE never arrives, unblock UI and close sub
+  const timeout = setTimeout(() => {
+    if (settled) return;
+    settled = true;
+    store.dispatch(setLoadingMore({ contextId, value: false }));
+    subscriptionManager.close(subId);
+  }, PAGINATION_TIMEOUT_MS);
 }

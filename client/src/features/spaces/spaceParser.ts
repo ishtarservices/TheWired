@@ -9,7 +9,7 @@ export function parseGroupMetadata(
 ): Partial<Space> | null {
   if (event.kind !== EVENT_KINDS.GROUP_METADATA) return null;
 
-  const dTag = event.tags.find((t) => t[0] === "d")?.[1];
+  const dTag = event.tags.find((t) => t[0] === "d")?.[1]?.trim();
   if (!dTag) return null;
 
   const name =

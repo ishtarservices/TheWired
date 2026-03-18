@@ -1,4 +1,4 @@
-import { useEffect, useRef, useCallback } from "react";
+import { useEffect, useLayoutEffect, useRef, useCallback, useState, useMemo } from "react";
 import { useProfile } from "@/features/profile/useProfile";
 import { Avatar } from "@/components/ui/Avatar";
 import { DMMessage } from "./DMMessage";
@@ -10,11 +10,43 @@ import { useFileUpload } from "@/hooks/useFileUpload";
 import { useAppDispatch, useAppSelector } from "@/store/hooks";
 import { markConversationRead, clearDMUnreadDivider } from "@/store/slices/dmSlice";
 import { markDMNotificationsRead } from "@/store/slices/notificationSlice";
-import { ArrowLeft } from "lucide-react";
+import { getDisplayName } from "./dmUtils";
+import { ArrowLeft, ChevronDown } from "lucide-react";
 
 interface DMConversationProps {
   partnerPubkey: string;
   onBack: () => void;
+}
+
+/** Threshold in px: if the user is within this distance of the bottom, we auto-scroll */
+const SCROLL_BOTTOM_THRESHOLD = 60;
+
+/** Format a unix timestamp as a date separator label */
+function formatDateLabel(ts: number): string {
+  const date = new Date(ts * 1000);
+  const now = new Date();
+  const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  const yesterday = new Date(today.getTime() - 86400000);
+  const msgDate = new Date(date.getFullYear(), date.getMonth(), date.getDate());
+
+  if (msgDate.getTime() === today.getTime()) return "Today";
+  if (msgDate.getTime() === yesterday.getTime()) return "Yesterday";
+  return date.toLocaleDateString(undefined, {
+    weekday: "long",
+    month: "long",
+    day: "numeric",
+  });
+}
+
+/** Check whether two timestamps fall on different calendar days */
+function isDifferentDay(ts1: number, ts2: number): boolean {
+  const d1 = new Date(ts1 * 1000);
+  const d2 = new Date(ts2 * 1000);
+  return (
+    d1.getFullYear() !== d2.getFullYear() ||
+    d1.getMonth() !== d2.getMonth() ||
+    d1.getDate() !== d2.getDate()
+  );
 }
 
 export function DMConversation({ partnerPubkey, onBack }: DMConversationProps) {
@@ -24,6 +56,8 @@ export function DMConversation({ partnerPubkey, onBack }: DMConversationProps) {
   const scrollRef = useRef<HTMLDivElement>(null);
   const dividerRef = useRef<HTMLDivElement>(null);
   const hasScrolledToUnread = useRef(false);
+  const isNearBottomRef = useRef(true);
+  const [showScrollButton, setShowScrollButton] = useState(false);
 
   // File upload — owned here so dropZoneRef covers the entire DM view
   const upload = useFileUpload();
@@ -33,34 +67,78 @@ export function DMConversation({ partnerPubkey, onBack }: DMConversationProps) {
     (s) => s.dm.unreadDividers[partnerPubkey],
   );
 
-  const displayName =
-    profile?.display_name || profile?.name || partnerPubkey.slice(0, 8) + "...";
+  const displayName = getDisplayName(profile, partnerPubkey);
 
   // Compute divider position: insert before the first unread message
   const dividerIndex = unreadCount && unreadCount > 0 && messages.length > 0
     ? Math.max(0, messages.length - unreadCount)
     : -1;
 
-  // Scroll to unread divider on first render, or to bottom if no unreads
-  useEffect(() => {
-    if (!scrollRef.current) return;
+  // Track scroll position to decide whether to auto-scroll
+  const handleScroll = useCallback(() => {
+    const el = scrollRef.current;
+    if (!el) return;
+    const nearBottom = el.scrollHeight - el.scrollTop - el.clientHeight < SCROLL_BOTTOM_THRESHOLD;
+    isNearBottomRef.current = nearBottom;
+    setShowScrollButton(!nearBottom);
+  }, []);
 
-    if (dividerRef.current && !hasScrolledToUnread.current && dividerIndex > 0) {
-      hasScrolledToUnread.current = true;
-      dividerRef.current.scrollIntoView({ block: "center" });
+  // Track whether initial scroll has happened for this conversation
+  const hasInitialScrolled = useRef(false);
+
+  // Scroll positioning — useLayoutEffect runs before paint to avoid flicker.
+  // On initial open: scroll to unread divider (near top) or to bottom.
+  // On subsequent message additions: only auto-scroll if already near bottom.
+  useLayoutEffect(() => {
+    const el = scrollRef.current;
+    if (!el || messages.length === 0) return;
+
+    if (!hasInitialScrolled.current) {
+      // First time we have messages for this conversation
+      if (dividerRef.current && dividerIndex > 0) {
+        hasScrolledToUnread.current = true;
+        // Scroll divider near the top so new messages are visible below
+        dividerRef.current.scrollIntoView({ block: "start" });
+        // Nudge up a bit so divider isn't flush with the top edge
+        el.scrollTop = Math.max(0, el.scrollTop - 40);
+      } else {
+        // No unreads — start at the bottom
+        el.scrollTop = el.scrollHeight;
+      }
+      hasInitialScrolled.current = true;
     } else {
-      scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
+      // Messages changed after initial render — only scroll if near bottom
+      if (isNearBottomRef.current) {
+        el.scrollTop = el.scrollHeight;
+      }
     }
   }, [messages.length, dividerIndex]);
 
   // Reset scroll tracking when partner changes
-  useEffect(() => {
+  useLayoutEffect(() => {
     hasScrolledToUnread.current = false;
+    hasInitialScrolled.current = false;
+    isNearBottomRef.current = true;
+    setShowScrollButton(false);
   }, [partnerPubkey]);
 
-  // Mark as read — sync both DM unread count and notification bell
+  // Mark as read — sync both DM unread count and notification bell.
+  // Re-runs when messages.length changes so that if restoreDMState loads
+  // contacts with stale unread counts AFTER this component mounts, the
+  // unread badge is cleared immediately.
+  const currentUnread = useAppSelector((s) => {
+    const c = s.dm.contacts.find((c) => c.pubkey === partnerPubkey);
+    return c?.unreadCount ?? 0;
+  });
+
   useEffect(() => {
-    dispatch(markConversationRead(partnerPubkey));
+    if (currentUnread > 0) {
+      dispatch(markConversationRead(partnerPubkey));
+    }
+  }, [partnerPubkey, currentUnread, dispatch]);
+
+  // Clear notification bell on mount and partner change
+  useEffect(() => {
     dispatch(markDMNotificationsRead(partnerPubkey));
   }, [partnerPubkey, dispatch]);
 
@@ -72,12 +150,34 @@ export function DMConversation({ partnerPubkey, onBack }: DMConversationProps) {
     async (content: string) => {
       try {
         await sendDM(partnerPubkey, content);
+        // Scroll to bottom after sending
+        requestAnimationFrame(() => {
+          if (scrollRef.current) {
+            scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
+          }
+        });
       } catch (err) {
         console.error("Failed to send DM:", err);
       }
     },
     [partnerPubkey],
   );
+
+  const scrollToBottom = useCallback(() => {
+    if (scrollRef.current) {
+      scrollRef.current.scrollTo({ top: scrollRef.current.scrollHeight, behavior: "smooth" });
+    }
+  }, []);
+
+  // Precompute grouping & date separator info for messages
+  const messageLayout = useMemo(() => {
+    return messages.map((msg, i) => {
+      const prev = i > 0 ? messages[i - 1] : null;
+      const isGrouped = !!prev && prev.senderPubkey === msg.senderPubkey && !isDifferentDay(prev.createdAt, msg.createdAt);
+      const showDateSeparator = !prev || isDifferentDay(prev.createdAt, msg.createdAt);
+      return { msg, isGrouped, showDateSeparator };
+    });
+  }, [messages]);
 
   return (
     <div ref={upload.dropZoneRef} className="relative flex flex-1 flex-col overflow-hidden">
@@ -111,7 +211,12 @@ export function DMConversation({ partnerPubkey, onBack }: DMConversationProps) {
       </div>
 
       {/* Messages */}
-      <div ref={scrollRef} className="flex-1 overflow-y-auto py-4" style={{ overflowAnchor: "auto" }}>
+      <div
+        ref={scrollRef}
+        onScroll={handleScroll}
+        className="flex-1 overflow-y-auto py-4"
+        style={{ overflowAnchor: "auto" }}
+      >
         {messages.length === 0 ? (
           <div className="flex h-full items-center justify-center">
             <div className="text-center">
@@ -122,16 +227,42 @@ export function DMConversation({ partnerPubkey, onBack }: DMConversationProps) {
             </div>
           </div>
         ) : (
-          messages.map((msg, i) => (
+          messageLayout.map(({ msg, isGrouped, showDateSeparator }, i) => (
             <div key={msg.wrapId}>
+              {/* Date separator */}
+              {showDateSeparator && (
+                <div className="flex items-center gap-3 px-6 py-3">
+                  <div className="flex-1 border-t border-edge" />
+                  <span className="text-[10px] font-semibold uppercase tracking-wider text-faint">
+                    {formatDateLabel(msg.createdAt)}
+                  </span>
+                  <div className="flex-1 border-t border-edge" />
+                </div>
+              )}
+              {/* Unread divider */}
               {i === dividerIndex && (
                 <UnreadDivider ref={dividerRef} onFaded={handleDividerFaded} />
               )}
-              <DMMessage message={msg} partnerPubkey={partnerPubkey} />
+              <DMMessage
+                message={msg}
+                partnerPubkey={partnerPubkey}
+                isGrouped={isGrouped}
+              />
             </div>
           ))
         )}
       </div>
+
+      {/* Scroll to bottom button */}
+      {showScrollButton && (
+        <button
+          onClick={scrollToBottom}
+          className="absolute bottom-20 right-4 z-10 flex h-9 w-9 items-center justify-center rounded-full bg-surface border border-edge shadow-lg text-muted hover:text-heading hover:bg-surface-hover transition-all animate-fade-in-up"
+          title="Scroll to bottom"
+        >
+          <ChevronDown size={18} />
+        </button>
+      )}
 
       {/* Input */}
       <DMInput

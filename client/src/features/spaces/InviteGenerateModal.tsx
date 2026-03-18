@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useReducer, useCallback } from "react";
 import { X, Copy, Check, Send } from "lucide-react";
 import { Modal } from "../../components/ui/Modal";
 import { Button } from "../../components/ui/Button";
@@ -32,86 +32,141 @@ const MAX_USES_OPTIONS = [
   { label: "100 uses", value: 100 },
 ];
 
+interface ModalState {
+  expiryHours: number;
+  maxUses: number;
+  label: string;
+  code: string | null;
+  loading: boolean;
+  copied: boolean;
+  error: string | null;
+  dmTarget: string;
+  dmSending: boolean;
+  dmSent: boolean;
+}
+
+type ModalAction =
+  | { type: "SET_EXPIRY"; hours: number }
+  | { type: "SET_MAX_USES"; value: number }
+  | { type: "SET_LABEL"; value: string }
+  | { type: "SET_DM_TARGET"; value: string }
+  | { type: "GENERATE_START" }
+  | { type: "GENERATE_SUCCESS"; code: string }
+  | { type: "GENERATE_ERROR"; error: string }
+  | { type: "COPY" }
+  | { type: "COPY_DONE" }
+  | { type: "DM_START" }
+  | { type: "DM_SUCCESS" }
+  | { type: "DM_DONE" }
+  | { type: "DM_ERROR"; error: string }
+  | { type: "SET_ERROR"; error: string }
+  | { type: "RESET" };
+
+const initialState: ModalState = {
+  expiryHours: 24,
+  maxUses: 0,
+  label: "",
+  code: null,
+  loading: false,
+  copied: false,
+  error: null,
+  dmTarget: "",
+  dmSending: false,
+  dmSent: false,
+};
+
+function reducer(state: ModalState, action: ModalAction): ModalState {
+  switch (action.type) {
+    case "SET_EXPIRY":
+      return { ...state, expiryHours: action.hours };
+    case "SET_MAX_USES":
+      return { ...state, maxUses: action.value };
+    case "SET_LABEL":
+      return { ...state, label: action.value };
+    case "SET_DM_TARGET":
+      return { ...state, dmTarget: action.value };
+    case "GENERATE_START":
+      return { ...state, loading: true, error: null };
+    case "GENERATE_SUCCESS":
+      return { ...state, loading: false, code: action.code };
+    case "GENERATE_ERROR":
+      return { ...state, loading: false, error: action.error };
+    case "COPY":
+      return { ...state, copied: true };
+    case "COPY_DONE":
+      return { ...state, copied: false };
+    case "DM_START":
+      return { ...state, dmSending: true, error: null };
+    case "DM_SUCCESS":
+      return { ...state, dmSending: false, dmSent: true };
+    case "DM_DONE":
+      return { ...state, dmSent: false };
+    case "DM_ERROR":
+      return { ...state, dmSending: false, error: action.error };
+    case "SET_ERROR":
+      return { ...state, error: action.error };
+    case "RESET":
+      return initialState;
+  }
+}
+
 export function InviteGenerateModal({
   open,
   onClose,
   spaceId,
   spaceName,
 }: InviteGenerateModalProps) {
-  const [expiryHours, setExpiryHours] = useState(24);
-  const [maxUses, setMaxUses] = useState(0);
-  const [label, setLabel] = useState("");
-  const [code, setCode] = useState<string | null>(null);
-  const [loading, setLoading] = useState(false);
-  const [copied, setCopied] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const [dmTarget, setDmTarget] = useState("");
-  const [dmSending, setDmSending] = useState(false);
-  const [dmSent, setDmSent] = useState(false);
+  const [state, dispatch] = useReducer(reducer, initialState);
 
-  const reset = () => {
-    setExpiryHours(24);
-    setMaxUses(0);
-    setLabel("");
-    setCode(null);
-    setLoading(false);
-    setCopied(false);
-    setError(null);
-    setDmTarget("");
-    setDmSending(false);
-    setDmSent(false);
-  };
-
-  const handleClose = () => {
-    reset();
+  const handleClose = useCallback(() => {
+    dispatch({ type: "RESET" });
     onClose();
-  };
+  }, [onClose]);
 
-  const handleGenerate = async () => {
-    setLoading(true);
-    setError(null);
-
+  const handleGenerate = useCallback(async () => {
+    dispatch({ type: "GENERATE_START" });
     try {
       const res = await createInvite({
         spaceId,
-        maxUses: maxUses > 0 ? maxUses : undefined,
-        expiresInHours: expiryHours > 0 ? expiryHours : undefined,
-        label: label.trim() || undefined,
+        maxUses: state.maxUses > 0 ? state.maxUses : undefined,
+        expiresInHours: state.expiryHours > 0 ? state.expiryHours : undefined,
+        label: state.label.trim() || undefined,
       });
-      setCode(res.data.code);
+      dispatch({ type: "GENERATE_SUCCESS", code: res.data.code });
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to create invite");
-    } finally {
-      setLoading(false);
+      dispatch({
+        type: "GENERATE_ERROR",
+        error: err instanceof Error ? err.message : "Failed to create invite",
+      });
     }
-  };
+  }, [spaceId, state.maxUses, state.expiryHours, state.label]);
 
-  const inviteLink = code ? `${window.location.origin}/invite/${code}` : "";
+  const inviteLink = state.code ? `${window.location.origin}/invite/${state.code}` : "";
 
-  const handleCopy = async () => {
+  const handleCopy = useCallback(async () => {
     if (!inviteLink) return;
     await navigator.clipboard.writeText(inviteLink);
-    setCopied(true);
-    setTimeout(() => setCopied(false), 2000);
-  };
+    dispatch({ type: "COPY" });
+    setTimeout(() => dispatch({ type: "COPY_DONE" }), 2000);
+  }, [inviteLink]);
 
-  const handleSendDM = async () => {
-    if (!code || !dmTarget.trim()) return;
-    setError(null);
-    setDmSending(true);
+  const handleSendDM = useCallback(async () => {
+    if (!state.code || !state.dmTarget.trim()) return;
+    dispatch({ type: "DM_START" });
     try {
       await sendDM(
-        dmTarget.trim(),
+        state.dmTarget.trim(),
         `You've been invited to join "${spaceName}"!\n\nJoin here: ${inviteLink}`,
       );
-      setDmSent(true);
-      setTimeout(() => setDmSent(false), 3000);
+      dispatch({ type: "DM_SUCCESS" });
+      setTimeout(() => dispatch({ type: "DM_DONE" }), 3000);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to send DM");
-    } finally {
-      setDmSending(false);
+      dispatch({
+        type: "DM_ERROR",
+        error: err instanceof Error ? err.message : "Failed to send DM",
+      });
     }
-  };
+  }, [state.code, state.dmTarget, spaceName, inviteLink]);
 
   return (
     <Modal open={open} onClose={handleClose}>
@@ -126,7 +181,7 @@ export function InviteGenerateModal({
           </button>
         </div>
 
-        {!code ? (
+        {!state.code ? (
           /* Options form */
           <div className="space-y-4">
             <div>
@@ -134,8 +189,8 @@ export function InviteGenerateModal({
                 Expires After
               </label>
               <select
-                value={expiryHours}
-                onChange={(e) => setExpiryHours(Number(e.target.value))}
+                value={state.expiryHours}
+                onChange={(e) => dispatch({ type: "SET_EXPIRY", hours: Number(e.target.value) })}
                 className="w-full rounded-xl bg-field border border-edge px-3 py-2 text-sm text-heading focus:border-neon focus:outline-none transition-colors"
               >
                 {EXPIRY_OPTIONS.map((opt) => (
@@ -151,8 +206,8 @@ export function InviteGenerateModal({
                 Max Uses
               </label>
               <select
-                value={maxUses}
-                onChange={(e) => setMaxUses(Number(e.target.value))}
+                value={state.maxUses}
+                onChange={(e) => dispatch({ type: "SET_MAX_USES", value: Number(e.target.value) })}
                 className="w-full rounded-xl bg-field border border-edge px-3 py-2 text-sm text-heading focus:border-neon focus:outline-none transition-colors"
               >
                 {MAX_USES_OPTIONS.map((opt) => (
@@ -169,23 +224,23 @@ export function InviteGenerateModal({
               </label>
               <input
                 type="text"
-                value={label}
-                onChange={(e) => setLabel(e.target.value)}
+                value={state.label}
+                onChange={(e) => dispatch({ type: "SET_LABEL", value: e.target.value })}
                 placeholder="e.g. For friends"
                 className="w-full rounded-xl bg-field border border-edge px-3 py-2 text-sm text-heading placeholder-muted focus:border-neon focus:outline-none transition-colors"
               />
             </div>
 
-            {error && (
-              <p className="text-xs text-red-400">{error}</p>
+            {state.error && (
+              <p className="text-xs text-red-400">{state.error}</p>
             )}
 
             <div className="flex justify-end gap-2">
               <Button variant="ghost" size="md" onClick={handleClose}>
                 Cancel
               </Button>
-              <Button variant="primary" size="md" onClick={handleGenerate} disabled={loading}>
-                {loading ? <Spinner size="sm" /> : "Generate"}
+              <Button variant="primary" size="md" onClick={handleGenerate} disabled={state.loading}>
+                {state.loading ? <Spinner size="sm" /> : "Generate"}
               </Button>
             </div>
           </div>
@@ -204,7 +259,7 @@ export function InviteGenerateModal({
                   className="flex-1 rounded-xl bg-field border border-edge px-3 py-2 text-sm text-heading font-mono select-all"
                 />
                 <Button variant="secondary" size="md" onClick={handleCopy}>
-                  {copied ? <Check size={14} className="text-green-400" /> : <Copy size={14} />}
+                  {state.copied ? <Check size={14} className="text-green-400" /> : <Copy size={14} />}
                 </Button>
               </div>
             </div>
@@ -217,8 +272,8 @@ export function InviteGenerateModal({
               <div className="flex items-center gap-2">
                 <input
                   type="text"
-                  value={dmTarget}
-                  onChange={(e) => setDmTarget(e.target.value)}
+                  value={state.dmTarget}
+                  onChange={(e) => dispatch({ type: "SET_DM_TARGET", value: e.target.value })}
                   placeholder="Paste npub or hex pubkey..."
                   className="flex-1 rounded-xl bg-field border border-edge px-3 py-2 text-sm text-heading placeholder-muted font-mono focus:border-neon focus:outline-none transition-colors"
                 />
@@ -226,11 +281,11 @@ export function InviteGenerateModal({
                   variant="neon"
                   size="md"
                   onClick={handleSendDM}
-                  disabled={!dmTarget.trim() || dmSending || dmSent}
+                  disabled={!state.dmTarget.trim() || state.dmSending || state.dmSent}
                 >
-                  {dmSending ? (
+                  {state.dmSending ? (
                     <Spinner size="sm" />
-                  ) : dmSent ? (
+                  ) : state.dmSent ? (
                     <Check size={14} className="text-green-400" />
                   ) : (
                     <Send size={14} />
@@ -239,8 +294,8 @@ export function InviteGenerateModal({
               </div>
             </div>
 
-            {error && (
-              <p className="text-xs text-red-400">{error}</p>
+            {state.error && (
+              <p className="text-xs text-red-400">{state.error}</p>
             )}
 
             <div className="flex justify-end">

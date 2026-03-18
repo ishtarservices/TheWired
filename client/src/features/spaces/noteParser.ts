@@ -38,8 +38,8 @@ export function parseThreadRef(event: NostrEvent): ThreadRef {
   // 1 e-tag = root, 2+ e-tags = first is root, last is reply
   if (eTags.length === 1) {
     return {
-      rootId: eTags[0][1],
-      replyId: eTags[0][1],
+      rootId: eTags[0]?.[1] ?? null,
+      replyId: eTags[0]?.[1] ?? null,
       mentionedPubkeys,
     };
   }
@@ -48,15 +48,15 @@ export function parseThreadRef(event: NostrEvent): ThreadRef {
     const nonMention = eTags.filter((t) => t[3] !== "mention");
     if (nonMention.length >= 2) {
       return {
-        rootId: nonMention[0][1],
-        replyId: nonMention[nonMention.length - 1][1],
+        rootId: nonMention[0]?.[1] ?? null,
+        replyId: nonMention[nonMention.length - 1]?.[1] ?? null,
         mentionedPubkeys,
       };
     }
     if (nonMention.length === 1) {
       return {
-        rootId: nonMention[0][1],
-        replyId: nonMention[0][1],
+        rootId: nonMention[0]?.[1] ?? null,
+        replyId: nonMention[0]?.[1] ?? null,
         mentionedPubkeys,
       };
     }

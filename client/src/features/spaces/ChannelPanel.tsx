@@ -1,5 +1,6 @@
 import { useRef } from "react";
 import { useAppSelector } from "../../store/hooks";
+import { parseChannelIdPart } from "./spaceSelectors";
 import { ChatView } from "../chat/ChatView";
 import { ReelsView } from "../media/ReelsView";
 import { LongFormView } from "../longform/LongFormView";
@@ -41,7 +42,7 @@ export function ChannelPanel() {
   );
 
   // Resolve channel type from channel ID
-  const channelIdPart = activeChannelId?.split(":").slice(1).join(":") ?? "";
+  const channelIdPart = parseChannelIdPart(activeChannelId);
   const channel = channels.find((c) => c.id === channelIdPart);
   const channelType = channel?.type ?? channelIdPart; // Legacy fallback
 

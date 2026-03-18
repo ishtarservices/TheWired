@@ -11,6 +11,7 @@ import { updateSpaceFeedSources } from "../../../store/slices/spacesSlice";
 import { updateSpaceInStore } from "../../../lib/db/spaceStore";
 import { switchSpaceChannel } from "../../../lib/nostr/groupSubscriptions";
 import { store } from "../../../store";
+import { parseChannelIdPart } from "../spaceSelectors";
 import type { Space } from "../../../types/space";
 
 interface MembersTabProps {
@@ -116,7 +117,7 @@ export function MembersTab({ spaceId }: MembersTabProps) {
       const state = store.getState();
       if (state.spaces.activeSpaceId !== spaceId || !state.spaces.activeChannelId) return;
       const spaceChannels = state.spaces.channels[spaceId];
-      const channelIdPart = state.spaces.activeChannelId.split(":").slice(1).join(":");
+      const channelIdPart = parseChannelIdPart(state.spaces.activeChannelId);
       const channel = spaceChannels?.find((c) => c.id === channelIdPart);
       if (channel) {
         switchSpaceChannel(updatedSpace, channel.type);

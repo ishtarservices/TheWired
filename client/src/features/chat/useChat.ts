@@ -2,6 +2,7 @@ import { useCallback, useState } from "react";
 import { useAppSelector, useAppDispatch } from "../../store/hooks";
 import { addEvent, indexChatMessage } from "../../store/slices/eventsSlice";
 import { selectChatMessages } from "./chatSelectors";
+import { parseChannelIdPart } from "../spaces/spaceSelectors";
 import { buildChatMessage, type AttachmentMeta } from "../../lib/nostr/eventBuilder";
 import { signAndPublish } from "../../lib/nostr/publish";
 
@@ -39,7 +40,7 @@ export function useChat() {
 
       try {
         // Extract the channel-specific ID (after the "spaceId:" prefix)
-        const channelIdPart = activeChannelId?.split(":").slice(1).join(":") ?? undefined;
+        const channelIdPart = parseChannelIdPart(activeChannelId) || undefined;
 
         const unsigned = buildChatMessage(
           pubkey,

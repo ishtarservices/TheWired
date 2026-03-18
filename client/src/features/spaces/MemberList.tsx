@@ -1,4 +1,4 @@
-import { useState, useRef, useCallback } from "react";
+import { useState, useRef, useCallback, memo } from "react";
 import { Crown, MoreHorizontal, Link2, Search, X, Plus, ChevronDown, ChevronRight, Rss } from "lucide-react";
 import { Avatar } from "../../components/ui/Avatar";
 import { useProfile } from "../profile/useProfile";
@@ -6,6 +6,7 @@ import { useUserPopover } from "../profile/UserPopoverContext";
 import { useSpace } from "./useSpace";
 import { useAppSelector, useAppDispatch } from "../../store/hooks";
 import { usePermissions } from "./usePermissions";
+import { selectActiveSpace } from "./spaceSelectors";
 import { MemberContextMenu } from "./moderation/MemberContextMenu";
 import { InviteGenerateModal } from "./InviteGenerateModal";
 import { useUserSearch } from "../search/useUserSearch";
@@ -15,7 +16,7 @@ import { updateSpaceInStore } from "../../lib/db/spaceStore";
 import { switchSpaceChannel } from "../../lib/nostr/groupSubscriptions";
 import type { Space } from "../../types/space";
 
-function MemberItem({ pubkey, spaceId }: { pubkey: string; spaceId: string }) {
+const MemberItem = memo(function MemberItem({ pubkey, spaceId }: { pubkey: string; spaceId: string }) {
   const { profile } = useProfile(pubkey);
   const { openUserPopover } = useUserPopover();
   const space = useAppSelector((s) => s.spaces.list.find((sp) => sp.id === spaceId));
@@ -62,9 +63,9 @@ function MemberItem({ pubkey, spaceId }: { pubkey: string; spaceId: string }) {
       />
     </div>
   );
-}
+});
 
-function FeedSourceItem({
+const FeedSourceItem = memo(function FeedSourceItem({
   pubkey,
   canManage,
   onRemove,
@@ -103,7 +104,7 @@ function FeedSourceItem({
       )}
     </div>
   );
-}
+});
 
 function FeedSourceSearch({
   spaceId,
@@ -201,10 +202,7 @@ export function MemberList() {
   const dispatch = useAppDispatch();
   const { activeSpace, activeSpaceId, getActiveChannelType } = useSpace();
   const currentPubkey = useAppSelector((s) => s.identity.pubkey);
-  const space = useAppSelector((s) => {
-    const id = s.spaces.activeSpaceId;
-    return id ? s.spaces.list.find((sp) => sp.id === id) : undefined;
-  });
+  const space = useAppSelector(selectActiveSpace);
   const { can } = usePermissions(activeSpaceId);
   const [showInvite, setShowInvite] = useState(false);
   const [spectatorsOpen, setSpectatorsOpen] = useState(false);

@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, memo } from "react";
 import { useNavigate, useLocation } from "react-router-dom";
 import { cn } from "@/lib/utils";
 import { MessageSquare, FileText, Image, BookOpen, Music, Plus, BellOff } from "lucide-react";
@@ -6,6 +6,7 @@ import { useSpace } from "./useSpace";
 import { useSpaceChannels } from "./useSpaceChannels";
 import { useAppSelector } from "../../store/hooks";
 import { usePermissions } from "./usePermissions";
+import { parseChannelIdPart } from "./spaceSelectors";
 import { useChannelUnread, useChannelMentions, useChannelMuted } from "../notifications/useNotifications";
 import { CreateChannelModal } from "./CreateChannelModal";
 import { ChannelContextMenu } from "./ChannelContextMenu";
@@ -39,7 +40,7 @@ export function ChannelList() {
   useEffect(() => {
     if (!activeSpace || channels.length === 0) return;
 
-    const channelIdPart = activeChannelId?.split(":").slice(1).join(":") ?? "";
+    const channelIdPart = parseChannelIdPart(activeChannelId);
     const isValid = channels.some((c) => c.id === channelIdPart);
 
     if (!isValid) {
@@ -132,7 +133,7 @@ export function ChannelList() {
 }
 
 /** Channel button with unread/mention badges (separate component for hook rules) */
-function ChannelButton({
+const ChannelButton = memo(function ChannelButton({
   channelId,
   label,
   isActive,
@@ -194,4 +195,4 @@ function ChannelButton({
       </span>
     </button>
   );
-}
+});

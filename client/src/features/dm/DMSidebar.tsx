@@ -1,4 +1,4 @@
-import { useState, useCallback } from "react";
+import { useState, useCallback, memo } from "react";
 import { MessageCircle, Users, X } from "lucide-react";
 import { Avatar } from "@/components/ui/Avatar";
 import { useProfile } from "@/features/profile/useProfile";
@@ -6,8 +6,10 @@ import { useRelativeTime } from "@/hooks/useRelativeTime";
 import { useDMContacts } from "./useDMContacts";
 import { useFriends } from "./useFriends";
 import { useAppSelector } from "@/store/hooks";
+import { selectPendingIncomingRequests } from "./dmSelectors";
 import { acceptFriendRequestAction, declineFriendRequestAction } from "@/lib/nostr/friendRequest";
 import { DMConversationContextMenu } from "./DMConversationContextMenu";
+import { getDisplayName } from "./dmUtils";
 import type { DMContact } from "@/store/slices/dmSlice";
 
 type SidebarTab = "messages" | "friends";
@@ -21,11 +23,7 @@ export function DMSidebar({ activePartner, onSelectContact }: DMSidebarProps) {
   const contacts = useDMContacts();
   const friends = useFriends();
   const [activeTab, setActiveTab] = useState<SidebarTab>("messages");
-  const pendingIncoming = useAppSelector((s) =>
-    s.friendRequests.requests.filter(
-      (r) => r.direction === "incoming" && r.status === "pending",
-    ),
-  );
+  const pendingIncoming = useAppSelector(selectPendingIncomingRequests);
 
   const [ctxMenu, setCtxMenu] = useState<{ pubkey: string; x: number; y: number } | null>(null);
 
@@ -143,7 +141,7 @@ export function DMSidebar({ activePartner, onSelectContact }: DMSidebarProps) {
   );
 }
 
-function DMContactItem({
+const DMContactItem = memo(function DMContactItem({
   contact,
   isActive,
   onClick,
@@ -155,8 +153,7 @@ function DMContactItem({
   onContextMenu: (e: React.MouseEvent) => void;
 }) {
   const { profile } = useProfile(contact.pubkey);
-  const displayName =
-    profile?.display_name || profile?.name || contact.pubkey.slice(0, 8) + "...";
+  const displayName = getDisplayName(profile, contact.pubkey);
   const timeAgo = useRelativeTime(contact.lastMessageAt);
 
   return (
@@ -190,9 +187,9 @@ function DMContactItem({
       </div>
     </button>
   );
-}
+});
 
-function FriendItem({
+const FriendItem = memo(function FriendItem({
   pubkey,
   isActive,
   onClick,
@@ -202,8 +199,7 @@ function FriendItem({
   onClick: () => void;
 }) {
   const { profile } = useProfile(pubkey);
-  const displayName =
-    profile?.display_name || profile?.name || pubkey.slice(0, 8) + "...";
+  const displayName = getDisplayName(profile, pubkey);
 
   return (
     <button
@@ -226,16 +222,15 @@ function FriendItem({
       <MessageCircle size={14} className="shrink-0 text-muted" />
     </button>
   );
-}
+});
 
-function PendingRequestItem({
+const PendingRequestItem = memo(function PendingRequestItem({
   request,
 }: {
   request: { id: string; pubkey: string; message: string };
 }) {
   const { profile } = useProfile(request.pubkey);
-  const displayName =
-    profile?.display_name || profile?.name || request.pubkey.slice(0, 8) + "...";
+  const displayName = getDisplayName(profile, request.pubkey);
 
   return (
     <div className="flex w-full items-center gap-3 px-4 py-2.5">
@@ -267,4 +262,4 @@ function PendingRequestItem({
       </div>
     </div>
   );
-}
+});
