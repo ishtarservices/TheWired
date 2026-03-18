@@ -3,6 +3,7 @@ import { Send, Paperclip } from "lucide-react";
 import { Button } from "@/components/ui/Button";
 import { AttachmentPreview } from "@/components/chat/AttachmentPreview";
 import { useAutoResize } from "@/hooks/useAutoResize";
+import { usePlaybackBarSpacing } from "@/hooks/usePlaybackBarSpacing";
 import type { UploadedAttachment } from "@/hooks/useFileUpload";
 
 interface DMInputProps {
@@ -36,6 +37,7 @@ export function DMInput({
   const [value, setValue] = useState("");
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   useAutoResize(textareaRef, value, 150);
+  const { inputMarginClass } = usePlaybackBarSpacing();
 
   const handleSubmit = useCallback(
     (e: FormEvent) => {
@@ -86,7 +88,7 @@ export function DMInput({
   );
 
   return (
-    <form onSubmit={handleSubmit} className="border-t border-edge p-3">
+    <form onSubmit={handleSubmit} className={`border-t border-edge p-3 ${inputMarginClass}`}>
       {/* Attachment previews */}
       <AttachmentPreview attachments={attachments} onRemove={onRemoveAttachment} />
 

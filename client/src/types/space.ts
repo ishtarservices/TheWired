@@ -31,7 +31,7 @@ export type ChannelType =
   | "live";
 
 /** Channel types available in client-defined spaces */
-export type SpaceChannelType = "chat" | "notes" | "media" | "articles" | "music";
+export type SpaceChannelType = "chat" | "notes" | "media" | "articles" | "music" | "voice" | "video";
 
 /** A backend-managed channel within a space */
 export interface SpaceChannel {
@@ -44,6 +44,8 @@ export interface SpaceChannel {
   isDefault: boolean;
   adminOnly: boolean;
   slowModeSeconds: number;
+  /** If true, channel is deleted when all participants leave */
+  temporary?: boolean;
 }
 
 /** Role within a space */

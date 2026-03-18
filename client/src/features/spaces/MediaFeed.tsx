@@ -1,6 +1,7 @@
 import { useState, useMemo, useEffect, memo } from "react";
 import { Play, ImageIcon, Maximize2, ExternalLink } from "lucide-react";
 import { useAppSelector } from "../../store/hooks";
+import { usePlaybackBarSpacing } from "../../hooks/usePlaybackBarSpacing";
 import { selectSpaceMediaEvents } from "./spaceSelectors";
 import { EVENT_KINDS } from "../../types/nostr";
 import type { NostrEvent } from "../../types/nostr";
@@ -358,7 +359,7 @@ function ExpandedEmbedView({
                 src={embed.embedUrl}
                 title={`${PLATFORM_LABELS[embed.platform]} embed`}
                 className="absolute inset-0 h-full w-full rounded-lg"
-                sandbox="allow-scripts allow-same-origin allow-popups allow-presentation"
+                sandbox="allow-scripts allow-same-origin allow-popups"
                 loading="lazy"
                 allowFullScreen
                 allow="autoplay; encrypted-media"
@@ -525,6 +526,7 @@ export function MediaFeed() {
   const [filter, setFilter] = useState<FilterTab>("all");
   const scrollRef = useScrollRestore(activeChannelId);
   const { meta, refresh, loadMore } = useFeedPagination("media");
+  const { scrollPaddingClass } = usePlaybackBarSpacing();
 
   const allItems = useMemo(() => {
     const items: MediaItem[] = [];
@@ -631,7 +633,7 @@ export function MediaFeed() {
       </FeedToolbar>
 
       {/* Grid */}
-      <div ref={scrollRef} className="flex-1 overflow-y-auto p-4">
+      <div ref={scrollRef} className={`flex-1 overflow-y-auto p-4 ${scrollPaddingClass}`}>
         {filteredItems.length === 0 ? (
           <div className="flex h-full items-center justify-center">
             <p className="text-sm text-muted">

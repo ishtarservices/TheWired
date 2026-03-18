@@ -1,5 +1,6 @@
 import { useState, useCallback, useMemo, useRef, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
+import { usePlaybackBarSpacing } from "@/hooks/usePlaybackBarSpacing";
 import {
   User,
   Globe,
@@ -66,6 +67,7 @@ export function ProfilePage({ pubkey }: ProfilePageProps) {
   const isMe = pubkey === myPubkey;
   const isMuted = muteList.some((m) => m.type === "pubkey" && m.value === pubkey);
   const navigate = useNavigate();
+  const { scrollPaddingClass } = usePlaybackBarSpacing();
 
   // Per-tab scroll position persistence
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -188,7 +190,7 @@ export function ProfilePage({ pubkey }: ProfilePageProps) {
   ];
 
   return (
-    <div ref={scrollRef} className="flex min-h-0 flex-1 flex-col overflow-y-auto">
+    <div ref={scrollRef} className={`flex min-h-0 flex-1 flex-col overflow-y-auto ${scrollPaddingClass}`}>
       {/* Banner */}
       <div className="relative h-40 shrink-0 overflow-hidden bg-gradient-to-r from-pulse/40 to-neon/15">
         {profile?.banner && (

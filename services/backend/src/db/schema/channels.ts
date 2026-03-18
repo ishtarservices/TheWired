@@ -11,6 +11,7 @@ export const spaceChannels = appSchema.table("space_channels", {
   isDefault: boolean("is_default").notNull().default(false),
   adminOnly: boolean("admin_only").notNull().default(false),
   slowModeSeconds: integer("slow_mode_seconds").notNull().default(0),
+  temporary: boolean("temporary").notNull().default(false),
   createdAt: timestamp("created_at").defaultNow(),
 }, (table) => [
   unique("uq_space_channel_type_label").on(table.spaceId, table.type, table.label),

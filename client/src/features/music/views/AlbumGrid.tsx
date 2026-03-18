@@ -1,9 +1,11 @@
 import { useMemo } from "react";
 import { useAppSelector } from "@/store/hooks";
+import { usePlaybackBarSpacing } from "@/hooks/usePlaybackBarSpacing";
 import { selectLibraryAlbums } from "../musicSelectors";
 import { AlbumCard } from "../AlbumCard";
 
 export function AlbumGrid() {
+  const { scrollPaddingClass } = usePlaybackBarSpacing();
   const myPubkey = useAppSelector((s) => s.identity.pubkey);
   const libraryAlbumsSelector = useMemo(() => selectLibraryAlbums(myPubkey), [myPubkey]);
   const displayAlbums = useAppSelector(libraryAlbumsSelector);
@@ -17,7 +19,7 @@ export function AlbumGrid() {
   }
 
   return (
-    <div className="flex-1 overflow-y-auto p-4">
+    <div className={`flex-1 overflow-y-auto p-4 ${scrollPaddingClass}`}>
       <h2 className="mb-3 text-lg font-semibold text-heading">Projects</h2>
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5">
         {displayAlbums.map((album) => (

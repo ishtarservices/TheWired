@@ -54,9 +54,9 @@ export function ChatMessage({ event, onReply, onMentionClick }: ChatMessageProps
           )}
         </div>
         {replyEventId && <InlineReplyPreview eventId={replyEventId} />}
-        <p className="text-sm text-body break-words">
+        <div className="text-sm text-body break-words">
           <RichContent content={event.content} onMentionClick={onMentionClick} />
-        </p>
+        </div>
       </div>
     </div>
   );

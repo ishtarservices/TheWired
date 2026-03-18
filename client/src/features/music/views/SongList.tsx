@@ -1,9 +1,11 @@
 import { useMemo } from "react";
 import { useAppSelector } from "@/store/hooks";
+import { usePlaybackBarSpacing } from "@/hooks/usePlaybackBarSpacing";
 import { selectLibraryTracks } from "../musicSelectors";
 import { TrackRow } from "../TrackRow";
 
 export function SongList() {
+  const { scrollPaddingClass } = usePlaybackBarSpacing();
   const myPubkey = useAppSelector((s) => s.identity.pubkey);
   const libraryTracksSelector = useMemo(() => selectLibraryTracks(myPubkey), [myPubkey]);
   const allTracks = useAppSelector(libraryTracksSelector);
@@ -21,7 +23,7 @@ export function SongList() {
   }
 
   return (
-    <div className="flex-1 overflow-y-auto p-4">
+    <div className={`flex-1 overflow-y-auto p-4 ${scrollPaddingClass}`}>
       <h2 className="mb-3 text-lg font-semibold text-heading">Songs</h2>
 
       {/* Column headers */}

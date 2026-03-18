@@ -1,6 +1,7 @@
 import { useMemo } from "react";
 import { Music } from "lucide-react";
 import { useAppSelector, useAppDispatch } from "@/store/hooks";
+import { usePlaybackBarSpacing } from "@/hooks/usePlaybackBarSpacing";
 import { setActiveDetailId } from "@/store/slices/musicSlice";
 import { Avatar } from "@/components/ui/Avatar";
 import { useProfile } from "@/features/profile/useProfile";
@@ -97,6 +98,7 @@ function ArtistNameItem({ entry }: { entry: Extract<ArtistEntry, { type: "name" 
 }
 
 export function ArtistList() {
+  const { scrollPaddingClass } = usePlaybackBarSpacing();
   const directory = useAppSelector(selectArtistDirectory);
   const followedArtists = useAppSelector(
     (s) => s.music.library.followedArtists,
@@ -125,7 +127,7 @@ export function ArtistList() {
   }
 
   return (
-    <div className="flex-1 overflow-y-auto p-4">
+    <div className={`flex-1 overflow-y-auto p-4 ${scrollPaddingClass}`}>
       <h2 className="mb-3 text-lg font-semibold text-heading">Artists</h2>
       <div className="grid grid-cols-3 gap-2 sm:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6">
         {entries.map((entry) =>

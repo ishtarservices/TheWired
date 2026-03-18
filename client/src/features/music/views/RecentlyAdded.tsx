@@ -1,9 +1,11 @@
 import { useMemo } from "react";
 import { useAppSelector } from "@/store/hooks";
+import { usePlaybackBarSpacing } from "@/hooks/usePlaybackBarSpacing";
 import { selectLibraryTracks } from "../musicSelectors";
 import { TrackRow } from "../TrackRow";
 
 export function RecentlyAdded() {
+  const { scrollPaddingClass } = usePlaybackBarSpacing();
   const pubkey = useAppSelector((s) => s.identity.pubkey);
   const libraryTracksSelector = useMemo(() => selectLibraryTracks(pubkey), [pubkey]);
   const libraryTracks = useAppSelector(libraryTracksSelector);
@@ -21,7 +23,7 @@ export function RecentlyAdded() {
   }
 
   return (
-    <div className="flex-1 overflow-y-auto p-4">
+    <div className={`flex-1 overflow-y-auto p-4 ${scrollPaddingClass}`}>
       <h2 className="mb-3 text-lg font-semibold text-heading">Recently Added</h2>
 
       <div className="grid grid-cols-[2rem_1fr_1fr_4rem_2rem] gap-4 border-b border-edge px-3 pb-2 text-xs font-semibold uppercase tracking-[0.15em] text-muted">

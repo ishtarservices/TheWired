@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback, memo } from "react";
 import { useNavigate, useLocation } from "react-router-dom";
 import { cn } from "@/lib/utils";
-import { MessageSquare, FileText, Image, BookOpen, Music, Plus, BellOff } from "lucide-react";
+import { MessageSquare, FileText, Image, BookOpen, Music, Plus, BellOff, Headphones, Video, Users } from "lucide-react";
 import { useSpace } from "./useSpace";
 import { useSpaceChannels } from "./useSpaceChannels";
 import { useAppSelector } from "../../store/hooks";
@@ -10,6 +10,8 @@ import { parseChannelIdPart } from "./spaceSelectors";
 import { useChannelUnread, useChannelMentions, useChannelMuted } from "../notifications/useNotifications";
 import { CreateChannelModal } from "./CreateChannelModal";
 import { ChannelContextMenu } from "./ChannelContextMenu";
+import { VoiceChannelPreview } from "../voice/VoiceChannelPreview";
+import { selectIsInChannel, selectVoiceParticipantCount } from "../voice/voiceSelectors";
 import type { SpaceChannelType } from "../../types/space";
 
 const CHANNEL_ICONS: Record<SpaceChannelType, typeof MessageSquare> = {
@@ -18,6 +20,8 @@ const CHANNEL_ICONS: Record<SpaceChannelType, typeof MessageSquare> = {
   media: Image,
   articles: BookOpen,
   music: Music,
+  voice: Headphones,
+  video: Video,
 };
 
 export function ChannelList() {
@@ -98,18 +102,26 @@ export function ChannelList() {
         const channelActiveId = `${activeSpace.id}:${ch.id}`;
         const isActive = channelActiveId === activeChannelId;
         const Icon = CHANNEL_ICONS[ch.type] ?? MessageSquare;
+        const isVoice = ch.type === "voice" || ch.type === "video";
 
         return (
-          <ChannelButton
-            key={ch.id}
-            channelId={channelActiveId}
-            label={ch.label}
-            isActive={isActive}
-            slowModeSeconds={ch.slowModeSeconds}
-            Icon={Icon}
-            onClick={() => handleSelectChannel(ch.id)}
-            onContextMenu={(e) => handleChannelContextMenu(e, channelActiveId)}
-          />
+          <div key={ch.id}>
+            <ChannelButton
+              channelId={channelActiveId}
+              spaceId={activeSpace.id}
+              rawChannelId={ch.id}
+              label={ch.label}
+              isActive={isActive}
+              slowModeSeconds={ch.slowModeSeconds}
+              isVoiceType={isVoice}
+              Icon={Icon}
+              onClick={() => handleSelectChannel(ch.id)}
+              onContextMenu={(e) => handleChannelContextMenu(e, channelActiveId)}
+            />
+            {isVoice && (
+              <VoiceChannelPreview spaceId={activeSpace.id} channelId={ch.id} />
+            )}
+          </div>
         );
       })}
 
@@ -132,20 +144,26 @@ export function ChannelList() {
   );
 }
 
-/** Channel button with unread/mention badges (separate component for hook rules) */
+/** Channel button with unread/mention badges + voice participant count */
 const ChannelButton = memo(function ChannelButton({
   channelId,
+  spaceId,
+  rawChannelId,
   label,
   isActive,
   slowModeSeconds,
+  isVoiceType,
   Icon,
   onClick,
   onContextMenu,
 }: {
   channelId: string;
+  spaceId: string;
+  rawChannelId: string;
   label: string;
   isActive: boolean;
   slowModeSeconds: number;
+  isVoiceType: boolean;
   Icon: typeof MessageSquare;
   onClick: () => void;
   onContextMenu: (e: React.MouseEvent) => void;
@@ -154,6 +172,11 @@ const ChannelButton = memo(function ChannelButton({
   const mentions = useChannelMentions(channelId);
   const isMuted = useChannelMuted(channelId);
   const hasUnread = unread > 0 || mentions > 0;
+
+  // Voice/video channel: show participant count if we're connected to it
+  const isConnectedToThis = useAppSelector(selectIsInChannel(spaceId, rawChannelId));
+  const voiceParticipantCount = useAppSelector(selectVoiceParticipantCount);
+  const showVoiceCount = isVoiceType && isConnectedToThis && voiceParticipantCount > 0;
 
   return (
     <button
@@ -168,9 +191,15 @@ const ChannelButton = memo(function ChannelButton({
             : "text-soft hover:bg-surface-hover hover:text-heading",
       )}
     >
-      <Icon size={16} />
+      <Icon size={16} className={isConnectedToThis ? "text-green-400" : undefined} />
       <span className="truncate">{label}</span>
       <span className="ml-auto flex items-center gap-1.5">
+        {showVoiceCount && (
+          <span className="flex items-center gap-0.5 text-[10px] text-green-400">
+            <Users size={10} />
+            {voiceParticipantCount + 1}
+          </span>
+        )}
         {isMuted && (
           <BellOff size={11} className="shrink-0 text-muted" />
         )}

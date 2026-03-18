@@ -73,9 +73,12 @@ export const TrackCard = memo(function TrackCard({
 
   return (
     <>
-      <button
+      <div
+        role="button"
+        tabIndex={0}
         onClick={handleClick}
-        className="group flex w-full flex-col overflow-hidden rounded-xl border border-edge card-glass transition-all hover:border-edge-light hover-lift"
+        onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); handleClick(); } }}
+        className="group flex w-full cursor-pointer flex-col overflow-hidden rounded-xl border border-edge card-glass transition-all hover:border-edge-light hover-lift"
       >
         <div className="relative aspect-square w-full">
           {imageUrl ? (
@@ -175,7 +178,7 @@ export const TrackCard = memo(function TrackCard({
             </p>
           )}
         </div>
-      </button>
+      </div>
 
       <TrackActionPanel
         track={track}

@@ -5,6 +5,7 @@ import { Button } from "../../components/ui/Button";
 import { MentionAutocomplete } from "../../components/content/MentionAutocomplete";
 import { AttachmentPreview } from "../../components/chat/AttachmentPreview";
 import { useAutoResize } from "../../hooks/useAutoResize";
+import { usePlaybackBarSpacing } from "../../hooks/usePlaybackBarSpacing";
 import type { UploadedAttachment } from "../../hooks/useFileUpload";
 import type { AttachmentMeta } from "../../lib/nostr/eventBuilder";
 
@@ -52,6 +53,7 @@ export function ChatInput({
   const mentionMapRef = useRef<Map<string, string>>(new Map());
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   useAutoResize(textareaRef, value, 150);
+  const { inputMarginClass } = usePlaybackBarSpacing();
 
   const updateMentionState = useCallback((val: string, cursor: number) => {
     const query = detectMentionQuery(val, cursor);
@@ -161,7 +163,7 @@ export function ChatInput({
   return (
     <form
       onSubmit={handleSubmit}
-      className="relative border-t border-edge p-3"
+      className={`relative border-t border-edge p-3 ${inputMarginClass}`}
     >
       {mentionQuery !== null && (
         <MentionAutocomplete

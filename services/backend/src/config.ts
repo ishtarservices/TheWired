@@ -10,4 +10,7 @@ export const config = {
   vapidPrivateKey: process.env.VAPID_PRIVATE_KEY ?? "",
   vapidSubject: process.env.VAPID_SUBJECT ?? "mailto:admin@thewired.app",
   publicUrl: process.env.PUBLIC_URL ?? "http://localhost:9080",
+  livekitUrl: process.env.LIVEKIT_URL ?? "ws://localhost:7880",
+  livekitApiKey: process.env.LIVEKIT_API_KEY ?? "devkey",
+  livekitApiSecret: process.env.LIVEKIT_API_SECRET ?? "secret",
 } as const;

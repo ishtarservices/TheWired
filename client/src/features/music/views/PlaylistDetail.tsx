@@ -4,6 +4,7 @@ import { useAppSelector, useAppDispatch } from "@/store/hooks";
 import { goBack, setMusicView, removePlaylist, addPlaylist } from "@/store/slices/musicSlice";
 import { TrackRow } from "../TrackRow";
 import { useAudioPlayer } from "../useAudioPlayer";
+import { usePlaybackBarSpacing } from "@/hooks/usePlaybackBarSpacing";
 import { buildPlaylistEvent } from "../musicEventBuilder";
 import { signAndPublish } from "@/lib/nostr/publish";
 
@@ -16,6 +17,7 @@ export function PlaylistDetail() {
   const tracks = useAppSelector((s) => s.music.tracks);
   const pubkey = useAppSelector((s) => s.identity.pubkey);
   const { playQueue } = useAudioPlayer();
+  const { scrollPaddingClass } = usePlaybackBarSpacing();
 
   const [editing, setEditing] = useState(false);
   const [editTitle, setEditTitle] = useState("");
@@ -124,7 +126,7 @@ export function PlaylistDetail() {
   };
 
   return (
-    <div className="flex-1 overflow-y-auto">
+    <div className={`flex-1 overflow-y-auto ${scrollPaddingClass}`}>
       {/* Header */}
       <div className="flex items-end gap-6 bg-gradient-to-b from-card-hover/30 to-transparent p-6">
         <button

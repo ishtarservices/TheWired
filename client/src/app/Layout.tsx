@@ -7,6 +7,8 @@ import { FloatingPlaybackBar } from "../features/music/playbackBar/FloatingPlayb
 import { QueuePanel } from "../features/music/QueuePanel";
 import { UserPopoverProvider } from "../features/profile/UserPopoverContext";
 import { NotificationToastStack } from "../features/notifications/NotificationToast";
+import { CallController } from "../features/calling/CallController";
+import { IncomingCallModal } from "../features/calling/IncomingCallModal";
 import { useAppSelector, useAppDispatch } from "../store/hooks";
 import { toggleMemberList } from "../store/slices/uiSlice";
 import { useExternalLinkHandler } from "../hooks/useExternalLinkHandler";
@@ -18,6 +20,8 @@ export function Layout() {
   const memberListVisible = useAppSelector((s) => s.ui.memberListVisible);
   const activeSpaceId = useAppSelector((s) => s.spaces.activeSpaceId);
   const hasTrack = useAppSelector((s) => !!s.music?.player.currentTrackId);
+  const hasActiveCall = useAppSelector((s) => !!s.call.activeCall);
+  const hasIncomingCall = useAppSelector((s) => !!s.call.incomingCall);
 
   const showRightPanel = !!activeSpaceId && memberListVisible;
 
@@ -38,6 +42,8 @@ export function Layout() {
           <QueuePanel />
         </div>
         {hasTrack && <FloatingPlaybackBar />}
+        {hasActiveCall && <CallController />}
+        {hasIncomingCall && <IncomingCallModal />}
         <NotificationToastStack />
       </div>
     </UserPopoverProvider>

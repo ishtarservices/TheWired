@@ -38,6 +38,18 @@ export const SPACE_CHANNEL_ROUTES: Record<SpaceChannelType, SpaceChannelRoute> =
     pageSize: 30,
     sortOrder: "desc",
   },
+  voice: {
+    kinds: [EVENT_KINDS.LIVE_CHAT],
+    filterMode: "htag",
+    pageSize: 50,
+    sortOrder: "asc",
+  },
+  video: {
+    kinds: [EVENT_KINDS.LIVE_CHAT],
+    filterMode: "htag",
+    pageSize: 50,
+    sortOrder: "asc",
+  },
 };
 
 export function getSpaceChannelRoute(

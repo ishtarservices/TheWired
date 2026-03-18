@@ -96,4 +96,14 @@ export const EVENT_KINDS = {
   DM_RELAYS: 10050,
   MUSIC_TRACK_NOTES: 31686,
   MUSIC_PROPOSAL: 31685,
+  /** NIP-53: Interactive Room definition (voice/video rooms) */
+  INTERACTIVE_ROOM: 30312,
+  /** NIP-53: Room Presence (who's in a room, hand raise, mute state) */
+  ROOM_PRESENCE: 10312,
+  /** NIP-RTC: WebRTC signaling (offer/answer/ICE) — ephemeral */
+  WEBRTC_SIGNAL: 25050,
+  /** NIP-53: Conference Event (scheduled meeting) */
+  CONFERENCE: 30313,
+  /** NIP-A0: Voice Message (async voice notes, up to 60s) */
+  VOICE_MESSAGE: 1222,
 } as const;

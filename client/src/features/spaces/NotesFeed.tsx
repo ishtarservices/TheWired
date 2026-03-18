@@ -2,6 +2,7 @@ import { useState, useMemo, useEffect, useCallback, useRef, memo } from "react";
 import { nip19 } from "nostr-tools";
 import { ChevronDown, ChevronUp, ImageIcon, Film, Gauge } from "lucide-react";
 import { useAppSelector } from "../../store/hooks";
+import { usePlaybackBarSpacing } from "../../hooks/usePlaybackBarSpacing";
 import { selectSpaceRootNotes, selectSpaceRootNoteIds, selectActiveSpace } from "./spaceSelectors";
 import { Avatar } from "../../components/ui/Avatar";
 import { RichContent } from "../../components/content/RichContent";
@@ -326,13 +327,14 @@ export function NotesFeed() {
   const activeSpace = useAppSelector(selectActiveSpace);
   const scrollRef = useScrollRestore(activeChannelId);
   const { meta, refresh, loadMore } = useFeedPagination("notes");
+  const { scrollPaddingClass } = usePlaybackBarSpacing();
 
   useNoteEngagementSub(noteIds, activeSpace?.hostRelay);
 
   return (
     <div className="flex flex-1 flex-col overflow-hidden">
       <FeedToolbar isRefreshing={meta.isRefreshing} onRefresh={refresh} />
-      <div ref={scrollRef} className="flex-1 overflow-y-auto p-5">
+      <div ref={scrollRef} className={`flex-1 overflow-y-auto p-5 ${scrollPaddingClass}`}>
         {notes.length === 0 ? (
           <div className="flex h-full items-center justify-center">
             <p className="text-sm text-muted">

@@ -2,6 +2,7 @@ import { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { Settings, ArrowLeft } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { usePlaybackBarSpacing } from "@/hooks/usePlaybackBarSpacing";
 import { ProfileSettingsTab } from "./ProfileSettingsTab";
 import { RelaySettingsTab } from "./RelaySettingsTab";
 import { AppSettingsTab } from "./AppSettingsTab";
@@ -21,9 +22,10 @@ const tabs: { id: Tab; label: string }[] = [
 export function SettingsPage() {
   const [activeTab, setActiveTab] = useState<Tab>("profile");
   const navigate = useNavigate();
+  const { scrollPaddingClass } = usePlaybackBarSpacing();
 
   return (
-    <div className="flex flex-1 flex-col overflow-y-auto p-4">
+    <div className={`flex flex-1 flex-col overflow-y-auto p-4 ${scrollPaddingClass}`}>
       <div className="mb-4 flex items-center gap-2">
         <button
           onClick={() => navigate("/")}

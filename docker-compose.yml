@@ -90,6 +90,18 @@ services:
       redis:
         condition: service_healthy
 
+  livekit:
+    image: livekit/livekit-server:latest
+    ports:
+      - "${LIVEKIT_PORT:-7880}:7880"
+      - "7881:7881"
+      - "7882:7882/udp"
+    environment:
+      LIVEKIT_KEYS: "devkey: ${LIVEKIT_API_SECRET:-secret}"
+      LIVEKIT_LOG_LEVEL: info
+    command: --dev --bind 0.0.0.0 --node-ip=127.0.0.1
+    restart: unless-stopped
+
 volumes:
   pgdata:
   meilidata:

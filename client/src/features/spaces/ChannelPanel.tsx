@@ -7,6 +7,7 @@ import { LongFormView } from "../longform/LongFormView";
 import { NotesFeed } from "./NotesFeed";
 import { MediaFeed } from "./MediaFeed";
 import { SpaceMusicView } from "../music/SpaceMusicView";
+import { VoiceChannel } from "../voice/VoiceChannel";
 
 /**
  * Keep-alive channel panel.
@@ -32,6 +33,8 @@ const CHANNEL_COMPONENTS: Record<string, React.ComponentType> = {
   reels: ReelsView,
   "long-form": LongFormView,
   music: SpaceMusicView,
+  voice: VoiceChannel,
+  video: VoiceChannel,
 };
 
 export function ChannelPanel() {

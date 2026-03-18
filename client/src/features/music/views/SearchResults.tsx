@@ -1,6 +1,7 @@
 import { useEffect, useCallback, useRef } from "react";
 import { Search, User } from "lucide-react";
 import { useAppSelector, useAppDispatch } from "@/store/hooks";
+import { usePlaybackBarSpacing } from "@/hooks/usePlaybackBarSpacing";
 import { useProfile } from "@/features/profile/useProfile";
 import {
   addTracks,
@@ -20,6 +21,7 @@ import { resolveMusic } from "@/lib/api/music";
 import type { MusicSearchHit } from "../useMusicSearch";
 
 export function SearchResults() {
+  const { scrollPaddingClass } = usePlaybackBarSpacing();
   const dispatch = useAppDispatch();
   const search = useAppSelector((s) => s.music.search);
   const tracks = useAppSelector((s) => s.music.tracks);
@@ -144,7 +146,7 @@ export function SearchResults() {
   const uniqueArtists = [...artistMap.values()];
 
   return (
-    <div className="flex-1 overflow-y-auto p-6">
+    <div className={`flex-1 overflow-y-auto p-6 ${scrollPaddingClass}`}>
       {/* Search header with inline input */}
       <div className="mb-6">
         <div className="flex items-center gap-3">

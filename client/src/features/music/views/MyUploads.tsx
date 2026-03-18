@@ -1,6 +1,7 @@
 import { useState, useMemo } from "react";
 import { Upload, Disc3 } from "lucide-react";
 import { useAppSelector } from "@/store/hooks";
+import { usePlaybackBarSpacing } from "@/hooks/usePlaybackBarSpacing";
 import { selectMyTracks, selectMyAlbums, selectMyCollaborations } from "../musicSelectors";
 import { TrackRow } from "../TrackRow";
 import { AlbumCard } from "../AlbumCard";
@@ -8,6 +9,7 @@ import { UploadTrackModal } from "../UploadTrackModal";
 import { CreateAlbumModal } from "../CreateAlbumModal";
 
 export function MyUploads() {
+  const { scrollPaddingClass } = usePlaybackBarSpacing();
   const pubkey = useAppSelector((s) => s.identity.pubkey);
   const myTracks = useAppSelector(
     useMemo(() => (pubkey ? selectMyTracks(pubkey) : () => []), [pubkey]),
@@ -34,7 +36,7 @@ export function MyUploads() {
   const isEmpty = myTracks.length === 0 && myAlbums.length === 0 && myCollabs.length === 0;
 
   return (
-    <div className="flex-1 overflow-y-auto p-4">
+    <div className={`flex-1 overflow-y-auto p-4 ${scrollPaddingClass}`}>
       <div className="mb-4 flex items-center justify-between">
         <h2 className="text-lg font-semibold text-heading">My Music</h2>
         <div className="flex gap-2">

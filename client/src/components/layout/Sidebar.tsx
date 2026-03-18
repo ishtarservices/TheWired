@@ -8,6 +8,7 @@ import { ChannelList } from "../../features/spaces/ChannelList";
 import { MusicSidebar } from "../../features/music/MusicSidebar";
 import { ProfileCard } from "../../features/identity/ProfileCard";
 import { useDMUnreadCount } from "../../features/dm/useDMContacts";
+import { VoiceStatusBar } from "../../features/voice/VoiceStatusBar";
 import { useResizeHandle } from "./useResizeHandle";
 
 interface SidebarProps {
@@ -140,6 +141,9 @@ export function Sidebar({ expanded }: SidebarProps) {
           </div>
         )}
       </div>
+
+      {/* Voice status bar */}
+      <VoiceStatusBar />
 
       {/* User profile */}
       <div className="relative border-t border-edge p-4">

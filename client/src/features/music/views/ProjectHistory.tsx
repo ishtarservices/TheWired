@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { ArrowLeft, Clock, AlertCircle } from "lucide-react";
 import { useAppSelector, useAppDispatch } from "@/store/hooks";
 import { setMusicView, setActiveDetailId, setRevisions } from "@/store/slices/musicSlice";
+import { usePlaybackBarSpacing } from "@/hooks/usePlaybackBarSpacing";
 import { getApiBaseUrl } from "@/lib/api/client";
 import { RevisionCard } from "../RevisionCard";
 import type { MusicRevision } from "@/types/music";
@@ -16,6 +17,7 @@ export function ProjectHistory() {
   const albums = useAppSelector((s) => s.music.albums);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const { scrollPaddingClass } = usePlaybackBarSpacing();
 
   // Derive display name from either a track or album
   const itemName = addressableId
@@ -79,7 +81,7 @@ export function ProjectHistory() {
   }
 
   return (
-    <div className="flex flex-1 flex-col overflow-y-auto">
+    <div className={`flex flex-1 flex-col overflow-y-auto ${scrollPaddingClass}`}>
       {/* Header */}
       <div className="flex items-center gap-3 border-b border-edge px-6 py-4">
         <button

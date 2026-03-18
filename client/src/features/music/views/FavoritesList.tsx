@@ -1,9 +1,11 @@
 import { useAppSelector } from "@/store/hooks";
+import { usePlaybackBarSpacing } from "@/hooks/usePlaybackBarSpacing";
 import { selectFavoritedTracks, selectFavoritedAlbums } from "../musicSelectors";
 import { TrackRow } from "../TrackRow";
 import { AlbumCard } from "../AlbumCard";
 
 export function FavoritesList() {
+  const { scrollPaddingClass } = usePlaybackBarSpacing();
   const favTracks = useAppSelector(selectFavoritedTracks);
   const favAlbums = useAppSelector(selectFavoritedAlbums);
 
@@ -20,7 +22,7 @@ export function FavoritesList() {
   }
 
   return (
-    <div className="flex-1 overflow-y-auto p-4">
+    <div className={`flex-1 overflow-y-auto p-4 ${scrollPaddingClass}`}>
       <h2 className="mb-3 text-lg font-semibold text-heading">Favorites</h2>
 
       {/* Favorited Albums */}

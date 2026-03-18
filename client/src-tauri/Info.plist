@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<!-- Camera access for video calls and video channels -->
+	<key>NSCameraUsageDescription</key>
+	<string>The Wired needs camera access for video calls and video channels.</string>
+
+	<!-- Microphone access for voice calls and voice channels -->
+	<key>NSMicrophoneUsageDescription</key>
+	<string>The Wired needs microphone access for voice calls and voice channels.</string>
+
+	<!-- Screen recording for screen sharing in calls and channels -->
+	<key>NSScreenCaptureUsageDescription</key>
+	<string>The Wired needs screen recording access to share your screen in calls and channels.</string>
+</dict>
+</plist>

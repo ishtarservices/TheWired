@@ -13,3 +13,4 @@ export { uploadAudio, uploadCoverArt, getTrendingTracks, getTrendingAlbums, sear
 export { fetchChannels, createChannel, updateChannel, deleteChannel, reorderChannels } from "./channels";
 export { fetchRoles, createRole, updateRole, deleteRole, reorderRoles, fetchMemberRoles, assignRole, removeRoleFromMember, fetchChannelOverrides, setChannelOverrides, fetchMyPermissions } from "./roles";
 export { fetchBans, banMember, unbanMember, fetchMutes, muteMember, unmuteMember, kickMember } from "./moderation";
+export { fetchVoiceToken, voiceKick, voiceMute, fetchVoiceRooms, fetchDMVoiceToken } from "./voice";

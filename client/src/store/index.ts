@@ -10,6 +10,8 @@ import { spaceConfigSlice } from "./slices/spaceConfigSlice";
 import { dmSlice } from "./slices/dmSlice";
 import { notificationSlice } from "./slices/notificationSlice";
 import { friendRequestSlice } from "./slices/friendRequestSlice";
+import { voiceSlice } from "./slices/voiceSlice";
+import { callSlice } from "./slices/callSlice";
 
 export const store = configureStore({
   reducer: {
@@ -24,6 +26,8 @@ export const store = configureStore({
     dm: dmSlice.reducer,
     notifications: notificationSlice.reducer,
     friendRequests: friendRequestSlice.reducer,
+    voice: voiceSlice.reducer,
+    call: callSlice.reducer,
   },
 });
 

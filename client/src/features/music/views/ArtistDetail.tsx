@@ -7,6 +7,7 @@ import { AlbumCard } from "../AlbumCard";
 import { Avatar } from "@/components/ui/Avatar";
 import { useProfile } from "@/features/profile/useProfile";
 import { useArtistImage } from "../useArtistImage";
+import { usePlaybackBarSpacing } from "@/hooks/usePlaybackBarSpacing";
 import {
   selectArtistTracks,
   selectArtistAlbums,
@@ -82,6 +83,7 @@ function PubkeyArtistDetail({ pubkey }: { pubkey: string }) {
   const artistAlbums = useAppSelector(albumsSelector);
   const { profile } = useProfile(pubkey);
   const { imageUrl: localImage, pickImage } = useArtistImage(pubkey);
+  const { scrollPaddingClass } = usePlaybackBarSpacing();
 
   const name =
     profile?.display_name || profile?.name || pubkey.slice(0, 8) + "...";
@@ -110,7 +112,7 @@ function PubkeyArtistDetail({ pubkey }: { pubkey: string }) {
   let trackOffset = 0;
 
   return (
-    <div className="flex-1 overflow-y-auto">
+    <div className={`flex-1 overflow-y-auto ${scrollPaddingClass}`}>
       {/* Header */}
       <div className="flex items-end gap-6 bg-gradient-to-b from-card-hover/30 to-transparent p-6">
         <button
@@ -243,6 +245,7 @@ function NameArtistDetail({ normalizedName }: { normalizedName: string }) {
   const artistTracks = useAppSelector(tracksSelector);
   const artistAlbums = useAppSelector(albumsSelector);
   const { imageUrl: localImage, pickImage } = useArtistImage(`name:${normalizedName}`);
+  const { scrollPaddingClass } = usePlaybackBarSpacing();
 
   const displayName = useMemo(() => {
     if (artistTracks.length > 0) return artistTracks[0].artist;
@@ -272,7 +275,7 @@ function NameArtistDetail({ normalizedName }: { normalizedName: string }) {
   let trackOffset = 0;
 
   return (
-    <div className="flex-1 overflow-y-auto">
+    <div className={`flex-1 overflow-y-auto ${scrollPaddingClass}`}>
       {/* Header */}
       <div className="flex items-end gap-6 bg-gradient-to-b from-card-hover/30 to-transparent p-6">
         <button

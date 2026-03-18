@@ -7,11 +7,13 @@ import { UnreadDivider } from "@/components/chat/UnreadDivider";
 import { useDMConversation } from "./useDMConversation";
 import { sendDM } from "./dmService";
 import { useFileUpload } from "@/hooks/useFileUpload";
+import { usePlaybackBarSpacing } from "@/hooks/usePlaybackBarSpacing";
 import { useAppDispatch, useAppSelector } from "@/store/hooks";
 import { markConversationRead, clearDMUnreadDivider } from "@/store/slices/dmSlice";
 import { markDMNotificationsRead } from "@/store/slices/notificationSlice";
 import { getDisplayName } from "./dmUtils";
-import { ArrowLeft, ChevronDown } from "lucide-react";
+import { ArrowLeft, ChevronDown, Phone, Video } from "lucide-react";
+import { useCall } from "@/features/calling/useCall";
 
 interface DMConversationProps {
   partnerPubkey: string;
@@ -61,6 +63,7 @@ export function DMConversation({ partnerPubkey, onBack }: DMConversationProps) {
 
   // File upload — owned here so dropZoneRef covers the entire DM view
   const upload = useFileUpload();
+  const { scrollPaddingClass, inputMarginClass } = usePlaybackBarSpacing();
 
   // Unread divider: count captured by setActiveConversation before clearing
   const unreadCount = useAppSelector(
@@ -68,6 +71,7 @@ export function DMConversation({ partnerPubkey, onBack }: DMConversationProps) {
   );
 
   const displayName = getDisplayName(profile, partnerPubkey);
+  const { startCall, isInCall } = useCall();
 
   // Compute divider position: insert before the first unread message
   const dividerIndex = unreadCount && unreadCount > 0 && messages.length > 0
@@ -208,13 +212,31 @@ export function DMConversation({ partnerPubkey, onBack }: DMConversationProps) {
             <div className="text-xs text-muted truncate">{profile.nip05}</div>
           )}
         </div>
+        <div className="flex items-center gap-1">
+          <button
+            onClick={() => startCall(partnerPubkey, "audio")}
+            disabled={isInCall}
+            className="rounded-lg p-2 text-muted hover:text-heading hover:bg-surface-hover transition-colors disabled:opacity-50"
+            title="Voice call"
+          >
+            <Phone size={16} />
+          </button>
+          <button
+            onClick={() => startCall(partnerPubkey, "video")}
+            disabled={isInCall}
+            className="rounded-lg p-2 text-muted hover:text-heading hover:bg-surface-hover transition-colors disabled:opacity-50"
+            title="Video call"
+          >
+            <Video size={16} />
+          </button>
+        </div>
       </div>
 
       {/* Messages */}
       <div
         ref={scrollRef}
         onScroll={handleScroll}
-        className="flex-1 overflow-y-auto py-4"
+        className={`flex-1 overflow-y-auto py-4 ${scrollPaddingClass}`}
         style={{ overflowAnchor: "auto" }}
       >
         {messages.length === 0 ? (
@@ -257,7 +279,7 @@ export function DMConversation({ partnerPubkey, onBack }: DMConversationProps) {
       {showScrollButton && (
         <button
           onClick={scrollToBottom}
-          className="absolute bottom-20 right-4 z-10 flex h-9 w-9 items-center justify-center rounded-full bg-surface border border-edge shadow-lg text-muted hover:text-heading hover:bg-surface-hover transition-all animate-fade-in-up"
+          className={`absolute right-4 z-10 flex h-9 w-9 items-center justify-center rounded-full bg-surface border border-edge shadow-lg text-muted hover:text-heading hover:bg-surface-hover transition-all animate-fade-in-up ${inputMarginClass ? "bottom-28" : "bottom-20"}`}
           title="Scroll to bottom"
         >
           <ChevronDown size={18} />

@@ -1,6 +1,7 @@
 import { useMemo, useState } from "react";
 import { Music, Upload, Search, LayoutGrid, List, ArrowUpDown } from "lucide-react";
 import { useAppSelector } from "@/store/hooks";
+import { usePlaybackBarSpacing } from "@/hooks/usePlaybackBarSpacing";
 import { TrackCard } from "./TrackCard";
 import { TrackRow } from "./TrackRow";
 import { AlbumCard } from "./AlbumCard";
@@ -13,6 +14,7 @@ type SortMode = "newest" | "az" | "artist";
 type ViewMode = "grid" | "list";
 
 export function SpaceMusicView() {
+  const { scrollPaddingClass } = usePlaybackBarSpacing();
   const activeChannelId = useAppSelector((s) => s.spaces.activeChannelId);
   const activeSpace = useAppSelector((s) => {
     const id = s.spaces.activeSpaceId;
@@ -220,7 +222,7 @@ export function SpaceMusicView() {
       </div>
 
       {/* Content */}
-      <div className="flex-1 overflow-y-auto p-4">
+      <div className={`flex-1 overflow-y-auto p-4 ${scrollPaddingClass}`}>
         {showTracks && filteredTracks.length > 0 && (
           <section className={showAlbums && filteredAlbums.length > 0 ? "mb-6" : ""}>
             {tab === "all" && (

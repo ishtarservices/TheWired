@@ -2,6 +2,7 @@ import { useEffect, useState, useCallback } from "react";
 import { ArrowLeft, GitPullRequest, Plus } from "lucide-react";
 import { useAppSelector, useAppDispatch } from "@/store/hooks";
 import { setMusicView, setActiveDetailId, setProposals } from "@/store/slices/musicSlice";
+import { usePlaybackBarSpacing } from "@/hooks/usePlaybackBarSpacing";
 import { ProposalCard } from "../ProposalCard";
 import { CreateProposalModal } from "../CreateProposalModal";
 import type { MusicProposal } from "@/types/music";
@@ -20,6 +21,7 @@ export function ProjectProposals() {
   const pubkey = useAppSelector((s) => s.identity.pubkey);
   const [loading, setLoading] = useState(false);
   const [showCreate, setShowCreate] = useState(false);
+  const { scrollPaddingClass } = usePlaybackBarSpacing();
 
   const isOwner = pubkey === album?.pubkey;
   const isCollaborator = !!pubkey && !!album && album.featuredArtists.includes(pubkey);
@@ -82,7 +84,7 @@ export function ProjectProposals() {
   const resolvedProposals = proposals.filter((p) => p.status !== "open");
 
   return (
-    <div className="flex flex-1 flex-col overflow-y-auto">
+    <div className={`flex flex-1 flex-col overflow-y-auto ${scrollPaddingClass}`}>
       {/* Header */}
       <div className="flex items-center gap-3 border-b border-edge px-6 py-4">
         <button

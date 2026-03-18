@@ -11,6 +11,7 @@ interface CreateChannelParams {
   label: string;
   adminOnly?: boolean;
   slowModeSeconds?: number;
+  temporary?: boolean;
 }
 
 interface UpdateChannelParams {
@@ -82,6 +83,7 @@ export const channelService = {
         isDefault: false,
         adminOnly: params.adminOnly ?? false,
         slowModeSeconds: params.slowModeSeconds ?? 0,
+        temporary: params.temporary ?? false,
       })
       .returning();
 

@@ -38,6 +38,7 @@ interface MusicState {
     shuffle: boolean;
     originalQueue: string[];
     barMode: "expanded" | "mini";
+    miniBarCorner: "bottom-right" | "bottom-left" | "top-right" | "top-left";
     nowPlayingOpen: boolean;
   };
 
@@ -116,6 +117,7 @@ const initialState: MusicState = {
     shuffle: false,
     originalQueue: [],
     barMode: "expanded",
+    miniBarCorner: "bottom-right",
     nowPlayingOpen: false,
   },
 
@@ -747,6 +749,9 @@ export const musicSlice = createSlice({
     setBarMode(state, action: PayloadAction<"expanded" | "mini">) {
       state.player.barMode = action.payload;
     },
+    setMiniBarCorner(state, action: PayloadAction<"bottom-right" | "bottom-left" | "top-right" | "top-left">) {
+      state.player.miniBarCorner = action.payload;
+    },
     toggleNowPlaying(state) {
       state.player.nowPlayingOpen = !state.player.nowPlayingOpen;
     },
@@ -839,6 +844,7 @@ export const {
   goBack,
   toggleQueuePanel,
   setBarMode,
+  setMiniBarCorner,
   toggleNowPlaying,
   setViewMode,
 } = musicSlice.actions;

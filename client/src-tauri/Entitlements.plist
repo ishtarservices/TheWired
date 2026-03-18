@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<!-- Allow camera access under hardened runtime -->
+	<key>com.apple.security.device.camera</key>
+	<true/>
+
+	<!-- Allow microphone access under hardened runtime -->
+	<key>com.apple.security.device.audio-input</key>
+	<true/>
+
+	<!-- Allow screen capture under hardened runtime -->
+	<key>com.apple.security.screen-capture.allow</key>
+	<true/>
+
+	<!-- Allow outgoing network connections (WebRTC, LiveKit, relays) -->
+	<key>com.apple.security.network.client</key>
+	<true/>
+
+	<!-- Allow incoming network connections (P2P WebRTC) -->
+	<key>com.apple.security.network.server</key>
+	<true/>
+</dict>
+</plist>

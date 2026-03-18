@@ -4,6 +4,7 @@ import { ChatReply } from "./ChatReply";
 import { ChatInput } from "./ChatInput";
 import { useChat } from "./useChat";
 import { useFileUpload } from "../../hooks/useFileUpload";
+import { usePlaybackBarSpacing } from "../../hooks/usePlaybackBarSpacing";
 import { Spinner } from "../../components/ui/Spinner";
 import { UnreadDivider } from "../../components/chat/UnreadDivider";
 import { useAppSelector, useAppDispatch } from "../../store/hooks";
@@ -33,6 +34,7 @@ export function ChatView() {
 
   // File upload — owned here so dropZoneRef covers the entire chat view
   const upload = useFileUpload();
+  const { scrollPaddingClass } = usePlaybackBarSpacing();
 
   // Unread divider: timestamp of old lastRead for this channel
   const dividerTimestamp = useAppSelector(
@@ -98,7 +100,7 @@ export function ChatView() {
         </div>
       )}
 
-      <div ref={scrollRef} className="flex-1 overflow-y-auto py-2">
+      <div ref={scrollRef} className={`flex-1 overflow-y-auto py-2 ${scrollPaddingClass}`}>
         {messages.length === 0 && pendingMessages.length === 0 ? (
           <div className="flex h-full items-center justify-center">
             <p className="text-sm text-muted">

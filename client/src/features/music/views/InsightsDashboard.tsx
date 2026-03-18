@@ -1,11 +1,13 @@
 import { useEffect, useState } from "react";
 import { TrendingUp, TrendingDown, Minus, Play, Users, Music } from "lucide-react";
 import { useAppSelector } from "@/store/hooks";
+import { usePlaybackBarSpacing } from "@/hooks/usePlaybackBarSpacing";
 import { InsightsChart } from "../InsightsChart";
 import { getArtistSummary } from "@/lib/api/music";
 import type { ArtistSummary, TrackInsights } from "@/types/music";
 
 export function InsightsDashboard() {
+  const { scrollPaddingClass } = usePlaybackBarSpacing();
   const pubkey = useAppSelector((s) => s.identity.pubkey);
   const tracks = useAppSelector((s) => s.music.tracks);
   const [summary, setSummary] = useState<ArtistSummary | null>(null);
@@ -74,7 +76,7 @@ export function InsightsDashboard() {
   if (!summary) return null;
 
   return (
-    <div className="flex flex-1 flex-col overflow-y-auto p-6">
+    <div className={`flex flex-1 flex-col overflow-y-auto p-6 ${scrollPaddingClass}`}>
       <h1 className="mb-6 text-xl font-semibold text-heading">Insights</h1>
 
       {/* Summary cards */}

@@ -16,6 +16,7 @@ import { useProfile } from "@/features/profile/useProfile";
 import { useSavedVersions } from "../useSavedVersions";
 import { ReleaseNotesModal } from "../ReleaseNotesModal";
 import { AnnotationsPanel } from "../AnnotationsPanel";
+import { usePlaybackBarSpacing } from "@/hooks/usePlaybackBarSpacing";
 
 function CollaboratorRow({
   pubkey,
@@ -85,6 +86,7 @@ export function AlbumDetail() {
 
   const savedTrackIds = useAppSelector((s) => s.music.library.savedTrackIds);
   const savedAlbumIds = useAppSelector((s) => s.music.library.savedAlbumIds);
+  const { scrollPaddingClass } = usePlaybackBarSpacing();
 
   // All tracks in this album (catalog-level)
   const allAlbumTracks = useMemo(() => {
@@ -170,9 +172,9 @@ export function AlbumDetail() {
   return (
     <div className="flex flex-1 overflow-hidden">
       {/* Main content */}
-      <div className="flex-1 overflow-y-auto">
+      <div className={`flex-1 overflow-y-auto ${scrollPaddingClass}`}>
         {/* Header */}
-        <div className="flex items-end gap-6 bg-gradient-to-b from-card-hover/30 to-transparent p-6">
+        <div className="flex items-end gap-6 bg-linear-to-b from-card-hover/30 to-transparent p-6">
           <button
             onClick={() => dispatch(goBack())}
             className="self-start rounded p-1 text-soft hover:text-heading"
@@ -221,7 +223,7 @@ export function AlbumDetail() {
               <button
                 onClick={() => playQueue(queueIds, 0)}
                 disabled={queueIds.length === 0}
-                className="flex items-center gap-1.5 rounded-full bg-gradient-to-r from-pulse to-pulse-soft px-4 py-1.5 text-sm font-medium text-white transition-transform hover:scale-105 press-effect disabled:opacity-50"
+                className="flex items-center gap-1.5 rounded-full bg-linear-to-r from-pulse to-pulse-soft px-4 py-1.5 text-sm font-medium text-white transition-transform hover:scale-105 press-effect disabled:opacity-50"
               >
                 <Play size={14} fill="currentColor" />
                 Play All
@@ -496,7 +498,7 @@ export function AlbumDetail() {
                   <button
                     onClick={handleAddCollaborator}
                     disabled={!addInput.trim()}
-                    className="w-full rounded-xl bg-gradient-to-r from-pulse to-pulse-soft px-3 py-1.5 text-sm font-medium text-white hover:opacity-90 transition-all duration-150 press-effect disabled:opacity-40"
+                    className="w-full rounded-xl bg-linear-to-r from-pulse to-pulse-soft px-3 py-1.5 text-sm font-medium text-white hover:opacity-90 transition-all duration-150 press-effect disabled:opacity-40"
                   >
                     Add
                   </button>

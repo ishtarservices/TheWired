@@ -45,7 +45,7 @@ function EmbedIframe({ embed }: { embed: EmbedMatch }) {
           src={embed.embedUrl!}
           title={`${PLATFORM_LABELS[embed.platform]} embed`}
           className={dimensions.iframeClass}
-          sandbox="allow-scripts allow-same-origin allow-popups allow-presentation"
+          sandbox="allow-scripts allow-same-origin allow-popups"
           loading="lazy"
           allowFullScreen
           allow="autoplay; encrypted-media"

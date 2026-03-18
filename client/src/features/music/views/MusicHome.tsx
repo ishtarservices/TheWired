@@ -1,5 +1,6 @@
 import { useMemo, useEffect } from "react";
 import { useAppSelector, useAppDispatch } from "@/store/hooks";
+import { usePlaybackBarSpacing } from "@/hooks/usePlaybackBarSpacing";
 import {
   setExploreGenres,
   setExplorePopularTags,
@@ -14,6 +15,7 @@ import { AlbumCard } from "../AlbumCard";
 import { GenreCard } from "../GenreCard";
 
 export function MusicHome() {
+  const { scrollPaddingClass } = usePlaybackBarSpacing();
   const dispatch = useAppDispatch();
   const tracks = useAppSelector((s) => s.music.tracks);
   const albums = useAppSelector((s) => s.music.albums);
@@ -95,7 +97,7 @@ export function MusicHome() {
   };
 
   return (
-    <div className="flex-1 overflow-y-auto p-6">
+    <div className={`flex-1 overflow-y-auto p-6 ${scrollPaddingClass}`}>
       {/* Browse by Genre */}
       {exploreGenres.length > 0 && (
         <section className="mb-8">

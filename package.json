@@ -9,7 +9,7 @@
     "dev:tauri": "cd client && pnpm tauri dev",
     "dev:tauri:2": "cd client && WIRED_INSTANCE=1 TAURI_CONFIG='{\"build\":{\"devUrl\":\"http://localhost:1422\",\"beforeDevCommand\":\"pnpm dev\"}}' pnpm tauri dev",
     "dev:tauri:3": "cd client && WIRED_INSTANCE=2 TAURI_CONFIG='{\"build\":{\"devUrl\":\"http://localhost:1424\",\"beforeDevCommand\":\"pnpm dev\"}}' pnpm tauri dev",
-    "dev:infra": "docker compose up postgres redis meilisearch -d",
+    "dev:infra": "docker compose up postgres redis meilisearch livekit -d",
     "dev:services": "docker compose up -d",
     "build": "pnpm -r build",
     "typecheck": "pnpm -r typecheck"

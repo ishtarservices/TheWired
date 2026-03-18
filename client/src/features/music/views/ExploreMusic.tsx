@@ -1,6 +1,7 @@
 import { useEffect, useCallback } from "react";
 import { X } from "lucide-react";
 import { useAppSelector, useAppDispatch } from "@/store/hooks";
+import { usePlaybackBarSpacing } from "@/hooks/usePlaybackBarSpacing";
 import {
   addTracks,
   addAlbums,
@@ -25,6 +26,7 @@ import { TrackCard } from "../TrackCard";
 import { AlbumCard } from "../AlbumCard";
 
 export function ExploreMusic() {
+  const { scrollPaddingClass } = usePlaybackBarSpacing();
   const dispatch = useAppDispatch();
   const explore = useAppSelector((s) => s.music.explore);
   const tracks = useAppSelector((s) => s.music.tracks);
@@ -146,7 +148,7 @@ export function ExploreMusic() {
   const browseAlbumList = browseAlbumIds.map((id) => albums[id]).filter(Boolean);
 
   return (
-    <div className="flex-1 overflow-y-auto p-6">
+    <div className={`flex-1 overflow-y-auto p-6 ${scrollPaddingClass}`}>
       <h2 className="mb-4 text-lg font-semibold text-heading">Explore</h2>
 
       {/* Genre cards */}

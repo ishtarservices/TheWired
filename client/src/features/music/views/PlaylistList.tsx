@@ -1,10 +1,12 @@
 import { useMemo, useState } from "react";
 import { ListMusic, Plus } from "lucide-react";
 import { useAppSelector, useAppDispatch } from "@/store/hooks";
+import { usePlaybackBarSpacing } from "@/hooks/usePlaybackBarSpacing";
 import { setActiveDetailId } from "@/store/slices/musicSlice";
 import { CreatePlaylistModal } from "../CreatePlaylistModal";
 
 export function PlaylistList() {
+  const { scrollPaddingClass } = usePlaybackBarSpacing();
   const dispatch = useAppDispatch();
   const playlists = useAppSelector((s) => s.music.playlists);
   const userPlaylistIds = useAppSelector((s) => s.music.library.userPlaylists);
@@ -25,7 +27,7 @@ export function PlaylistList() {
   }, [userPlaylistIds, playlists, pubkey]);
 
   return (
-    <div className="flex-1 overflow-y-auto p-4">
+    <div className={`flex-1 overflow-y-auto p-4 ${scrollPaddingClass}`}>
       <div className="mb-3 flex items-center justify-between">
         <h2 className="text-lg font-semibold text-heading">Playlists</h2>
         <button

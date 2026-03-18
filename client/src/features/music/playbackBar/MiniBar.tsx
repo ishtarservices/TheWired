@@ -1,26 +1,132 @@
 import { Play, Pause, Maximize2, ListMusic } from "lucide-react";
-import { motion } from "motion/react";
+import { motion, useMotionValue, useSpring } from "motion/react";
 import { useAudioPlayer } from "../useAudioPlayer";
 import { useAppDispatch, useAppSelector } from "@/store/hooks";
-import { setBarMode } from "@/store/slices/musicSlice";
+import { setBarMode, setMiniBarCorner } from "@/store/slices/musicSlice";
 import { getTrackImage } from "../trackImage";
-import { useState } from "react";
+import { useState, useRef, useCallback, useEffect } from "react";
 
 const RING_SIZE = 48;
 const RING_RADIUS = 21;
 const RING_CIRCUMFERENCE = 2 * Math.PI * RING_RADIUS;
 
+type Corner = "bottom-right" | "bottom-left" | "top-right" | "top-left";
+
+/** Computes the resting pixel position for each corner */
+function getCornerPosition(corner: Corner): { x: number; y: number } {
+  const margin = 24; // matches right-6 / left-6 (1.5rem)
+  const marginY = 16; // matches top-4 / bottom-4 (1rem)
+  const w = window.innerWidth;
+  const h = window.innerHeight;
+
+  switch (corner) {
+    case "bottom-right": return { x: w - RING_SIZE - margin, y: h - RING_SIZE - marginY };
+    case "bottom-left":  return { x: margin, y: h - RING_SIZE - marginY };
+    case "top-right":    return { x: w - RING_SIZE - margin, y: marginY };
+    case "top-left":     return { x: margin, y: marginY };
+  }
+}
+
+function nearestCorner(x: number, y: number): Corner {
+  const midX = window.innerWidth / 2;
+  const midY = window.innerHeight / 2;
+  const isRight = x >= midX;
+  const isBottom = y >= midY;
+
+  if (isBottom && isRight) return "bottom-right";
+  if (isBottom && !isRight) return "bottom-left";
+  if (!isBottom && isRight) return "top-right";
+  return "top-left";
+}
+
 export function MiniBar() {
   const dispatch = useAppDispatch();
   const { currentTrack, player, togglePlay } = useAudioPlayer();
   const albums = useAppSelector((s) => s.music.albums);
+  const corner = useAppSelector((s) => s.music.player.miniBarCorner);
   const [isHovered, setIsHovered] = useState(false);
+  const [isDragging, setIsDragging] = useState(false);
+
+  const dragStartRef = useRef<{ x: number; y: number; elX: number; elY: number } | null>(null);
+  const didDragRef = useRef(false);
+
+  // Spring-animated position for snap transitions
+  const motionX = useMotionValue(0);
+  const motionY = useMotionValue(0);
+  const springX = useSpring(motionX, { stiffness: 400, damping: 30 });
+  const springY = useSpring(motionY, { stiffness: 400, damping: 30 });
+
+  // Sync spring to corner on mount and corner changes (and window resize)
+  const syncToCorner = useCallback(() => {
+    const pos = getCornerPosition(corner);
+    motionX.set(pos.x);
+    motionY.set(pos.y);
+  }, [corner, motionX, motionY]);
+
+  useEffect(() => {
+    syncToCorner();
+    window.addEventListener("resize", syncToCorner);
+    return () => window.removeEventListener("resize", syncToCorner);
+  }, [syncToCorner]);
+
+  const handlePointerDown = useCallback((e: React.PointerEvent) => {
+    e.currentTarget.setPointerCapture(e.pointerId);
+    didDragRef.current = false;
+    dragStartRef.current = {
+      x: e.clientX,
+      y: e.clientY,
+      elX: motionX.get(),
+      elY: motionY.get(),
+    };
+  }, [motionX, motionY]);
+
+  const handlePointerMove = useCallback((e: React.PointerEvent) => {
+    const start = dragStartRef.current;
+    if (!start) return;
+
+    const dx = e.clientX - start.x;
+    const dy = e.clientY - start.y;
+
+    // Only start dragging after 5px movement to allow clicks
+    if (!isDragging && (Math.abs(dx) > 5 || Math.abs(dy) > 5)) {
+      setIsDragging(true);
+      didDragRef.current = true;
+    }
+
+    if (didDragRef.current) {
+      // Set directly (skip spring) during drag for responsive feel
+      motionX.set(start.elX + dx);
+      motionY.set(start.elY + dy);
+    }
+  }, [isDragging, motionX, motionY]);
+
+  const handlePointerUp = useCallback((e: React.PointerEvent) => {
+    e.currentTarget.releasePointerCapture(e.pointerId);
+    dragStartRef.current = null;
+
+    if (didDragRef.current) {
+      // Snap to nearest corner
+      const centerX = motionX.get() + RING_SIZE / 2;
+      const centerY = motionY.get() + RING_SIZE / 2;
+      const newCorner = nearestCorner(centerX, centerY);
+      dispatch(setMiniBarCorner(newCorner));
+
+      // Spring animate to final position
+      const pos = getCornerPosition(newCorner);
+      motionX.set(pos.x);
+      motionY.set(pos.y);
+    }
+
+    setIsDragging(false);
+    didDragRef.current = false;
+  }, [dispatch, motionX, motionY]);
 
   if (!currentTrack) return null;
 
   const imageUrl = getTrackImage(currentTrack, albums);
   const progress = player.duration > 0 ? player.position / player.duration : 0;
   const strokeOffset = RING_CIRCUMFERENCE * (1 - progress);
+  const isLeftCorner = corner === "bottom-left" || corner === "top-left";
 
   return (
     <motion.div
@@ -29,15 +135,24 @@ export function MiniBar() {
       animate={{ opacity: 1, scale: 1 }}
       exit={{ opacity: 0, scale: 0.5 }}
       transition={{ type: "spring", duration: 0.25, bounce: 0.15 }}
-      className="fixed bottom-4 right-6 z-40 flex items-center gap-2"
+      style={{ x: springX, y: springY }}
+      className={`fixed top-0 left-0 z-40 ${isDragging ? "cursor-grabbing" : "cursor-grab"}`}
       onMouseEnter={() => setIsHovered(true)}
-      onMouseLeave={() => setIsHovered(false)}
+      onMouseLeave={() => { setIsHovered(false); }}
+      onPointerDown={handlePointerDown}
+      onPointerMove={handlePointerMove}
+      onPointerUp={handlePointerUp}
     >
-      {/* Expand label — visible on hover */}
-      {isHovered && (
+      {/* Expand label — absolutely positioned so it doesn't shift the circle */}
+      {isHovered && !isDragging && (
         <button
-          onClick={() => dispatch(setBarMode("expanded"))}
-          className="flex items-center gap-1.5 rounded-full glass-panel px-3 py-1.5 text-xs text-soft transition-colors hover:text-heading shadow-lg animate-fade-in"
+          onClick={(e) => {
+            e.stopPropagation();
+            dispatch(setBarMode("expanded"));
+          }}
+          className={`absolute top-1/2 -translate-y-1/2 flex items-center gap-1.5 rounded-full glass-panel px-3 py-1.5 text-xs text-soft transition-colors hover:text-heading shadow-lg animate-fade-in whitespace-nowrap ${
+            isLeftCorner ? "left-full ml-2" : "right-full mr-2"
+          }`}
         >
           <Maximize2 size={12} />
           <span className="truncate max-w-[120px]">{currentTrack.title}</span>
@@ -99,14 +214,14 @@ export function MiniBar() {
           </defs>
         </svg>
 
-        {/* Hover overlay — play/pause on left half click, expand on right half */}
+        {/* Hover overlay — play/pause */}
         <button
           className={`absolute inset-0 flex items-center justify-center rounded-full transition-opacity ${
-            isHovered ? "bg-black/50 opacity-100" : "opacity-0"
+            isHovered && !isDragging ? "bg-black/50 opacity-100" : "opacity-0"
           }`}
           onClick={(e) => {
             e.stopPropagation();
-            togglePlay();
+            if (!didDragRef.current) togglePlay();
           }}
           title={player.isPlaying ? "Pause" : "Play"}
         >

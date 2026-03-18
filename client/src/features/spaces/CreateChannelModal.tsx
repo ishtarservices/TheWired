@@ -10,6 +10,8 @@ const UNIQUE_FEED_TYPES = new Set<SpaceChannelType>(["notes", "media", "articles
 
 const ALL_TYPES: { value: SpaceChannelType; label: string }[] = [
   { value: "chat", label: "Chat" },
+  { value: "voice", label: "Voice" },
+  { value: "video", label: "Video" },
   { value: "notes", label: "Notes" },
   { value: "media", label: "Media" },
   { value: "articles", label: "Articles" },
@@ -34,8 +36,11 @@ export function CreateChannelModal({
   const [type, setType] = useState<SpaceChannelType>("chat");
   const [adminOnly, setAdminOnly] = useState(false);
   const [slowModeSeconds, setSlowModeSeconds] = useState(0);
+  const [temporary, setTemporary] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [creating, setCreating] = useState(false);
+
+  const isVoiceOrVideo = type === "voice" || type === "video";
 
   // Determine which types are disabled (already exist for unique feed types)
   const existingTypes = new Set(existingChannels.map((c) => c.type));
@@ -56,11 +61,13 @@ export function CreateChannelModal({
         label: name.startsWith("#") ? name.trim() : `#${name.trim()}`,
         adminOnly,
         slowModeSeconds,
+        ...(isVoiceOrVideo && temporary ? { temporary: true } : {}),
       });
       setName("");
       setType("chat");
       setAdminOnly(false);
       setSlowModeSeconds(0);
+      setTemporary(false);
       onClose();
     } catch (err: any) {
       setError(err.message ?? "Failed to create channel");
@@ -143,6 +150,22 @@ export function CreateChannelModal({
                 onChange={(e) => setSlowModeSeconds(Math.max(0, parseInt(e.target.value) || 0))}
                 className="w-full rounded-xl bg-field border border-edge px-3 py-1.5 text-sm text-heading placeholder-muted focus:border-neon focus:outline-none transition-colors"
               />
+            </div>
+          )}
+
+          {isVoiceOrVideo && (
+            <div className="flex items-center gap-2">
+              <input
+                type="checkbox"
+                id="temporary"
+                checked={temporary}
+                onChange={(e) => setTemporary(e.target.checked)}
+                className="rounded border-edge"
+              />
+              <label htmlFor="temporary" className="text-sm text-soft">
+                Temporary channel
+              </label>
+              <span className="text-[10px] text-muted">(deleted when everyone leaves)</span>
             </div>
           )}
 

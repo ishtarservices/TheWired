@@ -23,6 +23,9 @@ import { evaluateNotification, evaluateDMNotification, evaluateFriendRequestNoti
 import { addFriendRequest, markOutgoingAccepted, acceptFriendRequest, addProcessedWrapId, removeFriend } from "../../store/slices/friendRequestSlice";
 import { addKnownFollower } from "../../store/slices/identitySlice";
 import { acceptFriendRequestAction } from "./friendRequest";
+import { setIncomingCall, missedCall, endCall } from "../../store/slices/callSlice";
+import { parseRTCSignal } from "./callSignaling";
+import type { CallType } from "../../types/calling";
 
 const dedup = new EventDeduplicator();
 
@@ -85,6 +88,13 @@ export async function processIncomingEvent(
   if (event.kind === EVENT_KINDS.GIFT_WRAP) {
     store.dispatch(incrementEventCount(relayUrl));
     handleGiftWrap(event);
+    return;
+  }
+
+  // Handle WebRTC signaling events (kind:25050) — ephemeral, don't store
+  if (event.kind === EVENT_KINDS.WEBRTC_SIGNAL) {
+    store.dispatch(incrementEventCount(relayUrl));
+    handleWebRTCSignal(event);
     return;
   }
 
@@ -414,6 +424,18 @@ async function handleGiftWrap(event: NostrEvent): Promise<void> {
       handleFriendRemoveWrap(dm, myPubkey);
       return;
     }
+    if (typeTag === "call_invite") {
+      handleCallInviteWrap(dm, myPubkey);
+      return;
+    }
+    if (typeTag === "call_decline") {
+      handleCallDeclineWrap(dm, myPubkey);
+      return;
+    }
+    if (typeTag === "call_missed") {
+      handleCallMissedWrap(dm, myPubkey);
+      return;
+    }
 
     const isOwnMessage = dm.sender === myPubkey;
 
@@ -576,5 +598,87 @@ function handleFriendRemoveWrap(
   if (!isOwnMessage) {
     // The other user removed us as a friend — clear all request state for them
     store.dispatch(removeFriend(partnerPubkey));
+  }
+}
+
+/** Handle an incoming call invitation from a gift wrap */
+function handleCallInviteWrap(
+  dm: { sender: string; content: string; tags: string[][]; wrapId: string },
+  myPubkey: string,
+): void {
+  const isOwnMessage = dm.sender === myPubkey;
+  if (isOwnMessage) return; // Ignore our own outgoing invites
+
+  // Don't accept calls if we already have an active call
+  const callState = store.getState().call;
+  if (callState.activeCall || callState.incomingCall) return;
+
+  try {
+    const payload = JSON.parse(dm.content) as {
+      roomSecretKey: string;
+      callType: CallType;
+      callerName: string;
+    };
+
+    store.dispatch(
+      setIncomingCall({
+        callerPubkey: dm.sender,
+        roomSecretKey: payload.roomSecretKey,
+        callType: payload.callType,
+        callerName: payload.callerName,
+        timestamp: Date.now(),
+      }),
+    );
+  } catch {
+    console.warn("[call] Failed to parse call invite");
+  }
+}
+
+/** Handle a call decline notification — the remote party declined our outgoing call */
+function handleCallDeclineWrap(
+  dm: { sender: string; content: string; tags: string[][]; wrapId: string },
+  myPubkey: string,
+): void {
+  const isOwnMessage = dm.sender === myPubkey;
+  if (isOwnMessage) return;
+
+  const callState = store.getState().call;
+  if (callState.activeCall?.partnerPubkey === dm.sender) {
+    store.dispatch(endCall("declined"));
+  }
+}
+
+/** Handle a missed call notification */
+function handleCallMissedWrap(
+  dm: { sender: string; content: string; tags: string[][]; wrapId: string },
+  myPubkey: string,
+): void {
+  const isOwnMessage = dm.sender === myPubkey;
+  if (isOwnMessage) return;
+
+  const callState = store.getState().call;
+  if (callState.incomingCall?.callerPubkey === dm.sender) {
+    store.dispatch(missedCall());
+  }
+}
+
+/** Handle an incoming WebRTC signaling event (kind:25050) */
+async function handleWebRTCSignal(event: NostrEvent): Promise<void> {
+  const myPubkey = store.getState().identity.pubkey;
+  if (!myPubkey || event.pubkey === myPubkey) return;
+
+  // Only process signals addressed to us
+  const recipientTag = event.tags.find((t) => t[0] === "p")?.[1];
+  if (recipientTag && recipientTag !== myPubkey) return;
+
+  try {
+    const signal = await parseRTCSignal(event);
+    if (!signal) return;
+
+    // Dynamically import to avoid circular dependencies
+    const { handleRTCSignal } = await import("../../features/calling/callService");
+    handleRTCSignal(signal);
+  } catch (err) {
+    console.debug("[webrtc] Signal processing failed:", (err as Error)?.message ?? err);
   }
 }
