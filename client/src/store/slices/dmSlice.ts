@@ -6,6 +6,16 @@ export interface DMMessage {
   content: string;
   createdAt: number;
   wrapId: string;
+  /** The rumor ID — used to reference this message for edits/deletes */
+  rumorId?: string;
+  /** Edited content (replaces display of `content`) */
+  editedContent?: string;
+  /** Timestamp when the message was edited */
+  editedAt?: number;
+  /** Whether this message was remotely deleted */
+  isDeleted?: boolean;
+  /** The wrapId of the message this is replying to */
+  replyToWrapId?: string;
 }
 
 export interface DMContact {
@@ -194,6 +204,59 @@ export const dmSlice = createSlice({
       state.mutationCounter += 1;
     },
 
+    /** Edit a DM message (local state update) */
+    editDMMessage(
+      state,
+      action: PayloadAction<{
+        partnerPubkey: string;
+        rumorId: string;
+        newContent: string;
+        editedAt: number;
+      }>,
+    ) {
+      const { partnerPubkey, rumorId, newContent, editedAt } = action.payload;
+      const msgs = state.messages[partnerPubkey];
+      if (!msgs) return;
+      // Match by rumorId first, fall back to wrapId for legacy messages
+      const msg = msgs.find((m) => m.rumorId === rumorId)
+        ?? msgs.find((m) => m.wrapId === rumorId);
+      if (msg) {
+        msg.editedContent = newContent;
+        msg.editedAt = editedAt;
+      }
+      state.mutationCounter += 1;
+    },
+
+    /** Mark a DM message as remotely deleted */
+    remoteDeleteDMMessage(
+      state,
+      action: PayloadAction<{
+        partnerPubkey: string;
+        rumorId: string;
+      }>,
+    ) {
+      const { partnerPubkey, rumorId } = action.payload;
+      const msgs = state.messages[partnerPubkey];
+      if (!msgs) return;
+      // Match by rumorId first, fall back to wrapId for legacy messages
+      const msg = msgs.find((m) => m.rumorId === rumorId)
+        ?? msgs.find((m) => m.wrapId === rumorId);
+      if (msg) {
+        msg.isDeleted = true;
+        msg.content = "";
+        msg.editedContent = undefined;
+      }
+      // Update contact preview
+      const contact = state.contacts.find((c) => c.pubkey === partnerPubkey);
+      if (contact) {
+        const lastVisible = [...msgs].reverse().find((m) => !m.isDeleted);
+        if (lastVisible) {
+          contact.lastMessagePreview = truncatePreview(lastVisible.editedContent ?? lastVisible.content);
+        }
+      }
+      state.mutationCounter += 1;
+    },
+
     /** Delete an entire conversation locally */
     deleteDMConversation(state, action: PayloadAction<string>) {
       const pubkey = action.payload;
@@ -274,6 +337,8 @@ export const {
   clearDMUnreadDivider,
   setDMLoading,
   deleteDMMessage,
+  editDMMessage,
+  remoteDeleteDMMessage,
   deleteDMConversation,
   restoreDMState,
 } = dmSlice.actions;

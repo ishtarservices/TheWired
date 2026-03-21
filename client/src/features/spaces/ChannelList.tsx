@@ -7,11 +7,13 @@ import { useSpaceChannels } from "./useSpaceChannels";
 import { useAppSelector } from "../../store/hooks";
 import { usePermissions } from "./usePermissions";
 import { parseChannelIdPart } from "./spaceSelectors";
+import { getLastChannel } from "../../lib/db/lastChannelCache";
 import { useChannelUnread, useChannelMentions, useChannelMuted } from "../notifications/useNotifications";
 import { CreateChannelModal } from "./CreateChannelModal";
 import { ChannelContextMenu } from "./ChannelContextMenu";
 import { VoiceChannelPreview } from "../voice/VoiceChannelPreview";
-import { selectIsInChannel, selectVoiceParticipantCount } from "../voice/voiceSelectors";
+import { useVoiceRoomPresence } from "../voice/useVoiceRoomPresence";
+import { selectIsInChannel, selectVoiceParticipantCount, selectChannelPresence } from "../voice/voiceSelectors";
 import type { SpaceChannelType } from "../../types/space";
 
 const CHANNEL_ICONS: Record<SpaceChannelType, typeof MessageSquare> = {
@@ -34,6 +36,9 @@ export function ChannelList() {
   const [createModalOpen, setCreateModalOpen] = useState(false);
   const [ctxMenu, setCtxMenu] = useState<{ channelId: string; x: number; y: number } | null>(null);
 
+  // Poll backend for voice room presence (visible to all space members)
+  useVoiceRoomPresence(activeSpace?.id ?? null);
+
   const handleChannelContextMenu = useCallback((e: React.MouseEvent, channelId: string) => {
     e.preventDefault();
     setCtxMenu({ channelId, x: e.clientX, y: e.clientY });
@@ -48,6 +53,13 @@ export function ChannelList() {
     const isValid = channels.some((c) => c.id === channelIdPart);
 
     if (!isValid) {
+      // Restore last-visited channel if it still exists
+      const lastId = getLastChannel(activeSpace.id);
+      const restored = lastId ? channels.find((c) => c.id === lastId) : undefined;
+      if (restored) {
+        selectChannel(restored.id);
+        return;
+      }
       // Filter: hide chat for read-only spaces
       const visible =
         activeSpace.mode === "read"
@@ -173,10 +185,16 @@ const ChannelButton = memo(function ChannelButton({
   const isMuted = useChannelMuted(channelId);
   const hasUnread = unread > 0 || mentions > 0;
 
-  // Voice/video channel: show participant count if we're connected to it
+  // Voice/video channel: show participant count from local LiveKit or API presence
   const isConnectedToThis = useAppSelector(selectIsInChannel(spaceId, rawChannelId));
   const voiceParticipantCount = useAppSelector(selectVoiceParticipantCount);
-  const showVoiceCount = isVoiceType && isConnectedToThis && voiceParticipantCount > 0;
+  const channelPresence = useAppSelector(selectChannelPresence(rawChannelId));
+
+  // When connected: use local LiveKit count (+1 for self). Otherwise: use API presence.
+  const effectiveCount = isConnectedToThis
+    ? voiceParticipantCount + 1
+    : channelPresence?.participantCount ?? 0;
+  const showVoiceCount = isVoiceType && effectiveCount > 0;
 
   return (
     <button
@@ -191,13 +209,13 @@ const ChannelButton = memo(function ChannelButton({
             : "text-soft hover:bg-surface-hover hover:text-heading",
       )}
     >
-      <Icon size={16} className={isConnectedToThis ? "text-green-400" : undefined} />
+      <Icon size={16} className={isConnectedToThis || (isVoiceType && effectiveCount > 0) ? "text-green-400" : undefined} />
       <span className="truncate">{label}</span>
       <span className="ml-auto flex items-center gap-1.5">
         {showVoiceCount && (
           <span className="flex items-center gap-0.5 text-[10px] text-green-400">
             <Users size={10} />
-            {voiceParticipantCount + 1}
+            {effectiveCount}
           </span>
         )}
         {isMuted && (

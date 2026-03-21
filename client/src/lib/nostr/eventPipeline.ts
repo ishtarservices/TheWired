@@ -5,9 +5,9 @@ import { isValidEventStructure } from "./validation";
 import { verifyBridge } from "./verifyWorkerBridge";
 import { store } from "../../store";
 import { putEvent, deleteEvent } from "../db/eventStore";
-import { addEvent, indexChatMessage, indexReel, indexLongForm, indexLiveStream, indexNote, indexSpaceFeed, indexMusicTrack, indexMusicAlbum, indexReaction, indexReply, indexRepost, indexRepostByAuthor, indexQuote } from "../../store/slices/eventsSlice";
+import { addEvent, indexChatMessage, indexReel, indexLongForm, indexLiveStream, indexNote, indexSpaceFeed, indexMusicTrack, indexMusicAlbum, indexReaction, indexReply, indexRepost, indexRepostByAuthor, indexQuote, removeChatMessage, hideMessage, removeEvent, indexEditedMessage } from "../../store/slices/eventsSlice";
 import { addTrack, indexTrackByArtist, indexTrackByAlbum, indexTrackByArtistName, indexAlbumByArtist, indexAlbumByArtistName, addAlbum, addPlaylist, addAnnotation, removeAnnotation, removeTrack, removeAlbum, removePlaylist } from "../../store/slices/musicSlice";
-import { addDMMessage } from "../../store/slices/dmSlice";
+import { addDMMessage, editDMMessage, remoteDeleteDMMessage } from "../../store/slices/dmSlice";
 import { parseTrackEvent } from "../../features/music/trackParser";
 import { parseAlbumEvent } from "../../features/music/albumParser";
 import { parsePlaylistEvent } from "../../features/music/playlistParser";
@@ -160,6 +160,20 @@ function indexEvent(event: NostrEvent): void {
       break;
     }
     case EVENT_KINDS.CHAT_MESSAGE: {
+      // Check if this is an edit event (has ["e", ..., "edit"] tag)
+      const editTag = event.tags.find((t) => t[0] === "e" && t[3] === "edit");
+      if (editTag?.[1]) {
+        const originalId = editTag[1];
+        const state = store.getState();
+        const originalEvent = state.events.entities[originalId];
+        // Only accept edits from the same author
+        if (originalEvent && originalEvent.pubkey === event.pubkey) {
+          store.dispatch(indexEditedMessage({ originalId, editEventId: event.id }));
+          // Store the edit event but do NOT add to chatMessages index
+        }
+        break;
+      }
+
       if (hTag) {
         const channelTag = event.tags.find((t) => t[0] === "channel")?.[1];
 
@@ -312,10 +326,41 @@ function indexEvent(event: NostrEvent): void {
           const refEvent = state.events.entities[tag[1]];
           if (!refEvent || refEvent.pubkey === event.pubkey) {
             deleteEvent(tag[1]).catch(() => {});
+            // If this was a kind:9 chat message, remove from chat index + hide
+            if (refEvent?.kind === EVENT_KINDS.CHAT_MESSAGE) {
+              const refHTag = refEvent.tags.find((t) => t[0] === "h")?.[1];
+              if (refHTag) {
+                const refChannelTag = refEvent.tags.find((t) => t[0] === "channel")?.[1];
+                const contextId = refChannelTag ? `${refHTag}:${refChannelTag}` : refHTag;
+                store.dispatch(removeChatMessage({ contextId, eventId: tag[1] }));
+              }
+              store.dispatch(hideMessage(tag[1]));
+              store.dispatch(removeEvent(tag[1]));
+            }
           }
         }
       }
       // Persist the deletion event itself so we can check on next startup
+      putEvent(event).catch(() => {});
+      break;
+    }
+    case EVENT_KINDS.MOD_DELETE_EVENT: {
+      // NIP-29 kind:9005: moderator delete — admin removes a message from the group
+      const groupId = event.tags.find((t) => t[0] === "h")?.[1];
+      if (!groupId) break;
+      for (const tag of event.tags) {
+        if (tag[0] === "e" && tag[1]) {
+          const refEvent = store.getState().events.entities[tag[1]];
+          if (refEvent) {
+            const refChannelTag = refEvent.tags.find((t) => t[0] === "channel")?.[1];
+            const contextId = refChannelTag ? `${groupId}:${refChannelTag}` : groupId;
+            store.dispatch(removeChatMessage({ contextId, eventId: tag[1] }));
+            store.dispatch(hideMessage(tag[1]));
+            store.dispatch(removeEvent(tag[1]));
+            deleteEvent(tag[1]).catch(() => {});
+          }
+        }
+      }
       putEvent(event).catch(() => {});
       break;
     }
@@ -436,6 +481,14 @@ async function handleGiftWrap(event: NostrEvent): Promise<void> {
       handleCallMissedWrap(dm, myPubkey);
       return;
     }
+    if (typeTag === "dm_edit") {
+      handleDMEditWrap(dm, myPubkey);
+      return;
+    }
+    if (typeTag === "dm_delete") {
+      handleDMDeleteWrap(dm, myPubkey);
+      return;
+    }
 
     const isOwnMessage = dm.sender === myPubkey;
 
@@ -460,6 +513,9 @@ async function handleGiftWrap(event: NostrEvent): Promise<void> {
     // real time and will dedup before reaching here.
     const displayTimestamp = Math.round(Date.now() / 1000);
 
+    // Extract reply reference from q-tag (if this is a reply)
+    const replyToWrapId = dm.tags.find((t) => t[0] === "q")?.[1];
+
     store.dispatch(
       addDMMessage({
         partnerPubkey,
@@ -470,6 +526,8 @@ async function handleGiftWrap(event: NostrEvent): Promise<void> {
           content: dm.content,
           createdAt: displayTimestamp,
           wrapId: dm.wrapId,
+          rumorId: dm.rumorId,
+          replyToWrapId,
         },
       }),
     );
@@ -660,6 +718,50 @@ function handleCallMissedWrap(
   if (callState.incomingCall?.callerPubkey === dm.sender) {
     store.dispatch(missedCall());
   }
+}
+
+/** Handle an incoming DM edit from a gift wrap */
+function handleDMEditWrap(
+  dm: { sender: string; content: string; tags: string[][]; wrapId: string },
+  myPubkey: string,
+): void {
+  const isOwnMessage = dm.sender === myPubkey;
+  const partnerPubkey = isOwnMessage
+    ? dm.tags.find((t) => t[0] === "p" && t[1] !== myPubkey)?.[1] ?? dm.sender
+    : dm.sender;
+
+  const originalRumorId = dm.tags.find((t) => t[0] === "e")?.[1];
+  if (!originalRumorId || !HEX64_RE.test(partnerPubkey)) return;
+
+  store.dispatch(
+    editDMMessage({
+      partnerPubkey,
+      rumorId: originalRumorId,
+      newContent: dm.content,
+      editedAt: Math.round(Date.now() / 1000),
+    }),
+  );
+}
+
+/** Handle an incoming DM delete from a gift wrap */
+function handleDMDeleteWrap(
+  dm: { sender: string; content: string; tags: string[][]; wrapId: string },
+  myPubkey: string,
+): void {
+  const isOwnMessage = dm.sender === myPubkey;
+  const partnerPubkey = isOwnMessage
+    ? dm.tags.find((t) => t[0] === "p" && t[1] !== myPubkey)?.[1] ?? dm.sender
+    : dm.sender;
+
+  const originalRumorId = dm.tags.find((t) => t[0] === "e")?.[1];
+  if (!originalRumorId || !HEX64_RE.test(partnerPubkey)) return;
+
+  store.dispatch(
+    remoteDeleteDMMessage({
+      partnerPubkey,
+      rumorId: originalRumorId,
+    }),
+  );
 }
 
 /** Handle an incoming WebRTC signaling event (kind:25050) */

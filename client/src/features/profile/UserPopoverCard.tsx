@@ -265,7 +265,7 @@ export function UserPopoverCard({
               {showOverflow && (
                 <div
                   ref={overflowRef}
-                  className="absolute right-0 top-full mt-1 w-48 rounded-lg border border-edge-light overflow-hidden z-10"
+                  className="absolute right-0 top-full mt-1 w-48 rounded-lg border border-edge-light overflow-hidden z-20"
                   style={{
                     backgroundColor: "var(--color-card)",
                     boxShadow: "var(--shadow-elevated)",
@@ -300,14 +300,22 @@ export function UserPopoverCard({
                   </button>
                   <button
                     onClick={() => {
-                      if (!isMuted) handleMute();
-                      if (iFollow) unfollowUser(pubkey);
+                      if (isMuted) {
+                        handleMute();
+                      } else {
+                        handleMute();
+                        if (iFollow) unfollowUser(pubkey);
+                      }
                       onClose();
                     }}
-                    className="flex w-full items-center gap-2.5 px-3 py-2 text-xs text-red-400 hover:bg-red-500/10 transition-colors"
+                    className={`flex w-full items-center gap-2.5 px-3 py-2 text-xs transition-colors ${
+                      isMuted
+                        ? "text-heading hover:bg-surface-hover"
+                        : "text-red-400 hover:bg-red-500/10"
+                    }`}
                   >
                     <Ban size={13} />
-                    Block
+                    {isMuted ? "Unblock" : "Block"}
                   </button>
                   <button
                     onClick={() => {
@@ -325,8 +333,8 @@ export function UserPopoverCard({
           )}
         </div>
 
-        {/* Avatar + Name — relative z-10 so it paints above the banner */}
-        <div className="relative z-10 px-4 -mt-7">
+        {/* Avatar + Name — relative but below overflow menu z-index */}
+        <div className="relative z-[1] px-4 -mt-7">
           <div className="flex items-end gap-3">
             <div
               className="shrink-0 rounded-full"

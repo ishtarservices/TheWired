@@ -61,7 +61,7 @@ export function ParticipantTile({ participant, isLocal, compact }: ParticipantTi
         participant.isSpeaking
           ? "ring-2 ring-green-400/70"
           : "ring-1 ring-edge/30",
-        !hasVideo && "bg-surface/80",
+        !hasVideo && "bg-card",
       )}
     >
       {/* Video layer */}

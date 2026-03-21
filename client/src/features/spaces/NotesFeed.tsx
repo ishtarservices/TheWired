@@ -22,6 +22,9 @@ import { useNoteEngagement } from "./useNoteEngagement";
 import { useNoteActions } from "./useNoteActions";
 import { useNoteEngagementSub } from "./useNoteEngagementSub";
 import { parseQuoteRef } from "./noteParser";
+import { useIsBlocked } from "../../hooks/useIsBlocked";
+import { useUnblock } from "../../hooks/useUnblock";
+import { BlockedMessage } from "../../components/ui/BlockedMessage";
 import { usePlaybackSpeed, VALID_SPEEDS } from "@/hooks/usePlaybackSpeed";
 import { NoteActionBar } from "./notes/NoteActionBar";
 import { QuotedNote } from "./notes/QuotedNote";
@@ -138,6 +141,7 @@ function MediaPreview({ media }: { media: ExtractedMedia[] }) {
 
 const NoteCard = memo(function NoteCard({ event }: { event: NostrEvent }) {
   const { profile } = useProfile(event.pubkey);
+  const isBlocked = useIsBlocked(event.pubkey);
   const { openUserPopover } = useUserPopover();
   const [showMedia, setShowMedia] = useState(false);
   const [showReplyComposer, setShowReplyComposer] = useState(false);
@@ -227,6 +231,12 @@ const NoteCard = memo(function NoteCard({ event }: { event: NostrEvent }) {
     },
     [event.id],
   );
+
+  const unblock = useUnblock(event.pubkey);
+
+  if (isBlocked) {
+    return <BlockedMessage variant="note" onUnblock={unblock}><div /></BlockedMessage>;
+  }
 
   return (
     <div className="rounded-lg border-neon-glow bg-card p-4 hover-lift transition-all duration-150 hover:glow-neon">

@@ -40,3 +40,10 @@ export const selectCallHistory = (s: RootState) => s.call.callHistory;
 
 /** Whether there's an active call */
 export const selectIsInCall = (s: RootState) => s.call.activeCall !== null;
+
+/** Room presence data (from API polling) */
+export const selectRoomPresence = (s: RootState) => s.voice.roomPresence;
+
+/** Room presence for a specific channel */
+export const selectChannelPresence = (channelId: string) => (s: RootState) =>
+  s.voice.roomPresence[channelId];

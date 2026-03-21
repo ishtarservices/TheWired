@@ -392,14 +392,24 @@ export function ProfilePage({ pubkey }: ProfilePageProps) {
                     </button>
                     <button
                       onClick={() => {
-                        if (!isMuted) handleMute();
-                        if (iFollow) unfollowUser(pubkey);
+                        if (isMuted) {
+                          // Unblock: remove from mute list
+                          handleMute();
+                        } else {
+                          // Block: add to mute list + unfollow
+                          handleMute();
+                          if (iFollow) unfollowUser(pubkey);
+                        }
                         setShowOverflow(false);
                       }}
-                      className="flex w-full items-center gap-2.5 px-3 py-2 text-xs text-red-400 hover:bg-red-500/10 transition-colors"
+                      className={`flex w-full items-center gap-2.5 px-3 py-2 text-xs transition-colors ${
+                        isMuted
+                          ? "text-heading hover:bg-surface-hover"
+                          : "text-red-400 hover:bg-red-500/10"
+                      }`}
                     >
                       <Ban size={13} />
-                      Block
+                      {isMuted ? "Unblock" : "Block"}
                     </button>
                     <button
                       onClick={() => {
@@ -417,6 +427,19 @@ export function ProfilePage({ pubkey }: ProfilePageProps) {
             </div>
           )}
         </div>
+
+        {isMuted && !isMe && (
+          <div className="mb-2 flex items-center gap-2 rounded-lg bg-red-500/10 border border-red-500/20 px-3 py-2">
+            <Ban size={14} className="text-red-400 shrink-0" />
+            <span className="text-xs text-red-400 font-medium">You have blocked this user</span>
+            <button
+              onClick={handleMute}
+              className="ml-auto rounded-md bg-surface-hover px-2.5 py-1 text-[11px] font-medium text-heading hover:bg-surface-hover/80 transition-colors"
+            >
+              Unblock
+            </button>
+          </div>
+        )}
 
         <div className="flex items-center gap-2">
           <h1 className="text-2xl font-bold tracking-tight text-heading">{displayName}</h1>

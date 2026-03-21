@@ -5,6 +5,12 @@ import type {
   VoiceLocalState,
 } from "../../types/calling";
 
+/** Presence info for a voice room (from API polling, visible to all space members) */
+export interface RoomPresenceInfo {
+  participantCount: number;
+  participants: Array<{ pubkey: string; name: string }>;
+}
+
 interface VoiceState {
   /** Currently connected voice room (null if not in a room) */
   connectedRoom: ConnectedRoom | null;
@@ -22,6 +28,8 @@ interface VoiceState {
   token: string | null;
   /** LiveKit server URL */
   serverUrl: string | null;
+  /** Room presence data from API (keyed by channelId, visible to all members) */
+  roomPresence: Record<string, RoomPresenceInfo>;
 }
 
 const initialState: VoiceState = {
@@ -38,6 +46,7 @@ const initialState: VoiceState = {
   connecting: false,
   token: null,
   serverUrl: null,
+  roomPresence: {},
 };
 
 export const voiceSlice = createSlice({
@@ -138,6 +147,13 @@ export const voiceSlice = createSlice({
     ) {
       state.connectionQuality = action.payload;
     },
+
+    setRoomPresence(
+      state,
+      action: PayloadAction<Record<string, RoomPresenceInfo>>,
+    ) {
+      state.roomPresence = action.payload;
+    },
   },
 });
 
@@ -157,4 +173,5 @@ export const {
   toggleVideo,
   setVideoEnabled,
   setConnectionQuality,
+  setRoomPresence,
 } = voiceSlice.actions;

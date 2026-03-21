@@ -34,7 +34,7 @@ export function openBgChatSub(space: Space): void {
   const subId = subscriptionManager.subscribe({
     filters: [
       {
-        kinds: [EVENT_KINDS.CHAT_MESSAGE],
+        kinds: [EVENT_KINDS.CHAT_MESSAGE, EVENT_KINDS.DELETION, EVENT_KINDS.MOD_DELETE_EVENT],
         "#h": [space.id],
         // Only fetch recent — historical messages loaded when entering space
         since: Math.floor(Date.now() / 1000) - 60,

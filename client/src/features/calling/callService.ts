@@ -64,7 +64,7 @@ export async function initiateCall(
     callerName: myPubkey,
   });
 
-  const [recipientWrap, selfWrap] = await Promise.all([
+  const [recipientResult, selfResult] = await Promise.all([
     createGiftWrappedDM(invitePayload, partnerPubkey, [["type", "call_invite"]]),
     createSelfWrap(invitePayload, partnerPubkey, [["type", "call_invite"]]),
   ]);
@@ -73,8 +73,8 @@ export async function initiateCall(
   const partnerRelays = await getDMRelaysForPublish(partnerPubkey);
   const ownRelays = await getOwnDMRelays();
 
-  relayManager.publish(recipientWrap, partnerRelays);
-  relayManager.publish(selfWrap, ownRelays);
+  relayManager.publish(recipientResult.wrap, partnerRelays);
+  relayManager.publish(selfResult.wrap, ownRelays);
 
   // Start 30-second timeout for no answer
   setTimeout(() => {
@@ -248,11 +248,35 @@ async function sendCallStatus(
   type: "call_decline" | "call_missed",
 ): Promise<void> {
   try {
-    const wrap = await createGiftWrappedDM("", partnerPubkey, [["type", type]]);
+    const { wrap } = await createGiftWrappedDM("", partnerPubkey, [["type", type]]);
     const relays = await getDMRelaysForPublish(partnerPubkey);
     relayManager.publish(wrap, relays);
   } catch (err) {
     console.warn(`[call] Failed to send ${type}:`, err);
+  }
+}
+
+/**
+ * Upgrade a P2P call to SFU mode for Listen Together DataChannel access.
+ * No-op if already in SFU mode or no active call.
+ */
+export async function upgradeToSfuForListenTogether(): Promise<void> {
+  const activeCall = store.getState().call.activeCall;
+  if (!activeCall || activeCall.isSfuFallback) return;
+
+  console.log("[call] Upgrading to SFU for Listen Together");
+
+  closePeerConnection();
+
+  try {
+    const { token, url } = await fetchDMVoiceToken(
+      activeCall.partnerPubkey,
+      activeCall.roomId,
+    );
+    await connectToRoom(url, token);
+    store.dispatch(setSfuFallback(true));
+  } catch (err) {
+    console.error("[call] SFU upgrade for Listen Together failed:", err);
   }
 }
 

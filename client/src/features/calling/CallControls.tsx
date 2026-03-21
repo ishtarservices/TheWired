@@ -6,20 +6,39 @@ import {
   Monitor,
   MonitorOff,
   PhoneOff,
+  Music,
 } from "lucide-react";
 import { useAppSelector, useAppDispatch } from "@/store/hooks";
 import { toggleCallMute, toggleCallVideo, toggleCallScreenShare } from "@/store/slices/callSlice";
 import { hangupCall } from "./callService";
 import { cn } from "@/lib/utils";
+import { useListenTogether } from "@/features/listenTogether/useListenTogether";
 
 export function CallControls() {
   const dispatch = useAppDispatch();
   const activeCall = useAppSelector((s) => s.call.activeCall);
+  const { active: ltActive, togglePicker, pickerOpen } = useListenTogether();
 
   if (!activeCall) return null;
 
   return (
     <div className="flex items-center justify-center gap-3">
+      {/* Listen Together — music button */}
+      <button
+        onClick={togglePicker}
+        className={cn(
+          "rounded-full p-3 transition-colors",
+          ltActive
+            ? "bg-pulse/20 text-pulse"
+            : pickerOpen
+              ? "bg-surface-hover text-heading"
+              : "bg-surface-hover text-heading",
+        )}
+        title={ltActive ? "Music (session active)" : "Listen Together"}
+      >
+        <Music size={20} />
+      </button>
+
       {/* Mute */}
       <button
         onClick={() => dispatch(toggleCallMute())}

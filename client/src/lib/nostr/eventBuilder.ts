@@ -161,6 +161,8 @@ export function buildDeletionEvent(
     addressableIds?: string[];
   },
   reason?: string,
+  /** Extra "k" tags for non-addressable event kinds being deleted */
+  kinds?: string[],
 ): UnsignedEvent {
   const tags: string[][] = [];
 
@@ -179,14 +181,14 @@ export function buildDeletionEvent(
   }
 
   // "k" tags for the kinds being deleted (helps relays filter)
-  const kinds = new Set<string>();
+  const kindSet = new Set<string>(kinds ?? []);
   if (targets.addressableIds) {
     for (const addr of targets.addressableIds) {
       const kind = addr.split(":")[0];
-      if (kind) kinds.add(kind);
+      if (kind) kindSet.add(kind);
     }
   }
-  for (const k of kinds) {
+  for (const k of kindSet) {
     tags.push(["k", k]);
   }
 
@@ -196,6 +198,50 @@ export function buildDeletionEvent(
     kind: 5,
     tags,
     content: reason ?? "",
+  };
+}
+
+/** Build an unsigned kind:9005 moderator deletion event (NIP-29) */
+export function buildModDeletionEvent(
+  pubkey: string,
+  groupId: string,
+  eventIds: string[],
+  reason?: string,
+): UnsignedEvent {
+  const tags: string[][] = [["h", groupId]];
+  for (const id of eventIds) {
+    tags.push(["e", id]);
+  }
+  return {
+    pubkey,
+    created_at: Math.floor(Date.now() / 1000),
+    kind: 9005,
+    tags,
+    content: reason ?? "",
+  };
+}
+
+/** Build an unsigned kind:9 edit event for a chat message */
+export function buildChatEditEvent(
+  pubkey: string,
+  groupId: string,
+  originalEventId: string,
+  newContent: string,
+  channelId?: string,
+): UnsignedEvent {
+  const tags: string[][] = [
+    ["h", groupId],
+    ["e", originalEventId, "", "edit"],
+  ];
+  if (channelId) {
+    tags.push(["channel", channelId]);
+  }
+  return {
+    pubkey,
+    created_at: Math.floor(Date.now() / 1000),
+    kind: 9,
+    tags,
+    content: newContent,
   };
 }
 

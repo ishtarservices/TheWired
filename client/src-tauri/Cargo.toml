@@ -19,7 +19,6 @@ serde = { version = "1", features = ["derive"] }
 log = "0.4"
 tauri = { version = "2", features = [] }
 tauri-plugin-log = "2"
-keyring = { version = "3", features = ["apple-native", "windows-native", "sync-secret-service"] }
 secp256k1 = { version = "0.29", features = ["rand-std", "global-context"] }
 sha2 = "0.10"
 hex = "0.4"
@@ -31,3 +30,11 @@ base64 = "0.22"
 tauri-plugin-opener = "2"
 tauri-plugin-http = "2.5.7"
 tauri-plugin-fs = "2"
+
+# macOS: native keychain with Touch ID biometric access control
+[target.'cfg(target_os = "macos")'.dependencies]
+security-framework = { version = "3", features = ["OSX_10_15"] }
+
+# Windows/Linux: keyring fallback
+[target.'cfg(not(target_os = "macos"))'.dependencies]
+keyring = { version = "3", features = ["windows-native", "sync-secret-service"] }

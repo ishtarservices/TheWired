@@ -1,9 +1,12 @@
 import { nip19 } from "nostr-tools";
-import { createGiftWrappedDM, createSelfWrap } from "@/lib/nostr/giftWrap";
+import { createGiftWrappedDM, createSelfWrap, buildRumor } from "@/lib/nostr/giftWrap";
 import { relayManager } from "@/lib/nostr/relayManager";
 import { getDMRelaysForPublish, getOwnDMRelays } from "@/lib/nostr/dmRelayList";
 import { store } from "@/store";
-import { addDMMessage } from "@/store/slices/dmSlice";
+import { addDMMessage, editDMMessage, remoteDeleteDMMessage } from "@/store/slices/dmSlice";
+
+/** 15 minutes in seconds */
+const EDIT_WINDOW_SECONDS = 15 * 60;
 
 /** Resolve an npub or hex string to a 64-char hex pubkey. */
 function resolveHexPubkey(input: string): string {
@@ -20,11 +23,13 @@ function resolveHexPubkey(input: string): string {
 /**
  * Send a DM to a recipient.
  * Creates two gift wraps: one for the recipient and one for the sender (self).
+ * Both wraps share the same rumor so the rumorId is consistent for edits/deletes.
  * Publishes both to write relays.
  */
 export async function sendDM(
   recipientPubkey: string,
   content: string,
+  replyTo?: { wrapId: string },
 ): Promise<void> {
   const myPubkey = store.getState().identity.pubkey;
   if (!myPubkey) throw new Error("Not logged in");
@@ -37,11 +42,21 @@ export async function sendDM(
     throw new Error("No write relays connected. Please check your connection and try again.");
   }
 
-  // Create gift wrap for recipient
-  const recipientWrap = await createGiftWrappedDM(content, recipientPubkey);
+  // Build extra tags for reply
+  const extraTags: string[][] | undefined = replyTo
+    ? [["q", replyTo.wrapId]]
+    : undefined;
 
-  // Create gift wrap for self (so we see our own messages)
-  const selfWrap = await createSelfWrap(content, recipientPubkey);
+  // Build one shared rumor so both wraps have the same rumorId.
+  // This is critical for edit/delete to work: the "e" tag in an edit/delete
+  // wrap references this rumorId, and both sender and recipient need to store
+  // the same value.
+  const sharedRumor = await buildRumor(myPubkey, recipientPubkey, content, extraTags);
+
+  // Create recipient wrap and self wrap using the shared rumor
+  const { wrap: recipientWrap } = await createGiftWrappedDM(content, recipientPubkey, extraTags, sharedRumor);
+  const { wrap: selfWrap } = await createSelfWrap(content, recipientPubkey, extraTags, sharedRumor);
+  const rumorId = sharedRumor.id;
 
   // Publish to recipient's DM relays (falls back to all write relays)
   const recipientRelays = await getDMRelaysForPublish(recipientPubkey);
@@ -61,6 +76,8 @@ export async function sendDM(
 
   // Optimistic local display with real timestamp (not the randomized rumor timestamp).
   // The self-wrap arriving from relays later will be deduped by wrapId.
+  // Use the recipient wrap's rumorId — this is what the recipient will store,
+  // so edits/deletes using this ID will match on both sides.
   store.dispatch(
     addDMMessage({
       partnerPubkey: recipientPubkey,
@@ -71,7 +88,96 @@ export async function sendDM(
         content,
         createdAt: Math.round(Date.now() / 1000),
         wrapId: selfWrap.id,
+        rumorId,
+        replyToWrapId: replyTo?.wrapId,
       },
+    }),
+  );
+}
+
+/**
+ * Edit a DM message by sending a new gift-wrapped message with type "dm_edit".
+ * Both sender and recipient receive the edit.
+ */
+export async function editDM(
+  partnerPubkey: string,
+  originalRumorId: string,
+  newContent: string,
+  originalCreatedAt: number,
+): Promise<void> {
+  const myPubkey = store.getState().identity.pubkey;
+  if (!myPubkey) throw new Error("Not logged in");
+
+  // Client-enforced 15-minute edit window
+  const age = Math.floor(Date.now() / 1000) - originalCreatedAt;
+  if (age > EDIT_WINDOW_SECONDS) throw new Error("Edit window has expired");
+
+  partnerPubkey = resolveHexPubkey(partnerPubkey);
+
+  const extraTags: string[][] = [
+    ["type", "dm_edit"],
+    ["e", originalRumorId],
+  ];
+
+  // Build shared rumor for both wraps
+  const sharedRumor = await buildRumor(myPubkey, partnerPubkey, newContent, extraTags);
+
+  // Send to recipient
+  const { wrap: recipientWrap } = await createGiftWrappedDM(newContent, partnerPubkey, extraTags, sharedRumor);
+  const recipientRelays = await getDMRelaysForPublish(partnerPubkey);
+  relayManager.publish(recipientWrap, recipientRelays);
+
+  // Send to self
+  const { wrap: selfWrap } = await createSelfWrap(newContent, partnerPubkey, extraTags, sharedRumor);
+  const ownRelays = getOwnDMRelays();
+  relayManager.publish(selfWrap, ownRelays.length > 0 ? ownRelays : undefined);
+
+  // Optimistic local update
+  store.dispatch(
+    editDMMessage({
+      partnerPubkey,
+      rumorId: originalRumorId,
+      newContent,
+      editedAt: Math.round(Date.now() / 1000),
+    }),
+  );
+}
+
+/**
+ * Delete a DM message for everyone by sending a gift-wrapped message with type "dm_delete".
+ */
+export async function deleteDMForEveryone(
+  partnerPubkey: string,
+  originalRumorId: string,
+): Promise<void> {
+  const myPubkey = store.getState().identity.pubkey;
+  if (!myPubkey) throw new Error("Not logged in");
+
+  partnerPubkey = resolveHexPubkey(partnerPubkey);
+
+  const extraTags: string[][] = [
+    ["type", "dm_delete"],
+    ["e", originalRumorId],
+  ];
+
+  // Build shared rumor for both wraps
+  const sharedRumor = await buildRumor(myPubkey, partnerPubkey, "", extraTags);
+
+  // Send to recipient
+  const { wrap: recipientWrap } = await createGiftWrappedDM("", partnerPubkey, extraTags, sharedRumor);
+  const recipientRelays = await getDMRelaysForPublish(partnerPubkey);
+  relayManager.publish(recipientWrap, recipientRelays);
+
+  // Send to self
+  const { wrap: selfWrap } = await createSelfWrap("", partnerPubkey, extraTags, sharedRumor);
+  const ownRelays = getOwnDMRelays();
+  relayManager.publish(selfWrap, ownRelays.length > 0 ? ownRelays : undefined);
+
+  // Optimistic local update
+  store.dispatch(
+    remoteDeleteDMMessage({
+      partnerPubkey,
+      rumorId: originalRumorId,
     }),
   );
 }

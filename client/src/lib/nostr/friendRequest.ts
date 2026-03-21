@@ -61,10 +61,10 @@ export async function sendFriendRequest(
   const extraTags: string[][] = [["type", "friend_request"]];
 
   // Create gift wrap for recipient
-  const recipientWrap = await createGiftWrappedDM(content, recipientPubkey, extraTags);
+  const { wrap: recipientWrap } = await createGiftWrappedDM(content, recipientPubkey, extraTags);
 
   // Create gift wrap for self
-  const selfWrap = await createSelfWrap(content, recipientPubkey, extraTags);
+  const { wrap: selfWrap } = await createSelfWrap(content, recipientPubkey, extraTags);
 
   // Publish to recipient's DM relays (falls back to all write relays)
   const recipientRelays = await getDMRelaysForPublish(recipientPubkey);
@@ -107,8 +107,8 @@ export async function acceptFriendRequestAction(
   const extraTags: string[][] = [["type", "friend_request_accept"]];
 
   // Create gift wraps for requester and self
-  const recipientWrap = await createGiftWrappedDM("", requesterPubkey, extraTags);
-  const selfWrap = await createSelfWrap("", requesterPubkey, extraTags);
+  const { wrap: recipientWrap } = await createGiftWrappedDM("", requesterPubkey, extraTags);
+  const { wrap: selfWrap } = await createSelfWrap("", requesterPubkey, extraTags);
 
   // Publish to recipient's DM relays (falls back to all write relays)
   const recipientRelays = await getDMRelaysForPublish(requesterPubkey);
@@ -165,8 +165,8 @@ export async function removeFriendAction(pubkey: string): Promise<void> {
   // Send remove notification to the other user so their client can sync
   try {
     const extraTags: string[][] = [["type", "friend_request_remove"]];
-    const recipientWrap = await createGiftWrappedDM("", pubkey, extraTags);
-    const selfWrap = await createSelfWrap("", pubkey, extraTags);
+    const { wrap: recipientWrap } = await createGiftWrappedDM("", pubkey, extraTags);
+    const { wrap: selfWrap } = await createSelfWrap("", pubkey, extraTags);
 
     // Publish to recipient's DM relays (falls back to all write relays)
     const recipientRelays = await getDMRelaysForPublish(pubkey);

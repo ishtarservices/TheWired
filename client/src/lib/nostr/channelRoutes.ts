@@ -3,7 +3,7 @@ import { EVENT_KINDS } from "../../types/nostr";
 
 export const CHANNEL_ROUTES: Record<string, ChannelRoute> = {
   chat: {
-    kinds: [EVENT_KINDS.CHAT_MESSAGE],
+    kinds: [EVENT_KINDS.CHAT_MESSAGE, EVENT_KINDS.DELETION, EVENT_KINDS.MOD_DELETE_EVENT],
     usesHTag: true,
     pageSize: 50,
     sortOrder: "asc",

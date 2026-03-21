@@ -24,6 +24,10 @@ interface EventsExtraState {
   reposts: Record<string, string[]>; // targetEventId -> repost eventIds
   repostsByAuthor: Record<string, string[]>; // pubkey -> repost eventIds
   quotes: Record<string, string[]>; // targetEventId -> quote eventIds
+  /** Locally hidden message IDs (delete for me) */
+  deletedMessageIds: Record<string, true>;
+  /** originalEventId -> editEventId (latest edit wins) */
+  editedMessages: Record<string, string>;
 }
 
 const initialState = eventsAdapter.getInitialState<EventsExtraState>({
@@ -40,6 +44,8 @@ const initialState = eventsAdapter.getInitialState<EventsExtraState>({
   reposts: {},
   repostsByAuthor: {},
   quotes: {},
+  deletedMessageIds: {},
+  editedMessages: {},
 });
 
 /** Max events per feed index to prevent unbounded memory growth */
@@ -210,6 +216,32 @@ export const eventsSlice = createSlice({
         action.payload.eventId,
       );
     },
+    /** Locally hide a message (delete for me) */
+    hideMessage(state, action: PayloadAction<string>) {
+      state.deletedMessageIds[action.payload] = true;
+    },
+    /** Restore persisted deleted message IDs on startup */
+    restoreDeletedMessageIds(state, action: PayloadAction<Record<string, true>>) {
+      state.deletedMessageIds = action.payload;
+    },
+    /** Remove a chat message from the secondary index */
+    removeChatMessage(
+      state,
+      action: PayloadAction<{ contextId: string; eventId: string }>,
+    ) {
+      const { contextId, eventId } = action.payload;
+      const list = state.chatMessages[contextId];
+      if (list) {
+        state.chatMessages[contextId] = list.filter((id) => id !== eventId);
+      }
+    },
+    /** Map an original event to its edit replacement */
+    indexEditedMessage(
+      state,
+      action: PayloadAction<{ originalId: string; editEventId: string }>,
+    ) {
+      state.editedMessages[action.payload.originalId] = action.payload.editEventId;
+    },
   },
 });
 
@@ -233,4 +265,8 @@ export const {
   indexRepost,
   indexRepostByAuthor,
   indexQuote,
+  hideMessage,
+  restoreDeletedMessageIds,
+  removeChatMessage,
+  indexEditedMessage,
 } = eventsSlice.actions;

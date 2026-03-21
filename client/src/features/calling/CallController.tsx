@@ -9,6 +9,10 @@ import { playCallEnd } from "./callRingtone";
 import { getLocalStream, getRemoteStream } from "./callService";
 import { getLivekitRoom } from "@/lib/webrtc/livekitClient";
 import { Loader2, Wifi, Maximize2, Minimize2 } from "lucide-react";
+import { usePlaybackBarSpacing } from "@/hooks/usePlaybackBarSpacing";
+import { CallNowPlaying } from "@/features/listenTogether/CallNowPlaying";
+import { ListenTogetherPicker } from "@/features/listenTogether/ListenTogetherPicker";
+import { ListenTogetherInvite } from "@/features/listenTogether/ListenTogetherInvite";
 
 /**
  * Active call overlay for 1:1 DM calls.
@@ -20,7 +24,10 @@ import { Loader2, Wifi, Maximize2, Minimize2 } from "lucide-react";
  */
 export function CallController() {
   const activeCall = useAppSelector((s) => s.call.activeCall);
+  const ltActive = useAppSelector((s) => s.listenTogether.active);
+  const ltPickerOpen = useAppSelector((s) => s.listenTogether.pickerOpen);
   const [minimized, setMinimized] = useState(false);
+  const { inputMarginClass } = usePlaybackBarSpacing();
 
   useCallSignaling();
 
@@ -98,7 +105,7 @@ export function CallController() {
   if (minimized) {
     return (
       <div
-        className="fixed bottom-4 right-4 z-40 flex items-center gap-3 rounded-2xl card-glass px-4 py-3 shadow-xl cursor-pointer hover:bg-surface-hover transition-colors"
+        className={`fixed bottom-4 right-4 z-40 flex items-center gap-3 rounded-2xl card-glass px-4 py-3 shadow-xl cursor-pointer hover:bg-surface-hover transition-colors ${inputMarginClass}`}
         onClick={() => setMinimized(false)}
       >
         <div className="relative">
@@ -120,7 +127,7 @@ export function CallController() {
 
   // ─── Expanded overlay ───────────────────────────────────────
   return (
-    <div className="fixed inset-x-0 bottom-0 z-40 flex flex-col rounded-t-2xl card-glass shadow-2xl sm:inset-x-auto sm:right-4 sm:bottom-4 sm:w-[420px] sm:rounded-2xl overflow-hidden">
+    <div className={`fixed inset-x-0 bottom-0 z-40 flex flex-col rounded-t-2xl card-glass shadow-2xl sm:inset-x-auto sm:right-4 sm:bottom-4 sm:w-[420px] sm:rounded-2xl overflow-hidden relative ${inputMarginClass}`}>
       {/* Header */}
       <div className="flex items-center justify-between px-4 py-2 bg-surface/50">
         <div className="flex items-center gap-2">
@@ -212,10 +219,19 @@ export function CallController() {
         </div>
       )}
 
+      {/* Listen Together: invite banner (when not yet joined) */}
+      {!ltActive && <ListenTogetherInvite />}
+
+      {/* Listen Together: now playing */}
+      {ltActive && <CallNowPlaying />}
+
       {/* Controls */}
       <div className="px-4 py-3 bg-surface/50">
         <CallControls />
       </div>
+
+      {/* Listen Together: music picker — overlays the call panel */}
+      {ltPickerOpen && <ListenTogetherPicker />}
     </div>
   );
 }

@@ -1,12 +1,20 @@
+import { useState } from "react";
 import { useAppSelector } from "@/store/hooks";
+import { useProfile } from "@/features/profile/useProfile";
+import { Avatar } from "@/components/ui/Avatar";
 import { useVoiceChannel } from "./useVoiceChannel";
 import { useVoiceParticipants } from "./useVoiceParticipants";
-import { VoiceParticipant } from "./VoiceParticipant";
+import { selectChannelPresence } from "./voiceSelectors";
 import { VoiceControls } from "./VoiceControls";
 import { VideoGrid } from "./VideoGrid";
 import { ScreenShareView } from "./ScreenShareView";
 import { Headphones, Video, Users, Wifi, WifiOff } from "lucide-react";
 import { parseChannelIdPart } from "@/features/spaces/spaceSelectors";
+import { usePlaybackBarSpacing } from "@/hooks/usePlaybackBarSpacing";
+import { NowPlayingStrip } from "@/features/listenTogether/NowPlayingStrip";
+import { NowPlayingPanel } from "@/features/listenTogether/NowPlayingPanel";
+import { ListenTogetherPicker } from "@/features/listenTogether/ListenTogetherPicker";
+import { ListenTogetherInvite } from "@/features/listenTogether/ListenTogetherInvite";
 
 /**
  * Main voice/video channel view.
@@ -22,6 +30,10 @@ export function VoiceChannel() {
   const channels = useAppSelector(
     (s) => (activeSpaceId ? s.spaces.channels[activeSpaceId] : undefined) ?? [],
   );
+  const ltActive = useAppSelector((s) => s.listenTogether.active);
+  const ltPickerOpen = useAppSelector((s) => s.listenTogether.pickerOpen);
+  const [nowPlayingExpanded, setNowPlayingExpanded] = useState(false);
+  const { scrollPaddingClass } = usePlaybackBarSpacing();
 
   const channelIdPart = parseChannelIdPart(activeChannelId);
   const channel = channels.find((c) => c.id === channelIdPart);
@@ -41,6 +53,10 @@ export function VoiceChannel() {
     connectedRoom.spaceId === activeSpaceId &&
     connectedRoom.channelId === channelIdPart;
 
+  // API presence data for pre-join view (visible without connecting)
+  const channelPresence = useAppSelector(selectChannelPresence(channelIdPart ?? ""));
+  const presenceCount = channelPresence?.participantCount ?? 0;
+
   const screenSharer = sortedParticipants.find((p) => p.isScreenSharing);
   const hasVideoParticipants = sortedParticipants.some((p) => p.hasVideo);
 
@@ -53,7 +69,7 @@ export function VoiceChannel() {
   if (!isConnectedToThis) {
     return (
       <div className="flex flex-1 flex-col items-center justify-center gap-6 p-8">
-        <div className="flex h-20 w-20 items-center justify-center rounded-full bg-surface/50">
+        <div className="flex h-20 w-20 items-center justify-center rounded-full bg-card-hover">
           <ChannelIcon size={32} className="text-muted" />
         </div>
         <div className="text-center">
@@ -61,16 +77,16 @@ export function VoiceChannel() {
             {channel?.label ?? `${channelTypeLabel} Channel`}
           </h3>
           <p className="mt-1 text-sm text-muted">
-            {count > 0
-              ? `${count} participant${count !== 1 ? "s" : ""} connected`
+            {presenceCount > 0
+              ? `${presenceCount} participant${presenceCount !== 1 ? "s" : ""} connected`
               : "No one is here yet"}
           </p>
         </div>
 
-        {count > 0 && (
-          <div className="flex flex-wrap justify-center gap-2">
-            {sortedParticipants.map((p) => (
-              <VoiceParticipant key={p.pubkey} participant={p} compact />
+        {channelPresence && channelPresence.participants.length > 0 && (
+          <div className="flex flex-wrap justify-center gap-3">
+            {channelPresence.participants.map((p) => (
+              <PresenceAvatar key={p.pubkey} pubkey={p.pubkey} />
             ))}
           </div>
         )}
@@ -78,7 +94,7 @@ export function VoiceChannel() {
         <button
           onClick={() => join(activeSpaceId, channelIdPart)}
           disabled={isConnecting}
-          className="rounded-xl bg-green-500/20 px-8 py-3 text-sm font-semibold text-green-400 hover:bg-green-500/30 transition-colors disabled:opacity-50"
+          className="rounded-xl bg-green-600/15 px-8 py-3 text-sm font-semibold text-green-600 hover:bg-green-600/25 transition-colors disabled:opacity-50"
         >
           {isConnecting ? "Connecting..." : `Join ${channelTypeLabel}`}
         </button>
@@ -95,9 +111,9 @@ export function VoiceChannel() {
 
   // ─── Connected view ─────────────────────────────────────────
   return (
-    <div className="flex flex-1 flex-col overflow-hidden bg-black/20">
+    <div className={`relative flex flex-1 flex-col overflow-hidden bg-card ${scrollPaddingClass}`}>
       {/* Header bar */}
-      <div className="flex items-center gap-3 border-b border-edge/50 bg-surface/30 px-4 py-2 backdrop-blur-sm">
+      <div className="flex items-center gap-3 border-b border-edge px-4 py-2 bg-panel/80 backdrop-blur-sm">
         <ChannelIcon size={16} className="text-green-400" />
         <span className="text-sm font-medium text-heading">
           {channel?.label ?? `${channelTypeLabel} Channel`}
@@ -115,6 +131,19 @@ export function VoiceChannel() {
           <span className="text-muted capitalize">{connectionQuality}</span>
         </span>
       </div>
+
+      {/* Listen Together: invite banner (when not yet joined) */}
+      {!ltActive && <ListenTogetherInvite />}
+
+      {/* Listen Together: now-playing strip in header */}
+      {ltActive && !nowPlayingExpanded && (
+        <NowPlayingStrip onExpand={() => setNowPlayingExpanded(true)} />
+      )}
+
+      {/* Listen Together: expanded now-playing panel */}
+      {ltActive && nowPlayingExpanded && (
+        <NowPlayingPanel onClose={() => setNowPlayingExpanded(false)} />
+      )}
 
       {/* Main content area */}
       <div className="flex-1 overflow-hidden p-2">
@@ -135,6 +164,22 @@ export function VoiceChannel() {
 
       {/* Controls bar */}
       <VoiceControls showVideo={isVideoChannel} />
+
+      {/* Listen Together: music picker drawer */}
+      {ltPickerOpen && <ListenTogetherPicker />}
+    </div>
+  );
+}
+
+/** Simple avatar for pre-join presence display */
+function PresenceAvatar({ pubkey }: { pubkey: string }) {
+  const { profile } = useProfile(pubkey);
+  const displayName = profile?.name ?? profile?.display_name ?? pubkey.slice(0, 8);
+
+  return (
+    <div className="flex flex-col items-center gap-1">
+      <Avatar src={profile?.picture} alt={displayName} size="md" />
+      <span className="text-xs text-muted truncate max-w-[72px]">{displayName}</span>
     </div>
   );
 }

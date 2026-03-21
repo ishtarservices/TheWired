@@ -252,6 +252,26 @@ pub async fn query_events(pool: &PgPool, filter: &Filter) -> anyhow::Result<Vec<
         .collect())
 }
 
+/// Get an event by ID (for author verification in deletion)
+pub async fn get_event_by_id(pool: &PgPool, event_id: &str) -> anyhow::Result<Option<Event>> {
+    let row: Option<EventRow> = sqlx::query_as(
+        "SELECT id, pubkey, created_at, kind, tags, content, sig FROM relay.events WHERE id = $1",
+    )
+    .bind(event_id)
+    .fetch_optional(pool)
+    .await?;
+
+    Ok(row.map(|r| Event {
+        id: r.id,
+        pubkey: r.pubkey,
+        created_at: r.created_at,
+        kind: r.kind,
+        tags: serde_json::from_value(r.tags).unwrap_or_default(),
+        content: r.content,
+        sig: r.sig,
+    }))
+}
+
 /// Delete an event by ID
 pub async fn delete_event(pool: &PgPool, event_id: &str) -> anyhow::Result<bool> {
     let result = sqlx::query("DELETE FROM relay.events WHERE id = $1")

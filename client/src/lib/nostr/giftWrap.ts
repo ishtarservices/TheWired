@@ -43,6 +43,40 @@ export interface UnwrappedDM {
   tags: string[][];
   createdAt: number;
   wrapId: string;
+  /** The rumor's event ID — used to reference this message for edits/deletes */
+  rumorId?: string;
+}
+
+/** Result of creating a gift-wrapped DM pair */
+export interface GiftWrapResult {
+  /** The gift wrap event to publish */
+  wrap: NostrEvent;
+  /** The rumor ID (shared between recipient + self wraps) */
+  rumorId: string;
+}
+
+/**
+ * Build a shared rumor for a DM. Both the recipient wrap and self wrap
+ * use the same rumor (same ID) so edits/deletes can reference it.
+ */
+export async function buildRumor(
+  myPubkey: string,
+  recipientPubkey: string,
+  content: string,
+  extraTags?: string[][],
+): Promise<{ id: string; pubkey: string; created_at: number; kind: number; tags: string[][]; content: string }> {
+  const rumorTags: string[][] = [["p", recipientPubkey]];
+  if (extraTags) rumorTags.push(...extraTags);
+
+  const rumor = {
+    pubkey: myPubkey,
+    created_at: randomTimestamp(),
+    kind: EVENT_KINDS.DM_MESSAGE,
+    tags: rumorTags,
+    content,
+  };
+  const rumorId = await getEventId(rumor);
+  return { ...rumor, id: rumorId };
 }
 
 /**
@@ -55,32 +89,23 @@ export interface UnwrappedDM {
  * 4. Encrypt seal with ephemeral key → recipient
  * 5. Sign gift wrap (kind:1059) with ephemeral key
  *
- * Returns the gift wrap event ready to publish.
+ * Returns the gift wrap event + the shared rumor ID.
  */
 export async function createGiftWrappedDM(
   content: string,
   recipientPubkey: string,
   extraTags?: string[][],
-): Promise<NostrEvent> {
+  /** Pre-built rumor to reuse (for shared ID between recipient + self wrap) */
+  sharedRumor?: { id: string; pubkey: string; created_at: number; kind: number; tags: string[][]; content: string },
+): Promise<GiftWrapResult> {
   const signer = getSigner();
   if (!signer) throw new Error("No signer available");
 
   const myPubkey = store.getState().identity.pubkey;
   if (!myPubkey) throw new Error("Not logged in");
 
-  // Step 1: Build rumor (unsigned kind:14, never published)
-  const rumorTags: string[][] = [["p", recipientPubkey]];
-  if (extraTags) rumorTags.push(...extraTags);
-
-  const rumor = {
-    pubkey: myPubkey,
-    created_at: randomTimestamp(),
-    kind: EVENT_KINDS.DM_MESSAGE,
-    tags: rumorTags,
-    content,
-  };
-  const rumorId = await getEventId(rumor);
-  const rumorWithId = { ...rumor, id: rumorId };
+  // Step 1: Build rumor (or reuse shared one)
+  const rumorWithId = sharedRumor ?? await buildRumor(myPubkey, recipientPubkey, content, extraTags);
 
   // Step 2: Encrypt rumor and create seal (kind:13)
   const encryptedRumor = await nip44Encrypt(
@@ -118,36 +143,29 @@ export async function createGiftWrappedDM(
   // Sign with ephemeral key using nostr-tools finalizeEvent
   const signedWrap = finalizeEvent(wrapEvent, ephemeralSk);
 
-  return signedWrap as unknown as NostrEvent;
+  return { wrap: signedWrap as unknown as NostrEvent, rumorId: rumorWithId.id };
 }
 
 /**
  * Create a gift-wrapped DM to self (so sender can see their own messages).
  * Same as createGiftWrappedDM but wraps to self instead of recipient.
+ * Uses the same rumor for a shared ID.
  */
 export async function createSelfWrap(
   content: string,
   recipientPubkey: string,
   extraTags?: string[][],
-): Promise<NostrEvent> {
+  /** Pre-built rumor to reuse (for shared ID between recipient + self wrap) */
+  sharedRumor?: { id: string; pubkey: string; created_at: number; kind: number; tags: string[][]; content: string },
+): Promise<GiftWrapResult> {
   const signer = getSigner();
   if (!signer) throw new Error("No signer available");
 
   const myPubkey = store.getState().identity.pubkey;
   if (!myPubkey) throw new Error("Not logged in");
 
-  const rumorTags: string[][] = [["p", recipientPubkey]];
-  if (extraTags) rumorTags.push(...extraTags);
-
-  const rumor = {
-    pubkey: myPubkey,
-    created_at: randomTimestamp(),
-    kind: EVENT_KINDS.DM_MESSAGE,
-    tags: rumorTags,
-    content,
-  };
-  const rumorId = await getEventId(rumor);
-  const rumorWithId = { ...rumor, id: rumorId };
+  // Build rumor (or reuse shared one)
+  const rumorWithId = sharedRumor ?? await buildRumor(myPubkey, recipientPubkey, content, extraTags);
 
   // Encrypt rumor to self
   const encryptedRumor = await nip44Encrypt(
@@ -182,7 +200,7 @@ export async function createSelfWrap(
   };
 
   const signedWrap = finalizeEvent(wrapEvent, ephemeralSk);
-  return signedWrap as unknown as NostrEvent;
+  return { wrap: signedWrap as unknown as NostrEvent, rumorId: rumorWithId.id };
 }
 
 /**
@@ -255,5 +273,6 @@ export async function unwrapGiftWrap(
     tags: rumor.tags,
     createdAt: rumor.created_at,
     wrapId: giftWrapEvent.id,
+    rumorId: rumor.id,
   };
 }

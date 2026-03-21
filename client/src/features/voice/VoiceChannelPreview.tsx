@@ -1,7 +1,7 @@
 import { useAppSelector } from "@/store/hooks";
 import { Avatar } from "@/components/ui/Avatar";
 import { useProfile } from "@/features/profile/useProfile";
-import { selectIsInChannel, selectVoiceParticipants } from "./voiceSelectors";
+import { selectIsInChannel, selectVoiceParticipants, selectChannelPresence } from "./voiceSelectors";
 import { Volume2 } from "lucide-react";
 
 interface VoiceChannelPreviewProps {
@@ -12,20 +12,36 @@ interface VoiceChannelPreviewProps {
 /**
  * Inline preview of connected users in a voice channel,
  * displayed in the channel list sidebar.
+ *
+ * When locally connected: shows live participant data from LiveKit.
+ * When not connected: shows presence data from API polling.
  */
 export function VoiceChannelPreview({ spaceId, channelId }: VoiceChannelPreviewProps) {
   const isConnected = useAppSelector(selectIsInChannel(spaceId, channelId));
-  const participants = useAppSelector(selectVoiceParticipants);
+  const liveParticipants = useAppSelector(selectVoiceParticipants);
+  const channelPresence = useAppSelector(selectChannelPresence(channelId));
+  const myPubkey = useAppSelector((s) => s.identity.pubkey);
 
-  // Only show if there are participants or we're connected
-  const participantList = isConnected ? Object.values(participants) : [];
+  if (isConnected) {
+    // Connected: show local user + live remote participants
+    const remoteList = Object.values(liveParticipants);
+    return (
+      <div className="ml-6 mt-0.5 space-y-0.5">
+        {myPubkey && <ParticipantRow pubkey={myPubkey} isSpeaking={false} />}
+        {remoteList.map((p) => (
+          <ParticipantRow key={p.pubkey} pubkey={p.pubkey} isSpeaking={p.isSpeaking} />
+        ))}
+      </div>
+    );
+  }
 
-  if (participantList.length === 0 && !isConnected) return null;
+  // Not connected: show presence from API polling
+  if (!channelPresence || channelPresence.participantCount === 0) return null;
 
   return (
     <div className="ml-6 mt-0.5 space-y-0.5">
-      {participantList.map((p) => (
-        <ParticipantRow key={p.pubkey} pubkey={p.pubkey} isSpeaking={p.isSpeaking} />
+      {channelPresence.participants.map((p) => (
+        <ParticipantRow key={p.pubkey} pubkey={p.pubkey} isSpeaking={false} />
       ))}
     </div>
   );

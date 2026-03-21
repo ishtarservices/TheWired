@@ -2,7 +2,10 @@ import { memo, useRef } from "react";
 import { ChevronDown, ChevronUp } from "lucide-react";
 import { Avatar } from "../../../components/ui/Avatar";
 import { RichContent } from "../../../components/content/RichContent";
+import { BlockedMessage } from "../../../components/ui/BlockedMessage";
 import { useProfile } from "../../profile/useProfile";
+import { useIsBlocked } from "../../../hooks/useIsBlocked";
+import { useUnblock } from "../../../hooks/useUnblock";
 import { useUserPopover } from "../../profile/UserPopoverContext";
 import { useNoteThread } from "../useNoteThread";
 import { ReplyIndicator } from "./ReplyIndicator";
@@ -17,6 +20,7 @@ interface ThreadViewProps {
 
 const ThreadReply = memo(function ThreadReply({ event, rootId }: { event: NostrEvent; rootId: string }) {
   const { profile } = useProfile(event.pubkey);
+  const isBlocked = useIsBlocked(event.pubkey);
   const { openUserPopover } = useUserPopover();
   const avatarRef = useRef<HTMLButtonElement>(null);
   const name = profile?.display_name || profile?.name || event.pubkey.slice(0, 8) + "...";
@@ -30,6 +34,12 @@ const ThreadReply = memo(function ThreadReply({ event, rootId }: { event: NostrE
 
   const threadRef = parseThreadRef(event);
   const isNestedReply = threadRef.replyId !== null && threadRef.replyId !== rootId;
+
+  const unblock = useUnblock(event.pubkey);
+
+  if (isBlocked) {
+    return <BlockedMessage variant="reply" onUnblock={unblock}><div /></BlockedMessage>;
+  }
 
   return (
     <div className="border-l-2 border-edge pl-4 py-2.5">

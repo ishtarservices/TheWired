@@ -5,14 +5,15 @@ import { DMMessage } from "./DMMessage";
 import { DMInput } from "./DMInput";
 import { UnreadDivider } from "@/components/chat/UnreadDivider";
 import { useDMConversation } from "./useDMConversation";
-import { sendDM } from "./dmService";
+import { sendDM, editDM, deleteDMForEveryone } from "./dmService";
 import { useFileUpload } from "@/hooks/useFileUpload";
 import { usePlaybackBarSpacing } from "@/hooks/usePlaybackBarSpacing";
 import { useAppDispatch, useAppSelector } from "@/store/hooks";
 import { markConversationRead, clearDMUnreadDivider } from "@/store/slices/dmSlice";
+import type { DMMessage as DMMessageType } from "@/store/slices/dmSlice";
 import { markDMNotificationsRead } from "@/store/slices/notificationSlice";
 import { getDisplayName } from "./dmUtils";
-import { ArrowLeft, ChevronDown, Phone, Video } from "lucide-react";
+import { ArrowLeft, ChevronDown, Phone, Video, X, Pencil, ArrowDown, Reply } from "lucide-react";
 import { useCall } from "@/features/calling/useCall";
 
 interface DMConversationProps {
@@ -72,6 +73,39 @@ export function DMConversation({ partnerPubkey, onBack }: DMConversationProps) {
 
   const displayName = getDisplayName(profile, partnerPubkey);
   const { startCall, isInCall } = useCall();
+  const [editingMessage, setEditingMessage] = useState<DMMessageType | null>(null);
+  const [replyTo, setReplyTo] = useState<DMMessageType | null>(null);
+
+  // Reply jump navigation state
+  const [highlightedWrapId, setHighlightedWrapId] = useState<string | null>(null);
+  const [jumpBackWrapId, setJumpBackWrapId] = useState<string | null>(null);
+
+  const scrollToMessage = useCallback((targetWrapId: string, sourceWrapId?: string) => {
+    const container = scrollRef.current;
+    if (!container) return;
+    const targetEl = container.querySelector(`[data-wrap-id="${targetWrapId}"]`);
+    if (!targetEl) return;
+
+    if (sourceWrapId) {
+      setJumpBackWrapId(sourceWrapId);
+    }
+
+    targetEl.scrollIntoView({ behavior: "smooth", block: "center" });
+    setHighlightedWrapId(targetWrapId);
+    setTimeout(() => setHighlightedWrapId(null), 1500);
+  }, []);
+
+  const handleJumpBack = useCallback(() => {
+    if (!jumpBackWrapId) return;
+    const container = scrollRef.current;
+    if (!container) return;
+    const el = container.querySelector(`[data-wrap-id="${jumpBackWrapId}"]`);
+    if (!el) return;
+    el.scrollIntoView({ behavior: "smooth", block: "center" });
+    setHighlightedWrapId(jumpBackWrapId);
+    setTimeout(() => setHighlightedWrapId(null), 1500);
+    setJumpBackWrapId(null);
+  }, [jumpBackWrapId]);
 
   // Compute divider position: insert before the first unread message
   const dividerIndex = unreadCount && unreadCount > 0 && messages.length > 0
@@ -153,7 +187,8 @@ export function DMConversation({ partnerPubkey, onBack }: DMConversationProps) {
   const handleSend = useCallback(
     async (content: string) => {
       try {
-        await sendDM(partnerPubkey, content);
+        await sendDM(partnerPubkey, content, replyTo ? { wrapId: replyTo.wrapId } : undefined);
+        setReplyTo(null);
         // Scroll to bottom after sending
         requestAnimationFrame(() => {
           if (scrollRef.current) {
@@ -162,6 +197,31 @@ export function DMConversation({ partnerPubkey, onBack }: DMConversationProps) {
         });
       } catch (err) {
         console.error("Failed to send DM:", err);
+      }
+    },
+    [partnerPubkey, replyTo],
+  );
+
+  const handleEditSubmit = useCallback(
+    async (message: DMMessageType, newContent: string) => {
+      try {
+        const rumorId = message.rumorId ?? message.wrapId;
+        await editDM(partnerPubkey, rumorId, newContent, message.createdAt);
+        setEditingMessage(null);
+      } catch (err) {
+        console.error("Failed to edit DM:", err);
+      }
+    },
+    [partnerPubkey],
+  );
+
+  const handleDeleteForEveryone = useCallback(
+    async (message: DMMessageType) => {
+      try {
+        const rumorId = message.rumorId ?? message.wrapId;
+        await deleteDMForEveryone(partnerPubkey, rumorId);
+      } catch (err) {
+        console.error("Failed to delete DM:", err);
       }
     },
     [partnerPubkey],
@@ -250,7 +310,11 @@ export function DMConversation({ partnerPubkey, onBack }: DMConversationProps) {
           </div>
         ) : (
           messageLayout.map(({ msg, isGrouped, showDateSeparator }, i) => (
-            <div key={msg.wrapId}>
+            <div
+              key={msg.wrapId}
+              data-wrap-id={msg.wrapId}
+              className={highlightedWrapId === msg.wrapId ? "animate-highlight-flash rounded" : ""}
+            >
               {/* Date separator */}
               {showDateSeparator && (
                 <div className="flex items-center gap-3 px-6 py-3">
@@ -269,14 +333,30 @@ export function DMConversation({ partnerPubkey, onBack }: DMConversationProps) {
                 message={msg}
                 partnerPubkey={partnerPubkey}
                 isGrouped={isGrouped}
+                onEdit={setEditingMessage}
+                onDeleteForEveryone={handleDeleteForEveryone}
+                onReply={(m) => { setReplyTo(m); setEditingMessage(null); }}
+                allMessages={messages}
+                onJumpToMessage={(targetWrapId) => scrollToMessage(targetWrapId, msg.wrapId)}
               />
             </div>
           ))
         )}
       </div>
 
+      {/* Jump back button */}
+      {jumpBackWrapId && (
+        <button
+          onClick={handleJumpBack}
+          className={`absolute right-4 z-10 flex items-center gap-1.5 rounded-full bg-pulse/90 px-3 py-1.5 text-xs font-medium text-white shadow-lg hover:bg-pulse transition-colors animate-fade-in-up ${inputMarginClass ? "bottom-28" : "bottom-20"}`}
+        >
+          <ArrowDown size={12} />
+          Jump back
+        </button>
+      )}
+
       {/* Scroll to bottom button */}
-      {showScrollButton && (
+      {showScrollButton && !jumpBackWrapId && (
         <button
           onClick={scrollToBottom}
           className={`absolute right-4 z-10 flex h-9 w-9 items-center justify-center rounded-full bg-surface border border-edge shadow-lg text-muted hover:text-heading hover:bg-surface-hover transition-all animate-fade-in-up ${inputMarginClass ? "bottom-28" : "bottom-20"}`}
@@ -284,6 +364,46 @@ export function DMConversation({ partnerPubkey, onBack }: DMConversationProps) {
         >
           <ChevronDown size={18} />
         </button>
+      )}
+
+      {/* Reply indicator */}
+      {replyTo && !editingMessage && (
+        <div className="flex items-center gap-2 border-t border-edge bg-panel px-4 py-2">
+          <div className="h-4 w-0.5 rounded-full bg-pulse" />
+          <Reply size={12} className="text-pulse shrink-0" />
+          <span className="text-xs text-soft min-w-0 flex-1 truncate">
+            Replying to{" "}
+            <span className="text-pulse-soft">
+              {(replyTo.editedContent ?? replyTo.content).slice(0, 50)}
+            </span>
+          </span>
+          <button
+            onClick={() => setReplyTo(null)}
+            className="ml-auto text-muted hover:text-body transition-colors"
+          >
+            <X size={14} />
+          </button>
+        </div>
+      )}
+
+      {/* Edit banner */}
+      {editingMessage && (
+        <div className="flex items-center gap-2 border-t border-edge bg-panel px-4 py-2">
+          <div className="h-4 w-0.5 rounded-full bg-amber-400" />
+          <Pencil size={12} className="text-amber-400 shrink-0" />
+          <div className="min-w-0 flex-1">
+            <span className="text-xs text-soft">Editing message</span>
+            <p className="text-xs text-muted truncate">
+              {(editingMessage.editedContent ?? editingMessage.content).slice(0, 60)}
+            </p>
+          </div>
+          <button
+            onClick={() => setEditingMessage(null)}
+            className="ml-auto text-muted hover:text-body transition-colors"
+          >
+            <X size={14} />
+          </button>
+        </div>
       )}
 
       {/* Input */}
@@ -298,6 +418,9 @@ export function DMConversation({ partnerPubkey, onBack }: DMConversationProps) {
         onFileInputChange={upload.handleFileInputChange}
         isUploading={upload.isUploading}
         hasAttachments={upload.hasAttachments}
+        editingMessage={editingMessage}
+        onEditSubmit={handleEditSubmit}
+        onEditCancel={() => setEditingMessage(null)}
       />
     </div>
   );

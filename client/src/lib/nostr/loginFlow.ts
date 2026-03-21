@@ -61,6 +61,7 @@ import { loadFriendRequestState, startFriendRequestPersistence } from "./friendR
 import { loadNotificationState, startNotificationPersistence } from "../../features/notifications/notificationPersistence";
 import { startBackgroundChatSubs, closeBgChatSub } from "./groupSubscriptions";
 import { loadChannels } from "../db/channelStore";
+import { initLastChannelCache } from "../db/lastChannelCache";
 import { setKnownFollowers, addKnownFollower } from "../../store/slices/identitySlice";
 
 let currentSigner: NostrSigner | null = null;
@@ -293,7 +294,8 @@ export async function performLogin(
   // Step 7: Subscribe for user metadata from bootstrap relays
   subscribeUserData(pubkey, BOOTSTRAP_RELAYS);
 
-  // Step 7b: Load spaces from IndexedDB
+  // Step 7b: Load spaces + last-channel cache from IndexedDB
+  await initLastChannelCache();
   const savedSpaces = await loadSpaces();
   if (savedSpaces.length > 0) {
     store.dispatch(setSpaces(savedSpaces));
@@ -484,6 +486,16 @@ export async function performLogin(
         filters.push({ kinds: [parseInt(kindStr, 10)], authors: [authorPk], "#d": dTags });
       }
       subscriptionManager.subscribe({ filters, relayUrls: BOOTSTRAP_RELAYS });
+    }
+  }
+
+  // Step 7e-b: Load persisted deleted message IDs from IndexedDB
+  {
+    const { getUserState } = await import("../db/userStateStore");
+    const { restoreDeletedMessageIds } = await import("../../store/slices/eventsSlice");
+    const deletedIds = await getUserState<Record<string, true>>("deletedMessageIds");
+    if (deletedIds) {
+      store.dispatch(restoreDeletedMessageIds(deletedIds));
     }
   }
 

@@ -3,7 +3,7 @@ import type { SpaceChannelType, SpaceChannelRoute } from "../../types/space";
 
 export const SPACE_CHANNEL_ROUTES: Record<SpaceChannelType, SpaceChannelRoute> = {
   chat: {
-    kinds: [EVENT_KINDS.CHAT_MESSAGE],
+    kinds: [EVENT_KINDS.CHAT_MESSAGE, EVENT_KINDS.DELETION, EVENT_KINDS.MOD_DELETE_EVENT],
     filterMode: "htag",
     pageSize: 50,
     sortOrder: "asc",

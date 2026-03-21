@@ -1,13 +1,16 @@
-import { useState, useRef, useCallback, type FormEvent, type KeyboardEvent } from "react";
-import { Send, Paperclip } from "lucide-react";
+import { useState, useRef, useCallback, useEffect, type FormEvent, type KeyboardEvent } from "react";
+import { Send, Paperclip, Check } from "lucide-react";
 import { npubEncode } from "nostr-tools/nip19";
 import { Button } from "../../components/ui/Button";
 import { MentionAutocomplete } from "../../components/content/MentionAutocomplete";
+import { FormattingToolbar } from "../../components/content/FormattingToolbar";
 import { AttachmentPreview } from "../../components/chat/AttachmentPreview";
 import { useAutoResize } from "../../hooks/useAutoResize";
+import { useMarkdownShortcuts } from "../../hooks/useMarkdownShortcuts";
 import { usePlaybackBarSpacing } from "../../hooks/usePlaybackBarSpacing";
 import type { UploadedAttachment } from "../../hooks/useFileUpload";
 import type { AttachmentMeta } from "../../lib/nostr/eventBuilder";
+import type { NostrEvent } from "../../types/nostr";
 
 interface ChatInputProps {
   onSend: (content: string, mentionPubkeys: string[], attachments?: AttachmentMeta[]) => void;
@@ -24,6 +27,10 @@ interface ChatInputProps {
   onFileInputChange: (e: React.ChangeEvent<HTMLInputElement>) => void;
   isUploading: boolean;
   hasAttachments: boolean;
+  /** Edit mode: the message being edited + its current display content */
+  editingMessage?: { event: NostrEvent; displayContent: string } | null;
+  onEditSubmit?: (originalEvent: NostrEvent, newContent: string) => void;
+  onEditCancel?: () => void;
 }
 
 /** Match @query at cursor position — preceded by start-of-string or whitespace */
@@ -46,13 +53,28 @@ export function ChatInput({
   onFileInputChange,
   isUploading,
   hasAttachments,
+  editingMessage,
+  onEditSubmit,
+  onEditCancel,
 }: ChatInputProps) {
   const [value, setValue] = useState("");
+  const isEditMode = !!editingMessage;
+
+  // Pre-fill input when entering edit mode, clear when leaving
+  useEffect(() => {
+    if (editingMessage) {
+      setValue(editingMessage.displayContent);
+      requestAnimationFrame(() => textareaRef.current?.focus());
+    } else {
+      setValue("");
+    }
+  }, [editingMessage]);
   const [mentionQuery, setMentionQuery] = useState<string | null>(null);
   // Map display tokens to pubkeys: "Alice" → hex pubkey
   const mentionMapRef = useRef<Map<string, string>>(new Map());
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   useAutoResize(textareaRef, value, 150);
+  useMarkdownShortcuts({ textareaRef, value, setValue });
   const { inputMarginClass } = usePlaybackBarSpacing();
 
   const updateMentionState = useCallback((val: string, cursor: number) => {
@@ -92,6 +114,15 @@ export function ChatInput({
   const handleSubmit = (e: FormEvent) => {
     e.preventDefault();
     const hasContent = value.trim().length > 0;
+
+    // Edit mode: submit edit
+    if (isEditMode && editingMessage && onEditSubmit) {
+      if (!hasContent) return;
+      onEditSubmit(editingMessage.event, value.trim());
+      setValue("");
+      return;
+    }
+
     const hasDoneAttachments = attachments.some((a) => a.status === "done");
 
     if ((!hasContent && !hasDoneAttachments) || disabled || isUploading) return;
@@ -136,6 +167,13 @@ export function ChatInput({
       }
     }
 
+    if (e.key === "Escape" && isEditMode) {
+      e.preventDefault();
+      setValue("");
+      onEditCancel?.();
+      return;
+    }
+
     if (e.key === "Enter" && !e.shiftKey) {
       e.preventDefault();
       handleSubmit(e);
@@ -177,45 +215,51 @@ export function ChatInput({
       {/* Attachment previews */}
       <AttachmentPreview attachments={attachments} onRemove={onRemoveAttachment} />
 
-      <div className="flex items-end gap-2 rounded-xl bg-field px-3 py-2 ring-1 ring-edge">
-        <button
-          type="button"
-          onClick={onOpenFilePicker}
-          disabled={disabled}
-          className="flex-shrink-0 rounded-lg p-1 text-muted hover:text-heading hover:bg-surface-hover transition-colors disabled:opacity-50"
-          title="Attach file"
-        >
-          <Paperclip size={18} />
-        </button>
+      <div className="rounded-xl bg-field ring-1 ring-edge">
+        <FormattingToolbar textareaRef={textareaRef} value={value} setValue={setValue} />
+        <div className="flex items-end gap-2 px-3 py-2">
+          <button
+            type="button"
+            onClick={onOpenFilePicker}
+            disabled={disabled}
+            className="flex-shrink-0 rounded-lg p-1 text-muted hover:text-heading hover:bg-surface-hover transition-colors disabled:opacity-50"
+            title="Attach file"
+          >
+            <Paperclip size={18} />
+          </button>
 
-        <textarea
-          ref={textareaRef}
-          value={value}
-          onChange={(e) => {
-            setValue(e.target.value);
-            updateMentionState(e.target.value, e.target.selectionStart);
-          }}
-          onKeyDown={handleKeyDown}
-          onKeyUp={(e) => {
-            updateMentionState(value, e.currentTarget.selectionStart);
-          }}
-          onClick={(e) => {
-            updateMentionState(value, e.currentTarget.selectionStart);
-          }}
-          onPaste={handlePaste}
-          placeholder="Send a message..."
-          disabled={disabled}
-          rows={1}
-          className="flex-1 resize-none overflow-hidden bg-transparent text-sm text-heading placeholder:text-muted focus:outline-none focus:ring-pulse/30 focus:shadow-[0_0_12px_rgba(139,92,246,0.1)]"
-        />
-        <Button
-          type="submit"
-          variant="ghost"
-          size="sm"
-          disabled={(!value.trim() && !hasAttachments) || disabled || isUploading}
-        >
-          <Send size={16} />
-        </Button>
+          <textarea
+            ref={textareaRef}
+            value={value}
+            onChange={(e) => {
+              setValue(e.target.value);
+              updateMentionState(e.target.value, e.target.selectionStart);
+            }}
+            onKeyDown={handleKeyDown}
+            onKeyUp={(e) => {
+              updateMentionState(value, e.currentTarget.selectionStart);
+            }}
+            onClick={(e) => {
+              updateMentionState(value, e.currentTarget.selectionStart);
+            }}
+            onPaste={handlePaste}
+            placeholder="Send a message..."
+            disabled={disabled}
+            rows={1}
+            spellCheck
+            autoCorrect="on"
+            autoCapitalize="sentences"
+            className="flex-1 resize-none overflow-hidden bg-transparent text-sm text-heading placeholder:text-muted focus:outline-none focus:ring-pulse/30 focus:shadow-[0_0_12px_rgba(139,92,246,0.1)]"
+          />
+          <Button
+            type="submit"
+            variant="ghost"
+            size="sm"
+            disabled={(!value.trim() && !hasAttachments) || disabled || isUploading}
+          >
+            {isEditMode ? <Check size={16} /> : <Send size={16} />}
+          </Button>
+        </div>
       </div>
 
       {/* Hidden file input */}

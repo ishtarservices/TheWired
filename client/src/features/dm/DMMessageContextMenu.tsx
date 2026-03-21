@@ -1,4 +1,4 @@
-import { Copy, Trash2 } from "lucide-react";
+import { Copy, Trash2, EyeOff, Pencil, Reply } from "lucide-react";
 import { useAppDispatch } from "@/store/hooks";
 import { deleteDMMessage } from "@/store/slices/dmSlice";
 import { PopoverMenu, PopoverMenuItem, PopoverMenuSeparator } from "@/components/ui/PopoverMenu";
@@ -11,6 +11,11 @@ interface DMMessageContextMenuProps {
   partnerPubkey: string;
   wrapId: string;
   content: string;
+  isOwnMessage: boolean;
+  canEdit: boolean;
+  onEdit: () => void;
+  onDeleteForEveryone: () => void;
+  onReply?: () => void;
 }
 
 export function DMMessageContextMenu({
@@ -20,6 +25,11 @@ export function DMMessageContextMenu({
   partnerPubkey,
   wrapId,
   content,
+  isOwnMessage,
+  canEdit,
+  onEdit,
+  onDeleteForEveryone,
+  onReply,
 }: DMMessageContextMenuProps) {
   const dispatch = useAppDispatch();
   const anchorRef = useRef<HTMLDivElement>(null);
@@ -29,7 +39,7 @@ export function DMMessageContextMenu({
     onClose();
   }
 
-  function handleDelete() {
+  function handleDeleteForMe() {
     dispatch(deleteDMMessage({ partnerPubkey, wrapId }));
     onClose();
   }
@@ -49,18 +59,39 @@ export function DMMessageContextMenu({
         }}
       />
       <PopoverMenu open={open} onClose={onClose} anchorRef={anchorRef} position="below">
+        {onReply && (
+          <PopoverMenuItem
+            icon={<Reply size={14} />}
+            label="Reply"
+            onClick={() => { onReply(); onClose(); }}
+          />
+        )}
         <PopoverMenuItem
           icon={<Copy size={14} />}
           label="Copy text"
           onClick={handleCopy}
         />
+        {isOwnMessage && canEdit && (
+          <PopoverMenuItem
+            icon={<Pencil size={14} />}
+            label="Edit message"
+            onClick={() => { onEdit(); onClose(); }}
+          />
+        )}
         <PopoverMenuSeparator />
         <PopoverMenuItem
-          icon={<Trash2 size={14} />}
-          label="Delete message"
-          onClick={handleDelete}
-          variant="danger"
+          icon={<EyeOff size={14} />}
+          label="Delete for me"
+          onClick={handleDeleteForMe}
         />
+        {isOwnMessage && (
+          <PopoverMenuItem
+            icon={<Trash2 size={14} />}
+            label="Delete for everyone"
+            onClick={() => { onDeleteForEveryone(); onClose(); }}
+            variant="danger"
+          />
+        )}
       </PopoverMenu>
     </>
   );

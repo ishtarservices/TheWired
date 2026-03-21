@@ -1,10 +1,15 @@
-import { useState, useCallback, useRef, type FormEvent, type KeyboardEvent } from "react";
-import { Send, Paperclip } from "lucide-react";
+import { useState, useCallback, useRef, useEffect, type FormEvent, type KeyboardEvent } from "react";
+import { Send, Paperclip, Check } from "lucide-react";
+import { npubEncode } from "nostr-tools/nip19";
 import { Button } from "@/components/ui/Button";
+import { MentionAutocomplete } from "@/components/content/MentionAutocomplete";
+import { FormattingToolbar } from "@/components/content/FormattingToolbar";
 import { AttachmentPreview } from "@/components/chat/AttachmentPreview";
 import { useAutoResize } from "@/hooks/useAutoResize";
+import { useMarkdownShortcuts } from "@/hooks/useMarkdownShortcuts";
 import { usePlaybackBarSpacing } from "@/hooks/usePlaybackBarSpacing";
 import type { UploadedAttachment } from "@/hooks/useFileUpload";
+import type { DMMessage } from "@/store/slices/dmSlice";
 
 interface DMInputProps {
   onSend: (content: string) => void;
@@ -19,6 +24,17 @@ interface DMInputProps {
   onFileInputChange: (e: React.ChangeEvent<HTMLInputElement>) => void;
   isUploading: boolean;
   hasAttachments: boolean;
+  /** Edit mode */
+  editingMessage?: DMMessage | null;
+  onEditSubmit?: (message: DMMessage, newContent: string) => void;
+  onEditCancel?: () => void;
+}
+
+/** Match @query at cursor position — preceded by start-of-string or whitespace */
+function detectMentionQuery(value: string, cursorPos: number): string | null {
+  const before = value.slice(0, cursorPos);
+  const match = before.match(/(^|\s)@(\w*)$/);
+  return match ? match[2] : null;
 }
 
 export function DMInput({
@@ -33,21 +49,90 @@ export function DMInput({
   onFileInputChange,
   isUploading,
   hasAttachments,
+  editingMessage,
+  onEditSubmit,
+  onEditCancel,
 }: DMInputProps) {
   const [value, setValue] = useState("");
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   useAutoResize(textareaRef, value, 150);
+  useMarkdownShortcuts({ textareaRef, value, setValue });
   const { inputMarginClass } = usePlaybackBarSpacing();
+  const isEditMode = !!editingMessage;
+
+  // Mention autocomplete state
+  const [mentionQuery, setMentionQuery] = useState<string | null>(null);
+  const mentionMapRef = useRef<Map<string, string>>(new Map());
+
+  // Pre-fill input when entering edit mode
+  useEffect(() => {
+    if (editingMessage) {
+      setValue(editingMessage.editedContent ?? editingMessage.content);
+      requestAnimationFrame(() => textareaRef.current?.focus());
+    }
+  }, [editingMessage]);
+
+  const updateMentionState = useCallback((val: string, cursor: number) => {
+    setMentionQuery(detectMentionQuery(val, cursor));
+  }, []);
+
+  const handleSelect = useCallback(
+    (pubkey: string, displayName: string) => {
+      const textarea = textareaRef.current;
+      if (!textarea) return;
+
+      const cursor = textarea.selectionStart;
+      const before = value.slice(0, cursor);
+      const after = value.slice(cursor);
+
+      const match = before.match(/(^|\s)@\w*$/);
+      if (!match) return;
+
+      const prefix = before.slice(0, match.index! + match[1].length);
+      const token = `@${displayName}`;
+      const newValue = `${prefix}${token} ${after}`;
+
+      mentionMapRef.current.set(displayName, pubkey);
+      setValue(newValue);
+      setMentionQuery(null);
+
+      requestAnimationFrame(() => {
+        textarea.focus();
+        const newCursor = prefix.length + token.length + 1;
+        textarea.setSelectionRange(newCursor, newCursor);
+      });
+    },
+    [value],
+  );
 
   const handleSubmit = useCallback(
     (e: FormEvent) => {
       e.preventDefault();
       const hasContent = value.trim().length > 0;
+
+      // Edit mode
+      if (isEditMode && editingMessage && onEditSubmit) {
+        if (!hasContent) return;
+        onEditSubmit(editingMessage, value.trim());
+        setValue("");
+        return;
+      }
+
       const hasDoneAttachments = attachments.some((a) => a.status === "done");
 
       if ((!hasContent && !hasDoneAttachments) || disabled || isUploading) return;
 
       let content = value.trim();
+
+      // Replace @displayName tokens with nostr:npub format
+      for (const [displayName, pubkey] of mentionMapRef.current) {
+        const token = `@${displayName}`;
+        if (content.includes(token)) {
+          const npub = npubEncode(pubkey);
+          content = content.replaceAll(token, `nostr:${npub}`);
+        }
+      }
+
       for (const att of attachments) {
         if (att.status === "done" && att.result) {
           if (content.length > 0) content += "\n";
@@ -57,12 +142,28 @@ export function DMInput({
 
       onSend(content);
       setValue("");
+      setMentionQuery(null);
+      mentionMapRef.current.clear();
       onClearAttachments();
     },
-    [value, disabled, isUploading, attachments, onSend, onClearAttachments],
+    [value, disabled, isUploading, attachments, onSend, onClearAttachments, isEditMode, editingMessage, onEditSubmit],
   );
 
   const handleKeyDown = (e: KeyboardEvent<HTMLTextAreaElement>) => {
+    // Let MentionAutocomplete handle navigation keys when open
+    if (mentionQuery !== null) {
+      if (["ArrowDown", "ArrowUp", "Enter", "Tab", "Escape"].includes(e.key)) {
+        return;
+      }
+    }
+
+    if (e.key === "Escape" && isEditMode) {
+      e.preventDefault();
+      setValue("");
+      onEditCancel?.();
+      return;
+    }
+
     if (e.key === "Enter" && !e.shiftKey) {
       e.preventDefault();
       handleSubmit(e);
@@ -88,40 +189,63 @@ export function DMInput({
   );
 
   return (
-    <form onSubmit={handleSubmit} className={`border-t border-edge p-3 ${inputMarginClass}`}>
+    <form onSubmit={handleSubmit} className={`relative border-t border-edge p-3 ${inputMarginClass}`}>
+      {mentionQuery !== null && (
+        <MentionAutocomplete
+          query={mentionQuery}
+          onSelect={handleSelect}
+          onClose={() => setMentionQuery(null)}
+        />
+      )}
+
       {/* Attachment previews */}
       <AttachmentPreview attachments={attachments} onRemove={onRemoveAttachment} />
 
-      <div className="flex items-end gap-2 rounded-xl bg-field px-3 py-2 ring-1 ring-edge">
-        <button
-          type="button"
-          onClick={onOpenFilePicker}
-          disabled={disabled}
-          className="flex-shrink-0 rounded-lg p-1 text-muted hover:text-heading hover:bg-surface-hover transition-colors disabled:opacity-50"
-          title="Attach file"
-        >
-          <Paperclip size={18} />
-        </button>
+      <div className="rounded-xl bg-field ring-1 ring-edge">
+        <FormattingToolbar textareaRef={textareaRef} value={value} setValue={setValue} />
+        <div className="flex items-end gap-2 px-3 py-2">
+          <button
+            type="button"
+            onClick={onOpenFilePicker}
+            disabled={disabled}
+            className="flex-shrink-0 rounded-lg p-1 text-muted hover:text-heading hover:bg-surface-hover transition-colors disabled:opacity-50"
+            title="Attach file"
+          >
+            <Paperclip size={18} />
+          </button>
 
-        <textarea
-          ref={textareaRef}
-          value={value}
-          onChange={(e) => setValue(e.target.value)}
-          onKeyDown={handleKeyDown}
-          onPaste={handlePaste}
-          placeholder="Send a message..."
-          disabled={disabled}
-          rows={1}
-          className="flex-1 resize-none bg-transparent text-sm text-heading placeholder:text-muted focus:outline-none overflow-hidden"
-        />
-        <Button
-          type="submit"
-          variant="ghost"
-          size="sm"
-          disabled={(!value.trim() && !hasAttachments) || disabled || isUploading}
-        >
-          <Send size={16} />
-        </Button>
+          <textarea
+            ref={textareaRef}
+            value={value}
+            onChange={(e) => {
+              setValue(e.target.value);
+              updateMentionState(e.target.value, e.target.selectionStart);
+            }}
+            onKeyDown={handleKeyDown}
+            onKeyUp={(e) => {
+              updateMentionState(value, e.currentTarget.selectionStart);
+            }}
+            onClick={(e) => {
+              updateMentionState(value, e.currentTarget.selectionStart);
+            }}
+            onPaste={handlePaste}
+            placeholder={isEditMode ? "Edit message..." : "Send a message..."}
+            disabled={disabled}
+            rows={1}
+            spellCheck
+            autoCorrect="on"
+            autoCapitalize="sentences"
+            className="flex-1 resize-none bg-transparent text-sm text-heading placeholder:text-muted focus:outline-none overflow-hidden"
+          />
+          <Button
+            type="submit"
+            variant="ghost"
+            size="sm"
+            disabled={(!value.trim() && !hasAttachments) || disabled || isUploading}
+          >
+            {isEditMode ? <Check size={16} /> : <Send size={16} />}
+          </Button>
+        </div>
       </div>
 
       {/* Hidden file input */}

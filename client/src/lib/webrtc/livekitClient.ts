@@ -17,6 +17,16 @@ import {
   setConnectionQuality,
   disconnectRoom,
 } from "@/store/slices/voiceSlice";
+import {
+  LISTEN_TOGETHER_TOPIC,
+  decodeLTMessage,
+} from "@/features/listenTogether/syncProtocol";
+import {
+  handleIncomingMessage,
+  broadcastSessionToLateJoiner,
+  cleanupListenTogether,
+} from "@/features/listenTogether/listenTogetherService";
+import { removeListener } from "@/store/slices/listenTogetherSlice";
 
 /** Singleton LiveKit Room instance */
 let currentRoom: Room | null = null;
@@ -160,6 +170,7 @@ export async function connectToRoom(
 
   room.on(RoomEvent.Disconnected, (reason?: DisconnectReason) => {
     console.log("[LiveKit] Disconnected:", reason);
+    cleanupListenTogether();
     store.dispatch(disconnectRoom());
     currentRoom = null;
   });
@@ -170,6 +181,32 @@ export async function connectToRoom(
 
   room.on(RoomEvent.Reconnected, () => {
     console.log("[LiveKit] Reconnected");
+  });
+
+  // Listen Together: route data messages with the LT topic
+  room.on(
+    RoomEvent.DataReceived,
+    (payload: Uint8Array, participant?: RemoteParticipant, _kind?: unknown, topic?: string) => {
+      if (topic !== LISTEN_TOGETHER_TOPIC || !participant) return;
+
+      const msg = decodeLTMessage(payload);
+      if (msg) {
+        handleIncomingMessage(msg, participant.identity);
+      }
+    },
+  );
+
+  // Listen Together: re-broadcast session state to late joiners (DJ only)
+  room.on(RoomEvent.ParticipantConnected, (_participant: RemoteParticipant) => {
+    broadcastSessionToLateJoiner();
+  });
+
+  // Listen Together: cleanup listener list when participants leave
+  room.on(RoomEvent.ParticipantDisconnected, (participant: RemoteParticipant) => {
+    const lt = store.getState().listenTogether;
+    if (lt.active) {
+      store.dispatch(removeListener(participant.identity));
+    }
   });
 
   // Connect

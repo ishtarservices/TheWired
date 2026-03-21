@@ -1,11 +1,15 @@
 import { useCallback, useState } from "react";
 import { useAppSelector, useAppDispatch } from "../../store/hooks";
-import { addEvent, indexChatMessage } from "../../store/slices/eventsSlice";
+import { addEvent, indexChatMessage, hideMessage, removeChatMessage, indexEditedMessage } from "../../store/slices/eventsSlice";
 import { selectChatMessages } from "./chatSelectors";
 import { parseChannelIdPart } from "../spaces/spaceSelectors";
-import { buildChatMessage, type AttachmentMeta } from "../../lib/nostr/eventBuilder";
+import { buildChatMessage, buildDeletionEvent, buildModDeletionEvent, buildChatEditEvent, type AttachmentMeta } from "../../lib/nostr/eventBuilder";
 import { signAndPublish } from "../../lib/nostr/publish";
+import { saveUserState, getUserState } from "../../lib/db/userStateStore";
+import type { NostrEvent } from "../../types/nostr";
 
+/** 15 minutes in seconds */
+const EDIT_WINDOW_SECONDS = 15 * 60;
 
 /** Pending optimistic messages */
 interface PendingMessage {
@@ -25,6 +29,7 @@ export function useChat() {
     eventId: string;
     pubkey: string;
   } | null>(null);
+  const [editingMessage, setEditingMessage] = useState<{ event: NostrEvent; displayContent: string } | null>(null);
 
   const sendMessage = useCallback(
     async (content: string, mentionPubkeys?: string[], attachments?: AttachmentMeta[]) => {
@@ -102,6 +107,91 @@ export function useChat() {
     [pendingMessages, sendMessage],
   );
 
+  /** Hide a message locally (delete for me) */
+  const deleteMessageForMe = useCallback(
+    async (eventId: string) => {
+      dispatch(hideMessage(eventId));
+      // Persist to IndexedDB
+      const existing = await getUserState<Record<string, true>>("deletedMessageIds") ?? {};
+      existing[eventId] = true;
+      await saveUserState("deletedMessageIds", existing);
+    },
+    [dispatch],
+  );
+
+  /** Publish a kind:5 deletion event (delete for everyone) */
+  const deleteMessageForEveryone = useCallback(
+    async (eventId: string) => {
+      if (!pubkey || !activeSpaceId) return;
+      const unsigned = buildDeletionEvent(
+        pubkey,
+        { eventIds: [eventId] },
+        undefined,
+        ["9"],
+      );
+      // Add h-tag so the deletion event matches the space's subscription filter
+      unsigned.tags.push(["h", activeSpaceId]);
+      await signAndPublish(unsigned);
+      // Also hide locally
+      dispatch(hideMessage(eventId));
+      if (activeChannelId) {
+        dispatch(removeChatMessage({ contextId: activeChannelId, eventId }));
+      }
+    },
+    [pubkey, activeSpaceId, dispatch, activeChannelId],
+  );
+
+  /** Publish a kind:9005 moderator deletion event */
+  const modDeleteMessage = useCallback(
+    async (eventId: string) => {
+      if (!pubkey || !activeSpaceId) return;
+      const unsigned = buildModDeletionEvent(pubkey, activeSpaceId, [eventId]);
+      await signAndPublish(unsigned);
+      // Also hide locally
+      dispatch(hideMessage(eventId));
+      if (activeChannelId) {
+        dispatch(removeChatMessage({ contextId: activeChannelId, eventId }));
+      }
+    },
+    [pubkey, activeSpaceId, dispatch, activeChannelId],
+  );
+
+  /** Edit a chat message (within 15-min window) */
+  const editMessage = useCallback(
+    async (originalEvent: NostrEvent, newContent: string) => {
+      if (!pubkey || !activeSpaceId) return;
+
+      // Client-enforced 15-minute edit window
+      const age = Math.floor(Date.now() / 1000) - originalEvent.created_at;
+      if (age > EDIT_WINDOW_SECONDS) return;
+
+      const channelIdPart = parseChannelIdPart(activeChannelId) || undefined;
+      const unsigned = buildChatEditEvent(
+        pubkey,
+        activeSpaceId,
+        originalEvent.id,
+        newContent,
+        channelIdPart,
+      );
+
+      const signed = await signAndPublish(unsigned);
+      dispatch(addEvent(signed));
+      dispatch(indexEditedMessage({ originalId: originalEvent.id, editEventId: signed.id }));
+      setEditingMessage(null);
+    },
+    [pubkey, activeSpaceId, activeChannelId, dispatch],
+  );
+
+  /** Check if an event is within the edit window */
+  const canEdit = useCallback(
+    (event: NostrEvent) => {
+      if (event.pubkey !== pubkey) return false;
+      const age = Math.floor(Date.now() / 1000) - event.created_at;
+      return age <= EDIT_WINDOW_SECONDS;
+    },
+    [pubkey],
+  );
+
   return {
     messages,
     pendingMessages,
@@ -109,5 +199,12 @@ export function useChat() {
     setReplyTo,
     sendMessage,
     retryMessage,
+    editingMessage,
+    setEditingMessage,
+    deleteMessageForMe,
+    deleteMessageForEveryone,
+    modDeleteMessage,
+    editMessage,
+    canEdit,
   };
 }

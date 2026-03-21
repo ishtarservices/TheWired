@@ -35,6 +35,7 @@ import { updateSpaceFeedSources } from "../../store/slices/spacesSlice";
 import { selectActiveSpace, parseChannelIdPart } from "./spaceSelectors";
 import { clearSpaceFeed } from "../../store/slices/eventsSlice";
 import type { Space, SpaceChannel } from "../../types/space";
+import { getLastChannel, setLastChannel, removeLastChannel } from "../../lib/db/lastChannelCache";
 
 /** Pick the best default channel for a space, respecting position and isDefault flag */
 function pickDefaultChannel(
@@ -82,6 +83,7 @@ function cleanupSpaceState(spaceId: string, dispatch: ReturnType<typeof useAppDi
   dispatch(clearFeedMeta(`${spaceId}:articles`));
   dispatch(clearFeedMeta(`${spaceId}:music`));
   removeSpaceFromStore(spaceId);
+  removeLastChannel(spaceId);
 }
 
 export function useSpace() {
@@ -183,15 +185,18 @@ export function useSpace() {
       dispatch(setActiveSpace(spaceId));
       enterClientSpace(space);
 
-      // Pick best default channel from loaded channels
+      // Pick channel: restore last-visited if it still exists, else default
       const spaceChannels = allChannels[spaceId];
       if (spaceChannels && spaceChannels.length > 0) {
-        const best = pickDefaultChannel(spaceChannels, space.mode);
+        const lastId = getLastChannel(spaceId);
+        const restored = lastId ? spaceChannels.find((c) => c.id === lastId) : undefined;
+        const best = restored ?? pickDefaultChannel(spaceChannels, space.mode);
         if (best) {
           const channelId = `${spaceId}:${best.id}`;
           dispatch(setActiveChannel(channelId));
           activateChannel(channelId, dispatch);
           switchSpaceChannel(space, best.type);
+          setLastChannel(spaceId, best.id);
         }
       } else {
         // Channels not loaded yet — clear channel; will be set once channels load
@@ -238,6 +243,7 @@ export function useSpace() {
         dispatch(setActiveChannel(channelId));
         activateChannel(channelId, dispatch);
         switchSpaceChannel(activeSpace, channel.type);
+        setLastChannel(activeSpace.id, channel.id);
       } else {
         // Legacy: treat as channel type string
         const channelId = `${activeSpace.id}:${channelOrType}`;

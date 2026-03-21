@@ -9,8 +9,10 @@ import {
   VideoOff,
   PhoneOff,
   Settings,
+  Music,
 } from "lucide-react";
 import { useVoiceChannel } from "./useVoiceChannel";
+import { useListenTogether } from "@/features/listenTogether/useListenTogether";
 
 interface VoiceControlsProps {
   showVideo?: boolean;
@@ -31,8 +33,19 @@ export function VoiceControls({ showVideo = false, onSettingsClick }: VoiceContr
     toggleScreenShare,
   } = useVoiceChannel();
 
+  const { active: ltActive, togglePicker, pickerOpen } = useListenTogether();
+
   return (
-    <div className="flex items-center justify-center gap-1.5 border-t border-edge/50 bg-surface/50 px-4 py-3 backdrop-blur-sm">
+    <div className="flex items-center justify-center gap-1.5 border-t border-edge px-4 py-3 bg-panel/80 backdrop-blur-sm">
+      {/* Listen Together — music button */}
+      <ControlButton
+        onClick={togglePicker}
+        active={pickerOpen}
+        icon={<Music size={18} />}
+        label={ltActive ? "Music (session active)" : "Listen Together"}
+        accent={ltActive}
+      />
+
       {/* Video toggle (only for video channels) */}
       {showVideo && (
         <ControlButton
@@ -75,7 +88,7 @@ export function VoiceControls({ showVideo = false, onSettingsClick }: VoiceContr
       {onSettingsClick && (
         <button
           onClick={onSettingsClick}
-          className="rounded-full p-2.5 text-soft hover:bg-white/10 hover:text-heading transition-colors"
+          className="rounded-full p-2.5 text-soft hover:bg-card-hover hover:text-heading transition-colors"
           title="Voice settings"
         >
           <Settings size={18} />
@@ -115,12 +128,12 @@ function ControlButton({
       className={cn(
         "rounded-full p-2.5 transition-colors",
         accent
-          ? "bg-blue-500/20 text-blue-400 hover:bg-blue-500/30"
+          ? "bg-pulse/15 text-pulse hover:bg-pulse/25"
           : danger
-            ? "bg-white/10 text-red-400 hover:bg-white/15"
+            ? "bg-red-500/12 text-red-500 hover:bg-red-500/20"
             : active
-              ? "bg-white/10 text-white/80 hover:bg-white/15 hover:text-white"
-              : "bg-white/10 text-white/50 hover:bg-white/15",
+              ? "bg-card-hover text-heading hover:bg-edge-light"
+              : "bg-card-hover text-soft hover:bg-edge-light hover:text-heading",
       )}
       title={label}
     >

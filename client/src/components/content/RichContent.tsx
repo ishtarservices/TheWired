@@ -2,6 +2,7 @@ import { useState } from "react";
 import { FileText } from "lucide-react";
 import { parseContent, type ContentSegment } from "@/lib/content/parseContent";
 import { MentionLink } from "./MentionLink";
+import { InlineMarkdown } from "./InlineMarkdown";
 import { EmbedRenderer } from "./EmbedRenderer";
 import { MusicEmbedCard } from "./MusicEmbedCard";
 import { MediaLightbox } from "../ui/MediaLightbox";
@@ -32,7 +33,7 @@ function RichSegment({
 }) {
   switch (segment.type) {
     case "text":
-      return <>{segment.text}</>;
+      return <InlineMarkdown text={segment.text} />;
 
     case "mention":
       return <MentionLink pubkey={segment.pubkey} onClick={onMentionClick} />;

@@ -102,6 +102,28 @@ async fn handle_event(
             }
             return result;
         }
+        5 => {
+            let result = crate::nostr::nip29::moderation::handle_deletion(&state.pool, &event)
+                .await
+                .unwrap_or_else(|e| vec![format!(r#"["OK","{}",false,"error: {e}"]"#, event.id)]);
+            // Store the deletion event itself for history
+            if let Ok(true) = event_store::store_event(&state.pool, &event).await {
+                let _ = broadcast_tx.send(event);
+            }
+            return result;
+        }
+        9005 => {
+            let result =
+                crate::nostr::nip29::moderation::handle_delete_event(&state.pool, &event)
+                    .await
+                    .unwrap_or_else(|e| {
+                        vec![format!(r#"["OK","{}",false,"error: {e}"]"#, event.id)]
+                    });
+            if let Ok(true) = event_store::store_event(&state.pool, &event).await {
+                let _ = broadcast_tx.send(event);
+            }
+            return result;
+        }
         9021 => {
             let result =
                 crate::nostr::nip29::membership::handle_join_request(&state.pool, &event)

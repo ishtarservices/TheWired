@@ -22,6 +22,7 @@ import { toggleQueuePanel, setBarMode, toggleNowPlaying } from "@/store/slices/m
 import { useLibrary } from "../useLibrary";
 import { getTrackImage } from "../trackImage";
 import { ProgressBar } from "./ProgressBar";
+import { ListenTogetherBadge } from "@/features/listenTogether/ListenTogetherBadge";
 
 function formatTime(seconds: number): string {
   if (!isFinite(seconds) || seconds < 0) return "0:00";
@@ -47,6 +48,10 @@ export function ExpandedBar() {
 
   const albums = useAppSelector((s) => s.music.albums);
   const queueVisible = useAppSelector((s) => s.music.queueVisible);
+  const ltActive = useAppSelector((s) => s.listenTogether.active);
+  const ltIsFollower = useAppSelector(
+    (s) => s.listenTogether.active && !s.listenTogether.isLocalDJ,
+  );
   const { favoriteTrack, unfavoriteTrack, isTrackFavorited } = useLibrary();
   const isFavorited = currentTrack ? isTrackFavorited(currentTrack.addressableId) : false;
 
@@ -130,11 +135,12 @@ export function ExpandedBar() {
                 className={isFavorited ? "fill-red-500 text-red-500" : ""}
               />
             </button>
+            {ltActive && <ListenTogetherBadge />}
           </div>
 
           {/* ── Center: Transport + Progress ── */}
           <div className="flex flex-1 flex-col items-center gap-0.5 min-w-0">
-            <div className="flex items-center gap-3">
+            <div className={`flex items-center gap-3 ${ltIsFollower ? "opacity-50 pointer-events-none" : ""}`} title={ltIsFollower ? "DJ is controlling playback" : undefined}>
               <button
                 onClick={toggleShuffle}
                 className={`rounded p-1 transition-colors ${

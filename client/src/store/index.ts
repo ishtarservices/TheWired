@@ -12,6 +12,8 @@ import { notificationSlice } from "./slices/notificationSlice";
 import { friendRequestSlice } from "./slices/friendRequestSlice";
 import { voiceSlice } from "./slices/voiceSlice";
 import { callSlice } from "./slices/callSlice";
+import { listenTogetherSlice } from "./slices/listenTogetherSlice";
+import { listenTogetherMiddleware } from "@/features/listenTogether/listenTogetherMiddleware";
 
 export const store = configureStore({
   reducer: {
@@ -28,7 +30,10 @@ export const store = configureStore({
     friendRequests: friendRequestSlice.reducer,
     voice: voiceSlice.reducer,
     call: callSlice.reducer,
+    listenTogether: listenTogetherSlice.reducer,
   },
+  middleware: (getDefaultMiddleware) =>
+    getDefaultMiddleware().concat(listenTogetherMiddleware),
 });
 
 export type RootState = ReturnType<typeof store.getState>;

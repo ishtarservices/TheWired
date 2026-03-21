@@ -1,4 +1,4 @@
-import { Play, Pause, Maximize2, ListMusic } from "lucide-react";
+import { Play, Pause, Maximize2, ListMusic, Headphones } from "lucide-react";
 import { motion, useMotionValue, useSpring } from "motion/react";
 import { useAudioPlayer } from "../useAudioPlayer";
 import { useAppDispatch, useAppSelector } from "@/store/hooks";
@@ -44,15 +44,20 @@ export function MiniBar() {
   const { currentTrack, player, togglePlay } = useAudioPlayer();
   const albums = useAppSelector((s) => s.music.albums);
   const corner = useAppSelector((s) => s.music.player.miniBarCorner);
+  const ltActive = useAppSelector((s) => s.listenTogether.active);
+  const ltListenerCount = useAppSelector((s) => s.listenTogether.listeners.length);
   const [isHovered, setIsHovered] = useState(false);
   const [isDragging, setIsDragging] = useState(false);
 
   const dragStartRef = useRef<{ x: number; y: number; elX: number; elY: number } | null>(null);
   const didDragRef = useRef(false);
+  const hoverTimeoutRef = useRef<ReturnType<typeof setTimeout>>(undefined);
 
   // Spring-animated position for snap transitions
-  const motionX = useMotionValue(0);
-  const motionY = useMotionValue(0);
+  // Initialize at correct corner position to avoid flash to (0,0) on mount
+  const initPos = getCornerPosition(corner);
+  const motionX = useMotionValue(initPos.x);
+  const motionY = useMotionValue(initPos.y);
   const springX = useSpring(motionX, { stiffness: 400, damping: 30 });
   const springY = useSpring(motionY, { stiffness: 400, damping: 30 });
 
@@ -137,26 +142,38 @@ export function MiniBar() {
       transition={{ type: "spring", duration: 0.25, bounce: 0.15 }}
       style={{ x: springX, y: springY }}
       className={`fixed top-0 left-0 z-40 ${isDragging ? "cursor-grabbing" : "cursor-grab"}`}
-      onMouseEnter={() => setIsHovered(true)}
-      onMouseLeave={() => { setIsHovered(false); }}
+      onMouseEnter={() => { clearTimeout(hoverTimeoutRef.current); setIsHovered(true); }}
+      onMouseLeave={() => { hoverTimeoutRef.current = setTimeout(() => setIsHovered(false), 150); }}
       onPointerDown={handlePointerDown}
       onPointerMove={handlePointerMove}
       onPointerUp={handlePointerUp}
     >
       {/* Expand label — absolutely positioned so it doesn't shift the circle */}
       {isHovered && !isDragging && (
-        <button
-          onClick={(e) => {
-            e.stopPropagation();
-            dispatch(setBarMode("expanded"));
-          }}
-          className={`absolute top-1/2 -translate-y-1/2 flex items-center gap-1.5 rounded-full glass-panel px-3 py-1.5 text-xs text-soft transition-colors hover:text-heading shadow-lg animate-fade-in whitespace-nowrap ${
-            isLeftCorner ? "left-full ml-2" : "right-full mr-2"
-          }`}
-        >
-          <Maximize2 size={12} />
-          <span className="truncate max-w-[120px]">{currentTrack.title}</span>
-        </button>
+        <>
+          {/* Invisible bridge to keep hover alive between circle and expand label */}
+          <div className={`absolute top-0 h-full w-4 ${
+            isLeftCorner ? "left-full" : "right-full"
+          }`} />
+          <button
+            onClick={(e) => {
+              e.stopPropagation();
+              dispatch(setBarMode("expanded"));
+            }}
+            className={`absolute top-1/2 -translate-y-1/2 flex items-center gap-1.5 rounded-full glass-panel px-3 py-1.5 text-xs text-soft transition-colors hover:text-heading shadow-lg animate-fade-in whitespace-nowrap ${
+              isLeftCorner ? "left-full ml-2" : "right-full mr-2"
+            }`}
+          >
+            <Maximize2 size={12} />
+            <span className="truncate max-w-[120px]">{currentTrack.title}</span>
+            {ltActive && (
+              <span className="flex items-center gap-0.5 text-pulse">
+                <Headphones size={10} />
+                {ltListenerCount}
+              </span>
+            )}
+          </button>
+        </>
       )}
 
       {/* Main circle */}

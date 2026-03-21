@@ -455,6 +455,15 @@ body {
   animation: spin-around calc(var(--speed) * 2) infinite linear;
 }
 
+@keyframes highlight-flash {
+  0% { background-color: var(--color-pulse-dim); }
+  100% { background-color: transparent; }
+}
+
+.animate-highlight-flash {
+  animation: highlight-flash 1.5s ease-out forwards;
+}
+
 /* ═══════════════════════════════════════════════════
    Micro-interactions
    ═══════════════════════════════════════════════════ */

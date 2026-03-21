@@ -1,6 +1,7 @@
-import { useEffect, useRef, useCallback } from "react";
+import { useEffect, useRef, useCallback, useState } from "react";
 import { ChatMessage } from "./ChatMessage";
 import { ChatReply } from "./ChatReply";
+import { ChatEditBanner } from "./ChatEditBanner";
 import { ChatInput } from "./ChatInput";
 import { useChat } from "./useChat";
 import { useFileUpload } from "../../hooks/useFileUpload";
@@ -13,11 +14,12 @@ import { useUserPopover } from "../../features/profile/UserPopoverContext";
 import { usePermissions } from "../../features/spaces/usePermissions";
 import { RichContent } from "../../components/content/RichContent";
 import { profileCache } from "../../lib/nostr/profileCache";
-import { AlertCircle, RefreshCw, Lock } from "lucide-react";
+import { AlertCircle, RefreshCw, Lock, ArrowDown } from "lucide-react";
 
 export function ChatView() {
   const dispatch = useAppDispatch();
   const isLoggedIn = useAppSelector((s) => !!s.identity.pubkey);
+  const myPubkey = useAppSelector((s) => s.identity.pubkey);
   const activeSpaceId = useAppSelector((s) => s.spaces.activeSpaceId);
   const activeChannelId = useAppSelector((s) => s.spaces.activeChannelId);
   const spaceMode = useAppSelector(
@@ -26,10 +28,14 @@ export function ChatView() {
   const memberPubkeys = useAppSelector(
     (s) => s.spaces.list.find((sp) => sp.id === s.spaces.activeSpaceId)?.memberPubkeys,
   );
+  const adminPubkeys = useAppSelector(
+    (s) => s.spaces.list.find((sp) => sp.id === s.spaces.activeSpaceId)?.adminPubkeys,
+  );
   const { can, permissions } = usePermissions(activeSpaceId);
   const isReadOnly = spaceMode === "read";
   const permissionsLoaded = permissions.length > 0;
   const canSend = isLoggedIn && !isReadOnly && (!permissionsLoaded || can("SEND_MESSAGES"));
+  const isAdmin = !!(myPubkey && adminPubkeys?.includes(myPubkey));
   const { openUserPopover } = useUserPopover();
 
   // File upload — owned here so dropZoneRef covers the entire chat view
@@ -54,15 +60,54 @@ export function ChatView() {
     setReplyTo,
     sendMessage,
     retryMessage,
+    editingMessage,
+    setEditingMessage,
+    deleteMessageForMe,
+    deleteMessageForEveryone,
+    modDeleteMessage,
+    editMessage,
+    canEdit,
   } = useChat();
 
   const scrollRef = useRef<HTMLDivElement>(null);
   const dividerRef = useRef<HTMLDivElement>(null);
   const hasScrolledToUnread = useRef(false);
 
+  // Reply jump navigation state
+  const [highlightedEventId, setHighlightedEventId] = useState<string | null>(null);
+  const [jumpBackEventId, setJumpBackEventId] = useState<string | null>(null);
+
+  const scrollToMessage = useCallback((targetEventId: string, sourceEventId?: string) => {
+    const container = scrollRef.current;
+    if (!container) return;
+    const targetEl = container.querySelector(`[data-event-id="${targetEventId}"]`);
+    if (!targetEl) return;
+
+    // Remember source for jump-back
+    if (sourceEventId) {
+      setJumpBackEventId(sourceEventId);
+    }
+
+    targetEl.scrollIntoView({ behavior: "smooth", block: "center" });
+    setHighlightedEventId(targetEventId);
+    setTimeout(() => setHighlightedEventId(null), 1500);
+  }, []);
+
+  const handleJumpBack = useCallback(() => {
+    if (!jumpBackEventId) return;
+    const container = scrollRef.current;
+    if (!container) return;
+    const el = container.querySelector(`[data-event-id="${jumpBackEventId}"]`);
+    if (!el) return;
+    el.scrollIntoView({ behavior: "smooth", block: "center" });
+    setHighlightedEventId(jumpBackEventId);
+    setTimeout(() => setHighlightedEventId(null), 1500);
+    setJumpBackEventId(null);
+  }, [jumpBackEventId]);
+
   // Find the index of the first unread message (for divider placement)
   const unreadStartIndex = dividerTimestamp !== undefined
-    ? messages.findIndex((m) => m.created_at > dividerTimestamp)
+    ? messages.findIndex((m) => m.event.created_at > dividerTimestamp)
     : -1;
 
   // Scroll to unread divider on first render, or to bottom if no unreads
@@ -109,19 +154,34 @@ export function ChatView() {
           </div>
         ) : (
           <>
-            {messages.map((event, i) => (
-              <div key={event.id}>
+            {messages.map(({ event, isEdited, displayContent }, i) => (
+              <div
+                key={event.id}
+                data-event-id={event.id}
+                className={highlightedEventId === event.id ? "animate-highlight-flash rounded" : ""}
+              >
                 {i === unreadStartIndex && (
                   <UnreadDivider ref={dividerRef} onFaded={handleDividerFaded} />
                 )}
                 <ChatMessage
                   event={event}
+                  displayContent={displayContent}
+                  isEdited={isEdited}
+                  isOwnMessage={event.pubkey === myPubkey}
+                  isAdmin={isAdmin}
+                  canEdit={canEdit(event)}
+                  isMentioned={!!(myPubkey && event.pubkey !== myPubkey && event.tags.some((t) => t[0] === "p" && t[1] === myPubkey))}
                   onReply={
                     isLoggedIn
                       ? (eventId, pubkey) => setReplyTo({ eventId, pubkey })
                       : undefined
                   }
                   onMentionClick={openUserPopover}
+                  onDeleteForMe={deleteMessageForMe}
+                  onDeleteForEveryone={deleteMessageForEveryone}
+                  onModDelete={modDeleteMessage}
+                  onEdit={(ev) => setEditingMessage({ event: ev, displayContent })}
+                  onJumpToMessage={(targetId) => scrollToMessage(targetId, event.id)}
                 />
               </div>
             ))}
@@ -151,8 +211,26 @@ export function ChatView() {
         )}
       </div>
 
-      {replyTo && (
+      {/* Jump back button */}
+      {jumpBackEventId && (
+        <button
+          onClick={handleJumpBack}
+          className="absolute right-4 bottom-20 z-10 flex items-center gap-1.5 rounded-full bg-pulse/90 px-3 py-1.5 text-xs font-medium text-white shadow-lg hover:bg-pulse transition-colors animate-fade-in-up"
+        >
+          <ArrowDown size={12} />
+          Jump back
+        </button>
+      )}
+
+      {replyTo && !editingMessage && (
         <ChatReply pubkey={replyTo.pubkey} onCancel={() => setReplyTo(null)} />
+      )}
+
+      {editingMessage && (
+        <ChatEditBanner
+          originalContent={editingMessage.displayContent}
+          onCancel={() => setEditingMessage(null)}
+        />
       )}
 
       {isReadOnly ? (
@@ -174,6 +252,9 @@ export function ChatView() {
           onFileInputChange={upload.handleFileInputChange}
           isUploading={upload.isUploading}
           hasAttachments={upload.hasAttachments}
+          editingMessage={editingMessage}
+          onEditSubmit={editMessage}
+          onEditCancel={() => setEditingMessage(null)}
         />
       )}
     </div>
