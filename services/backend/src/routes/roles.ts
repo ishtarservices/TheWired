@@ -125,6 +125,16 @@ export const rolesRoutes: FastifyPluginAsync = async (server) => {
 
   // ── Member roles ───────────────────────────────────────────
 
+  /** GET /:spaceId/member-roles — Bulk fetch all members with roles */
+  server.get<{ Params: { spaceId: string } }>(
+    "/:spaceId/member-roles",
+    async (request) => {
+      const { spaceId } = request.params;
+      const members = await roleService.getAllMembersWithRoles(spaceId);
+      return { data: members };
+    },
+  );
+
   /** GET /:spaceId/members/:pubkey/roles — Get member roles */
   server.get<{ Params: { spaceId: string; pubkey: string } }>(
     "/:spaceId/members/:pubkey/roles",
@@ -148,6 +158,15 @@ export const rolesRoutes: FastifyPluginAsync = async (server) => {
       const { spaceId, pubkey } = request.params;
       const perm = await permissionService.check(spaceId, authPubkey, "MANAGE_MEMBERS");
       if (!perm.allowed) return reply.status(403).send({ error: "Missing MANAGE_MEMBERS permission", code: "FORBIDDEN" });
+
+      // Hierarchy: actor's highest role must outrank the role being assigned
+      const actorRoles = await roleService.getMemberRoles(spaceId, authPubkey);
+      const actorBestPos = Math.min(...actorRoles.map((r) => r.position));
+      const allRoles = await roleService.listRoles(spaceId);
+      const assignedRole = allRoles.find((r) => r.id === request.body.roleId);
+      if (assignedRole && assignedRole.position <= actorBestPos) {
+        return reply.status(403).send({ error: "Cannot assign a role equal to or above your own", code: "FORBIDDEN" });
+      }
 
       await roleService.assignRole(spaceId, pubkey, request.body.roleId);
       return { data: { success: true } };
@@ -203,6 +222,19 @@ export const rolesRoutes: FastifyPluginAsync = async (server) => {
       const { spaceId } = request.params;
       const permissions = await roleService.getEffectivePermissions(spaceId, pubkey);
       return { data: permissions };
+    },
+  );
+
+  /** GET /:spaceId/permissions/me/channels — Get permissions + channel overrides (batch) */
+  server.get<{ Params: { spaceId: string } }>(
+    "/:spaceId/permissions/me/channels",
+    async (request, reply) => {
+      const pubkey = (request as any).pubkey as string | undefined;
+      if (!pubkey) return reply.status(401).send({ error: "Authentication required", code: "UNAUTHORIZED" });
+
+      const { spaceId } = request.params;
+      const result = await roleService.getEffectiveChannelPermissions(spaceId, pubkey);
+      return { data: result };
     },
   );
 };

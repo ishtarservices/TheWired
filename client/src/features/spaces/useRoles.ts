@@ -1,4 +1,4 @@
-import { useEffect, useCallback } from "react";
+import { useEffect, useCallback, useRef } from "react";
 import { useAppSelector, useAppDispatch } from "../../store/hooks";
 import {
   setRoles,
@@ -17,26 +17,46 @@ export function useRoles(spaceId: string | null) {
   const isLoading = useAppSelector(
     (s) => (spaceId ? s.spaceConfig.loading[spaceId] : false) ?? false,
   );
+  const fetchedRef = useRef<string | null>(null);
 
   useEffect(() => {
     if (!spaceId) return;
-    if (roles.length > 0) return;
+    // Already fetched for this space and got results — skip
+    if (fetchedRef.current === spaceId && roles.length > 0) return;
 
     let cancelled = false;
+    let retryTimer: ReturnType<typeof setTimeout>;
 
-    (async () => {
+    async function fetchRoles(attempt: number) {
       try {
-        const fetched = await rolesApi.fetchRoles(spaceId);
-        if (!cancelled) {
-          dispatch(setRoles({ spaceId, roles: fetched as SpaceRole[] }));
+        const fetched = await rolesApi.fetchRoles(spaceId!);
+        if (cancelled) return;
+        fetchedRef.current = spaceId;
+        dispatch(setRoles({ spaceId: spaceId!, roles: fetched as SpaceRole[] }));
+
+        // If backend returned empty (roles not seeded yet), retry up to 3 times
+        if (fetched.length === 0 && attempt < 3) {
+          retryTimer = setTimeout(() => {
+            if (!cancelled) fetchRoles(attempt + 1);
+          }, 1000 * attempt); // 1s, 2s, 3s backoff
         }
       } catch {
-        // Backend unavailable
+        // Backend unavailable — retry once after delay
+        if (!cancelled && attempt < 2) {
+          retryTimer = setTimeout(() => {
+            if (!cancelled) fetchRoles(attempt + 1);
+          }, 2000);
+        }
       }
-    })();
+    }
 
-    return () => { cancelled = true; };
-  }, [spaceId, dispatch, roles.length]);
+    fetchRoles(1);
+
+    return () => {
+      cancelled = true;
+      clearTimeout(retryTimer);
+    };
+  }, [spaceId, dispatch]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const handleCreateRole = useCallback(
     async (params: { name: string; color?: string; permissions: string[]; isAdmin?: boolean }) => {

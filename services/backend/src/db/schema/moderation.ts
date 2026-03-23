@@ -34,3 +34,14 @@ export const reputation = appSchema.table("reputation", {
   score: integer("score").notNull().default(100),
   lastUpdated: timestamp("last_updated").defaultNow(),
 });
+
+/** Audit log for moderation and role management actions */
+export const moderationAuditLog = appSchema.table("moderation_audit_log", {
+  id: text("id").primaryKey(),
+  spaceId: text("space_id").notNull().references(() => spaces.id, { onDelete: "cascade" }),
+  actorPubkey: text("actor_pubkey").notNull(),
+  action: text("action").notNull(), // ban, unban, mute, unmute, kick, role_assign, role_remove, override_change
+  targetPubkey: text("target_pubkey"),
+  details: text("details"), // JSON blob with extra context (reason, roleId, channelId, etc.)
+  createdAt: timestamp("created_at").defaultNow(),
+});

@@ -13,7 +13,8 @@ export type ContentSegment =
   | { type: "audio"; url: string }
   | { type: "file"; url: string; filename: string }
   | { type: "embed"; embed: EmbedMatch }
-  | { type: "hashtag"; value: string };
+  | { type: "hashtag"; value: string }
+  | { type: "custom-emoji"; shortcode: string; url: string };
 
 const IMAGE_EXTS = /\.(jpe?g|png|gif|webp|svg|avif|bmp)(\?.*)?$/i;
 const VIDEO_EXTS = /\.(mp4|webm|mov|m3u8|mkv|avi)(\?.*)?$/i;
@@ -35,8 +36,54 @@ function isAddressPointer(p: ProfilePointer | EventPointer | AddressPointer): p 
   return "identifier" in p && "pubkey" in p && "kind" in p;
 }
 
+/** Build a shortcode→URL map from NIP-30 emoji tags */
+function buildEmojiMap(emojiTags?: string[][]): Map<string, string> | null {
+  if (!emojiTags || emojiTags.length === 0) return null;
+  const map = new Map<string, string>();
+  for (const tag of emojiTags) {
+    if (tag[0] === "emoji" && tag[1] && tag[2]) {
+      map.set(tag[1], tag[2]);
+    }
+  }
+  return map.size > 0 ? map : null;
+}
+
+const SHORTCODE_RE = /:([a-zA-Z0-9_]+):/g;
+
+/** Replace :shortcode: patterns in text segments with custom-emoji segments */
+function expandCustomEmojis(segments: ContentSegment[], emojiMap: Map<string, string>): ContentSegment[] {
+  const result: ContentSegment[] = [];
+  for (const seg of segments) {
+    if (seg.type !== "text") {
+      result.push(seg);
+      continue;
+    }
+    let lastIndex = 0;
+    let match: RegExpExecArray | null;
+    SHORTCODE_RE.lastIndex = 0;
+    while ((match = SHORTCODE_RE.exec(seg.text)) !== null) {
+      const shortcode = match[1];
+      const url = emojiMap.get(shortcode);
+      if (!url) continue;
+      // Push preceding text
+      if (match.index > lastIndex) {
+        result.push({ type: "text", text: seg.text.slice(lastIndex, match.index) });
+      }
+      result.push({ type: "custom-emoji", shortcode, url });
+      lastIndex = match.index + match[0].length;
+    }
+    // Push remaining text
+    if (lastIndex < seg.text.length) {
+      result.push({ type: "text", text: seg.text.slice(lastIndex) });
+    } else if (lastIndex === 0) {
+      result.push(seg);
+    }
+  }
+  return result;
+}
+
 /** Parse nostr content into typed segments using NIP-27 */
-export function parseContent(content: string): ContentSegment[] {
+export function parseContent(content: string, emojiTags?: string[][]): ContentSegment[] {
   const segments: ContentSegment[] = [];
 
   for (const token of parse(content)) {
@@ -117,6 +164,12 @@ export function parseContent(content: string): ContentSegment[] {
           segments.push({ type: "text", text: String(token.url) });
         }
     }
+  }
+
+  // Post-process: replace :shortcode: patterns with custom-emoji segments (NIP-30)
+  const emojiMap = buildEmojiMap(emojiTags);
+  if (emojiMap) {
+    return expandCustomEmojis(segments, emojiMap);
   }
 
   return segments;

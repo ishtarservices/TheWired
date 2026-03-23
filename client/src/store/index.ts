@@ -13,6 +13,8 @@ import { friendRequestSlice } from "./slices/friendRequestSlice";
 import { voiceSlice } from "./slices/voiceSlice";
 import { callSlice } from "./slices/callSlice";
 import { listenTogetherSlice } from "./slices/listenTogetherSlice";
+import { emojiSlice } from "./slices/emojiSlice";
+import { gifSlice } from "./slices/gifSlice";
 import { listenTogetherMiddleware } from "@/features/listenTogether/listenTogetherMiddleware";
 
 export const store = configureStore({
@@ -31,6 +33,8 @@ export const store = configureStore({
     voice: voiceSlice.reducer,
     call: callSlice.reducer,
     listenTogether: listenTogetherSlice.reducer,
+    emoji: emojiSlice.reducer,
+    gif: gifSlice.reducer,
   },
   middleware: (getDefaultMiddleware) =>
     getDefaultMiddleware().concat(listenTogetherMiddleware),

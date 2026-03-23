@@ -249,6 +249,7 @@ const PLATFORM_LABELS: Record<EmbedPlatform, string> = {
   spotify: "Spotify",
   tiktok: "TikTok",
   instagram: "Instagram",
+  tenor: "Tenor GIF",
 };
 
 const PLATFORM_ICONS: Record<EmbedPlatform, { bg: string; accent: string }> = {
@@ -257,6 +258,7 @@ const PLATFORM_ICONS: Record<EmbedPlatform, { bg: string; accent: string }> = {
   spotify: { bg: "bg-green-500/15", accent: "text-green-400" },
   tiktok: { bg: "bg-pink-500/15", accent: "text-pink-400" },
   instagram: { bg: "bg-purple-500/15", accent: "text-purple-400" },
+  tenor: { bg: "bg-blue-400/15", accent: "text-blue-400" },
 };
 
 const YOUTUBE_THUMB_URL = (id: string) =>

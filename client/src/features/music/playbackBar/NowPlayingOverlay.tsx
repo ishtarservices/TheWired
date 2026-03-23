@@ -20,11 +20,11 @@ import { useAudioPlayer } from "../useAudioPlayer";
 import { useAppDispatch, useAppSelector } from "@/store/hooks";
 import {
   toggleNowPlaying,
-  toggleQueuePanel,
   setCurrentTrack,
   removeFromQueue,
   reorderQueue,
 } from "@/store/slices/musicSlice";
+import { openRightPanelToTab } from "@/store/slices/uiSlice";
 import { useLibrary } from "../useLibrary";
 import { getTrackImage } from "../trackImage";
 import { useWaveform } from "../panel/useWaveform";
@@ -319,7 +319,7 @@ export function NowPlayingOverlay() {
                   <button
                     onClick={() => {
                       dispatch(toggleNowPlaying());
-                      dispatch(toggleQueuePanel());
+                      dispatch(openRightPanelToTab({ context: "music", tab: "queue" }));
                     }}
                     className="text-xs text-pulse hover:text-pulse-soft transition-colors"
                   >

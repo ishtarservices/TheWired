@@ -32,7 +32,7 @@ export function ChannelList() {
   const navigate = useNavigate();
   const location = useLocation();
   const currentPubkey = useAppSelector((s) => s.identity.pubkey);
-  const { can } = usePermissions(activeSpace?.id ?? null);
+  const { can, channelOverrides } = usePermissions(activeSpace?.id ?? null);
   const [createModalOpen, setCreateModalOpen] = useState(false);
   const [ctxMenu, setCtxMenu] = useState<{ channelId: string; x: number; y: number } | null>(null);
 
@@ -89,10 +89,16 @@ export function ChannelList() {
 
   const sortedChannels = [...channels].sort((a, b) => a.position - b.position);
 
-  // Filter channels: read-write spaces show all, read-only hides chat
-  const visibleChannels = sortedChannels.filter(
-    (ch) => ch.type !== "chat" || activeSpace.mode === "read-write",
-  );
+  // Filter channels: read-only hides chat, VIEW_CHANNEL hides channels with explicit deny overrides.
+  // For backwards compat: if VIEW_CHANNEL isn't in the user's permissions at all (old spaces),
+  // don't filter — only filter when there's an explicit deny override.
+  const visibleChannels = sortedChannels.filter((ch) => {
+    if (ch.type === "chat" && activeSpace.mode === "read") return false;
+    // Only hide if there's an explicit VIEW_CHANNEL deny override for this channel
+    const ov = channelOverrides[ch.id];
+    if (ov?.deny.includes("VIEW_CHANNEL") && !isAdmin) return false;
+    return true;
+  });
 
   return (
     <div className="p-3 space-y-1">

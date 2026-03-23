@@ -44,3 +44,18 @@ export async function unmuteMember(spaceId: string, muteId: string): Promise<voi
 export async function kickMember(spaceId: string, pubkey: string): Promise<void> {
   await api(`/spaces/${spaceId}/moderation/kick/${pubkey}`, { method: "POST" });
 }
+
+export interface AuditLogEntry {
+  id: string;
+  spaceId: string;
+  actorPubkey: string;
+  action: string;
+  targetPubkey: string | null;
+  details: string | null;
+  createdAt: string;
+}
+
+export async function fetchAuditLog(spaceId: string): Promise<AuditLogEntry[]> {
+  const res = await api<AuditLogEntry[]>(`/spaces/${spaceId}/moderation/audit-log`);
+  return res.data;
+}

@@ -1,4 +1,4 @@
-export type EmbedPlatform = "youtube" | "twitter" | "spotify" | "tiktok" | "instagram";
+export type EmbedPlatform = "youtube" | "twitter" | "spotify" | "tiktok" | "instagram" | "tenor";
 
 export interface EmbedMatch {
   platform: EmbedPlatform;
@@ -67,6 +67,17 @@ const patterns: EmbedPattern[] = [
     pattern: /instagram\.com\/(?:p|reel)\/([a-zA-Z0-9_-]+)/,
     extract: (match, url) => ({
       platform: "instagram",
+      id: match[1],
+      originalUrl: url,
+      embedUrl: null,
+    }),
+  },
+  // Tenor / Klipy GIF share links — link card only (GIF rendered inline)
+  {
+    platform: "tenor",
+    pattern: /tenor\.com\/view\/[\w-]+-(\d+)/,
+    extract: (match, url) => ({
+      platform: "tenor",
       id: match[1],
       originalUrl: url,
       embedUrl: null,

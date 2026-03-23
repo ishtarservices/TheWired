@@ -44,6 +44,7 @@ export const spacesRoutes: FastifyPluginAsync = async (server) => {
       category?: string;
       language?: string;
       mode?: "read" | "read-write";
+      channels?: Array<{ type: string; label: string }>;
     };
 
     if (!body.id || !body.name || !body.hostRelay) {
@@ -85,14 +86,17 @@ export const spacesRoutes: FastifyPluginAsync = async (server) => {
       .values({ spaceId: body.id, pubkey })
       .onConflictDoNothing();
 
-    // Step 3: Seed default roles (idempotent — skips if roles already exist)
-    const existingRoles = await roleService.listRoles(body.id);
-    if (existingRoles.length === 0) {
-      await roleService.seedDefaultRoles(body.id, pubkey);
-    }
+    // Step 3: Seed default roles (idempotent + serialized — safe against concurrent calls)
+    await roleService.seedDefaultRoles(body.id, pubkey);
 
-    // Step 4: Seed default channels (idempotent — listChannels auto-seeds)
-    await channelService.listChannels(body.id);
+    // Step 4: Seed channels
+    if (body.channels) {
+      // User specified which channels to create (can be empty array for no channels)
+      await channelService.seedChannels(body.id, body.channels);
+    } else {
+      // No channels parameter — use legacy defaults (backward compat)
+      await channelService.seedDefaultChannels(body.id);
+    }
 
     return { data: { id: body.id } };
   });

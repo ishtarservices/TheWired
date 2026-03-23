@@ -19,6 +19,7 @@ interface PersistedDMState {
   messages: Record<string, DMMessage[]>;
   contacts: DMContact[];
   processedWrapIds: string[];
+  lastReadTimestamps?: Record<string, number>;
 }
 
 /** Build a trimmed snapshot of DM state suitable for IndexedDB persistence */
@@ -38,6 +39,7 @@ function buildPersistedState(): PersistedDMState {
     messages: trimmedMessages,
     contacts: state.contacts,
     processedWrapIds: state.processedWrapIds.slice(-MAX_PERSISTED_WRAP_IDS),
+    lastReadTimestamps: state.lastReadTimestamps,
   };
 }
 
@@ -51,6 +53,7 @@ export async function loadDMState(): Promise<void> {
       messages: persisted.messages,
       contacts: persisted.contacts,
       processedWrapIds: persisted.processedWrapIds,
+      lastReadTimestamps: persisted.lastReadTimestamps,
     }),
   );
 }

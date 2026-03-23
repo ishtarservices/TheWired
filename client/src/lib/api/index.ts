@@ -14,3 +14,4 @@ export { fetchChannels, createChannel, updateChannel, deleteChannel, reorderChan
 export { fetchRoles, createRole, updateRole, deleteRole, reorderRoles, fetchMemberRoles, assignRole, removeRoleFromMember, fetchChannelOverrides, setChannelOverrides, fetchMyPermissions } from "./roles";
 export { fetchBans, banMember, unbanMember, fetchMutes, muteMember, unmuteMember, kickMember } from "./moderation";
 export { fetchVoiceToken, voiceKick, voiceMute, fetchVoiceRooms, fetchDMVoiceToken } from "./voice";
+export { getTrendingGifs, searchGifs, getGifAutocomplete, registerGifShare } from "./gif";

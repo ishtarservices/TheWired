@@ -8,8 +8,9 @@ import { selectChannelPresence } from "./voiceSelectors";
 import { VoiceControls } from "./VoiceControls";
 import { VideoGrid } from "./VideoGrid";
 import { ScreenShareView } from "./ScreenShareView";
-import { Headphones, Video, Users, Wifi, WifiOff } from "lucide-react";
+import { Headphones, Video, Users, Wifi, WifiOff, Lock } from "lucide-react";
 import { parseChannelIdPart } from "@/features/spaces/spaceSelectors";
+import { usePermissions } from "@/features/spaces/usePermissions";
 import { usePlaybackBarSpacing } from "@/hooks/usePlaybackBarSpacing";
 import { NowPlayingStrip } from "@/features/listenTogether/NowPlayingStrip";
 import { NowPlayingPanel } from "@/features/listenTogether/NowPlayingPanel";
@@ -38,6 +39,8 @@ export function VoiceChannel() {
   const channelIdPart = parseChannelIdPart(activeChannelId);
   const channel = channels.find((c) => c.id === channelIdPart);
   const isVideoChannel = channel?.type === "video";
+  const { can } = usePermissions(activeSpaceId);
+  const canConnect = can("CONNECT", channelIdPart);
 
   const {
     isConnecting,
@@ -91,13 +94,20 @@ export function VoiceChannel() {
           </div>
         )}
 
-        <button
-          onClick={() => join(activeSpaceId, channelIdPart)}
-          disabled={isConnecting}
-          className="rounded-xl bg-green-600/15 px-8 py-3 text-sm font-semibold text-green-600 hover:bg-green-600/25 transition-colors disabled:opacity-50"
-        >
-          {isConnecting ? "Connecting..." : `Join ${channelTypeLabel}`}
-        </button>
+        {canConnect ? (
+          <button
+            onClick={() => join(activeSpaceId, channelIdPart)}
+            disabled={isConnecting}
+            className="rounded-xl bg-green-600/15 px-8 py-3 text-sm font-semibold text-green-600 hover:bg-green-600/25 transition-colors disabled:opacity-50"
+          >
+            {isConnecting ? "Connecting..." : `Join ${channelTypeLabel}`}
+          </button>
+        ) : (
+          <div className="flex items-center gap-2 rounded-xl bg-surface-hover px-6 py-3 text-sm text-muted">
+            <Lock size={14} />
+            <span>You don't have permission to join this channel</span>
+          </div>
+        )}
 
         {connectedRoom && !isConnectedToThis && (
           <p className="text-xs text-muted">
@@ -163,7 +173,12 @@ export function VoiceChannel() {
       </div>
 
       {/* Controls bar */}
-      <VoiceControls showVideo={isVideoChannel} />
+      <VoiceControls
+        showVideo={isVideoChannel}
+        canSpeak={can("SPEAK", channelIdPart)}
+        canVideo={can("VIDEO", channelIdPart)}
+        canScreenShare={can("SCREEN_SHARE", channelIdPart)}
+      />
 
       {/* Listen Together: music picker drawer */}
       {ltPickerOpen && <ListenTogetherPicker />}

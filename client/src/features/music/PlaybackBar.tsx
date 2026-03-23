@@ -13,7 +13,7 @@ import {
 } from "lucide-react";
 import { useAudioPlayer } from "./useAudioPlayer";
 import { useAppDispatch, useAppSelector } from "@/store/hooks";
-import { toggleQueuePanel } from "@/store/slices/musicSlice";
+import { openRightPanelToTab, toggleRightPanel } from "@/store/slices/uiSlice";
 import { useLibrary } from "./useLibrary";
 import { getTrackImage } from "./trackImage";
 
@@ -40,7 +40,16 @@ export function PlaybackBar() {
   } = useAudioPlayer();
 
   const albums = useAppSelector((s) => s.music.albums);
-  const queueVisible = useAppSelector((s) => s.music.queueVisible);
+  const queueVisible = useAppSelector((s) => {
+    const rp = s.ui.rightPanel;
+    const musicOpen =
+      rp.openByContext.music && rp.activeTabByContext.music === "queue";
+    // Only highlight if the panel is actually showing the music context
+    // (either via override or because we're naturally in music mode)
+    const showingMusic =
+      rp.contextOverride === "music" || s.ui.sidebarMode === "music";
+    return musicOpen && showingMusic;
+  });
   const { saveTrack, unsaveTrack, isTrackSaved } = useLibrary();
   const isSaved = currentTrack ? isTrackSaved(currentTrack.addressableId) : false;
 
@@ -184,7 +193,11 @@ export function PlaybackBar() {
             [&::-webkit-slider-thumb]:h-3 [&::-webkit-slider-thumb]:w-3 [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-heading"
         />
         <button
-          onClick={() => dispatch(toggleQueuePanel())}
+          onClick={() =>
+            queueVisible
+              ? dispatch(toggleRightPanel("music"))
+              : dispatch(openRightPanelToTab({ context: "music", tab: "queue" }))
+          }
           className={`rounded p-1 transition-colors ${
             queueVisible
               ? "text-neon"

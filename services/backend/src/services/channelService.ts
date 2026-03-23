@@ -19,33 +19,25 @@ interface UpdateChannelParams {
   position?: number;
   adminOnly?: boolean;
   slowModeSeconds?: number;
+  isDefault?: boolean;
 }
 
-const DEFAULT_CHANNELS: Array<{ type: string; label: string; position: number }> = [
-  { type: "chat", label: "#chat", position: 0 },
-  { type: "notes", label: "#notes", position: 1 },
-  { type: "media", label: "#media", position: 2 },
-  { type: "articles", label: "#articles", position: 3 },
-  { type: "music", label: "#music", position: 4 },
+const DEFAULT_CHANNELS: Array<{ type: string; label: string }> = [
+  { type: "chat", label: "#chat" },
+  { type: "notes", label: "#notes" },
+  { type: "media", label: "#media" },
+  { type: "articles", label: "#articles" },
+  { type: "music", label: "#music" },
 ];
 
 export const channelService = {
-  /** List channels for a space, auto-seeding defaults if empty */
+  /** List channels for a space */
   async listChannels(spaceId: string) {
-    let channels = await db
+    const channels = await db
       .select()
       .from(spaceChannels)
       .where(eq(spaceChannels.spaceId, spaceId))
       .orderBy(asc(spaceChannels.position));
-
-    if (channels.length === 0) {
-      await this.seedDefaultChannels(spaceId);
-      channels = await db
-        .select()
-        .from(spaceChannels)
-        .where(eq(spaceChannels.spaceId, spaceId))
-        .orderBy(asc(spaceChannels.position));
-    }
 
     return channels;
   },
@@ -71,6 +63,9 @@ export const channelService = {
       .where(eq(spaceChannels.spaceId, spaceId));
     const nextPosition = channels.length;
 
+    // If this is the first channel, make it the default
+    const isFirst = channels.length === 0;
+
     const id = nanoid(12);
     const [channel] = await db
       .insert(spaceChannels)
@@ -80,7 +75,7 @@ export const channelService = {
         type: params.type,
         label: params.label,
         position: nextPosition,
-        isDefault: false,
+        isDefault: isFirst,
         adminOnly: params.adminOnly ?? false,
         slowModeSeconds: params.slowModeSeconds ?? 0,
         temporary: params.temporary ?? false,
@@ -92,6 +87,17 @@ export const channelService = {
 
   /** Update a channel */
   async updateChannel(channelId: string, updates: UpdateChannelParams) {
+    // If setting isDefault, clear it from all other channels in the space first
+    if (updates.isDefault) {
+      const [existing] = await db.select().from(spaceChannels).where(eq(spaceChannels.id, channelId)).limit(1);
+      if (existing) {
+        await db
+          .update(spaceChannels)
+          .set({ isDefault: false })
+          .where(eq(spaceChannels.spaceId, existing.spaceId));
+      }
+    }
+
     const [channel] = await db
       .update(spaceChannels)
       .set(updates)
@@ -100,7 +106,7 @@ export const channelService = {
     return channel;
   },
 
-  /** Delete a channel (refuses defaults) */
+  /** Delete a channel. When deleting the default, promotes the next channel. */
   async deleteChannel(channelId: string) {
     const [channel] = await db
       .select()
@@ -109,9 +115,25 @@ export const channelService = {
       .limit(1);
 
     if (!channel) throw new Error("Channel not found");
-    if (channel.isDefault) throw new Error("Cannot delete a default channel");
 
     await db.delete(spaceChannels).where(eq(spaceChannels.id, channelId));
+
+    // If this was the default channel, promote the next one by position
+    if (channel.isDefault) {
+      const remaining = await db
+        .select()
+        .from(spaceChannels)
+        .where(eq(spaceChannels.spaceId, channel.spaceId))
+        .orderBy(asc(spaceChannels.position))
+        .limit(1);
+
+      if (remaining.length > 0) {
+        await db
+          .update(spaceChannels)
+          .set({ isDefault: true })
+          .where(eq(spaceChannels.id, remaining[0].id));
+      }
+    }
   },
 
   /** Reorder channels */
@@ -124,9 +146,10 @@ export const channelService = {
     }
   },
 
-  /** Seed default channels for a new space (race-safe via unique constraint) */
-  async seedDefaultChannels(spaceId: string) {
-    for (const ch of DEFAULT_CHANNELS) {
+  /** Seed specific channels for a new space */
+  async seedChannels(spaceId: string, types: Array<{ type: string; label: string }>) {
+    for (let i = 0; i < types.length; i++) {
+      const ch = types[i];
       await db
         .insert(spaceChannels)
         .values({
@@ -134,12 +157,17 @@ export const channelService = {
           spaceId,
           type: ch.type,
           label: ch.label,
-          position: ch.position,
-          isDefault: true,
+          position: i,
+          isDefault: i === 0, // First channel is the home channel
           adminOnly: false,
           slowModeSeconds: 0,
         })
         .onConflictDoNothing({ target: [spaceChannels.spaceId, spaceChannels.type, spaceChannels.label] });
     }
+  },
+
+  /** Seed all default channels (legacy fallback) */
+  async seedDefaultChannels(spaceId: string) {
+    await this.seedChannels(spaceId, DEFAULT_CHANNELS);
   },
 };

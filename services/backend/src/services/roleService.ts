@@ -2,6 +2,7 @@ import { nanoid } from "../lib/id.js";
 import { db } from "../db/connection.js";
 import { spaceRoles, rolePermissions, channelOverrides } from "../db/schema/permissions.js";
 import { memberRoles, spaceMembers } from "../db/schema/members.js";
+import { spaces } from "../db/schema/spaces.js";
 import { eq, and, asc } from "drizzle-orm";
 
 interface CreateRoleParams {
@@ -17,7 +18,17 @@ interface UpdateRoleParams {
   permissions?: string[];
 }
 
-const DEFAULT_MEMBER_PERMISSIONS = ["SEND_MESSAGES", "CREATE_INVITES"];
+const DEFAULT_MEMBER_PERMISSIONS = [
+  "SEND_MESSAGES", "CREATE_INVITES", "EMBED_LINKS", "ATTACH_FILES",
+  "ADD_REACTIONS", "CONNECT", "SPEAK", "VIDEO", "SCREEN_SHARE",
+  "VIEW_CHANNEL", "READ_MESSAGE_HISTORY",
+];
+
+/**
+ * In-memory lock to serialize concurrent seedDefaultRoles calls for the same space.
+ * Prevents the TOCTOU race where multiple requests all see 0 roles and all insert.
+ */
+const seedLocks = new Map<string, Promise<void>>();
 
 export const roleService = {
   /** List roles for a space, auto-seeding defaults if empty */
@@ -29,8 +40,23 @@ export const roleService = {
       .orderBy(asc(spaceRoles.position));
 
     if (roles.length === 0) {
-      // Don't auto-seed here — roles are seeded explicitly when space is created
-      return [];
+      // Auto-seed roles if the space exists but has no roles yet
+      // (handles cases where registerSpace() failed or old spaces)
+      try {
+        const [space] = await db.select().from(spaces).where(eq(spaces.id, spaceId)).limit(1);
+        if (space?.creatorPubkey) {
+          await this.seedDefaultRoles(spaceId, space.creatorPubkey);
+          // Re-query after seeding
+          roles = await db
+            .select()
+            .from(spaceRoles)
+            .where(eq(spaceRoles.spaceId, spaceId))
+            .orderBy(asc(spaceRoles.position));
+        }
+      } catch {
+        // Space doesn't exist in DB — can't seed
+      }
+      if (roles.length === 0) return [];
     }
 
     // Attach permissions to each role
@@ -150,8 +176,46 @@ export const roleService = {
       );
   },
 
-  /** Seed default roles for a new space */
+  /** Seed default roles for a new space (idempotent + serialized per space).
+   *  Uses an in-memory lock to prevent concurrent calls from creating duplicates. */
   async seedDefaultRoles(spaceId: string, creatorPubkey: string) {
+    // Serialize: if another call is already seeding this space, wait for it
+    const inflight = seedLocks.get(spaceId);
+    if (inflight) {
+      await inflight;
+      // After waiting, ensure creator has admin role (the first call may have used a different pubkey)
+      const existing = await db.select().from(spaceRoles).where(eq(spaceRoles.spaceId, spaceId));
+      const adminRole = existing.find((r) => r.isAdmin);
+      if (adminRole) {
+        await db.insert(spaceMembers).values({ spaceId, pubkey: creatorPubkey }).onConflictDoNothing();
+        await db.insert(memberRoles).values({ spaceId, pubkey: creatorPubkey, roleId: adminRole.id }).onConflictDoNothing();
+      }
+      return;
+    }
+
+    const promise = this._doSeedDefaultRoles(spaceId, creatorPubkey);
+    seedLocks.set(spaceId, promise);
+    try {
+      await promise;
+    } finally {
+      seedLocks.delete(spaceId);
+    }
+  },
+
+  /** Internal: actual seeding logic (called under lock) */
+  async _doSeedDefaultRoles(spaceId: string, creatorPubkey: string) {
+    // Guard: skip if roles already exist
+    const existing = await db.select().from(spaceRoles).where(eq(spaceRoles.spaceId, spaceId));
+    if (existing.length > 0) {
+      // Ensure creator has admin role assigned even if roles already exist
+      const adminRole = existing.find((r) => r.isAdmin);
+      if (adminRole) {
+        await db.insert(spaceMembers).values({ spaceId, pubkey: creatorPubkey }).onConflictDoNothing();
+        await db.insert(memberRoles).values({ spaceId, pubkey: creatorPubkey, roleId: adminRole.id }).onConflictDoNothing();
+      }
+      return;
+    }
+
     // Admin role
     const adminId = nanoid(12);
     await db.insert(spaceRoles).values({
@@ -162,7 +226,6 @@ export const roleService = {
       isDefault: false,
       isAdmin: true,
     });
-    // Admin gets all permissions (isAdmin flag grants everything)
 
     // Member role
     const memberId = nanoid(12);
@@ -248,7 +311,28 @@ export const roleService = {
       .from(memberRoles)
       .where(and(eq(memberRoles.spaceId, spaceId), eq(memberRoles.pubkey, pubkey)));
 
-    if (roles.length === 0) return [];
+    if (roles.length === 0) {
+      // Auto-seed roles if the space exists and this user is the creator
+      try {
+        const [space] = await db.select().from(spaces).where(eq(spaces.id, spaceId)).limit(1);
+        if (space?.creatorPubkey === pubkey) {
+          await db.insert(spaceMembers).values({ spaceId, pubkey }).onConflictDoNothing();
+          const existing = await db.select().from(spaceRoles).where(eq(spaceRoles.spaceId, spaceId));
+          if (existing.length === 0) {
+            await this.seedDefaultRoles(spaceId, pubkey);
+          } else {
+            const adminRole = existing.find((r) => r.isAdmin);
+            if (adminRole) {
+              await db.insert(memberRoles).values({ spaceId, pubkey, roleId: adminRole.id }).onConflictDoNothing();
+            }
+          }
+          return this.getEffectivePermissions(spaceId, pubkey);
+        }
+      } catch {
+        // Auto-recovery failed — fall through
+      }
+      return [];
+    }
 
     const allPerms = new Set<string>();
 
@@ -257,9 +341,12 @@ export const roleService = {
       if (role?.isAdmin) {
         // Admin gets all permissions
         return [
-          "SEND_MESSAGES", "MANAGE_MESSAGES", "MANAGE_MEMBERS", "MANAGE_ROLES",
-          "MANAGE_CHANNELS", "MANAGE_SPACE", "VIEW_ANALYTICS", "PIN_MESSAGES",
-          "CREATE_INVITES", "MANAGE_INVITES", "BAN_MEMBERS", "MUTE_MEMBERS",
+          "SEND_MESSAGES", "MANAGE_MESSAGES", "PIN_MESSAGES", "EMBED_LINKS",
+          "ATTACH_FILES", "ADD_REACTIONS", "MENTION_EVERYONE",
+          "CONNECT", "SPEAK", "VIDEO", "SCREEN_SHARE",
+          "VIEW_CHANNEL", "READ_MESSAGE_HISTORY", "MANAGE_CHANNELS",
+          "MANAGE_MEMBERS", "MANAGE_ROLES", "CREATE_INVITES", "MANAGE_INVITES",
+          "BAN_MEMBERS", "MUTE_MEMBERS", "MANAGE_SPACE", "VIEW_ANALYTICS",
         ];
       }
 
@@ -275,6 +362,64 @@ export const roleService = {
     return [...allPerms];
   },
 
+  /** Get effective permissions for a user in a space, including per-channel overrides.
+   *  Returns space-level permissions + aggregated channel overrides (deny-wins model). */
+  async getEffectiveChannelPermissions(
+    spaceId: string,
+    pubkey: string,
+  ): Promise<{
+    spacePermissions: string[];
+    channelOverrides: Record<string, { allow: string[]; deny: string[] }>;
+  }> {
+    const spacePerms = await this.getEffectivePermissions(spaceId, pubkey);
+
+    // Get member's role IDs
+    const roles = await db
+      .select({ roleId: memberRoles.roleId })
+      .from(memberRoles)
+      .where(and(eq(memberRoles.spaceId, spaceId), eq(memberRoles.pubkey, pubkey)));
+
+    // Check if user is admin — admins have no overrides (all perms everywhere)
+    for (const { roleId } of roles) {
+      const [role] = await db.select().from(spaceRoles).where(eq(spaceRoles.id, roleId)).limit(1);
+      if (role?.isAdmin) {
+        return { spacePermissions: spacePerms, channelOverrides: {} };
+      }
+    }
+
+    // Aggregate channel overrides across all roles (deny-wins model)
+    const aggregated: Record<string, { allow: Set<string>; deny: Set<string> }> = {};
+
+    for (const { roleId } of roles) {
+      const rows = await db
+        .select()
+        .from(channelOverrides)
+        .where(eq(channelOverrides.roleId, roleId));
+
+      for (const row of rows) {
+        if (!aggregated[row.channelId]) {
+          aggregated[row.channelId] = { allow: new Set(), deny: new Set() };
+        }
+        if (row.effect === "deny") {
+          aggregated[row.channelId].deny.add(row.permission);
+        } else if (row.effect === "allow") {
+          aggregated[row.channelId].allow.add(row.permission);
+        }
+      }
+    }
+
+    // Apply deny-wins: remove from allow anything that's also in deny
+    const result: Record<string, { allow: string[]; deny: string[] }> = {};
+    for (const [channelId, { allow, deny }] of Object.entries(aggregated)) {
+      for (const p of deny) {
+        allow.delete(p); // deny wins over allow
+      }
+      result[channelId] = { allow: [...allow], deny: [...deny] };
+    }
+
+    return { spacePermissions: spacePerms, channelOverrides: result };
+  },
+
   /** Get member roles */
   async getMemberRoles(spaceId: string, pubkey: string) {
     const rows = await db
@@ -288,5 +433,43 @@ export const roleService = {
       if (role) roles.push(role);
     }
     return roles;
+  },
+
+  /** Get all members with their assigned roles (bulk) */
+  async getAllMembersWithRoles(spaceId: string) {
+    const members = await db
+      .select()
+      .from(spaceMembers)
+      .where(eq(spaceMembers.spaceId, spaceId));
+
+    const allAssignments = await db
+      .select()
+      .from(memberRoles)
+      .where(eq(memberRoles.spaceId, spaceId));
+
+    const roles = await db
+      .select()
+      .from(spaceRoles)
+      .where(eq(spaceRoles.spaceId, spaceId))
+      .orderBy(asc(spaceRoles.position));
+
+    const roleMap = new Map(roles.map((r) => [r.id, r]));
+
+    // Build pubkey → roles mapping
+    const memberRoleMap = new Map<string, typeof roles>();
+    for (const assignment of allAssignments) {
+      const role = roleMap.get(assignment.roleId);
+      if (role) {
+        const existing = memberRoleMap.get(assignment.pubkey) ?? [];
+        existing.push(role);
+        memberRoleMap.set(assignment.pubkey, existing);
+      }
+    }
+
+    return members.map((m) => ({
+      pubkey: m.pubkey,
+      roles: memberRoleMap.get(m.pubkey) ?? [],
+      joinedAt: m.joinedAt ? new Date(m.joinedAt).getTime() : 0,
+    }));
   },
 };

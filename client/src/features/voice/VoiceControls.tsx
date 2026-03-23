@@ -17,13 +17,23 @@ import { useListenTogether } from "@/features/listenTogether/useListenTogether";
 interface VoiceControlsProps {
   showVideo?: boolean;
   onSettingsClick?: () => void;
+  /** Permission flags — when false, the button is hidden */
+  canSpeak?: boolean;
+  canVideo?: boolean;
+  canScreenShare?: boolean;
 }
 
 /**
  * Bottom control bar for voice/video channels.
  * Discord-style rounded buttons with active/inactive states.
  */
-export function VoiceControls({ showVideo = false, onSettingsClick }: VoiceControlsProps) {
+export function VoiceControls({
+  showVideo = false,
+  onSettingsClick,
+  canSpeak = true,
+  canVideo = true,
+  canScreenShare = true,
+}: VoiceControlsProps) {
   const {
     localState,
     leave,
@@ -46,8 +56,8 @@ export function VoiceControls({ showVideo = false, onSettingsClick }: VoiceContr
         accent={ltActive}
       />
 
-      {/* Video toggle (only for video channels) */}
-      {showVideo && (
+      {/* Video toggle (only for video channels + VIDEO permission) */}
+      {showVideo && canVideo && (
         <ControlButton
           onClick={toggleVideo}
           active={localState.videoEnabled}
@@ -57,21 +67,23 @@ export function VoiceControls({ showVideo = false, onSettingsClick }: VoiceContr
         />
       )}
 
-      {/* Screen share */}
-      <ControlButton
-        onClick={toggleScreenShare}
-        active={localState.screenSharing}
-        icon={<Monitor size={18} />}
-        label={localState.screenSharing ? "Stop sharing" : "Share screen"}
-        accent={localState.screenSharing}
-      />
+      {/* Screen share (requires SCREEN_SHARE permission) */}
+      {canScreenShare && (
+        <ControlButton
+          onClick={toggleScreenShare}
+          active={localState.screenSharing}
+          icon={<Monitor size={18} />}
+          label={localState.screenSharing ? "Stop sharing" : "Share screen"}
+          accent={localState.screenSharing}
+        />
+      )}
 
-      {/* Mute */}
+      {/* Mute (requires SPEAK permission to unmute) */}
       <ControlButton
         onClick={toggleMute}
         active={!localState.muted}
         icon={localState.muted ? <MicOff size={18} /> : <Mic size={18} />}
-        label={localState.muted ? "Unmute" : "Mute"}
+        label={localState.muted ? (canSpeak ? "Unmute" : "No speak permission") : "Mute"}
         danger={localState.muted}
       />
 

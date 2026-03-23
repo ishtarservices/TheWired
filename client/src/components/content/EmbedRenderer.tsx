@@ -8,6 +8,7 @@ const PLATFORM_LABELS: Record<EmbedPlatform, string> = {
   spotify: "Spotify",
   tiktok: "TikTok",
   instagram: "Instagram",
+  tenor: "Tenor GIF",
 };
 
 const PLATFORM_COLORS: Record<EmbedPlatform, string> = {
@@ -16,6 +17,7 @@ const PLATFORM_COLORS: Record<EmbedPlatform, string> = {
   spotify: "bg-green-500",
   tiktok: "bg-pink-500",
   instagram: "bg-gradient-to-tr from-yellow-400 via-pink-500 to-purple-500",
+  tenor: "bg-blue-400",
 };
 
 interface EmbedRendererProps {

@@ -20,7 +20,7 @@ export async function createChannel(
 export async function updateChannel(
   spaceId: string,
   channelId: string,
-  params: { label?: string; position?: number; adminOnly?: boolean; slowModeSeconds?: number },
+  params: { label?: string; position?: number; adminOnly?: boolean; slowModeSeconds?: number; isDefault?: boolean },
 ): Promise<SpaceChannel> {
   const res = await api<SpaceChannel>(`/spaces/${spaceId}/channels/${channelId}`, {
     method: "PATCH",

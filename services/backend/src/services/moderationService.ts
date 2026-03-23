@@ -1,8 +1,8 @@
 import { nanoid } from "../lib/id.js";
 import { db } from "../db/connection.js";
-import { bans, timedMutes } from "../db/schema/moderation.js";
+import { bans, timedMutes, moderationAuditLog } from "../db/schema/moderation.js";
 import { spaceMembers } from "../db/schema/members.js";
-import { eq, and, gt, or, isNull } from "drizzle-orm";
+import { eq, and, gt, or, isNull, desc } from "drizzle-orm";
 
 interface BanParams {
   pubkey: string;
@@ -16,6 +16,28 @@ interface MuteParams {
   mutedBy: string;
   durationSeconds: number;
   channelId?: string;
+}
+
+/** Write an entry to the moderation audit log */
+async function logAuditEntry(
+  spaceId: string,
+  actorPubkey: string,
+  action: string,
+  targetPubkey?: string,
+  details?: Record<string, unknown>,
+) {
+  try {
+    await db.insert(moderationAuditLog).values({
+      id: nanoid(12),
+      spaceId,
+      actorPubkey,
+      action,
+      targetPubkey: targetPubkey ?? null,
+      details: details ? JSON.stringify(details) : null,
+    });
+  } catch {
+    // Audit logging should never block the main operation
+  }
 }
 
 export const moderationService = {
@@ -39,14 +61,22 @@ export const moderationService = {
       .delete(spaceMembers)
       .where(and(eq(spaceMembers.spaceId, spaceId), eq(spaceMembers.pubkey, params.pubkey)));
 
+    await logAuditEntry(spaceId, params.bannedBy, "ban", params.pubkey, {
+      reason: params.reason,
+      expiresAt: params.expiresAt,
+    });
+
     return ban;
   },
 
   /** Unban a member */
-  async unbanMember(spaceId: string, pubkey: string) {
+  async unbanMember(spaceId: string, pubkey: string, actorPubkey?: string) {
     await db
       .delete(bans)
       .where(and(eq(bans.spaceId, spaceId), eq(bans.pubkey, pubkey)));
+    if (actorPubkey) {
+      await logAuditEntry(spaceId, actorPubkey, "unban", pubkey);
+    }
   },
 
   /** List active bans (not expired) */
@@ -80,6 +110,11 @@ export const moderationService = {
       })
       .returning();
 
+    await logAuditEntry(spaceId, params.mutedBy, "mute", params.pubkey, {
+      durationSeconds: params.durationSeconds,
+      channelId: params.channelId,
+    });
+
     return mute;
   },
 
@@ -98,10 +133,13 @@ export const moderationService = {
   },
 
   /** Kick a member (remove without banning) */
-  async kickMember(spaceId: string, pubkey: string) {
+  async kickMember(spaceId: string, pubkey: string, actorPubkey?: string) {
     await db
       .delete(spaceMembers)
       .where(and(eq(spaceMembers.spaceId, spaceId), eq(spaceMembers.pubkey, pubkey)));
+    if (actorPubkey) {
+      await logAuditEntry(spaceId, actorPubkey, "kick", pubkey);
+    }
   },
 
   /** Check if a pubkey is banned from a space */
@@ -119,6 +157,16 @@ export const moderationService = {
       )
       .limit(1);
     return result.length > 0;
+  },
+
+  /** List recent audit log entries for a space */
+  async listAuditLog(spaceId: string, limit = 50) {
+    return db
+      .select()
+      .from(moderationAuditLog)
+      .where(eq(moderationAuditLog.spaceId, spaceId))
+      .orderBy(desc(moderationAuditLog.createdAt))
+      .limit(limit);
   },
 
   /** Check if a pubkey is muted in a space (optionally in a specific channel) */

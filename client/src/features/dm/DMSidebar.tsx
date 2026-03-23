@@ -1,5 +1,5 @@
 import { useState, useCallback, memo } from "react";
-import { MessageCircle, Users, X } from "lucide-react";
+import { MessageCircle, Users, X, SquarePen } from "lucide-react";
 import { Avatar } from "@/components/ui/Avatar";
 import { useProfile } from "@/features/profile/useProfile";
 import { useRelativeTime } from "@/hooks/useRelativeTime";
@@ -9,6 +9,7 @@ import { useAppSelector } from "@/store/hooks";
 import { selectPendingIncomingRequests } from "./dmSelectors";
 import { acceptFriendRequestAction, declineFriendRequestAction } from "@/lib/nostr/friendRequest";
 import { DMConversationContextMenu } from "./DMConversationContextMenu";
+import { NewDMModal } from "./NewDMModal";
 import { getDisplayName } from "./dmUtils";
 import type { DMContact } from "@/store/slices/dmSlice";
 
@@ -25,6 +26,7 @@ export function DMSidebar({ activePartner, onSelectContact }: DMSidebarProps) {
   const [activeTab, setActiveTab] = useState<SidebarTab>("messages");
   const pendingIncoming = useAppSelector(selectPendingIncomingRequests);
 
+  const [showNewDM, setShowNewDM] = useState(false);
   const [ctxMenu, setCtxMenu] = useState<{ pubkey: string; x: number; y: number } | null>(null);
 
   const handleContactContextMenu = useCallback(
@@ -38,7 +40,7 @@ export function DMSidebar({ activePartner, onSelectContact }: DMSidebarProps) {
   return (
     <div className="flex flex-col border-r border-edge w-72">
       {/* Tab bar */}
-      <div className="flex border-b border-edge">
+      <div className="flex items-center border-b border-edge">
         <button
           onClick={() => setActiveTab("messages")}
           className={`flex flex-1 items-center justify-center gap-1.5 px-3 py-2.5 text-xs font-semibold transition-colors ${
@@ -65,6 +67,13 @@ export function DMSidebar({ activePartner, onSelectContact }: DMSidebarProps) {
               {friends.length}
             </span>
           )}
+        </button>
+        <button
+          onClick={() => setShowNewDM(true)}
+          className="mr-2 rounded-lg p-1.5 text-muted hover:text-heading hover:bg-surface-hover transition-colors"
+          title="New message"
+        >
+          <SquarePen size={15} />
         </button>
       </div>
 
@@ -137,6 +146,12 @@ export function DMSidebar({ activePartner, onSelectContact }: DMSidebarProps) {
           </>
         )}
       </div>
+
+      <NewDMModal
+        open={showNewDM}
+        onClose={() => setShowNewDM(false)}
+        onSelect={onSelectContact}
+      />
     </div>
   );
 }

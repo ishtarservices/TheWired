@@ -1,21 +1,56 @@
 import { useState } from "react";
-import { ChevronDown, ChevronRight, Trash2 } from "lucide-react";
+import { ChevronDown, ChevronRight, Trash2, Copy } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Button } from "../../../components/ui/Button";
 import { useRoles } from "../useRoles";
 
+const PERMISSION_DESCRIPTIONS: Record<string, string> = {
+  VIEW_CHANNEL: "See this channel in the channel list",
+  SEND_MESSAGES: "Send messages in text channels",
+  EMBED_LINKS: "Preview links and embeds in messages",
+  ATTACH_FILES: "Upload images, videos, and files",
+  ADD_REACTIONS: "React to messages",
+  MENTION_EVERYONE: "Use @everyone to notify all members",
+  READ_MESSAGE_HISTORY: "View messages sent before joining",
+  CREATE_INVITES: "Create invite links for the space",
+  CONNECT: "Join voice and video channels",
+  SPEAK: "Talk in voice channels",
+  VIDEO: "Share camera in video channels",
+  SCREEN_SHARE: "Share screen in voice/video channels",
+  MANAGE_MESSAGES: "Delete or edit other members' messages",
+  BAN_MEMBERS: "Permanently ban members from the space",
+  MUTE_MEMBERS: "Temporarily mute members",
+  PIN_MESSAGES: "Pin messages in channels",
+  MANAGE_MEMBERS: "Kick members and manage the member list",
+  MANAGE_ROLES: "Create, edit, and assign roles",
+  MANAGE_CHANNELS: "Create, edit, and delete channels",
+  MANAGE_SPACE: "Edit space name, description, and settings",
+  MANAGE_INVITES: "View and revoke invite links",
+  VIEW_ANALYTICS: "View space analytics and stats",
+};
+
 const PERMISSION_GROUPS = [
   {
     label: "General",
-    permissions: ["SEND_MESSAGES", "CREATE_INVITES"],
+    permissions: [
+      "VIEW_CHANNEL", "SEND_MESSAGES", "EMBED_LINKS", "ATTACH_FILES",
+      "ADD_REACTIONS", "MENTION_EVERYONE", "READ_MESSAGE_HISTORY", "CREATE_INVITES",
+    ],
+  },
+  {
+    label: "Voice & Video",
+    permissions: ["CONNECT", "SPEAK", "VIDEO", "SCREEN_SHARE"],
   },
   {
     label: "Moderation",
     permissions: ["MANAGE_MESSAGES", "BAN_MEMBERS", "MUTE_MEMBERS", "PIN_MESSAGES"],
   },
   {
-    label: "Admin",
-    permissions: ["MANAGE_MEMBERS", "MANAGE_ROLES", "MANAGE_CHANNELS", "MANAGE_SPACE", "MANAGE_INVITES", "VIEW_ANALYTICS"],
+    label: "Administration",
+    permissions: [
+      "MANAGE_MEMBERS", "MANAGE_ROLES", "MANAGE_CHANNELS",
+      "MANAGE_SPACE", "MANAGE_INVITES", "VIEW_ANALYTICS",
+    ],
   },
 ];
 
@@ -37,8 +72,23 @@ export function RolesTab({ spaceId }: RolesTabProps) {
 
   async function handleCreateRole() {
     if (!newRoleName.trim()) return;
-    await createRole({ name: newRoleName.trim(), permissions: ["SEND_MESSAGES"] });
+    await createRole({
+      name: newRoleName.trim(),
+      permissions: [
+        "VIEW_CHANNEL", "SEND_MESSAGES", "EMBED_LINKS", "ATTACH_FILES",
+        "ADD_REACTIONS", "CONNECT", "SPEAK", "VIDEO", "SCREEN_SHARE",
+        "READ_MESSAGE_HISTORY", "CREATE_INVITES",
+      ],
+    });
     setNewRoleName("");
+  }
+
+  async function handleCopyRole(sourceRole: { name: string; color?: string; permissions: string[] }) {
+    await createRole({
+      name: `${sourceRole.name} (copy)`,
+      color: sourceRole.color,
+      permissions: [...sourceRole.permissions],
+    });
   }
 
   function togglePermission(roleId: string, permission: string, currentPerms: string[]) {
@@ -123,14 +173,24 @@ export function RolesTab({ spaceId }: RolesTabProps) {
                           <div className="text-[10px] font-medium text-soft mb-1">{group.label}</div>
                           <div className="space-y-1">
                             {group.permissions.map((perm) => (
-                              <label key={perm} className="flex items-center gap-2 text-xs text-body cursor-pointer">
+                              <label
+                                key={perm}
+                                className="flex items-start gap-2 text-xs text-body cursor-pointer py-0.5"
+                              >
                                 <input
                                   type="checkbox"
                                   checked={role.permissions.includes(perm)}
                                   onChange={() => togglePermission(role.id, perm, role.permissions)}
-                                  className="rounded border-edge"
+                                  className="rounded border-edge mt-0.5"
                                 />
-                                {perm.replace(/_/g, " ").toLowerCase()}
+                                <span className="flex-1">
+                                  <span className="block">{perm.replace(/_/g, " ").toLowerCase()}</span>
+                                  {PERMISSION_DESCRIPTIONS[perm] && (
+                                    <span className="block text-[10px] text-muted leading-tight">
+                                      {PERMISSION_DESCRIPTIONS[perm]}
+                                    </span>
+                                  )}
+                                </span>
                               </label>
                             ))}
                           </div>
@@ -139,18 +199,29 @@ export function RolesTab({ spaceId }: RolesTabProps) {
                     </div>
                   )}
 
-                  {/* Delete */}
-                  {!isProtected && (
+                  {/* Actions */}
+                  <div className="flex gap-2">
+                    {!isProtected && (
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        className="text-red-400 hover:bg-red-500/10"
+                        onClick={() => deleteRole(role.id)}
+                      >
+                        <Trash2 size={14} className="mr-1" />
+                        Delete
+                      </Button>
+                    )}
                     <Button
                       variant="ghost"
                       size="sm"
-                      className="text-red-400 hover:bg-red-500/10"
-                      onClick={() => deleteRole(role.id)}
+                      className="text-soft hover:bg-surface-hover"
+                      onClick={() => handleCopyRole(role)}
                     >
-                      <Trash2 size={14} className="mr-1" />
-                      Delete Role
+                      <Copy size={14} className="mr-1" />
+                      Duplicate
                     </Button>
-                  )}
+                  </div>
                 </div>
               )}
             </div>

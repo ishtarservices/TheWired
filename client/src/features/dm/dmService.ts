@@ -30,6 +30,7 @@ export async function sendDM(
   recipientPubkey: string,
   content: string,
   replyTo?: { wrapId: string },
+  emojiTags?: string[][],
 ): Promise<void> {
   const myPubkey = store.getState().identity.pubkey;
   if (!myPubkey) throw new Error("Not logged in");
@@ -42,16 +43,16 @@ export async function sendDM(
     throw new Error("No write relays connected. Please check your connection and try again.");
   }
 
-  // Build extra tags for reply
-  const extraTags: string[][] | undefined = replyTo
-    ? [["q", replyTo.wrapId]]
-    : undefined;
+  // Build extra tags for reply + emoji
+  const extraTags: string[][] = [];
+  if (replyTo) extraTags.push(["q", replyTo.wrapId]);
+  if (emojiTags) extraTags.push(...emojiTags);
 
   // Build one shared rumor so both wraps have the same rumorId.
   // This is critical for edit/delete to work: the "e" tag in an edit/delete
   // wrap references this rumorId, and both sender and recipient need to store
   // the same value.
-  const sharedRumor = await buildRumor(myPubkey, recipientPubkey, content, extraTags);
+  const sharedRumor = await buildRumor(myPubkey, recipientPubkey, content, extraTags.length > 0 ? extraTags : undefined);
 
   // Create recipient wrap and self wrap using the shared rumor
   const { wrap: recipientWrap } = await createGiftWrappedDM(content, recipientPubkey, extraTags, sharedRumor);
@@ -74,7 +75,7 @@ export async function sendDM(
     console.warn("Self-wrap publish failed — message won't sync to other devices");
   }
 
-  // Optimistic local display with real timestamp (not the randomized rumor timestamp).
+  // Optimistic local display using the rumor's real created_at for consistency.
   // The self-wrap arriving from relays later will be deduped by wrapId.
   // Use the recipient wrap's rumorId — this is what the recipient will store,
   // so edits/deletes using this ID will match on both sides.
@@ -86,10 +87,11 @@ export async function sendDM(
         id: selfWrap.id,
         senderPubkey: myPubkey,
         content,
-        createdAt: Math.round(Date.now() / 1000),
+        createdAt: sharedRumor.created_at,
         wrapId: selfWrap.id,
         rumorId,
         replyToWrapId: replyTo?.wrapId,
+        emojiTags: emojiTags && emojiTags.length > 0 ? emojiTags : undefined,
       },
     }),
   );

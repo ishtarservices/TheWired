@@ -1,5 +1,5 @@
 import { api } from "./client";
-import type { SpaceRole, ChannelPermissionOverride } from "../../types/space";
+import type { SpaceRole, SpaceMember, ChannelPermissionOverride } from "../../types/space";
 
 export async function fetchRoles(spaceId: string): Promise<SpaceRole[]> {
   const res = await api<SpaceRole[]>(`/spaces/${spaceId}/roles`);
@@ -38,6 +38,11 @@ export async function reorderRoles(spaceId: string, orderedIds: string[]): Promi
     method: "POST",
     body: { orderedIds },
   });
+}
+
+export async function fetchAllMemberRoles(spaceId: string): Promise<SpaceMember[]> {
+  const res = await api<SpaceMember[]>(`/spaces/${spaceId}/member-roles`);
+  return res.data;
 }
 
 export async function fetchMemberRoles(spaceId: string, pubkey: string): Promise<SpaceRole[]> {
@@ -83,5 +88,15 @@ export async function setChannelOverrides(
 
 export async function fetchMyPermissions(spaceId: string): Promise<string[]> {
   const res = await api<string[]>(`/spaces/${spaceId}/permissions/me`);
+  return res.data;
+}
+
+export interface ChannelPermissionsBatch {
+  spacePermissions: string[];
+  channelOverrides: Record<string, { allow: string[]; deny: string[] }>;
+}
+
+export async function fetchMyChannelPermissions(spaceId: string): Promise<ChannelPermissionsBatch> {
+  const res = await api<ChannelPermissionsBatch>(`/spaces/${spaceId}/permissions/me/channels`);
   return res.data;
 }

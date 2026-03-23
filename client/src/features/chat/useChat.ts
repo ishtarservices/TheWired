@@ -32,7 +32,7 @@ export function useChat() {
   const [editingMessage, setEditingMessage] = useState<{ event: NostrEvent; displayContent: string } | null>(null);
 
   const sendMessage = useCallback(
-    async (content: string, mentionPubkeys?: string[], attachments?: AttachmentMeta[]) => {
+    async (content: string, mentionPubkeys?: string[], attachments?: AttachmentMeta[], emojiTags?: string[][]) => {
       if (!pubkey || !activeSpaceId || !content.trim()) return;
 
       const tempId = `temp_${Date.now()}_${Math.random().toString(36).slice(2)}`;
@@ -54,6 +54,7 @@ export function useChat() {
           replyTo ?? undefined,
           channelIdPart,
           attachments,
+          emojiTags,
         );
 
         // Add p-tags for mentioned pubkeys

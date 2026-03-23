@@ -6,6 +6,7 @@ import {
   setDMRelayList,
   setFollowList,
   setMuteList,
+  setPinnedNotes,
 } from "../../store/slices/identitySlice";
 import type { SignerType } from "../../store/slices/identitySlice";
 import {
@@ -56,6 +57,7 @@ import { signAndPublish } from "./publish";
 import { buildDMRelayListEvent } from "./eventBuilder";
 import { profileCache } from "./profileCache";
 import { loadDMState, startDMPersistence } from "../../features/dm/dmPersistence";
+import { loadDMReadState, startDMReadStateSync } from "../../features/dm/dmReadState";
 import { loadFollowerState, startFollowerPersistence } from "./followerPersistence";
 import { loadFriendRequestState, startFriendRequestPersistence } from "./friendRequestPersistence";
 import { loadNotificationState, startNotificationPersistence } from "../../features/notifications/notificationPersistence";
@@ -120,6 +122,7 @@ function subscribeUserData(
       { kinds: [EVENT_KINDS.METADATA], authors: [pubkey], limit: 1 },
       { kinds: [EVENT_KINDS.FOLLOW_LIST], authors: [pubkey], limit: 1 },
       { kinds: [EVENT_KINDS.MUTE_LIST], authors: [pubkey], limit: 1 },
+      { kinds: [EVENT_KINDS.PINNED_NOTES], authors: [pubkey], limit: 1 },
     ],
     relayUrls,
     onEvent: (event) => {
@@ -156,6 +159,14 @@ function subscribeUserData(
             }));
           store.dispatch(setMuteList({ mutes, createdAt: event.created_at }));
           saveUserState("mute_list", mutes);
+          break;
+        }
+        case EVENT_KINDS.PINNED_NOTES: {
+          const noteIds = event.tags
+            .filter((t) => t[0] === "e" && t[1])
+            .map((t) => t[1]);
+          store.dispatch(setPinnedNotes({ noteIds, createdAt: event.created_at }));
+          saveUserState("pinned_notes", noteIds);
           break;
         }
       }
@@ -213,8 +224,18 @@ export async function performLogin(
   }
 
   currentSigner = await createSigner(signerType);
-  // Use known pubkey if provided to avoid a redundant keychain read
-  const pubkey = knownPubkey ?? (await currentSigner.getPublicKey());
+  // Always verify the signer's actual key — on Tauri, the macOS keychain may
+  // fail to read the stored key (unsigned dev builds, biometric issues) causing
+  // the keystore to silently generate a new keypair. Using a stale cached pubkey
+  // while the signer operates with a different key causes ghost members, broken
+  // NIP-98 auth, and invisible messages.
+  const signerPubkey = await currentSigner.getPublicKey();
+  if (knownPubkey && knownPubkey !== signerPubkey) {
+    console.warn(
+      `[LoginFlow] Signer key mismatch — cached=${knownPubkey.slice(0, 12)}… actual=${signerPubkey.slice(0, 12)}… — using signer's current key`,
+    );
+  }
+  const pubkey = signerPubkey;
 
   // Step 4: Dispatch login to Redux
   const storeSignerType: SignerType =
@@ -233,6 +254,12 @@ export async function performLogin(
   const cachedDMRelays = await getUserState<string[]>("dm_relay_list");
   if (cachedDMRelays?.length) {
     store.dispatch(setDMRelayList({ relays: cachedDMRelays, createdAt: 0 }));
+  }
+
+  // Step 5c: Load cached pinned notes from IndexedDB
+  const cachedPinnedNotes = await getUserState<string[]>("pinned_notes");
+  if (cachedPinnedNotes?.length) {
+    store.dispatch(setPinnedNotes({ noteIds: cachedPinnedNotes, createdAt: 0 }));
   }
 
   // Step 6: Subscribe for relay list (kind:10002) from bootstrap relays
@@ -504,6 +531,12 @@ export async function performLogin(
   // messages keep their original display timestamps.
   await loadDMState();
   startDMPersistence();
+
+  // Step 7f-a: Fetch relay-synced DM read state (NIP-78).
+  // This populates lastReadTimestamps so re-fetched DMs after a cache clear
+  // are correctly marked as already-read.
+  loadDMReadState();
+  startDMReadStateSync();
 
   // Step 7f-b: Load persisted friend requests from IndexedDB
   await loadFriendRequestState();

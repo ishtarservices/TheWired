@@ -41,6 +41,7 @@ export async function registerSpace(params: {
   picture?: string;
   about?: string;
   mode?: "read" | "read-write";
+  channels?: Array<{ type: string; label: string }>;
 }) {
   return api<{ id: string }>("/spaces", { method: "POST", body: params });
 }

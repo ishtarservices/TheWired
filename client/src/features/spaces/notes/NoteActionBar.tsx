@@ -1,5 +1,5 @@
 import { memo } from "react";
-import { MessageCircle, Repeat2, Heart, Quote, Share } from "lucide-react";
+import { MessageCircle, Repeat2, Heart, Quote, Share, Pin } from "lucide-react";
 import type { NoteEngagement } from "../useNoteEngagement";
 
 interface NoteActionBarProps {
@@ -11,6 +11,10 @@ interface NoteActionBarProps {
   onLike: () => void;
   onQuote: () => void;
   onShare?: () => void;
+  /** Pin action — only shown on the user's own root notes */
+  showPin?: boolean;
+  isPinned?: boolean;
+  onPin?: () => void;
 }
 
 function formatCount(n: number): string {
@@ -28,6 +32,9 @@ export const NoteActionBar = memo(function NoteActionBar({
   onLike,
   onQuote,
   onShare,
+  showPin,
+  isPinned,
+  onPin,
 }: NoteActionBarProps) {
   return (
     <div className="mt-2 flex items-center gap-8">
@@ -90,6 +97,25 @@ export const NoteActionBar = memo(function NoteActionBar({
           className="group flex items-center gap-1.5 text-xs text-muted transition-colors hover:text-pulse disabled:cursor-not-allowed disabled:opacity-40"
         >
           <Share size={16} className="group-hover:text-pulse" />
+        </button>
+      )}
+
+      {/* Pin */}
+      {showPin && onPin && (
+        <button
+          onClick={onPin}
+          className={`group flex items-center gap-1.5 text-xs transition-colors ${
+            isPinned
+              ? "text-pulse"
+              : "text-muted hover:text-pulse"
+          }`}
+          title={isPinned ? "Unpin from profile" : "Pin to profile"}
+        >
+          <Pin
+            size={16}
+            className="rotate-45"
+            fill={isPinned ? "currentColor" : "none"}
+          />
         </button>
       )}
     </div>

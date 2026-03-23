@@ -1,11 +1,17 @@
 import { createSlice, type PayloadAction } from "@reduxjs/toolkit";
 import type { SpaceRole, SpaceMember, ChannelPermissionOverride, Ban, Mute } from "../../types/space";
 
+/** Aggregated channel overrides for the current user (deny-wins) */
+interface MyChannelOverrides {
+  [channelId: string]: { allow: string[]; deny: string[] };
+}
+
 interface SpaceConfigState {
   roles: Record<string, SpaceRole[]>;                    // spaceId → roles
   members: Record<string, SpaceMember[]>;                // spaceId → members with roles
   overrides: Record<string, ChannelPermissionOverride[]>; // spaceId → overrides
   myPermissions: Record<string, string[]>;               // spaceId → current user's resolved permissions
+  myChannelOverrides: Record<string, MyChannelOverrides>; // spaceId → user's channel overrides
   bans: Record<string, Ban[]>;                           // spaceId → bans
   mutes: Record<string, Mute[]>;                         // spaceId → mutes
   loading: Record<string, boolean>;
@@ -16,6 +22,7 @@ const initialState: SpaceConfigState = {
   members: {},
   overrides: {},
   myPermissions: {},
+  myChannelOverrides: {},
   bans: {},
   mutes: {},
   loading: {},
@@ -54,11 +61,15 @@ export const spaceConfigSlice = createSlice({
       state.members[action.payload.spaceId] = action.payload.members;
     },
     updateMemberRoles(state, action: PayloadAction<{ spaceId: string; pubkey: string; roles: SpaceRole[] }>) {
+      if (!state.members[action.payload.spaceId]) {
+        state.members[action.payload.spaceId] = [];
+      }
       const members = state.members[action.payload.spaceId];
-      if (!members) return;
       const member = members.find((m) => m.pubkey === action.payload.pubkey);
       if (member) {
         member.roles = action.payload.roles;
+      } else {
+        members.push({ pubkey: action.payload.pubkey, roles: action.payload.roles, joinedAt: Date.now() });
       }
     },
 
@@ -70,6 +81,12 @@ export const spaceConfigSlice = createSlice({
     // My permissions
     setMyPermissions(state, action: PayloadAction<{ spaceId: string; permissions: string[] }>) {
       state.myPermissions[action.payload.spaceId] = action.payload.permissions;
+    },
+    setMyChannelOverrides(
+      state,
+      action: PayloadAction<{ spaceId: string; overrides: MyChannelOverrides }>,
+    ) {
+      state.myChannelOverrides[action.payload.spaceId] = action.payload.overrides;
     },
 
     // Bans
@@ -124,6 +141,7 @@ export const {
   updateMemberRoles,
   setOverrides,
   setMyPermissions,
+  setMyChannelOverrides,
   setBans,
   addBan,
   removeBan,

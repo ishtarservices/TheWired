@@ -70,7 +70,7 @@ export async function buildRumor(
 
   const rumor = {
     pubkey: myPubkey,
-    created_at: randomTimestamp(),
+    created_at: Math.round(Date.now() / 1000),
     kind: EVENT_KINDS.DM_MESSAGE,
     tags: rumorTags,
     content,

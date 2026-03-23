@@ -3,7 +3,7 @@ import { Users, Settings } from "lucide-react";
 import { Button } from "../../components/ui/Button";
 import { useSpace } from "./useSpace";
 import { useAppDispatch, useAppSelector } from "../../store/hooks";
-import { toggleMemberList } from "../../store/slices/uiSlice";
+import { toggleRightPanel } from "../../store/slices/uiSlice";
 import { usePermissions } from "./usePermissions";
 import { SpaceSettingsModal } from "./settings/SpaceSettingsModal";
 
@@ -47,7 +47,7 @@ export function ChannelHeader() {
         <Button
           variant="ghost"
           size="sm"
-          onClick={() => dispatch(toggleMemberList())}
+          onClick={() => dispatch(toggleRightPanel("space"))}
         >
           <Users size={16} />
         </Button>

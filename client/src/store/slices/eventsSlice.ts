@@ -235,6 +235,28 @@ export const eventsSlice = createSlice({
         state.chatMessages[contextId] = list.filter((id) => id !== eventId);
       }
     },
+    /** Remove a repost from the repostsByAuthor secondary index */
+    removeRepost(
+      state,
+      action: PayloadAction<{ pubkey: string; eventId: string }>,
+    ) {
+      const { pubkey, eventId } = action.payload;
+      const list = state.repostsByAuthor[pubkey];
+      if (list) {
+        state.repostsByAuthor[pubkey] = list.filter((id) => id !== eventId);
+      }
+    },
+    /** Remove a note from the notesByAuthor secondary index */
+    removeNote(
+      state,
+      action: PayloadAction<{ pubkey: string; eventId: string }>,
+    ) {
+      const { pubkey, eventId } = action.payload;
+      const list = state.notesByAuthor[pubkey];
+      if (list) {
+        state.notesByAuthor[pubkey] = list.filter((id) => id !== eventId);
+      }
+    },
     /** Map an original event to its edit replacement */
     indexEditedMessage(
       state,
@@ -268,5 +290,7 @@ export const {
   hideMessage,
   restoreDeletedMessageIds,
   removeChatMessage,
+  removeNote,
+  removeRepost,
   indexEditedMessage,
 } = eventsSlice.actions;

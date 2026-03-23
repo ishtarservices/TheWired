@@ -12,6 +12,7 @@ import { useAppSelector, useAppDispatch } from "../../store/hooks";
 import { clearUnreadDivider } from "../../store/slices/notificationSlice";
 import { useUserPopover } from "../../features/profile/UserPopoverContext";
 import { usePermissions } from "../../features/spaces/usePermissions";
+import { parseChannelIdPart } from "../../features/spaces/spaceSelectors";
 import { RichContent } from "../../components/content/RichContent";
 import { profileCache } from "../../lib/nostr/profileCache";
 import { AlertCircle, RefreshCw, Lock, ArrowDown } from "lucide-react";
@@ -34,7 +35,10 @@ export function ChatView() {
   const { can, permissions } = usePermissions(activeSpaceId);
   const isReadOnly = spaceMode === "read";
   const permissionsLoaded = permissions.length > 0;
-  const canSend = isLoggedIn && !isReadOnly && (!permissionsLoaded || can("SEND_MESSAGES"));
+  const channelIdPart = parseChannelIdPart(activeChannelId);
+  const canSend = isLoggedIn && !isReadOnly && (!permissionsLoaded || can("SEND_MESSAGES", channelIdPart));
+  const canAttachFiles = !permissionsLoaded || can("ATTACH_FILES", channelIdPart);
+  const canEmbedLinks = !permissionsLoaded || can("EMBED_LINKS", channelIdPart);
   const isAdmin = !!(myPubkey && adminPubkeys?.includes(myPubkey));
   const { openUserPopover } = useUserPopover();
 
@@ -240,9 +244,10 @@ export function ChatView() {
         </div>
       ) : (
         <ChatInput
-          onSend={(content, mentions, attachments) => sendMessage(content, mentions, attachments)}
+          onSend={(content, mentions, attachments, emojiTags) => sendMessage(content, mentions, attachments, emojiTags)}
           disabled={!canSend}
           memberPubkeys={memberPubkeys}
+          spaceId={activeSpaceId}
           attachments={upload.attachments}
           onRemoveAttachment={upload.removeAttachment}
           onClearAttachments={upload.clearAttachments}
@@ -255,6 +260,8 @@ export function ChatView() {
           editingMessage={editingMessage}
           onEditSubmit={editMessage}
           onEditCancel={() => setEditingMessage(null)}
+          canAttachFiles={canAttachFiles}
+          canEmbedLinks={canEmbedLinks}
         />
       )}
     </div>

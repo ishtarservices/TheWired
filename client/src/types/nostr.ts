@@ -68,6 +68,7 @@ export const EVENT_KINDS = {
   ZAP_REQUEST: 9734,
   ZAP_RECEIPT: 9735,
   MUTE_LIST: 10000,
+  PINNED_NOTES: 10001,
   BOOKMARKS: 10003,
   USER_GROUPS: 10009,
   RELAY_LIST: 10002,
@@ -107,4 +108,8 @@ export const EVENT_KINDS = {
   CONFERENCE: 30313,
   /** NIP-A0: Voice Message (async voice notes, up to 60s) */
   VOICE_MESSAGE: 1222,
+  /** NIP-30: Custom emoji set (addressable, per pubkey+d-tag) */
+  EMOJI_SET: 30030,
+  /** NIP-51: User emoji list (replaceable) */
+  USER_EMOJI_LIST: 10030,
 } as const;

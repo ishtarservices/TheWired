@@ -16,6 +16,8 @@ export interface DMMessage {
   isDeleted?: boolean;
   /** The wrapId of the message this is replying to */
   replyToWrapId?: string;
+  /** NIP-30 emoji tags for custom emojis in this message */
+  emojiTags?: string[][];
 }
 
 export interface DMContact {
@@ -35,6 +37,8 @@ interface DMState {
   processedWrapIdSet: Record<string, true>;
   /** Captured unread count when opening a conversation, for divider positioning */
   unreadDividers: Record<string, number>;
+  /** Per-conversation timestamp of last read, synced to relays via NIP-78 */
+  lastReadTimestamps: Record<string, number>;
   /** Monotonic counter bumped on every mutation — drives persistence fingerprint */
   mutationCounter: number;
 }
@@ -47,6 +51,7 @@ const initialState: DMState = {
   processedWrapIds: [],
   processedWrapIdSet: {},
   unreadDividers: {},
+  lastReadTimestamps: {},
   mutationCounter: 0,
 };
 
@@ -128,14 +133,21 @@ export const dmSlice = createSlice({
           contact.lastMessagePreview = preview;
         }
         // Only bump unread for incoming messages when not viewing the conversation
+        // and the message is newer than the last-read timestamp (from relay-synced read state)
         if (!isOwnMessage && state.activeConversation !== partnerPubkey) {
-          contact.unreadCount += 1;
+          const lastRead = state.lastReadTimestamps[partnerPubkey];
+          if (!lastRead || message.createdAt > lastRead) {
+            contact.unreadCount += 1;
+          }
         }
         // Re-sort: remove and re-insert at correct position
         state.contacts.splice(contactIdx, 1);
         insertContactSorted(state.contacts, contact);
       } else {
-        const isUnread = !isOwnMessage && state.activeConversation !== partnerPubkey;
+        const lastRead = state.lastReadTimestamps[partnerPubkey];
+        const isUnread = !isOwnMessage
+          && state.activeConversation !== partnerPubkey
+          && (!lastRead || message.createdAt > lastRead);
         const newContact: DMContact = {
           pubkey: partnerPubkey,
           lastMessageAt: message.createdAt,
@@ -160,6 +172,9 @@ export const dmSlice = createSlice({
           }
           contact.unreadCount = 0;
         }
+        // Record read timestamp for relay sync (NIP-78)
+        state.lastReadTimestamps[action.payload] = Math.floor(Date.now() / 1000);
+        state.mutationCounter += 1;
       }
     },
 
@@ -257,6 +272,31 @@ export const dmSlice = createSlice({
       state.mutationCounter += 1;
     },
 
+    /** Merge relay-synced read timestamps (NIP-78). Takes max per conversation. */
+    applyRelayReadState(state, action: PayloadAction<Record<string, number>>) {
+      const remote = action.payload;
+      for (const [pubkey, ts] of Object.entries(remote)) {
+        const local = state.lastReadTimestamps[pubkey];
+        if (!local || ts > local) {
+          state.lastReadTimestamps[pubkey] = ts;
+        }
+      }
+      // Recompute unread counts based on merged timestamps
+      for (const contact of state.contacts) {
+        const lastRead = state.lastReadTimestamps[contact.pubkey];
+        if (!lastRead) continue;
+        const msgs = state.messages[contact.pubkey];
+        if (!msgs) continue;
+        // Count messages from the other person newer than lastRead
+        // (we don't know myPubkey here, but own messages don't count toward unread
+        //  regardless — they were sent by us and never incremented unread in the first place.
+        //  So just zero out if lastRead >= lastMessageAt.)
+        if (lastRead >= contact.lastMessageAt) {
+          contact.unreadCount = 0;
+        }
+      }
+    },
+
     /** Delete an entire conversation locally */
     deleteDMConversation(state, action: PayloadAction<string>) {
       const pubkey = action.payload;
@@ -278,9 +318,10 @@ export const dmSlice = createSlice({
         messages?: Record<string, DMMessage[]>;
         contacts?: DMContact[];
         processedWrapIds?: string[];
+        lastReadTimestamps?: Record<string, number>;
       }>,
     ) {
-      const { messages, contacts, processedWrapIds } = action.payload;
+      const { messages, contacts, processedWrapIds, lastReadTimestamps } = action.payload;
 
       if (messages) {
         // Scrub corrupted messages: reject entries whose content is
@@ -315,6 +356,16 @@ export const dmSlice = createSlice({
         state.processedWrapIdSet = set;
       }
 
+      if (lastReadTimestamps) {
+        // Merge: take max per conversation
+        for (const [pubkey, ts] of Object.entries(lastReadTimestamps)) {
+          const existing = state.lastReadTimestamps[pubkey];
+          if (!existing || ts > existing) {
+            state.lastReadTimestamps[pubkey] = ts;
+          }
+        }
+      }
+
       // If a conversation is currently being viewed (e.g. user navigated
       // before persistence finished loading), clear that contact's unread
       // count to prevent stale badges after restore.
@@ -339,6 +390,7 @@ export const {
   deleteDMMessage,
   editDMMessage,
   remoteDeleteDMMessage,
+  applyRelayReadState,
   deleteDMConversation,
   restoreDMState,
 } = dmSlice.actions;

@@ -76,7 +76,6 @@ interface MusicState {
 
   activeView: MusicView;
   activeDetailId: string | null;
-  queueVisible: boolean;
   viewMode: "grid" | "list";
 }
 
@@ -155,7 +154,6 @@ const initialState: MusicState = {
 
   activeView: "home",
   activeDetailId: null,
-  queueVisible: false,
   viewMode: "grid",
 };
 
@@ -743,9 +741,6 @@ export const musicSlice = createSlice({
       state.activeDetailId = null;
       state.previousView = null;
     },
-    toggleQueuePanel(state) {
-      state.queueVisible = !state.queueVisible;
-    },
     setBarMode(state, action: PayloadAction<"expanded" | "mini">) {
       state.player.barMode = action.payload;
     },
@@ -842,7 +837,6 @@ export const {
   setMusicView,
   setActiveDetailId,
   goBack,
-  toggleQueuePanel,
   setBarMode,
   setMiniBarCorner,
   toggleNowPlaying,

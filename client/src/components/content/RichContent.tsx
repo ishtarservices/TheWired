@@ -9,11 +9,13 @@ import { MediaLightbox } from "../ui/MediaLightbox";
 
 interface RichContentProps {
   content: string;
+  /** NIP-30 emoji tags from the event: [["emoji", shortcode, url], ...] */
+  emojiTags?: string[][];
   onMentionClick?: (pubkey: string, anchor: HTMLElement) => void;
 }
 
-export function RichContent({ content, onMentionClick }: RichContentProps) {
-  const segments = parseContent(content);
+export function RichContent({ content, emojiTags, onMentionClick }: RichContentProps) {
+  const segments = parseContent(content, emojiTags);
 
   return (
     <span className="whitespace-pre-wrap break-words">
@@ -111,6 +113,17 @@ function RichSegment({
 
     case "embed":
       return <EmbedRenderer embed={segment.embed} />;
+
+    case "custom-emoji":
+      return (
+        <img
+          src={segment.url}
+          alt={`:${segment.shortcode}:`}
+          title={`:${segment.shortcode}:`}
+          className="inline-block h-5 w-5 align-text-bottom object-contain"
+          loading="lazy"
+        />
+      );
 
     case "hashtag":
       return <span className="text-pulse/80 font-medium">#{segment.value}</span>;

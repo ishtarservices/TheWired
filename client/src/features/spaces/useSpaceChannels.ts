@@ -123,12 +123,22 @@ export function useSpaceChannels(spaceId: string | null) {
   );
 
   const handleUpdateChannel = useCallback(
-    async (channelId: string, params: { label?: string; adminOnly?: boolean; slowModeSeconds?: number }) => {
+    async (channelId: string, params: { label?: string; adminOnly?: boolean; slowModeSeconds?: number; isDefault?: boolean }) => {
       if (!spaceId) return;
       const updated = await channelsApi.updateChannel(spaceId, channelId, params);
-      dispatch(updateChannelInList(updated));
-      const allUpdated = channels.map((c) => (c.id === channelId ? updated : c));
-      saveChannels(spaceId, allUpdated);
+      // When setting a new home channel, clear isDefault on all others in Redux
+      // (backend already does this, but client state needs to match)
+      if (params.isDefault) {
+        const allUpdated = channels.map((c) =>
+          c.id === channelId ? updated : { ...c, isDefault: false },
+        );
+        dispatch(setChannels({ spaceId, channels: allUpdated }));
+        saveChannels(spaceId, allUpdated);
+      } else {
+        dispatch(updateChannelInList(updated));
+        const allUpdated = channels.map((c) => (c.id === channelId ? updated : c));
+        saveChannels(spaceId, allUpdated);
+      }
     },
     [spaceId, dispatch, channels],
   );

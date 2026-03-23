@@ -24,6 +24,8 @@ import { addFriendRequest, markOutgoingAccepted, acceptFriendRequest, addProcess
 import { addKnownFollower } from "../../store/slices/identitySlice";
 import { acceptFriendRequestAction } from "./friendRequest";
 import { setIncomingCall, missedCall, endCall } from "../../store/slices/callSlice";
+import { addEmojiSet, setUserEmojis, setSpaceEmojiSets } from "../../store/slices/emojiSlice";
+import { parseEmojiSetEvent, parseUserEmojiListEvent } from "../../features/emoji/emojiSetParser";
 import { parseRTCSignal } from "./callSignaling";
 import type { CallType } from "../../types/calling";
 
@@ -344,6 +346,30 @@ function indexEvent(event: NostrEvent): void {
       putEvent(event).catch(() => {});
       break;
     }
+    case EVENT_KINDS.EMOJI_SET: {
+      // NIP-30: Custom emoji set (kind:30030)
+      const emojiSet = parseEmojiSetEvent(event);
+      store.dispatch(addEmojiSet(emojiSet));
+      // Track space-scoped emoji sets
+      const emojiHTag = event.tags.find((t) => t[0] === "h")?.[1];
+      if (emojiHTag) {
+        const state = store.getState();
+        const existing = state.emoji.spaceEmojiSets[emojiHTag] ?? [];
+        if (!existing.includes(emojiSet.addressableId)) {
+          store.dispatch(setSpaceEmojiSets({ spaceId: emojiHTag, setIds: [...existing, emojiSet.addressableId] }));
+        }
+      }
+      break;
+    }
+    case EVENT_KINDS.USER_EMOJI_LIST: {
+      // NIP-51: User emoji list (kind:10030)
+      const myPubkey = store.getState().identity.pubkey;
+      if (event.pubkey === myPubkey) {
+        const { emojis } = parseUserEmojiListEvent(event);
+        store.dispatch(setUserEmojis(emojis));
+      }
+      break;
+    }
     case EVENT_KINDS.MOD_DELETE_EVENT: {
       // NIP-29 kind:9005: moderator delete — admin removes a message from the group
       const groupId = event.tags.find((t) => t[0] === "h")?.[1];
@@ -507,14 +533,15 @@ async function handleGiftWrap(event: NostrEvent): Promise<void> {
     const dmState = store.getState().dm;
     const alreadyProcessed = !!dmState.processedWrapIdSet[dm.wrapId];
 
-    // Use receive-time for display instead of the rumor's randomized created_at.
-    // NIP-17 randomizes the rumor timestamp for wire-level privacy — it's not
-    // meaningful for display. Own messages dispatched from dmService already use
-    // real time and will dedup before reaching here.
-    const displayTimestamp = Math.round(Date.now() / 1000);
+    // NIP-17: the rumor's created_at IS the real send time.
+    // Only the seal and gift wrap timestamps are randomized for privacy.
+    const displayTimestamp = dm.createdAt;
 
     // Extract reply reference from q-tag (if this is a reply)
     const replyToWrapId = dm.tags.find((t) => t[0] === "q")?.[1];
+
+    // Extract NIP-30 emoji tags for custom emoji rendering
+    const dmEmojiTags = dm.tags.filter((t) => t[0] === "emoji");
 
     store.dispatch(
       addDMMessage({
@@ -528,6 +555,7 @@ async function handleGiftWrap(event: NostrEvent): Promise<void> {
           wrapId: dm.wrapId,
           rumorId: dm.rumorId,
           replyToWrapId,
+          emojiTags: dmEmojiTags.length > 0 ? dmEmojiTags : undefined,
         },
       }),
     );

@@ -185,9 +185,9 @@ export function DMConversation({ partnerPubkey, onBack }: DMConversationProps) {
   }, [dispatch, partnerPubkey]);
 
   const handleSend = useCallback(
-    async (content: string) => {
+    async (content: string, emojiTags?: string[][]) => {
       try {
-        await sendDM(partnerPubkey, content, replyTo ? { wrapId: replyTo.wrapId } : undefined);
+        await sendDM(partnerPubkey, content, replyTo ? { wrapId: replyTo.wrapId } : undefined, emojiTags);
         setReplyTo(null);
         // Scroll to bottom after sending
         requestAnimationFrame(() => {

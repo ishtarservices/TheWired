@@ -1,5 +1,5 @@
-import { useState, useEffect, useMemo, useRef, memo } from "react";
-import { ChevronUp, ChevronDown, Image as ImageIcon, CornerUpLeft } from "lucide-react";
+import { useState, useEffect, useMemo, useRef, memo, useCallback } from "react";
+import { ChevronUp, ChevronDown, Image as ImageIcon, CornerUpLeft, MoreHorizontal, Trash2 } from "lucide-react";
 import { MediaLightbox } from "../../components/ui/MediaLightbox";
 import { Avatar } from "../../components/ui/Avatar";
 import { RichContent } from "../../components/content/RichContent";
@@ -14,9 +14,12 @@ import { useRepostedEvent } from "./useRepostedEvent";
 import { parseThreadRef, parseQuoteRef } from "../spaces/noteParser";
 import { extractMediaUrls, stripMediaUrls } from "../../lib/media/mediaUrlParser";
 import { UserPopoverCard } from "./UserPopoverCard";
-import { useAppSelector } from "../../store/hooks";
-import { eventsSelectors } from "../../store/slices/eventsSlice";
+import { useClickOutside } from "../../hooks/useClickOutside";
+import { useAppSelector, useAppDispatch } from "../../store/hooks";
+import { eventsSelectors, removeEvent, removeRepost } from "../../store/slices/eventsSlice";
 import { subscriptionManager } from "../../lib/nostr/subscriptionManager";
+import { buildDeletionEvent } from "../../lib/nostr/eventBuilder";
+import { signAndPublish } from "../../lib/nostr/publish";
 import type { NostrEvent } from "../../types/nostr";
 import type { ProfileFeedItem } from "./useProfileNotes";
 
@@ -42,13 +45,38 @@ export const ProfileNoteCard = memo(function ProfileNoteCard({
   showThreadContext,
   animationDelay,
 }: NoteCardProps) {
+  const myPubkey = useAppSelector((s) => s.identity.pubkey);
+  const dispatch = useAppDispatch();
+
+  const handleUnrepost = useCallback(async () => {
+    if (!myPubkey || !item.reposterPubkey) return;
+    // Only allow unreposting own reposts
+    if (item.reposterPubkey !== myPubkey) return;
+    const repostEventId = item.event.id;
+    // Optimistic removal from Redux
+    dispatch(removeEvent(repostEventId));
+    dispatch(removeRepost({ pubkey: myPubkey, eventId: repostEventId }));
+    // Publish kind:5 deletion targeting the kind:6 repost
+    const unsigned = buildDeletionEvent(
+      myPubkey,
+      { eventIds: [repostEventId] },
+      undefined,
+      ["6"],
+    );
+    await signAndPublish(unsigned);
+  }, [myPubkey, item.event.id, item.reposterPubkey, dispatch]);
+
   if (item.repostedEventId) {
+    const isOwnRepost = item.reposterPubkey === myPubkey;
     return (
       <div
         className="animate-fade-in-up"
         style={animationDelay ? { animationDelay: `${animationDelay}ms` } : undefined}
       >
-        <RepostHeader pubkey={item.reposterPubkey!} />
+        <RepostHeader
+          pubkey={item.reposterPubkey!}
+          onUnrepost={isOwnRepost ? handleUnrepost : undefined}
+        />
         <RepostedNoteInner repostEvent={item.event} />
       </div>
     );
@@ -93,11 +121,32 @@ function NoteCardInner({
   const { profile } = useProfile(event.pubkey);
   const engagement = useNoteEngagement(event.id);
   const actions = useProfileNoteActions(event);
+  const myPubkey = useAppSelector((s) => s.identity.pubkey);
+  const pinnedNoteIds = useAppSelector((s) => s.identity.pinnedNoteIds);
   const [showReplyComposer, setShowReplyComposer] = useState(false);
   const [showMedia, setShowMedia] = useState(true);
   const [showPopover, setShowPopover] = useState(false);
   const [lightboxSrc, setLightboxSrc] = useState<string | null>(null);
+  const [showOverflow, setShowOverflow] = useState(false);
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const avatarRef = useRef<HTMLButtonElement>(null);
+  const overflowRef = useRef<HTMLDivElement>(null);
+  const deleteConfirmRef = useRef<HTMLDivElement>(null);
+
+  useClickOutside(overflowRef, () => setShowOverflow(false), showOverflow);
+  useClickOutside(deleteConfirmRef, () => setShowDeleteConfirm(false), showDeleteConfirm);
+
+  const handleDelete = useCallback(() => {
+    setShowDeleteConfirm(false);
+    setShowOverflow(false);
+    actions.deleteNote(event.id);
+  }, [actions, event.id]);
+
+  // Pin detection: only show on own root notes (kind:1 with no reply)
+  const isOwnNote = event.pubkey === myPubkey;
+  const isRootNote = useMemo(() => parseThreadRef(event).rootId === null, [event]);
+  const showPin = isOwnNote && isRootNote;
+  const isPinned = pinnedNoteIds.includes(event.id);
 
   const displayName = profile?.display_name || profile?.name || event.pubkey.slice(0, 12) + "...";
 
@@ -115,7 +164,7 @@ function NoteCardInner({
   const hasMedia = media.length > 0;
 
   return (
-    <div className="card-glass rounded-xl p-5 transition-all duration-150 hover-lift">
+    <div className="group/notecard card-glass rounded-xl p-5 transition-all duration-150 hover-lift">
       {/* Author row */}
       <div className="mb-3 flex items-center gap-3">
         <button
@@ -132,7 +181,69 @@ function NoteCardInner({
           <span className="text-sm font-semibold text-heading">{displayName}</span>
           <span className="ml-2 text-xs text-muted">{formatRelativeTime(event.created_at)}</span>
         </div>
+
+        {/* Overflow menu (own notes only) */}
+        {isOwnNote && (
+          <div className="relative" ref={overflowRef}>
+            <button
+              onClick={() => setShowOverflow((v) => !v)}
+              className="rounded-lg p-1 text-muted opacity-0 group-hover/notecard:opacity-100 hover:text-heading hover:bg-surface-hover transition-all"
+            >
+              <MoreHorizontal size={16} />
+            </button>
+
+            {showOverflow && (
+              <div
+                className="absolute right-0 top-full mt-1 z-50 w-40 rounded-lg border border-edge-light overflow-hidden"
+                style={{
+                  backgroundColor: "var(--color-card)",
+                  boxShadow: "var(--shadow-elevated)",
+                }}
+              >
+                <button
+                  onClick={() => {
+                    setShowOverflow(false);
+                    setShowDeleteConfirm(true);
+                  }}
+                  className="flex w-full items-center gap-2.5 px-3 py-2 text-xs text-red-400 hover:bg-red-500/10 transition-colors"
+                >
+                  <Trash2 size={13} />
+                  Delete Note
+                </button>
+              </div>
+            )}
+          </div>
+        )}
       </div>
+
+      {/* Delete confirmation */}
+      {showDeleteConfirm && (
+        <div
+          ref={deleteConfirmRef}
+          className="mb-3 rounded-lg border border-red-500/20 bg-red-500/5 p-3"
+        >
+          <p className="text-xs text-heading font-medium mb-1">
+            Delete this note?
+          </p>
+          <p className="text-[11px] text-muted mb-3">
+            This will broadcast a deletion request to all relays. Some relays may still retain the original event.
+          </p>
+          <div className="flex items-center gap-2 justify-end">
+            <button
+              onClick={() => setShowDeleteConfirm(false)}
+              className="rounded-md px-2.5 py-1 text-xs text-soft hover:bg-surface-hover transition-colors"
+            >
+              Cancel
+            </button>
+            <button
+              onClick={handleDelete}
+              className="rounded-md bg-red-500/20 px-2.5 py-1 text-xs font-medium text-red-400 hover:bg-red-500/30 transition-colors"
+            >
+              Delete
+            </button>
+          </div>
+        </div>
+      )}
 
       {/* Thread context for replies — clickable to show parent */}
       {showThreadContext && threadRef.replyId && (
@@ -204,11 +315,12 @@ function NoteCardInner({
         onRepost={actions.repost}
         onLike={actions.like}
         onQuote={() => {
-          // Quote is a more complex interaction — for now, same as repost
-          // A full quote modal would be a future enhancement
           const content = prompt("Quote this note:");
           if (content) actions.quote(content);
         }}
+        showPin={showPin}
+        isPinned={isPinned}
+        onPin={() => actions.togglePin(event.id)}
       />
 
       {/* Reply composer */}

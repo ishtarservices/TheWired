@@ -11,6 +11,8 @@
     "tauri": "tauri"
   },
   "dependencies": {
+    "@emoji-mart/data": "^1.2.1",
+    "@emoji-mart/react": "^1.1.1",
     "@livekit/components-react": "^2.9.20",
     "@noble/curves": "^1.9.7",
     "@noble/hashes": "^1.8.0",

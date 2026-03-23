@@ -267,9 +267,58 @@ fn invalidate_cache() {
     }
 }
 
+/// File-based fallback path for the secret key.
+/// On dev builds the macOS keychain is unreliable (entitlement issues),
+/// so we also persist the key to a plain file in the app support directory.
+/// This ensures the same identity survives across app restarts.
+fn fallback_key_path() -> Option<std::path::PathBuf> {
+    let home = std::env::var("HOME").ok()?;
+    let mut dir = std::path::PathBuf::from(home);
+    #[cfg(target_os = "macos")]
+    dir.push("Library/Application Support");
+    #[cfg(target_os = "linux")]
+    dir.push(".local/share");
+    #[cfg(target_os = "windows")]
+    dir.push("AppData/Roaming");
+    dir.push(SERVICE_NAME);
+    let account = get_key_account();
+    dir.push(format!("{account}.key"));
+    Some(dir)
+}
+
+fn read_fallback_key() -> Option<SecretKey> {
+    let path = fallback_key_path()?;
+    let hex_str = std::fs::read_to_string(&path).ok()?;
+    let hex_str = hex_str.trim();
+    if hex_str.len() != 64 {
+        return None;
+    }
+    parse_hex_secret_key(hex_str).ok()
+}
+
+fn write_fallback_key(hex_str: &str) {
+    if let Some(path) = fallback_key_path() {
+        if let Some(parent) = path.parent() {
+            let _ = std::fs::create_dir_all(parent);
+        }
+        if let Err(e) = std::fs::write(&path, hex_str) {
+            log::warn!("Failed to write fallback key file: {e}");
+        }
+    }
+}
+
+fn delete_fallback_key() {
+    if let Some(path) = fallback_key_path() {
+        let _ = std::fs::remove_file(path);
+    }
+}
+
 /// Load the secret key from cache or keychain, optionally generating a new one.
 /// On macOS, the first access per session triggers a single Touch ID prompt.
 /// All subsequent calls use the in-memory cache.
+///
+/// Read order: in-memory cache → keychain (biometric) → legacy keychain → fallback file.
+/// A new key is generated ONLY if none of these sources have one.
 fn load_secret_key(generate: bool) -> Result<SecretKey, String> {
     let mut cache = CACHED_SECRET.lock().map_err(|e| e.to_string())?;
     if let Some(sk) = *cache {
@@ -284,6 +333,8 @@ fn load_secret_key(generate: bool) -> Result<SecretKey, String> {
         let hex_str = String::from_utf8(data).map_err(|e| format!("Invalid key data: {e}"))?;
         let sk = parse_hex_secret_key(&hex_str)?;
         *cache = Some(sk);
+        // Ensure fallback file is in sync
+        write_fallback_key(&hex_str);
         return Ok(sk);
     }
 
@@ -292,11 +343,8 @@ fn load_secret_key(generate: bool) -> Result<SecretKey, String> {
         let hex_str = String::from_utf8(data).map_err(|e| format!("Invalid legacy key: {e}"))?;
         let sk = parse_hex_secret_key(&hex_str)?;
 
-        // Cache IMMEDIATELY — migration is best-effort.
-        // Without this, a failed store_key would leave the cache empty,
-        // causing every subsequent NIP-44 decrypt to re-read from legacy
-        // and trigger another macOS password dialog.
         *cache = Some(sk);
+        write_fallback_key(&hex_str);
 
         // Best-effort migration: store with biometric protection, delete legacy
         match platform::store_key(
@@ -317,7 +365,23 @@ fn load_secret_key(generate: bool) -> Result<SecretKey, String> {
         return Ok(sk);
     }
 
-    // 3. No key found — generate if requested
+    // 3. File-based fallback — catches the case where keychain reads fail
+    //    (common on unsigned dev builds without proper entitlements)
+    if let Some(sk) = read_fallback_key() {
+        log::info!("Loaded key from fallback file (keychain read failed)");
+        *cache = Some(sk);
+        // Try to re-store in keychain for next time
+        let hex_str = hex::encode(sk.secret_bytes());
+        let _ = platform::store_key(
+            SERVICE_NAME,
+            &key_account,
+            &marker_account,
+            hex_str.as_bytes(),
+        );
+        return Ok(sk);
+    }
+
+    // 4. No key found anywhere — generate if requested
     if !generate {
         return Err("No key found".to_string());
     }
@@ -329,15 +393,18 @@ fn load_secret_key(generate: bool) -> Result<SecretKey, String> {
     // Cache immediately so the session works even if storage fails
     *cache = Some(sk);
 
+    // Persist to keychain (best-effort)
     if let Err(e) = platform::store_key(
         SERVICE_NAME,
         &key_account,
         &marker_account,
         hex_str.as_bytes(),
     ) {
-        log::error!("Failed to persist generated key: {e}");
-        // Key is in memory for this session but won't survive restart
+        log::error!("Failed to persist generated key to keychain: {e}");
     }
+
+    // Always write fallback file — this is the reliable persistence layer
+    write_fallback_key(&hex_str);
 
     Ok(sk)
 }
@@ -442,6 +509,8 @@ pub fn keystore_import_key(secret_hex: String) -> Result<String, String> {
     platform::store_key(SERVICE_NAME, &key_account, &marker_account, secret_hex.as_bytes())?;
     // Clean up any legacy key
     let _ = platform::delete_legacy_key(SERVICE_NAME, &key_account);
+    // Always write fallback file
+    write_fallback_key(&secret_hex);
 
     invalidate_cache();
     if let Ok(mut cache) = CACHED_SECRET.lock() {
@@ -461,6 +530,7 @@ pub fn keystore_delete_key() -> Result<(), String> {
     let marker_account = get_marker_account();
     platform::delete_items(SERVICE_NAME, &key_account, &marker_account)?;
     let _ = platform::delete_legacy_key(SERVICE_NAME, &key_account);
+    delete_fallback_key();
     Ok(())
 }
 

@@ -13,4 +13,6 @@ export const config = {
   livekitUrl: process.env.LIVEKIT_URL ?? "ws://localhost:7880",
   livekitApiKey: process.env.LIVEKIT_API_KEY ?? "devkey",
   livekitApiSecret: process.env.LIVEKIT_API_SECRET ?? "secret",
+  gifApiKey: process.env.GIF_API_KEY ?? "",
+  gifClientKey: process.env.GIF_CLIENT_KEY ?? "thewired_v1",
 } as const;

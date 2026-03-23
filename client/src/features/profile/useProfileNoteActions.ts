@@ -1,13 +1,18 @@
 import { useCallback } from "react";
-import { useAppSelector } from "../../store/hooks";
+import { useAppSelector, useAppDispatch } from "../../store/hooks";
+import { setPinnedNotes } from "../../store/slices/identitySlice";
 import type { NostrEvent } from "../../types/nostr";
-import { buildReaction, buildRepost, buildReply, buildQuoteNote } from "../../lib/nostr/eventBuilder";
+import { buildReaction, buildRepost, buildReply, buildQuoteNote, buildPinnedNotesEvent, buildDeletionEvent } from "../../lib/nostr/eventBuilder";
 import { signAndPublish } from "../../lib/nostr/publish";
+import { saveUserState } from "../../lib/db/userStateStore";
+import { removeEvent, removeNote } from "../../store/slices/eventsSlice";
 import { parseThreadRef } from "../spaces/noteParser";
 
 /** Profile-context note actions — publishes to user's write relays (no space dependency) */
 export function useProfileNoteActions(event: NostrEvent) {
   const pubkey = useAppSelector((s) => s.identity.pubkey);
+  const pinnedNoteIds = useAppSelector((s) => s.identity.pinnedNoteIds);
+  const dispatch = useAppDispatch();
 
   const canInteract = !!pubkey;
   const canWrite = !!pubkey;
@@ -56,5 +61,43 @@ export function useProfileNoteActions(event: NostrEvent) {
     await signAndPublish(unsigned);
   }, [pubkey, event.id, event.pubkey]);
 
-  return { like, repost, reply, quote, canInteract, canWrite };
+  const togglePin = useCallback(async (eventId: string) => {
+    if (!pubkey) return;
+    const isPinned = pinnedNoteIds.includes(eventId);
+    const newIds = isPinned
+      ? pinnedNoteIds.filter((id) => id !== eventId)
+      : [...pinnedNoteIds, eventId];
+    const now = Math.floor(Date.now() / 1000);
+    // Optimistic update
+    dispatch(setPinnedNotes({ noteIds: newIds, createdAt: now }));
+    const unsigned = buildPinnedNotesEvent(pubkey, newIds);
+    await signAndPublish(unsigned);
+    saveUserState("pinned_notes", newIds);
+  }, [pubkey, pinnedNoteIds, dispatch]);
+
+  const deleteNote = useCallback(async (eventId: string) => {
+    if (!pubkey) return;
+    // If this note is pinned, unpin it first
+    if (pinnedNoteIds.includes(eventId)) {
+      const newPinIds = pinnedNoteIds.filter((id) => id !== eventId);
+      const now = Math.floor(Date.now() / 1000);
+      dispatch(setPinnedNotes({ noteIds: newPinIds, createdAt: now }));
+      const pinUnsigned = buildPinnedNotesEvent(pubkey, newPinIds);
+      signAndPublish(pinUnsigned).catch(() => {});
+      saveUserState("pinned_notes", newPinIds);
+    }
+    // Remove from Redux immediately (optimistic)
+    dispatch(removeEvent(eventId));
+    dispatch(removeNote({ pubkey: event.pubkey, eventId }));
+    // Publish kind:5 deletion event
+    const unsigned = buildDeletionEvent(
+      pubkey,
+      { eventIds: [eventId] },
+      undefined,
+      ["1"],
+    );
+    await signAndPublish(unsigned);
+  }, [pubkey, event.pubkey, pinnedNoteIds, dispatch]);
+
+  return { like, repost, reply, quote, togglePin, deleteNote, canInteract, canWrite };
 }

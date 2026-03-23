@@ -1,8 +1,10 @@
 import { useRef, useState, useCallback } from "react";
 import { formatDistanceToNow } from "date-fns";
+import { SmilePlus } from "lucide-react";
 import { Avatar } from "../../components/ui/Avatar";
 import { RichContent } from "../../components/content/RichContent";
 import { BlockedMessage } from "../../components/ui/BlockedMessage";
+import { ReactionPicker } from "../../components/chat/ReactionPicker";
 import { ChatMessageContextMenu } from "./ChatMessageContextMenu";
 import { useProfile } from "../profile/useProfile";
 import { useIsBlocked } from "../../hooks/useIsBlocked";
@@ -56,6 +58,22 @@ export function ChatMessage({
 
   // Context menu state
   const [ctxMenu, setCtxMenu] = useState<{ x: number; y: number } | null>(null);
+  const [showReactionPicker, setShowReactionPicker] = useState(false);
+
+  // Aggregate reactions for this message
+  const reactionIds = useAppSelector((s) => s.events.reactions[event.id]);
+  const reactions = useAppSelector((s) => {
+    if (!reactionIds || reactionIds.length === 0) return [];
+    const grouped: Record<string, number> = {};
+    for (const id of reactionIds) {
+      const ev = s.events.entities[id];
+      if (ev) {
+        const key = ev.content || "+";
+        grouped[key] = (grouped[key] ?? 0) + 1;
+      }
+    }
+    return Object.entries(grouped).map(([content, count]) => ({ content, count }));
+  });
 
   const handleContextMenu = useCallback((e: React.MouseEvent) => {
     e.preventDefault();
@@ -88,7 +106,7 @@ export function ChatMessage({
               <span className="text-xs text-muted">{timeAgo}</span>
             </div>
             <div className="text-sm text-body break-words">
-              <RichContent content={displayContent} onMentionClick={onMentionClick} />
+              <RichContent content={displayContent} emojiTags={event.tags.filter((t) => t[0] === "emoji")} onMentionClick={onMentionClick} />
             </div>
           </div>
         </div>
@@ -123,19 +141,56 @@ export function ChatMessage({
           {isEdited && (
             <span className="text-[10px] text-faint italic">(edited)</span>
           )}
-          {onReply && (
-            <button
-              onClick={() => onReply(event.id, event.pubkey)}
-              className="ml-auto text-xs text-muted opacity-0 transition-opacity hover:text-pulse-soft group-hover:opacity-100"
-            >
-              Reply
-            </button>
-          )}
+          <div className="ml-auto flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+            <div className="relative">
+              <button
+                onClick={() => setShowReactionPicker((prev) => !prev)}
+                className="text-xs text-muted hover:text-pulse-soft"
+                title="React"
+              >
+                <SmilePlus size={14} />
+              </button>
+              {showReactionPicker && (
+                <ReactionPicker
+                  targetEventId={event.id}
+                  targetPubkey={event.pubkey}
+                  targetKind={event.kind}
+                  onClose={() => setShowReactionPicker(false)}
+                />
+              )}
+            </div>
+            {onReply && (
+              <button
+                onClick={() => onReply(event.id, event.pubkey)}
+                className="text-xs text-muted hover:text-pulse-soft"
+              >
+                Reply
+              </button>
+            )}
+          </div>
         </div>
         {replyEventId && <InlineReplyPreview eventId={replyEventId} onJump={onJumpToMessage} />}
         <div className="text-sm text-body break-words">
-          <RichContent content={displayContent} onMentionClick={onMentionClick} />
+          <RichContent content={displayContent} emojiTags={event.tags.filter((t) => t[0] === "emoji")} onMentionClick={onMentionClick} />
         </div>
+        {/* Reaction display */}
+        {reactions.length > 0 && (
+          <div className="mt-1 flex flex-wrap gap-1">
+            {reactions.map(({ content, count }) => (
+              <span
+                key={content}
+                className="inline-flex items-center gap-1 rounded-full bg-surface-hover px-2 py-0.5 text-xs text-body border border-edge"
+              >
+                {content.startsWith(":") && content.endsWith(":") ? (
+                  <ReactionEmoji shortcode={content} />
+                ) : (
+                  <span>{content}</span>
+                )}
+                {count > 1 && <span className="text-muted">{count}</span>}
+              </span>
+            ))}
+          </div>
+        )}
       </div>
       <ChatMessageContextMenu
         open={!!ctxMenu}
@@ -196,4 +251,22 @@ function InlineReplyPreview({ eventId, onJump }: { eventId: string; onJump?: (ev
       <span className="truncate">{preview}</span>
     </button>
   );
+}
+
+/** Render a custom emoji reaction shortcode (looks up in event reactions) */
+function ReactionEmoji({ shortcode }: { shortcode: string }) {
+  const shortcodeIndex = useAppSelector((s) => s.emoji.shortcodeIndex);
+  const clean = shortcode.replace(/^:|:$/g, "");
+  const emoji = shortcodeIndex[clean];
+
+  if (emoji) {
+    return (
+      <img
+        src={emoji.url}
+        alt={shortcode}
+        className="inline-block h-4 w-4 object-contain"
+      />
+    );
+  }
+  return <span>{shortcode}</span>;
 }

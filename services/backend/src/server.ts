@@ -24,6 +24,7 @@ import { rolesRoutes } from "./routes/roles.js";
 import { moderationRoutes } from "./routes/moderation.js";
 import { notificationsRoutes } from "./routes/notifications.js";
 import { voiceRoutes } from "./routes/voice.js";
+import { gifRoutes } from "./routes/gif.js";
 import { authContext } from "./middleware/authContext.js";
 import { errorHandler } from "./middleware/errorHandler.js";
 
@@ -69,6 +70,7 @@ export async function createServer() {
   await server.register(moderationRoutes, { prefix: "/spaces" });
   await server.register(notificationsRoutes, { prefix: "/notifications" });
   await server.register(voiceRoutes, { prefix: "/voice" });
+  await server.register(gifRoutes, { prefix: "/gif" });
 
   return server;
 }

@@ -129,7 +129,7 @@ export const DMMessage = memo(function DMMessage({
               onJump={onJumpToMessage}
             />
           )}
-          <RichContent content={displayContent} onMentionClick={(pubkey, anchor) => openUserPopover(pubkey, anchor)} />
+          <RichContent content={displayContent} emojiTags={message.emojiTags} onMentionClick={(pubkey, anchor) => openUserPopover(pubkey, anchor)} />
         </div>
         {!isGrouped && (
           <div

@@ -3,7 +3,8 @@ import { channelService } from "../services/channelService.js";
 import { permissionService } from "../services/permissionService.js";
 
 export const channelsRoutes: FastifyPluginAsync = async (server) => {
-  /** GET /:spaceId/channels — List channels */
+  /** GET /:spaceId/channels — List channels.
+   *  VIEW_CHANNEL filtering is handled client-side via channel overrides. */
   server.get<{ Params: { spaceId: string } }>(
     "/:spaceId/channels",
     async (request) => {
@@ -39,7 +40,7 @@ export const channelsRoutes: FastifyPluginAsync = async (server) => {
   /** PATCH /:spaceId/channels/:channelId — Update channel */
   server.patch<{
     Params: { spaceId: string; channelId: string };
-    Body: { label?: string; position?: number; adminOnly?: boolean; slowModeSeconds?: number };
+    Body: { label?: string; position?: number; adminOnly?: boolean; slowModeSeconds?: number; isDefault?: boolean };
   }>(
     "/:spaceId/channels/:channelId",
     async (request, reply) => {

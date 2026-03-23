@@ -1,8 +1,10 @@
-import { Ban, Clock, X } from "lucide-react";
+import { useState, useEffect } from "react";
+import { Ban, Clock, X, ScrollText } from "lucide-react";
 import { Avatar } from "../../../components/ui/Avatar";
 import { Button } from "../../../components/ui/Button";
 import { useProfile } from "../../profile/useProfile";
 import { useModeration } from "./useModeration";
+import { fetchAuditLog, type AuditLogEntry } from "../../../lib/api/moderation";
 
 interface ModerationTabProps {
   spaceId: string;
@@ -105,6 +107,88 @@ export function ModerationTab({ spaceId }: ModerationTabProps) {
           </div>
         )}
       </div>
+
+      {/* Audit Log */}
+      <AuditLogSection spaceId={spaceId} />
+    </div>
+  );
+}
+
+function AuditLogSection({ spaceId }: { spaceId: string }) {
+  const [entries, setEntries] = useState<AuditLogEntry[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    fetchAuditLog(spaceId)
+      .then(setEntries)
+      .catch(() => {})
+      .finally(() => setLoading(false));
+  }, [spaceId]);
+
+  const ACTION_LABELS: Record<string, string> = {
+    ban: "Banned",
+    unban: "Unbanned",
+    mute: "Muted",
+    unmute: "Unmuted",
+    kick: "Kicked",
+    role_assign: "Assigned role",
+    role_remove: "Removed role",
+    override_change: "Changed overrides",
+  };
+
+  return (
+    <div>
+      <div className="flex items-center gap-2 mb-2">
+        <ScrollText size={16} className="text-soft" />
+        <h3 className="text-sm font-semibold text-heading">Audit Log</h3>
+      </div>
+
+      {loading ? (
+        <p className="text-xs text-muted px-2">Loading...</p>
+      ) : entries.length === 0 ? (
+        <p className="text-xs text-muted px-2">No audit log entries</p>
+      ) : (
+        <div className="space-y-0.5 max-h-60 overflow-y-auto">
+          {entries.map((entry) => (
+            <AuditLogItem key={entry.id} entry={entry} actionLabels={ACTION_LABELS} />
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function AuditLogItem({
+  entry,
+  actionLabels,
+}: {
+  entry: AuditLogEntry;
+  actionLabels: Record<string, string>;
+}) {
+  const { profile: actorProfile } = useProfile(entry.actorPubkey);
+  const { profile: targetProfile } = useProfile(entry.targetPubkey ?? "");
+  const actorName = actorProfile?.display_name || actorProfile?.name || entry.actorPubkey.slice(0, 8) + "...";
+  const targetName = entry.targetPubkey
+    ? (targetProfile?.display_name || targetProfile?.name || entry.targetPubkey.slice(0, 8) + "...")
+    : null;
+  const actionLabel = actionLabels[entry.action] ?? entry.action;
+  const details = entry.details ? JSON.parse(entry.details) : null;
+  const time = entry.createdAt ? new Date(entry.createdAt).toLocaleString() : "";
+
+  return (
+    <div className="flex items-start gap-2 rounded-xl px-3 py-1.5 text-xs hover:bg-surface-hover/50 transition-colors">
+      <Avatar src={actorProfile?.picture} alt={actorName} size="xs" />
+      <div className="flex-1 min-w-0">
+        <span className="text-heading font-medium">{actorName}</span>{" "}
+        <span className="text-soft">{actionLabel.toLowerCase()}</span>
+        {targetName && (
+          <>{" "}<span className="text-heading font-medium">{targetName}</span></>
+        )}
+        {details?.reason && (
+          <span className="text-muted"> — {details.reason}</span>
+        )}
+      </div>
+      <span className="text-[10px] text-muted shrink-0">{time}</span>
     </div>
   );
 }

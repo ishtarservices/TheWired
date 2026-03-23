@@ -1,9 +1,10 @@
-import { useState, type RefObject } from "react";
+import { useState, useMemo, type RefObject } from "react";
 import { User, VolumeX, LogOut, Ban, Clock } from "lucide-react";
 import { PopoverMenu, PopoverMenuItem, PopoverMenuSeparator } from "../../../components/ui/PopoverMenu";
 import { usePermissions } from "../usePermissions";
 import { useModeration } from "./useModeration";
 import { useNavigate } from "react-router-dom";
+import { useAppSelector } from "../../../store/hooks";
 
 const MUTE_DURATIONS = [
   { label: "5 minutes", seconds: 300 },
@@ -33,6 +34,25 @@ export function MemberContextMenu({
   const [showMuteDurations, setShowMuteDurations] = useState(false);
   const [confirmAction, setConfirmAction] = useState<"kick" | "ban" | null>(null);
   const [banReason, setBanReason] = useState("");
+
+  // Role hierarchy: hide moderation options if target outranks or equals actor
+  const currentPubkey = useAppSelector((s) => s.identity.pubkey);
+  const members = useAppSelector((s) => s.spaceConfig.members[spaceId] ?? []);
+
+  const canModerate = useMemo(() => {
+    if (!currentPubkey || currentPubkey === pubkey) return false;
+    // Get actor's best (lowest) role position
+    const actorMember = members.find((m) => m.pubkey === currentPubkey);
+    const targetMember = members.find((m) => m.pubkey === pubkey);
+    if (!actorMember?.roles.length) return false;
+
+    const actorBest = Math.min(...actorMember.roles.map((r) => r.position));
+    const targetBest = targetMember?.roles.length
+      ? Math.min(...targetMember.roles.map((r) => r.position))
+      : Infinity; // No roles = lowest rank
+
+    return actorBest < targetBest; // Actor must strictly outrank
+  }, [currentPubkey, pubkey, members]);
 
   function handleViewProfile() {
     navigate(`/profile/${pubkey}`);
@@ -141,14 +161,14 @@ export function MemberContextMenu({
         label="View Profile"
         onClick={handleViewProfile}
       />
-      {can("MUTE_MEMBERS") && (
+      {canModerate && can("MUTE_MEMBERS") && (
         <PopoverMenuItem
           icon={<VolumeX size={14} />}
           label="Mute"
           onClick={() => setShowMuteDurations(true)}
         />
       )}
-      {can("MANAGE_MEMBERS") && (
+      {canModerate && can("MANAGE_MEMBERS") && (
         <>
           <PopoverMenuSeparator />
           <PopoverMenuItem
@@ -159,7 +179,7 @@ export function MemberContextMenu({
           />
         </>
       )}
-      {can("BAN_MEMBERS") && (
+      {canModerate && can("BAN_MEMBERS") && (
         <PopoverMenuItem
           icon={<Ban size={14} />}
           label="Ban"

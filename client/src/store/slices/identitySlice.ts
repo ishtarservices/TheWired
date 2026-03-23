@@ -17,9 +17,11 @@ interface IdentityState {
   followList: string[];
   knownFollowers: string[];
   muteList: MuteEntry[];
+  pinnedNoteIds: string[];
   profileCreatedAt: number;
   followListCreatedAt: number;
   muteListCreatedAt: number;
+  pinnedNotesCreatedAt: number;
   relayListCreatedAt: number;
   dmRelayList: string[];
   dmRelayListCreatedAt: number;
@@ -33,9 +35,11 @@ const initialState: IdentityState = {
   followList: [],
   knownFollowers: [],
   muteList: [],
+  pinnedNoteIds: [],
   profileCreatedAt: 0,
   followListCreatedAt: 0,
   muteListCreatedAt: 0,
+  pinnedNotesCreatedAt: 0,
   relayListCreatedAt: 0,
   dmRelayList: [],
   dmRelayListCreatedAt: 0,
@@ -95,6 +99,14 @@ export const identitySlice = createSlice({
       state.muteList = action.payload.mutes;
       state.muteListCreatedAt = action.payload.createdAt;
     },
+    setPinnedNotes(
+      state,
+      action: PayloadAction<{ noteIds: string[]; createdAt: number }>,
+    ) {
+      if (action.payload.createdAt <= state.pinnedNotesCreatedAt) return;
+      state.pinnedNoteIds = action.payload.noteIds;
+      state.pinnedNotesCreatedAt = action.payload.createdAt;
+    },
     setKnownFollowers(state, action: PayloadAction<string[]>) {
       state.knownFollowers = action.payload;
     },
@@ -114,6 +126,7 @@ export const {
   setDMRelayList,
   setFollowList,
   setMuteList,
+  setPinnedNotes,
   setKnownFollowers,
   addKnownFollower,
 } = identitySlice.actions;

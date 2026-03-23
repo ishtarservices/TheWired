@@ -1,5 +1,5 @@
 import { useState, useCallback } from "react";
-import { Shield, Search, X, Plus, Rss } from "lucide-react";
+import { Search, X, Plus, Rss, ChevronDown, Check } from "lucide-react";
 import { Avatar } from "../../../components/ui/Avatar";
 import { useProfile } from "../../profile/useProfile";
 import { useAppSelector, useAppDispatch } from "../../../store/hooks";
@@ -12,57 +12,155 @@ import { updateSpaceInStore } from "../../../lib/db/spaceStore";
 import { switchSpaceChannel } from "../../../lib/nostr/groupSubscriptions";
 import { store } from "../../../store";
 import { parseChannelIdPart } from "../spaceSelectors";
-import type { Space } from "../../../types/space";
+import type { Space, SpaceRole } from "../../../types/space";
 
 interface MembersTabProps {
   spaceId: string;
 }
 
+function RoleBadge({ role, size = "sm" }: { role: SpaceRole; size?: "sm" | "xs" }) {
+  const color = role.color ?? "#6b7280";
+  return (
+    <span
+      className={`inline-flex items-center gap-1 rounded-full font-medium ${
+        size === "sm" ? "px-2 py-0.5 text-[11px]" : "px-1.5 py-px text-[10px]"
+      }`}
+      style={{
+        backgroundColor: `${color}18`,
+        color,
+        border: `1px solid ${color}40`,
+      }}
+    >
+      <span
+        className="shrink-0 rounded-full"
+        style={{
+          backgroundColor: color,
+          width: size === "sm" ? 6 : 5,
+          height: size === "sm" ? 6 : 5,
+        }}
+      />
+      {role.name}
+    </span>
+  );
+}
+
 function MemberRow({
   pubkey,
   spaceId,
+  memberRoles,
 }: {
   pubkey: string;
   spaceId: string;
+  memberRoles: SpaceRole[];
 }) {
   const { profile } = useProfile(pubkey);
-  const { roles } = useRoles(spaceId);
-  const { assignRole } = useMemberRoles(spaceId);
-  const [showRoles, setShowRoles] = useState(false);
+  const { roles: allRoles } = useRoles(spaceId);
+  const { assignRole, removeRoleFromMember } = useMemberRoles(spaceId);
+  const [expanded, setExpanded] = useState(false);
 
   const name = profile?.display_name || profile?.name || pubkey.slice(0, 8) + "...";
+  const assignedIds = new Set(memberRoles.map((r) => r.id));
+
+  const handleToggleRole = async (roleId: string) => {
+    if (assignedIds.has(roleId)) {
+      await removeRoleFromMember(pubkey, roleId);
+    } else {
+      await assignRole(pubkey, roleId);
+    }
+  };
 
   return (
-    <div className="flex items-center gap-2 rounded-xl px-2 py-2 hover:bg-surface-hover transition-colors">
-      <Avatar src={profile?.picture} alt={name} size="sm" />
-      <div className="flex-1 min-w-0">
-        <div className="truncate text-sm text-heading">{name}</div>
-        <div className="truncate text-[10px] text-muted font-mono">{pubkey.slice(0, 16)}...</div>
+    <div className="rounded-xl transition-colors hover:bg-surface-hover/50">
+      {/* Main row */}
+      <div
+        className="flex items-center gap-2.5 px-2.5 py-2 cursor-pointer"
+        onClick={() => setExpanded(!expanded)}
+      >
+        <Avatar src={profile?.picture} alt={name} size="sm" />
+        <div className="flex-1 min-w-0">
+          <div className="flex items-center gap-2">
+            <span className="truncate text-sm font-medium text-heading">{name}</span>
+            {memberRoles.length > 0 && (
+              <div className="flex items-center gap-1 shrink-0 overflow-hidden">
+                {memberRoles.slice(0, 2).map((role) => (
+                  <RoleBadge key={role.id} role={role} size="xs" />
+                ))}
+                {memberRoles.length > 2 && (
+                  <span className="text-[10px] text-muted">+{memberRoles.length - 2}</span>
+                )}
+              </div>
+            )}
+          </div>
+          <div className="truncate text-[10px] text-muted font-mono">{pubkey.slice(0, 16)}...</div>
+        </div>
+        <ChevronDown
+          size={14}
+          className={`text-muted shrink-0 transition-transform duration-200 ${
+            expanded ? "rotate-180" : ""
+          }`}
+        />
       </div>
 
-      <button
-        onClick={() => setShowRoles(!showRoles)}
-        className="rounded p-1 text-muted hover:bg-card/50 hover:text-heading transition-colors"
-        title="Manage roles"
-      >
-        <Shield size={14} />
-      </button>
-
-      {showRoles && (
-        <div className="absolute right-0 mt-1 w-48 rounded-lg glass-panel py-1 shadow-xl z-10">
-          {roles.map((role) => (
-            <button
-              key={role.id}
-              onClick={() => assignRole(pubkey, role.id)}
-              className="flex w-full items-center gap-2 px-3 py-1.5 text-sm text-body hover:bg-card-hover/50"
-            >
-              <span
-                className="h-2 w-2 rounded-full"
-                style={{ backgroundColor: role.color ?? "#6b7280" }}
-              />
-              {role.name}
-            </button>
-          ))}
+      {/* Expanded role management */}
+      {expanded && allRoles.length > 0 && (
+        <div className="px-2.5 pb-2.5">
+          <div className="rounded-lg bg-surface/60 border border-edge/50 p-2">
+            <div className="flex items-center justify-between mb-1.5 px-0.5">
+              <p className="text-[10px] text-muted">Roles</p>
+              {memberRoles.length > 0 && (
+                <p className="text-[10px] text-muted">{memberRoles.length} assigned</p>
+              )}
+            </div>
+            <div className="flex flex-wrap gap-1.5 max-h-32 overflow-y-auto scrollbar-thin">
+              {/* Show assigned roles first, then unassigned */}
+              {[...allRoles]
+                .sort((a, b) => {
+                  const aAssigned = assignedIds.has(a.id) ? 0 : 1;
+                  const bAssigned = assignedIds.has(b.id) ? 0 : 1;
+                  return aAssigned - bAssigned || a.position - b.position;
+                })
+                .map((role) => {
+                  const isAssigned = assignedIds.has(role.id);
+                  const color = role.color ?? "#6b7280";
+                  return (
+                    <button
+                      key={role.id}
+                      onClick={() => handleToggleRole(role.id)}
+                      className="inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-[11px] font-medium transition-all duration-150 hover:brightness-125 active:scale-[0.97]"
+                      style={
+                        isAssigned
+                          ? {
+                              backgroundColor: `${color}25`,
+                              color,
+                              border: `1.5px solid ${color}60`,
+                            }
+                          : {
+                              backgroundColor: "transparent",
+                              color: "#6b7280",
+                              border: "1.5px dashed #374151",
+                            }
+                      }
+                    >
+                      {isAssigned ? (
+                        <Check size={10} strokeWidth={3} />
+                      ) : (
+                        <Plus size={10} strokeWidth={2} />
+                      )}
+                      <span
+                        className="shrink-0 rounded-full"
+                        style={{
+                          backgroundColor: isAssigned ? color : "#6b7280",
+                          width: 6,
+                          height: 6,
+                          opacity: isAssigned ? 1 : 0.4,
+                        }}
+                      />
+                      {role.name}
+                    </button>
+                  );
+                })}
+            </div>
+          </div>
         </div>
       )}
     </div>
@@ -104,6 +202,7 @@ export function MembersTab({ spaceId }: MembersTabProps) {
   const currentPubkey = useAppSelector((s) => s.identity.pubkey);
   const [memberFilter, setMemberFilter] = useState("");
   const { query, setQuery, results, isSearching } = useUserSearch();
+  const { members: memberData } = useMemberRoles(spaceId);
 
   const isFeedMode = space?.mode === "read";
   const canManageFeed = !!currentPubkey && (
@@ -169,10 +268,14 @@ export function MembersTab({ spaceId }: MembersTabProps) {
 
   if (!space) return null;
 
-  const members = space.memberPubkeys;
+  // Merge relay-known members and backend-known members (deduplicated)
+  const relayMembers = space.memberPubkeys;
+  const backendPubkeys = memberData.map((m) => m.pubkey);
+  const allPubkeys = [...new Set([...relayMembers, ...backendPubkeys])];
+  const memberRolesMap = new Map(memberData.map((m) => [m.pubkey, m.roles]));
   const filteredMembers = memberFilter
-    ? members.filter((pk) => pk.includes(memberFilter.toLowerCase()))
-    : members;
+    ? allPubkeys.filter((pk) => pk.includes(memberFilter.toLowerCase()))
+    : allPubkeys;
 
   const feedSearchFiltered = results.filter((r) => !space.feedPubkeys.includes(r.pubkey));
   const showFeedDropdown = query.trim() && (feedSearchFiltered.length > 0 || isSearching);
@@ -254,7 +357,7 @@ export function MembersTab({ spaceId }: MembersTabProps) {
       {/* Members section */}
       <div className="space-y-3">
         <h3 className="text-sm font-semibold text-heading">
-          {isFeedMode ? "Spectators" : "Members"} ({members.length})
+          {isFeedMode ? "Spectators" : "Members"} ({allPubkeys.length})
         </h3>
 
         <input
@@ -272,7 +375,12 @@ export function MembersTab({ spaceId }: MembersTabProps) {
             </div>
           ) : (
             filteredMembers.map((pubkey) => (
-              <MemberRow key={pubkey} pubkey={pubkey} spaceId={spaceId} />
+              <MemberRow
+                key={pubkey}
+                pubkey={pubkey}
+                spaceId={spaceId}
+                memberRoles={memberRolesMap.get(pubkey) ?? []}
+              />
             ))
           )}
         </div>

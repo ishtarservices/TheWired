@@ -55,7 +55,7 @@ export function SpaceSettingsModal({ open, onClose, spaceId }: SpaceSettingsModa
 
   return (
     <Modal open={open} onClose={onClose}>
-      <div className="flex w-full max-w-2xl rounded-2xl card-glass shadow-2xl overflow-hidden" style={{ height: "min(80vh, 600px)" }}>
+      <div className="flex w-full max-w-3xl rounded-2xl card-glass shadow-2xl overflow-hidden" style={{ height: "min(80vh, 640px)" }}>
         {/* Tab navigation */}
         <div className="flex w-44 shrink-0 flex-col border-r border-edge bg-surface/50">
           <div className="flex items-center justify-between px-4 py-3 border-b border-edge">

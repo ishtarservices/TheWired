@@ -35,6 +35,10 @@ export const moderationRoutes: FastifyPluginAsync = async (server) => {
       const perm = await permissionService.check(spaceId, authPubkey, "BAN_MEMBERS");
       if (!perm.allowed) return reply.status(403).send({ error: "Missing BAN_MEMBERS permission", code: "FORBIDDEN" });
 
+      // Hierarchy check: actor must outrank target
+      const hierarchy = await permissionService.checkHierarchy(spaceId, authPubkey, request.body.pubkey);
+      if (!hierarchy.allowed) return reply.status(403).send({ error: hierarchy.reason, code: "FORBIDDEN" });
+
       const ban = await moderationService.banMember(spaceId, {
         pubkey: request.body.pubkey,
         reason: request.body.reason,
@@ -56,7 +60,7 @@ export const moderationRoutes: FastifyPluginAsync = async (server) => {
       const perm = await permissionService.check(spaceId, authPubkey, "BAN_MEMBERS");
       if (!perm.allowed) return reply.status(403).send({ error: "Missing BAN_MEMBERS permission", code: "FORBIDDEN" });
 
-      await moderationService.unbanMember(spaceId, pubkey);
+      await moderationService.unbanMember(spaceId, pubkey, authPubkey);
       return { data: { success: true } };
     },
   );
@@ -92,6 +96,10 @@ export const moderationRoutes: FastifyPluginAsync = async (server) => {
       const { spaceId } = request.params;
       const perm = await permissionService.check(spaceId, authPubkey, "MUTE_MEMBERS");
       if (!perm.allowed) return reply.status(403).send({ error: "Missing MUTE_MEMBERS permission", code: "FORBIDDEN" });
+
+      // Hierarchy check: actor must outrank target
+      const hierarchy = await permissionService.checkHierarchy(spaceId, authPubkey, request.body.pubkey);
+      if (!hierarchy.allowed) return reply.status(403).send({ error: hierarchy.reason, code: "FORBIDDEN" });
 
       const mute = await moderationService.muteMember(spaceId, {
         pubkey: request.body.pubkey,
@@ -132,8 +140,34 @@ export const moderationRoutes: FastifyPluginAsync = async (server) => {
       const perm = await permissionService.check(spaceId, authPubkey, "MANAGE_MEMBERS");
       if (!perm.allowed) return reply.status(403).send({ error: "Missing MANAGE_MEMBERS permission", code: "FORBIDDEN" });
 
-      await moderationService.kickMember(spaceId, pubkey);
+      // Hierarchy check: actor must outrank target
+      const hierarchy = await permissionService.checkHierarchy(spaceId, authPubkey, pubkey);
+      if (!hierarchy.allowed) return reply.status(403).send({ error: hierarchy.reason, code: "FORBIDDEN" });
+
+      await moderationService.kickMember(spaceId, pubkey, authPubkey);
       return { data: { success: true } };
+    },
+  );
+
+  // ── Audit Log ───────────────────────────────────────────────
+
+  /** GET /:spaceId/moderation/audit-log — List recent audit log entries */
+  server.get<{ Params: { spaceId: string } }>(
+    "/:spaceId/moderation/audit-log",
+    async (request, reply) => {
+      const pubkey = (request as any).pubkey as string | undefined;
+      if (!pubkey) return reply.status(401).send({ error: "Authentication required", code: "UNAUTHORIZED" });
+
+      const { spaceId } = request.params;
+      // Require BAN_MEMBERS or MANAGE_MEMBERS to view audit log
+      const perm = await permissionService.check(spaceId, pubkey, "BAN_MEMBERS");
+      const perm2 = await permissionService.check(spaceId, pubkey, "MANAGE_MEMBERS");
+      if (!perm.allowed && !perm2.allowed) {
+        return reply.status(403).send({ error: "Missing permission", code: "FORBIDDEN" });
+      }
+
+      const entries = await moderationService.listAuditLog(spaceId);
+      return { data: entries };
     },
   );
 };

@@ -1,4 +1,4 @@
-import { useState, useRef } from "react";
+import { useState, useRef, useEffect } from "react";
 import { X, Search, Plus } from "lucide-react";
 import { Button } from "../../components/ui/Button";
 import { Modal } from "../../components/ui/Modal";
@@ -17,6 +17,14 @@ interface CreateSpaceModalProps {
   onClose: () => void;
   onCreate: (space: Space) => void;
 }
+
+const CHANNEL_TYPE_OPTIONS = [
+  { type: "chat", label: "Chat", description: "Real-time messaging" },
+  { type: "notes", label: "Notes", description: "Short-form posts" },
+  { type: "media", label: "Media", description: "Images and videos" },
+  { type: "articles", label: "Articles", description: "Long-form content" },
+  { type: "music", label: "Music", description: "Music sharing" },
+] as const;
 
 function generateId(): string {
   const bytes = new Uint8Array(6);
@@ -55,9 +63,25 @@ export function CreateSpaceModal({
   const [picture, setPicture] = useState("");
   const [mode, setMode] = useState<"read" | "read-write">("read-write");
   const [feedPubkeys, setFeedPubkeys] = useState<string[]>([]);
+  const [selectedChannels, setSelectedChannels] = useState<Set<string>>(
+    new Set(["chat", "notes", "media", "articles", "music"]),
+  );
   const aboutRef = useRef<HTMLTextAreaElement>(null);
   const searchContainerRef = useRef<HTMLDivElement>(null);
   useAutoResize(aboutRef, about, 200);
+
+  // Auto-exclude chat when mode is read-only, re-add when switching back
+  useEffect(() => {
+    setSelectedChannels((prev) => {
+      const next = new Set(prev);
+      if (mode === "read") {
+        next.delete("chat");
+      } else if (!next.has("chat")) {
+        next.add("chat");
+      }
+      return next;
+    });
+  }, [mode]);
 
   const { query, setQuery, results, isSearching } = useUserSearch();
 
@@ -68,12 +92,24 @@ export function CreateSpaceModal({
     setQuery("");
   }
 
+  function toggleChannel(type: string) {
+    setSelectedChannels((prev) => {
+      const next = new Set(prev);
+      if (next.has(type)) next.delete(type);
+      else next.add(type);
+      return next;
+    });
+  }
+
   function removeFeedSource(pk: string) {
     setFeedPubkeys((prev) => prev.filter((p) => p !== pk));
   }
 
-  function handleCreate() {
-    if (!name.trim() || !pubkey) return;
+  const [creating, setCreating] = useState(false);
+
+  async function handleCreate() {
+    if (!name.trim() || !pubkey || creating) return;
+    setCreating(true);
 
     const spaceId = generateId();
 
@@ -92,36 +128,45 @@ export function CreateSpaceModal({
       createdAt: Math.floor(Date.now() / 1000),
     };
 
-    onCreate(space);
+    // Bootstrap space on backend FIRST (seeds roles + channels)
+    const channelList = Array.from(selectedChannels).map((type) => ({
+      type,
+      label: `#${type}`,
+    }));
 
-    // Bootstrap space on backend (creates space record, seeds roles+channels,
-    // registers creator as member+admin — all in one call)
-    registerSpace({
-      id: space.id,
-      name: space.name,
-      hostRelay: space.hostRelay,
-      picture: space.picture,
-      about: space.about,
-      mode: space.mode,
-    })
-      .then(() => {
-        // Register feed sources on backend after space is created
-        if (mode === "read" && feedPubkeys.length > 0) {
-          addFeedSources(spaceId, feedPubkeys).catch((err) => {
-            console.error("[CreateSpace] Feed sources registration failed:", err);
-          });
-        }
-      })
-      .catch((err) => {
-        console.error("[CreateSpace] Backend bootstrap failed:", err);
+    try {
+      await registerSpace({
+        id: space.id,
+        name: space.name,
+        hostRelay: space.hostRelay,
+        picture: space.picture,
+        about: space.about,
+        mode: space.mode,
+        channels: channelList,
       });
+
+      // Register feed sources after space is created
+      if (mode === "read" && feedPubkeys.length > 0) {
+        addFeedSources(spaceId, feedPubkeys).catch((err) => {
+          console.error("[CreateSpace] Feed sources registration failed:", err);
+        });
+      }
+    } catch (err) {
+      console.error("[CreateSpace] Backend bootstrap failed:", err);
+      // Still create locally so the space appears even if backend is down
+    }
+
+    // Now navigate to the space (backend has channels ready)
+    onCreate(space);
 
     setName("");
     setAbout("");
     setPicture("");
     setMode("read-write");
     setFeedPubkeys([]);
+    setSelectedChannels(new Set(["chat", "notes", "media", "articles", "music"]));
     setQuery("");
+    setCreating(false);
     onClose();
   }
 
@@ -211,6 +256,40 @@ export function CreateSpaceModal({
             </p>
           </div>
 
+          {/* Channel selection */}
+          <div>
+            <label className="mb-1 block text-xs font-medium text-soft">
+              Channels
+            </label>
+            <p className="mb-2 text-[11px] text-muted">
+              Choose which channels to include. You can add more later in settings.
+            </p>
+            <div className="space-y-1">
+              {CHANNEL_TYPE_OPTIONS.map((opt) => {
+                const isChat = opt.type === "chat";
+                const disabled = isChat && mode === "read";
+                return (
+                  <label
+                    key={opt.type}
+                    className={`flex items-center gap-2.5 rounded-lg px-2.5 py-1.5 transition-colors ${
+                      disabled ? "opacity-40 cursor-not-allowed" : "hover:bg-surface-hover cursor-pointer"
+                    }`}
+                  >
+                    <input
+                      type="checkbox"
+                      checked={selectedChannels.has(opt.type)}
+                      onChange={() => toggleChannel(opt.type)}
+                      disabled={disabled}
+                      className="rounded border-edge"
+                    />
+                    <span className="text-sm text-heading">{opt.label}</span>
+                    <span className="text-[11px] text-muted">{opt.description}</span>
+                  </label>
+                );
+              })}
+            </div>
+          </div>
+
           {/* Feed Sources -- shown only for feed mode */}
           {mode === "read" && (
             <div>
@@ -293,9 +372,9 @@ export function CreateSpaceModal({
             variant="primary"
             size="md"
             onClick={handleCreate}
-            disabled={!name.trim()}
+            disabled={!name.trim() || creating}
           >
-            Create Space
+            {creating ? "Creating..." : "Create Space"}
           </Button>
         </div>
       </div>

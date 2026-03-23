@@ -1,16 +1,18 @@
-import { useCallback, useEffect } from "react";
+import { useState, useCallback, useEffect } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import { DMSidebar } from "./DMSidebar";
 import { DMConversation } from "./DMConversation";
+import { NewDMModal } from "./NewDMModal";
 import { useAppDispatch, useAppSelector } from "@/store/hooks";
 import { setActiveConversation } from "@/store/slices/dmSlice";
-import { Lock } from "lucide-react";
+import { Lock, SquarePen } from "lucide-react";
 
 export function DMView() {
   const { pubkey: routePubkey } = useParams<{ pubkey?: string }>();
   const navigate = useNavigate();
   const dispatch = useAppDispatch();
   const activeConversation = useAppSelector((s) => s.dm.activeConversation);
+  const [showNewDM, setShowNewDM] = useState(false);
 
   // Use route param if available, fallback to redux state
   const activePubkey = routePubkey || activeConversation;
@@ -62,8 +64,19 @@ export function DMView() {
             </h3>
             <p className="mt-1 text-sm text-muted max-w-sm">
               End-to-end encrypted messages using NIP-17.
-              Select a conversation or message someone from their profile.
             </p>
+            <button
+              onClick={() => setShowNewDM(true)}
+              className="mt-4 inline-flex items-center gap-2 rounded-xl bg-pulse/15 px-4 py-2 text-sm font-medium text-pulse hover:bg-pulse/25 transition-colors"
+            >
+              <SquarePen size={15} />
+              Start a conversation
+            </button>
+            <NewDMModal
+              open={showNewDM}
+              onClose={() => setShowNewDM(false)}
+              onSelect={handleSelectContact}
+            />
           </div>
         </div>
       )}

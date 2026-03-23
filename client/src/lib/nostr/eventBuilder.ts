@@ -39,6 +39,7 @@ export function buildChatMessage(
   replyTo?: { eventId: string; pubkey: string },
   channelId?: string,
   attachments?: AttachmentMeta[],
+  emojiTags?: string[][],
 ): UnsignedEvent {
   const tags: string[][] = [["h", groupId]];
 
@@ -65,12 +66,79 @@ export function buildChatMessage(
     }
   }
 
+  // Add NIP-30 custom emoji tags
+  if (emojiTags?.length) {
+    for (const tag of emojiTags) {
+      tags.push(tag);
+    }
+  }
+
   return {
     pubkey,
     created_at: Math.floor(Date.now() / 1000),
     kind: 9,
     tags,
     content,
+  };
+}
+
+/** Build an unsigned kind:1 root text note (NIP-10) */
+export function buildRootNote(
+  pubkey: string,
+  content: string,
+  mentionPubkeys?: string[],
+  attachments?: AttachmentMeta[],
+  emojiTags?: string[][],
+): UnsignedEvent {
+  const tags: string[][] = [];
+
+  // Add mention p-tags
+  if (mentionPubkeys?.length) {
+    for (const pk of mentionPubkeys) {
+      tags.push(["p", pk]);
+    }
+  }
+
+  // Add imeta tags for file attachments (NIP-94 inline metadata)
+  if (attachments?.length) {
+    for (const att of attachments) {
+      tags.push([
+        "imeta",
+        `url ${att.url}`,
+        `m ${att.mimeType}`,
+        `x ${att.sha256}`,
+        `size ${String(att.size)}`,
+      ]);
+    }
+  }
+
+  // Add NIP-30 custom emoji tags
+  if (emojiTags?.length) {
+    for (const tag of emojiTags) {
+      tags.push(tag);
+    }
+  }
+
+  return {
+    pubkey,
+    created_at: Math.floor(Date.now() / 1000),
+    kind: 1,
+    tags,
+    content,
+  };
+}
+
+/** Build an unsigned kind:10001 pinned notes list event (NIP-51) */
+export function buildPinnedNotesEvent(
+  pubkey: string,
+  pinnedEventIds: string[],
+): UnsignedEvent {
+  return {
+    pubkey,
+    created_at: Math.floor(Date.now() / 1000),
+    kind: 10001,
+    tags: pinnedEventIds.map((id) => ["e", id]),
+    content: "",
   };
 }
 
@@ -103,16 +171,22 @@ export function buildReaction(
   pubkey: string,
   target: { eventId: string; pubkey: string; kind: number },
   content = "+",
+  /** NIP-30 custom emoji tag: ["emoji", shortcode, url] */
+  emojiTag?: string[],
 ): UnsignedEvent {
+  const tags: string[][] = [
+    ["e", target.eventId],
+    ["p", target.pubkey],
+    ["k", String(target.kind)],
+  ];
+  if (emojiTag) {
+    tags.push(emojiTag);
+  }
   return {
     pubkey,
     created_at: Math.floor(Date.now() / 1000),
     kind: 7,
-    tags: [
-      ["e", target.eventId],
-      ["p", target.pubkey],
-      ["k", String(target.kind)],
-    ],
+    tags,
     content,
   };
 }

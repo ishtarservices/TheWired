@@ -18,7 +18,8 @@ import { motion } from "motion/react";
 import { useState, useRef } from "react";
 import { useAudioPlayer } from "../useAudioPlayer";
 import { useAppDispatch, useAppSelector } from "@/store/hooks";
-import { toggleQueuePanel, setBarMode, toggleNowPlaying } from "@/store/slices/musicSlice";
+import { setBarMode, toggleNowPlaying } from "@/store/slices/musicSlice";
+import { openRightPanelToTab, toggleRightPanel } from "@/store/slices/uiSlice";
 import { useLibrary } from "../useLibrary";
 import { getTrackImage } from "../trackImage";
 import { ProgressBar } from "./ProgressBar";
@@ -47,7 +48,14 @@ export function ExpandedBar() {
   } = useAudioPlayer();
 
   const albums = useAppSelector((s) => s.music.albums);
-  const queueVisible = useAppSelector((s) => s.music.queueVisible);
+  const queueVisible = useAppSelector((s) => {
+    const rp = s.ui.rightPanel;
+    const musicOpen =
+      rp.openByContext.music && rp.activeTabByContext.music === "queue";
+    const showingMusic =
+      rp.contextOverride === "music" || s.ui.sidebarMode === "music";
+    return musicOpen && showingMusic;
+  });
   const ltActive = useAppSelector((s) => s.listenTogether.active);
   const ltIsFollower = useAppSelector(
     (s) => s.listenTogether.active && !s.listenTogether.isLocalDJ,
@@ -226,7 +234,11 @@ export function ExpandedBar() {
               )}
             </div>
             <button
-              onClick={() => dispatch(toggleQueuePanel())}
+              onClick={() =>
+                queueVisible
+                  ? dispatch(toggleRightPanel("music"))
+                  : dispatch(openRightPanelToTab({ context: "music", tab: "queue" }))
+              }
               className={`rounded p-1 transition-colors ${
                 queueVisible ? "text-neon" : "text-soft hover:text-heading"
               }`}

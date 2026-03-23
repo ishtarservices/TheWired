@@ -23,14 +23,12 @@ import { NotificationBell } from "../../features/notifications/NotificationBell"
 import { useAppSelector } from "../../store/hooks";
 import { useNavigationHistory } from "../../hooks/useNavigationHistory";
 import { useProfile } from "../../features/profile/useProfile";
+import { useRightPanelContext } from "./useRightPanelContext";
 import type { MusicView } from "../../types/music";
 
 interface TopBarProps {
   sidebarExpanded: boolean;
   onToggleSidebar: () => void;
-  memberListVisible?: boolean;
-  onToggleMemberList?: () => void;
-  hasActiveSpace?: boolean;
 }
 
 const musicViewLabels: Record<MusicView, string> = {
@@ -56,13 +54,11 @@ const musicViewLabels: Record<MusicView, string> = {
 export function TopBar({
   sidebarExpanded,
   onToggleSidebar,
-  memberListVisible,
-  onToggleMemberList,
-  hasActiveSpace,
 }: TopBarProps) {
   const { theme, toggleTheme } = useTheme();
   const { canGoBack, canGoForward, goBack, goForward } =
     useNavigationHistory();
+  const { context, isOpen, toggle } = useRightPanelContext();
 
   const location = useLocation();
   const sidebarMode = useAppSelector((s) => s.ui.sidebarMode);
@@ -174,6 +170,8 @@ export function TopBar({
     return { icon: <LayoutGrid size={18} />, title: "The Wired" };
   }
 
+  const showPanelToggle = context !== "none";
+
   return (
     <div
       data-tauri-drag-region
@@ -227,7 +225,7 @@ export function TopBar({
         </div>
       </div>
 
-      {/* Right section: search, notifications, theme, member list */}
+      {/* Right section: search, notifications, theme, panel toggle */}
       <div className="ml-auto flex items-center gap-3 pr-3">
         {sidebarMode === "music" ? <SearchInput /> : <UserSearchInput />}
         <NotificationBell />
@@ -238,9 +236,9 @@ export function TopBar({
         >
           {theme === "dark" ? <Sun size={15} /> : <Moon size={15} />}
         </button>
-        {hasActiveSpace && onToggleMemberList && (
-          <Button variant="ghost" size="sm" onClick={onToggleMemberList}>
-            {memberListVisible ? (
+        {showPanelToggle && (
+          <Button variant="ghost" size="sm" onClick={toggle}>
+            {isOpen ? (
               <PanelRightClose size={18} />
             ) : (
               <PanelRightOpen size={18} />

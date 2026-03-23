@@ -36,6 +36,8 @@ import { useProfileEngagementSub } from "./useProfileEngagementSub";
 import { ProfileNoteCard } from "./NoteCard";
 import { FollowListModal } from "./FollowListModal";
 import { ArticleCard } from "../longform/ArticleCard";
+import { NoteComposer } from "./NoteComposer";
+import { PinnedNotesSection } from "./PinnedNotesSection";
 import { followUser, unfollowUser } from "../../lib/nostr/follow";
 import { sendFriendRequest, acceptFriendRequestAction, cancelFriendRequestAction, removeFriendAction, wouldBreakFriendship } from "../../lib/nostr/friendRequest";
 import { useAppSelector, useAppDispatch } from "../../store/hooks";
@@ -555,20 +557,26 @@ export function ProfilePage({ pubkey }: ProfilePageProps) {
         })}
       </div>
 
+      {/* Note composer (own profile only, notes tab) */}
+      {isMe && activeTab === "notes" && <NoteComposer />}
+
       {/* Tab content — only active tab renders */}
       <div className="flex-1 px-6 py-4">
         {activeTab === "notes" && (
-          <FeedTab
-            items={feed.rootNotes}
-            loading={feed.loading}
-            eoseReceived={feed.eoseReceived}
-            hasMore={feed.hasMoreNotes}
-            onLoadMore={feed.loadMoreNotes}
-            fetchingMore={feed.fetchingMore}
-            onFetchOlder={feed.fetchOlderFromRelay}
-            emptyIcon={<FileText size={32} className="text-faint" />}
-            emptyText="No notes yet"
-          />
+          <>
+            <PinnedNotesSection pubkey={pubkey} />
+            <FeedTab
+              items={feed.rootNotes}
+              loading={feed.loading}
+              eoseReceived={feed.eoseReceived}
+              hasMore={feed.hasMoreNotes}
+              onLoadMore={feed.loadMoreNotes}
+              fetchingMore={feed.fetchingMore}
+              onFetchOlder={feed.fetchOlderFromRelay}
+              emptyIcon={<FileText size={32} className="text-faint" />}
+              emptyText="No notes yet"
+            />
+          </>
         )}
         {activeTab === "reposts" && (
           <FeedTab
