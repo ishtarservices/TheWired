@@ -3,8 +3,6 @@ import {
   PanelLeftOpen,
   PanelRightClose,
   PanelRightOpen,
-  Sun,
-  Moon,
   ArrowLeft,
   ArrowRight,
   LayoutGrid,
@@ -16,10 +14,10 @@ import {
 } from "lucide-react";
 import { useLocation } from "react-router-dom";
 import { Button } from "../ui/Button";
-import { useTheme } from "../../contexts/ThemeContext";
 import { SearchInput } from "../../features/music/SearchInput";
 import { UserSearchInput } from "../../features/search/UserSearchInput";
 import { NotificationBell } from "../../features/notifications/NotificationBell";
+import { ThemeQuickPicker } from "./ThemeQuickPicker";
 import { useAppSelector } from "../../store/hooks";
 import { useNavigationHistory } from "../../hooks/useNavigationHistory";
 import { useProfile } from "../../features/profile/useProfile";
@@ -55,7 +53,6 @@ export function TopBar({
   sidebarExpanded,
   onToggleSidebar,
 }: TopBarProps) {
-  const { theme, toggleTheme } = useTheme();
   const { canGoBack, canGoForward, goBack, goForward } =
     useNavigationHistory();
   const { context, isOpen, toggle } = useRightPanelContext();
@@ -175,7 +172,7 @@ export function TopBar({
   return (
     <div
       data-tauri-drag-region
-      className="relative z-10 flex h-12 items-center border-b border-edge glass"
+      className="relative z-10 flex h-12 items-center border-b border-border glass"
     >
       {/* Left section: sidebar toggle + nav buttons + location title */}
       <div className="flex items-center gap-1 pl-2">
@@ -206,7 +203,7 @@ export function TopBar({
         </button>
 
         {/* Separator */}
-        <div className="mx-2 h-4 w-px bg-edge" />
+        <div className="mx-2 h-4 w-px bg-border" />
 
         {/* Location indicator */}
         <div className="flex items-center gap-2 text-heading">
@@ -229,13 +226,7 @@ export function TopBar({
       <div className="ml-auto flex items-center gap-3 pr-3">
         {sidebarMode === "music" ? <SearchInput /> : <UserSearchInput />}
         <NotificationBell />
-        <button
-          onClick={toggleTheme}
-          className="rounded-xl p-2 text-soft transition-colors hover:bg-surface-hover hover:text-heading"
-          title={`Switch to ${theme === "dark" ? "light" : "dark"} mode`}
-        >
-          {theme === "dark" ? <Sun size={15} /> : <Moon size={15} />}
-        </button>
+        <ThemeQuickPicker />
         {showPanelToggle && (
           <Button variant="ghost" size="sm" onClick={toggle}>
             {isOpen ? (

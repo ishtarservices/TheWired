@@ -58,7 +58,7 @@ export function DuplicateTrackModal({ track, onClose }: DuplicateTrackModalProps
 
   return (
     <Modal open={true} onClose={onClose}>
-      <div className="w-full max-w-md rounded-2xl border border-edge card-glass p-6 shadow-xl">
+      <div className="w-full max-w-md rounded-2xl border border-border card-glass p-6 shadow-xl">
         <div className="mb-4 flex items-center justify-between">
           <h2 className="text-lg font-semibold text-heading">Duplicate Track</h2>
           <button onClick={onClose} className="text-soft hover:text-heading">
@@ -74,7 +74,7 @@ export function DuplicateTrackModal({ track, onClose }: DuplicateTrackModalProps
               type="text"
               value={newTitle}
               onChange={(e) => setNewTitle(e.target.value)}
-              className="w-full rounded-xl border border-edge bg-field px-3 py-1.5 text-sm text-heading outline-none focus:border-pulse/30"
+              className="w-full rounded-xl border border-border bg-field px-3 py-1.5 text-sm text-heading outline-none focus:border-primary/30"
               placeholder="Track title"
               autoFocus
             />
@@ -90,7 +90,7 @@ export function DuplicateTrackModal({ track, onClose }: DuplicateTrackModalProps
           <button
             onClick={handleDuplicate}
             disabled={!newTitle.trim() || submitting}
-            className="w-full rounded-xl bg-gradient-to-r from-pulse to-pulse-soft py-2 text-sm font-medium text-white transition-opacity hover:opacity-90 press-effect disabled:opacity-50"
+            className="w-full rounded-xl bg-gradient-to-r from-primary to-primary-soft py-2 text-sm font-medium text-white transition-opacity hover:opacity-90 press-effect disabled:opacity-50"
           >
             {submitting ? "Duplicating..." : "Duplicate"}
           </button>

@@ -83,7 +83,7 @@ export function ProjectHistory() {
   return (
     <div className={`flex flex-1 flex-col overflow-y-auto ${scrollPaddingClass}`}>
       {/* Header */}
-      <div className="flex items-center gap-3 border-b border-edge px-6 py-4">
+      <div className="flex items-center gap-3 border-b border-border px-6 py-4">
         <button
           onClick={goBack}
           className="rounded p-1 text-soft hover:text-heading transition-colors"
@@ -101,7 +101,7 @@ export function ProjectHistory() {
       <div className="flex-1 px-6 py-6">
         {loading && (
           <div className="flex items-center justify-center py-12">
-            <div className="h-6 w-6 animate-spin rounded-full border-2 border-edge border-t-pulse" />
+            <div className="h-6 w-6 animate-spin rounded-full border-2 border-border border-t-primary" />
           </div>
         )}
 

@@ -123,7 +123,7 @@ export function VoiceChannel() {
   return (
     <div className={`relative flex flex-1 flex-col overflow-hidden bg-card ${scrollPaddingClass}`}>
       {/* Header bar */}
-      <div className="flex items-center gap-3 border-b border-edge px-4 py-2 bg-panel/80 backdrop-blur-sm">
+      <div className="flex items-center gap-3 border-b border-border px-4 py-2 bg-panel/80 backdrop-blur-sm">
         <ChannelIcon size={16} className="text-green-400" />
         <span className="text-sm font-medium text-heading">
           {channel?.label ?? `${channelTypeLabel} Channel`}

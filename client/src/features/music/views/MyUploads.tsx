@@ -42,14 +42,14 @@ export function MyUploads() {
         <div className="flex gap-2">
           <button
             onClick={() => setAlbumOpen(true)}
-            className="flex items-center gap-1.5 rounded-xl border border-edge px-3 py-1.5 text-xs text-soft transition-colors hover:border-edge-light hover:text-heading press-effect"
+            className="flex items-center gap-1.5 rounded-xl border border-border px-3 py-1.5 text-xs text-soft transition-colors hover:border-border-light hover:text-heading press-effect"
           >
             <Disc3 size={14} />
             Create Project
           </button>
           <button
             onClick={() => setUploadOpen(true)}
-            className="flex items-center gap-1.5 rounded-xl bg-gradient-to-r from-pulse to-pulse-soft px-3 py-1.5 text-xs font-medium text-white transition-opacity hover:opacity-90 press-effect"
+            className="flex items-center gap-1.5 rounded-xl bg-gradient-to-r from-primary to-primary-soft px-3 py-1.5 text-xs font-medium text-white transition-opacity hover:opacity-90 press-effect"
           >
             <Upload size={14} />
             Upload Track
@@ -63,7 +63,7 @@ export function MyUploads() {
           <p className="text-sm text-soft">You haven't uploaded any music yet</p>
           <button
             onClick={() => setUploadOpen(true)}
-            className="rounded-xl bg-gradient-to-r from-pulse to-pulse-soft px-4 py-2 text-sm font-medium text-white transition-opacity hover:opacity-90 press-effect"
+            className="rounded-xl bg-gradient-to-r from-primary to-primary-soft px-4 py-2 text-sm font-medium text-white transition-opacity hover:opacity-90 press-effect"
           >
             Upload Your First Track
           </button>
@@ -95,7 +95,7 @@ export function MyUploads() {
           {myTracks.length > 0 && (
             <div>
               <h3 className="mb-2 text-sm font-semibold text-soft">Tracks</h3>
-              <div className="grid grid-cols-[2rem_1fr_1fr_4rem_2rem] gap-4 border-b border-edge px-3 pb-2 text-xs font-semibold uppercase tracking-[0.15em] text-muted">
+              <div className="grid grid-cols-[2rem_1fr_1fr_4rem_2rem] gap-4 border-b border-border px-3 pb-2 text-xs font-semibold uppercase tracking-[0.15em] text-muted">
                 <span>#</span>
                 <span>Title</span>
                 <span>Genre</span>

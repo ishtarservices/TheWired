@@ -101,7 +101,7 @@ export function ChannelContextMenu({
                 <div className="text-[10px] text-muted">{item.description}</div>
               </div>
               {currentMode === item.mode && (
-                <Check size={14} className="text-pulse shrink-0" />
+                <Check size={14} className="text-primary shrink-0" />
               )}
             </button>
           ))}

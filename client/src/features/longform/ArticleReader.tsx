@@ -21,7 +21,7 @@ export function ArticleReader({ article, onBack }: ArticleReaderProps) {
 
   return (
     <div className="flex-1 overflow-y-auto">
-      <div className="border-b border-edge px-6 py-3">
+      <div className="border-b border-border px-6 py-3">
         <Button variant="ghost" size="sm" onClick={onBack} className="gap-1">
           <ArrowLeft size={16} />
           Back
@@ -58,7 +58,7 @@ export function ArticleReader({ article, onBack }: ArticleReaderProps) {
             {article.hashtags.map((tag) => (
               <span
                 key={tag}
-                className="rounded-full bg-pulse/10 px-2.5 py-0.5 text-xs text-pulse-soft"
+                className="rounded-full bg-primary/10 px-2.5 py-0.5 text-xs text-primary-soft"
               >
                 #{tag}
               </span>
@@ -66,7 +66,7 @@ export function ArticleReader({ article, onBack }: ArticleReaderProps) {
           </div>
         )}
 
-        <div className="prose prose-invert mt-8 max-w-none prose-headings:text-heading prose-p:text-body prose-a:text-pulse-soft prose-code:text-neon-soft prose-pre:bg-panel">
+        <div className="prose prose-invert mt-8 max-w-none prose-headings:text-heading prose-p:text-body prose-a:text-primary-soft prose-code:text-primary-soft prose-pre:bg-panel">
           <Markdown remarkPlugins={[remarkGfm]} rehypePlugins={[rehypeHighlight]}>
             {article.content}
           </Markdown>

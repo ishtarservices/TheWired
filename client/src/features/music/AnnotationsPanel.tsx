@@ -108,13 +108,13 @@ export function AnnotationsPanel({
         </div>
       ) : (
         !compact && !loading && (
-          <div className="rounded-xl border border-dashed border-edge/40 px-4 py-6 text-center">
+          <div className="rounded-xl border border-dashed border-border/40 px-4 py-6 text-center">
             <Feather size={20} className="mx-auto mb-2 text-muted/40" />
             <p className="text-xs text-muted">No annotations yet</p>
             {pubkey && (
               <button
                 onClick={() => setComposerOpen(true)}
-                className="mt-2 text-xs text-pulse hover:text-pulse-soft transition-colors"
+                className="mt-2 text-xs text-primary hover:text-primary-soft transition-colors"
               >
                 Be the first to write one
               </button>

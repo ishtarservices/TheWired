@@ -94,11 +94,11 @@ export function AnnotationComposer({
 
   return (
     <Modal open={true} onClose={onClose}>
-      <div className="w-full max-w-md rounded-2xl border border-edge/60 card-glass p-5 shadow-2xl">
+      <div className="w-full max-w-md rounded-2xl border border-border/60 card-glass p-5 shadow-2xl">
         {/* Header */}
         <div className="mb-5 flex items-center gap-3">
-          <div className="flex h-8 w-8 items-center justify-center rounded-full bg-pulse/10">
-            <Feather size={14} className="text-pulse" />
+          <div className="flex h-8 w-8 items-center justify-center rounded-full bg-primary/10">
+            <Feather size={14} className="text-primary" />
           </div>
           <div className="flex-1 min-w-0">
             <p className="text-sm font-medium text-heading">Add Annotation</p>
@@ -115,7 +115,7 @@ export function AnnotationComposer({
           onChange={(e) => setContent(e.target.value)}
           rows={5}
           autoFocus
-          className="w-full rounded-xl border border-edge/50 bg-transparent px-4 py-3 text-sm text-heading placeholder-muted/50 outline-none transition-colors focus:border-pulse/30 resize-y leading-relaxed"
+          className="w-full rounded-xl border border-border/50 bg-transparent px-4 py-3 text-sm text-heading placeholder-muted/50 outline-none transition-colors focus:border-primary/30 resize-y leading-relaxed"
           placeholder="Write something..."
         />
 
@@ -127,7 +127,7 @@ export function AnnotationComposer({
               onClick={() => toggleLabel(l.value)}
               className={`rounded-full px-2.5 py-1 text-[11px] font-medium transition-all ${
                 label === l.value
-                  ? "bg-pulse/15 text-pulse ring-1 ring-pulse/30"
+                  ? "bg-primary/15 text-primary ring-1 ring-primary/30"
                   : "bg-surface/60 text-muted hover:text-soft hover:bg-surface"
               }`}
             >
@@ -138,7 +138,7 @@ export function AnnotationComposer({
             onClick={() => toggleLabel("custom")}
             className={`rounded-full px-2.5 py-1 text-[11px] font-medium transition-all ${
               label === "custom"
-                ? "bg-pulse/15 text-pulse ring-1 ring-pulse/30"
+                ? "bg-primary/15 text-primary ring-1 ring-primary/30"
                 : "bg-surface/60 text-muted hover:text-soft hover:bg-surface"
             }`}
           >
@@ -154,7 +154,7 @@ export function AnnotationComposer({
             onChange={(e) => setCustomLabel(e.target.value)}
             placeholder="Label name..."
             autoFocus
-            className="mt-2 w-full rounded-lg border border-edge/50 bg-transparent px-3 py-1.5 text-xs text-heading placeholder-muted/50 outline-none focus:border-pulse/30"
+            className="mt-2 w-full rounded-lg border border-border/50 bg-transparent px-3 py-1.5 text-xs text-heading placeholder-muted/50 outline-none focus:border-primary/30"
           />
         )}
 
@@ -163,7 +163,7 @@ export function AnnotationComposer({
           <select
             value={selectedSpaceId ?? ""}
             onChange={(e) => setSelectedSpaceId(e.target.value || null)}
-            className="mt-2 w-full rounded-lg border border-edge/50 bg-transparent px-3 py-1.5 text-xs text-heading outline-none focus:border-pulse/30"
+            className="mt-2 w-full rounded-lg border border-border/50 bg-transparent px-3 py-1.5 text-xs text-heading outline-none focus:border-primary/30"
           >
             <option value="">Select space...</option>
             {spaces.map((s) => (
@@ -187,7 +187,7 @@ export function AnnotationComposer({
           <button
             onClick={handleSave}
             disabled={submitting || !content.trim() || (visibility === "space" && !selectedSpaceId)}
-            className="rounded-full bg-gradient-to-r from-pulse to-pulse-soft px-5 py-1.5 text-xs font-medium text-white transition-all hover:opacity-90 press-effect disabled:opacity-40"
+            className="rounded-full bg-gradient-to-r from-primary to-primary-soft px-5 py-1.5 text-xs font-medium text-white transition-all hover:opacity-90 press-effect disabled:opacity-40"
           >
             {submitting ? "Saving..." : "Post"}
           </button>

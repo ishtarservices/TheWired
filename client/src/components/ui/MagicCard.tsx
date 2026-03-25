@@ -16,10 +16,10 @@ export function MagicCard({
   children,
   className,
   gradientSize = 200,
-  gradientColor = "#1a1a2e",
+  gradientColor = "var(--color-panel)",
   gradientOpacity = 0.8,
-  gradientFrom = "#8B5CF6",
-  gradientTo = "#00F0FF",
+  gradientFrom = "var(--color-primary)",
+  gradientTo = "var(--color-primary-soft)",
 }: MagicCardProps) {
   const mouseX = useMotionValue(-gradientSize);
   const mouseY = useMotionValue(-gradientSize);
@@ -84,7 +84,7 @@ export function MagicCard({
           `,
         }}
       />
-      <div className="absolute inset-px rounded-[inherit] bg-backdrop" />
+      <div className="absolute inset-px rounded-[inherit] bg-background" />
       <motion.div
         className="pointer-events-none absolute inset-px rounded-[inherit] opacity-0 transition-opacity duration-300 group-hover:opacity-100"
         style={{

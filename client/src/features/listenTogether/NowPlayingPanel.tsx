@@ -66,7 +66,7 @@ export function NowPlayingPanel({ onClose }: NowPlayingPanelProps) {
     .filter(Boolean) as import("@/types/music").MusicTrack[];
 
   return (
-    <div className="relative border-b border-edge bg-field backdrop-blur-sm">
+    <div className="relative border-b border-border bg-field backdrop-blur-sm">
       <ReactionOverlay reactions={reactions} />
 
       {/* Close button */}
@@ -105,7 +105,7 @@ export function NowPlayingPanel({ onClose }: NowPlayingPanelProps) {
 
             {/* DJ badge + listener count + leave */}
             <div className="flex items-center gap-2 mt-1.5">
-              <span className="flex items-center gap-1 text-[10px] text-pulse">
+              <span className="flex items-center gap-1 text-[10px] text-primary">
                 <Crown size={10} />
                 {djName}
               </span>
@@ -154,7 +154,7 @@ export function NowPlayingPanel({ onClose }: NowPlayingPanelProps) {
                   </button>
                   <button
                     onClick={togglePlay}
-                    className="flex h-8 w-8 items-center justify-center rounded-full bg-linear-to-br from-pulse to-pulse-soft text-white transition-transform hover:scale-105"
+                    className="flex h-8 w-8 items-center justify-center rounded-full bg-linear-to-br from-primary to-primary-soft text-white transition-transform hover:scale-105"
                   >
                     {player.isPlaying ? (
                       <Pause size={14} fill="currentColor" />
@@ -197,7 +197,7 @@ export function NowPlayingPanel({ onClose }: NowPlayingPanelProps) {
 
         {/* Up next */}
         {upcomingTracks.length > 0 && (
-          <div className="mt-3 border-t border-edge/30 pt-2">
+          <div className="mt-3 border-t border-border/30 pt-2">
             <p className="text-[10px] text-muted uppercase tracking-wider mb-1">Up Next</p>
             {upcomingTracks.map((track) => (
               <div key={track.addressableId} className="flex items-center gap-2 py-0.5">

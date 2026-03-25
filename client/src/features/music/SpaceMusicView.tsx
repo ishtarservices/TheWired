@@ -113,7 +113,7 @@ export function SpaceMusicView() {
         {isMember && (
           <button
             onClick={() => setUploadOpen(true)}
-            className="mt-1 flex items-center gap-1.5 rounded-full bg-gradient-to-r from-pulse to-pulse-soft px-4 py-1.5 text-sm font-medium text-white hover:opacity-90 press-effect"
+            className="mt-1 flex items-center gap-1.5 rounded-full bg-gradient-to-r from-primary to-primary-soft px-4 py-1.5 text-sm font-medium text-white hover:opacity-90 press-effect"
           >
             <Upload size={14} />
             Upload Track
@@ -138,7 +138,7 @@ export function SpaceMusicView() {
   return (
     <div className="flex flex-1 flex-col overflow-hidden">
       {/* Toolbar */}
-      <div className="flex flex-wrap items-center gap-2 border-b border-edge px-4 py-2">
+      <div className="flex flex-wrap items-center gap-2 border-b border-border px-4 py-2">
         {/* Tabs */}
         <div className="flex gap-1">
           {(["all", "tracks", "albums"] as Tab[]).map((t) => {
@@ -154,7 +154,7 @@ export function SpaceMusicView() {
                 onClick={() => setTab(t)}
                 className={`rounded-full px-3 py-1 text-xs font-medium transition-colors ${
                   tab === t
-                    ? "bg-pulse/20 text-pulse"
+                    ? "bg-primary/20 text-primary"
                     : "text-soft hover:bg-surface hover:text-heading"
                 }`}
               >
@@ -173,7 +173,7 @@ export function SpaceMusicView() {
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
             placeholder="Filter..."
-            className="w-36 rounded-full border border-edge bg-field pl-8 pr-3 py-1 text-xs text-heading placeholder-muted outline-none focus:border-pulse/30 focus:w-48 transition-all"
+            className="w-36 rounded-full border border-border bg-field pl-8 pr-3 py-1 text-xs text-heading placeholder-muted outline-none focus:border-primary/30 focus:w-48 transition-all"
           />
         </div>
 
@@ -182,7 +182,7 @@ export function SpaceMusicView() {
           <select
             value={sortMode}
             onChange={(e) => setSortMode(e.target.value as SortMode)}
-            className="appearance-none rounded-full border border-edge bg-field pl-7 pr-3 py-1 text-xs text-heading outline-none focus:border-pulse/30"
+            className="appearance-none rounded-full border border-border bg-field pl-7 pr-3 py-1 text-xs text-heading outline-none focus:border-primary/30"
           >
             <option value="newest">Newest</option>
             <option value="az">A-Z</option>
@@ -193,7 +193,7 @@ export function SpaceMusicView() {
 
         {/* View toggle */}
         {showTracks && (
-          <div className="flex gap-0.5 rounded-full border border-edge p-0.5">
+          <div className="flex gap-0.5 rounded-full border border-border p-0.5">
             <button
               onClick={() => setViewMode("grid")}
               className={`rounded-full p-1 transition-colors ${viewMode === "grid" ? "bg-surface text-heading" : "text-muted hover:text-heading"}`}
@@ -213,7 +213,7 @@ export function SpaceMusicView() {
         {isMember && (
           <button
             onClick={() => setUploadOpen(true)}
-            className="flex items-center gap-1.5 rounded-full border border-edge px-3 py-1 text-xs text-soft transition-colors hover:border-edge-light hover:text-heading"
+            className="flex items-center gap-1.5 rounded-full border border-border px-3 py-1 text-xs text-soft transition-colors hover:border-border-light hover:text-heading"
           >
             <Upload size={12} />
             Upload

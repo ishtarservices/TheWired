@@ -77,7 +77,7 @@ export function ProgressBar({ position, duration, onSeek }: ProgressBarProps) {
       <div className="relative h-[3px] w-full rounded-full bg-white/10 transition-[height] duration-150 group-hover:h-[5px]">
         {/* Fill */}
         <div
-          className="absolute inset-y-0 left-0 rounded-full bg-gradient-to-r from-pulse to-neon"
+          className="absolute inset-y-0 left-0 rounded-full bg-gradient-to-r from-primary to-primary-soft"
           style={{ width: `${displayFraction * 100}%` }}
         />
         {/* Thumb */}

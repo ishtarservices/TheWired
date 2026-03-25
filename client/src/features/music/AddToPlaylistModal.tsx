@@ -58,7 +58,7 @@ export function AddToPlaylistModal({ open, onClose, onBack, trackAddrId }: AddTo
 
   return (
     <Modal open={open} onClose={onClose}>
-      <div className="w-full max-w-sm rounded-2xl border border-edge card-glass p-6 shadow-xl">
+      <div className="w-full max-w-sm rounded-2xl border border-border card-glass p-6 shadow-xl">
         <div className="mb-4 flex items-center justify-between">
           <div className="flex items-center gap-2">
             {onBack && (
@@ -111,7 +111,7 @@ export function AddToPlaylistModal({ open, onClose, onBack, trackAddrId }: AddTo
                     <Check size={16} className="shrink-0 text-green-400" />
                   )}
                   {isAdding && (
-                    <div className="h-4 w-4 shrink-0 animate-spin rounded-full border-2 border-pulse border-t-transparent" />
+                    <div className="h-4 w-4 shrink-0 animate-spin rounded-full border-2 border-primary border-t-transparent" />
                   )}
                 </button>
               );

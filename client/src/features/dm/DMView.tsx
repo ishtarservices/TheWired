@@ -67,7 +67,7 @@ export function DMView() {
             </p>
             <button
               onClick={() => setShowNewDM(true)}
-              className="mt-4 inline-flex items-center gap-2 rounded-xl bg-pulse/15 px-4 py-2 text-sm font-medium text-pulse hover:bg-pulse/25 transition-colors"
+              className="mt-4 inline-flex items-center gap-2 rounded-xl bg-primary/15 px-4 py-2 text-sm font-medium text-primary hover:bg-primary/25 transition-colors"
             >
               <SquarePen size={15} />
               Start a conversation

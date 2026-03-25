@@ -83,9 +83,9 @@ export const NoteActionBar = memo(function NoteActionBar({
       <button
         onClick={onQuote}
         disabled={!canWrite}
-        className="group flex items-center gap-1.5 text-xs text-muted transition-colors hover:text-neon disabled:cursor-not-allowed disabled:opacity-40"
+        className="group flex items-center gap-1.5 text-xs text-muted transition-colors hover:text-primary disabled:cursor-not-allowed disabled:opacity-40"
       >
-        <Quote size={16} className="group-hover:text-neon" />
+        <Quote size={16} className="group-hover:text-primary" />
         <span>{formatCount(engagement.quoteCount)}</span>
       </button>
 
@@ -94,9 +94,9 @@ export const NoteActionBar = memo(function NoteActionBar({
         <button
           onClick={onShare}
           disabled={!canInteract}
-          className="group flex items-center gap-1.5 text-xs text-muted transition-colors hover:text-pulse disabled:cursor-not-allowed disabled:opacity-40"
+          className="group flex items-center gap-1.5 text-xs text-muted transition-colors hover:text-primary disabled:cursor-not-allowed disabled:opacity-40"
         >
-          <Share size={16} className="group-hover:text-pulse" />
+          <Share size={16} className="group-hover:text-primary" />
         </button>
       )}
 
@@ -106,8 +106,8 @@ export const NoteActionBar = memo(function NoteActionBar({
           onClick={onPin}
           className={`group flex items-center gap-1.5 text-xs transition-colors ${
             isPinned
-              ? "text-pulse"
-              : "text-muted hover:text-pulse"
+              ? "text-primary"
+              : "text-muted hover:text-primary"
           }`}
           title={isPinned ? "Unpin from profile" : "Pin to profile"}
         >

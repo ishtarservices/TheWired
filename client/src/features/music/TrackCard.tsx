@@ -78,7 +78,7 @@ export const TrackCard = memo(function TrackCard({
         tabIndex={0}
         onClick={handleClick}
         onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); handleClick(); } }}
-        className="group flex w-full cursor-pointer flex-col overflow-hidden rounded-xl border border-edge card-glass transition-all hover:border-edge-light hover-lift"
+        className="group flex w-full cursor-pointer flex-col overflow-hidden rounded-xl border border-border card-glass transition-all hover:border-border-light hover-lift"
       >
         <div className="relative aspect-square w-full">
           {imageUrl ? (
@@ -94,12 +94,12 @@ export const TrackCard = memo(function TrackCard({
             </div>
           )}
           <div className="absolute inset-0 flex items-center justify-center bg-black/0 transition-colors group-hover:bg-black/40">
-            <div className="scale-0 rounded-full bg-gradient-to-br from-pulse to-pulse-soft p-2.5 text-white transition-transform group-hover:scale-100">
+            <div className="scale-0 rounded-full bg-gradient-to-br from-primary to-primary-soft p-2.5 text-white transition-transform group-hover:scale-100">
               {isPlaying ? (
                 <div className="flex items-center gap-0.5">
-                  <span className="block h-3 w-0.5 animate-pulse bg-backdrop" />
-                  <span className="block h-3 w-0.5 animate-pulse bg-backdrop delay-75" />
-                  <span className="block h-3 w-0.5 animate-pulse bg-backdrop delay-150" />
+                  <span className="block h-3 w-0.5 animate-pulse bg-background" />
+                  <span className="block h-3 w-0.5 animate-pulse bg-background delay-75" />
+                  <span className="block h-3 w-0.5 animate-pulse bg-background delay-150" />
                 </div>
               ) : (
                 <Play size={18} fill="currentColor" className="ml-0.5" />
@@ -113,7 +113,7 @@ export const TrackCard = memo(function TrackCard({
           )}
           {isDownloaded && (
             <span className="absolute left-1.5 bottom-1.5 rounded bg-black/60 p-1" title="Available offline">
-              <HardDriveDownload size={12} className="text-pulse/90" />
+              <HardDriveDownload size={12} className="text-primary/90" />
             </span>
           )}
           {/* Library + Favorite buttons */}
@@ -125,7 +125,7 @@ export const TrackCard = memo(function TrackCard({
                   if (saved) unsaveTrack(track.addressableId);
                   else saveTrack(track.addressableId);
                 }}
-                className="rounded-full bg-backdrop/70 p-1 text-soft hover:text-heading"
+                className="rounded-full bg-background/70 p-1 text-soft hover:text-heading"
                 title={saved ? "Remove from Library" : "Add to Library"}
               >
                 {saved ? <Check size={14} className="text-green-400" /> : <Plus size={14} />}
@@ -136,7 +136,7 @@ export const TrackCard = memo(function TrackCard({
                   if (favorited) unfavoriteTrack(track.addressableId);
                   else favoriteTrack(track.addressableId);
                 }}
-                className="rounded-full bg-backdrop/70 p-1 text-soft hover:text-heading"
+                className="rounded-full bg-background/70 p-1 text-soft hover:text-heading"
                 title={favorited ? "Remove from Favorites" : "Add to Favorites"}
               >
                 <Heart
@@ -154,7 +154,7 @@ export const TrackCard = memo(function TrackCard({
                 e.stopPropagation();
                 setMenuOpen((v) => !v);
               }}
-              className="absolute bottom-1.5 right-1.5 rounded-full bg-backdrop/70 p-1 text-soft opacity-0 transition-opacity hover:text-heading group-hover:opacity-100"
+              className="absolute bottom-1.5 right-1.5 rounded-full bg-background/70 p-1 text-soft opacity-0 transition-opacity hover:text-heading group-hover:opacity-100"
             >
               <MoreHorizontal size={14} />
             </button>

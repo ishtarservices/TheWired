@@ -27,12 +27,12 @@ const TYPE_ICONS: Record<NotificationType, typeof AtSign> = {
 };
 
 const TYPE_COLORS: Record<NotificationType, string> = {
-  mention: "text-pulse",
-  dm: "text-neon",
-  follow: "text-pulse-soft",
+  mention: "text-primary",
+  dm: "text-primary",
+  follow: "text-primary-soft",
   chat: "text-soft",
-  invite: "text-neon",
-  friend_request: "text-pulse",
+  invite: "text-primary",
+  friend_request: "text-primary",
 };
 
 export function NotificationBell() {
@@ -88,7 +88,7 @@ export function NotificationBell() {
       >
         <Bell size={15} />
         {unreadCount > 0 && (
-          <span className="absolute -top-0.5 -right-0.5 flex h-3.5 min-w-3.5 items-center justify-center rounded-full bg-pulse px-0.5 text-[9px] font-bold text-white">
+          <span className="absolute -top-0.5 -right-0.5 flex h-3.5 min-w-3.5 items-center justify-center rounded-full bg-primary px-0.5 text-[9px] font-bold text-white">
             {unreadCount > 99 ? "99+" : unreadCount}
           </span>
         )}
@@ -96,9 +96,9 @@ export function NotificationBell() {
 
       {/* Dropdown */}
       {open && (
-        <div className="absolute right-0 top-full mt-2 z-50 w-80 max-h-[420px] rounded-xl shadow-[var(--shadow-elevated)] animate-fade-in-up flex flex-col overflow-hidden border border-edge-light glass-panel">
+        <div className="absolute right-0 top-full mt-2 z-50 w-80 max-h-[420px] rounded-xl shadow-[var(--shadow-elevated)] animate-fade-in-up flex flex-col overflow-hidden border border-border-light glass-panel">
           {/* Header */}
-          <div className="flex items-center justify-between border-b border-edge px-4 py-2.5 bg-surface">
+          <div className="flex items-center justify-between border-b border-border px-4 py-2.5 bg-surface">
             <span className="text-xs font-semibold text-heading tracking-wide uppercase">Notifications</span>
             <div className="flex items-center gap-1">
               {notifications.length > 0 && (
@@ -200,7 +200,7 @@ function NotificationRow({
       onClick={onClick}
       className={cn(
         "group flex w-full items-start gap-3 px-4 py-3 text-left transition-colors hover:bg-surface-hover",
-        !isRead && "bg-pulse/[0.04]",
+        !isRead && "bg-primary/[0.04]",
       )}
     >
       {/* Unread dot */}
@@ -208,7 +208,7 @@ function NotificationRow({
         <div
           className={cn(
             "h-1.5 w-1.5 rounded-full transition-opacity",
-            isRead ? "opacity-0" : "bg-pulse opacity-100",
+            isRead ? "opacity-0" : "bg-primary opacity-100",
           )}
         />
       </div>
@@ -227,7 +227,7 @@ function NotificationRow({
           {showFollowBack && (
             <button
               onClick={handleFollowBack}
-              className="rounded-md bg-pulse/20 px-2 py-0.5 text-[10px] font-semibold text-pulse hover:bg-pulse/30 transition-colors"
+              className="rounded-md bg-primary/20 px-2 py-0.5 text-[10px] font-semibold text-primary hover:bg-primary/30 transition-colors"
             >
               Follow Back
             </button>
@@ -235,7 +235,7 @@ function NotificationRow({
           {showAcceptFriend && (
             <button
               onClick={handleAcceptFriend}
-              className="rounded-md bg-pulse/20 px-2 py-0.5 text-[10px] font-semibold text-pulse hover:bg-pulse/30 transition-colors"
+              className="rounded-md bg-primary/20 px-2 py-0.5 text-[10px] font-semibold text-primary hover:bg-primary/30 transition-colors"
             >
               Accept
             </button>

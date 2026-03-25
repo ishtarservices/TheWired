@@ -113,7 +113,7 @@ export function MemberContextMenu({
             value={banReason}
             onChange={(e) => setBanReason(e.target.value)}
             placeholder="Reason (optional)"
-            className="w-full rounded-md rounded-xl bg-field border border-edge px-2 py-1 text-xs text-heading placeholder-muted focus:border-neon focus:outline-none"
+            className="w-full rounded-md rounded-xl bg-field border border-border px-2 py-1 text-xs text-heading placeholder-muted focus:border-primary focus:outline-none"
           />
           <div className="flex gap-2">
             <button

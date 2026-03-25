@@ -37,10 +37,10 @@ export function ProposalCard({ proposal, isOwner, onAccept, onReject }: Proposal
   const date = new Date(proposal.createdAt * 1000);
 
   return (
-    <div className="rounded-xl border border-edge card-glass p-4 transition-colors hover:border-edge-light">
+    <div className="rounded-xl border border-border card-glass p-4 transition-colors hover:border-border-light">
       <div className="mb-3 flex items-start justify-between gap-3">
         <div className="flex items-center gap-2">
-          <GitPullRequest size={16} className="shrink-0 text-pulse" />
+          <GitPullRequest size={16} className="shrink-0 text-primary" />
           <h3 className="text-sm font-semibold text-heading">{proposal.title}</h3>
         </div>
         <span className={`shrink-0 rounded-full px-2 py-0.5 text-[10px] font-medium uppercase tracking-wider ${STATUS_STYLES[proposal.status] ?? STATUS_STYLES.open}`}>
@@ -55,7 +55,7 @@ export function ProposalCard({ proposal, isOwner, onAccept, onReject }: Proposal
       <div className="mb-3 space-y-1">
         {proposal.changes.map((change, i) => (
           <div key={i} className="flex items-center gap-2 rounded-lg bg-surface/50 px-2 py-1">
-            <span className="h-1 w-1 shrink-0 rounded-full bg-pulse" />
+            <span className="h-1 w-1 shrink-0 rounded-full bg-primary" />
             <span className="text-xs text-body">{formatChange(change)}</span>
           </div>
         ))}

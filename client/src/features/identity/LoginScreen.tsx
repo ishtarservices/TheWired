@@ -22,12 +22,12 @@ export function LoginScreen() {
   return (
     <div className="relative flex h-screen items-center justify-center overflow-hidden bg-grid">
       {/* Ambient glow */}
-      <div className="pointer-events-none absolute inset-0 bg-ambient opacity-80" />
+      <div className="pointer-events-none absolute inset-0 bg-ambient opacity-60" />
 
       <div className="relative z-10 w-96 rounded-2xl border-gradient card-glass p-10 text-center">
         <div className="mb-6 flex justify-center">
-          <div className="flex h-16 w-16 items-center justify-center bg-gradient-to-br from-pulse/20 to-neon/10 rounded-2xl p-4">
-            <Key size={32} className="text-pulse-soft" />
+          <div className="flex h-16 w-16 items-center justify-center bg-primary/10 rounded-2xl p-4">
+            <Key size={32} className="text-primary-soft" />
           </div>
         </div>
 
@@ -69,7 +69,7 @@ export function LoginScreen() {
                   }}
                   placeholder="nsec1... or hex secret key"
                   disabled={loading}
-                  className="flex-1 rounded-xl bg-field ring-1 ring-edge px-3 py-2 text-sm text-heading placeholder-muted focus:ring-pulse/30 focus:shadow-[0_0_12px_rgba(139,92,246,0.1)] focus:outline-none"
+                  className="flex-1 rounded-xl bg-field ring-1 ring-border px-3 py-2 text-sm text-heading placeholder-muted focus:ring-primary/30 focus:shadow-[0_0_12px_var(--focus-glow-color)] focus:outline-none"
                 />
                 <Button
                   onClick={handleImport}
@@ -85,9 +85,9 @@ export function LoginScreen() {
 
           {hasTauri && (
             <div className="flex items-center gap-3">
-              <div className="h-px flex-1 bg-edge-light" />
+              <div className="h-px flex-1 bg-border-light" />
               <span className="text-xs text-muted">or</span>
-              <div className="h-px flex-1 bg-edge-light" />
+              <div className="h-px flex-1 bg-border-light" />
             </div>
           )}
 

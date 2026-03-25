@@ -38,7 +38,7 @@ export function ChannelsTab({ spaceId }: ChannelsTabProps) {
     <div className="space-y-4">
       <div className="flex items-center justify-between">
         <h3 className="text-sm font-semibold text-heading">Channels</h3>
-        <Button variant="neon" size="sm" onClick={() => setCreateOpen(true)}>
+        <Button variant="accent" size="sm" onClick={() => setCreateOpen(true)}>
           Add Channel
         </Button>
       </div>
@@ -59,7 +59,7 @@ export function ChannelsTab({ spaceId }: ChannelsTabProps) {
                     onBlur={() => saveEdit(ch.id)}
                     onKeyDown={(e) => e.key === "Enter" && saveEdit(ch.id)}
                     autoFocus
-                    className="flex-1 min-w-0 rounded-xl bg-field border border-edge px-2 py-0.5 text-sm text-heading focus:border-neon focus:outline-none"
+                    className="flex-1 min-w-0 rounded-xl bg-field border border-border px-2 py-0.5 text-sm text-heading focus:border-primary focus:outline-none"
                   />
                 ) : (
                   <button
@@ -123,7 +123,7 @@ export function ChannelsTab({ spaceId }: ChannelsTabProps) {
 
               {/* Expanded permission overrides panel */}
               {isPermsExpanded && (
-                <div className="border-t border-edge p-3">
+                <div className="border-t border-border p-3">
                   <ChannelOverridesPanel spaceId={spaceId} channelId={ch.id} />
                 </div>
               )}

@@ -102,7 +102,7 @@ export function MentionAutocomplete({
   return (
     <div
       ref={listRef}
-      className="absolute bottom-full left-0 z-50 mb-1 max-h-64 w-72 overflow-y-auto rounded-lg border border-edge-light bg-panel shadow-xl"
+      className="absolute bottom-full left-0 z-50 mb-1 max-h-64 w-72 overflow-y-auto rounded-lg border border-border-light bg-panel shadow-xl"
     >
       {results.map((r, i) => {
         const name = r.profile.display_name || r.profile.name || r.pubkey.slice(0, 8);

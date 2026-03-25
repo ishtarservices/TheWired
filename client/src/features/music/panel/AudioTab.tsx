@@ -72,7 +72,7 @@ export function AudioTab({ track, isOwner, onReplaceAudio, onExport, exporting }
       <div className="relative rounded-xl bg-surface/30 p-3">
         {waveformLoading ? (
           <div className="flex h-[80px] items-center justify-center">
-            <div className="h-5 w-5 animate-spin rounded-full border-2 border-edge border-t-pulse" />
+            <div className="h-5 w-5 animate-spin rounded-full border-2 border-border border-t-primary" />
           </div>
         ) : (
           <canvas

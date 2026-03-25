@@ -14,11 +14,11 @@ export interface ShimmerButtonProps extends ComponentPropsWithoutRef<"button"> {
 export const ShimmerButton = React.forwardRef<HTMLButtonElement, ShimmerButtonProps>(
   (
     {
-      shimmerColor = "#00F0FF",
+      shimmerColor = "var(--color-primary-soft)",
       shimmerSize = "0.05em",
       shimmerDuration = "3s",
       borderRadius = "14px",
-      background = "linear-gradient(135deg, rgba(139, 92, 246, 0.9), rgba(139, 92, 246, 0.7))",
+      background = "linear-gradient(135deg, var(--color-primary), var(--color-primary-soft))",
       className,
       children,
       ...props

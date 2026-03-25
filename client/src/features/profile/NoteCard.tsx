@@ -194,7 +194,7 @@ function NoteCardInner({
 
             {showOverflow && (
               <div
-                className="absolute right-0 top-full mt-1 z-50 w-40 rounded-lg border border-edge-light overflow-hidden"
+                className="absolute right-0 top-full mt-1 z-50 w-40 rounded-lg border border-border-light overflow-hidden"
                 style={{
                   backgroundColor: "var(--color-card)",
                   boxShadow: "var(--shadow-elevated)",
@@ -390,7 +390,7 @@ function ParentNotePreview({ event, onCollapse }: { event: NostrEvent; onCollaps
     : event.content;
 
   return (
-    <div className="mb-3 rounded-xl border border-edge bg-surface p-3">
+    <div className="mb-3 rounded-xl border border-border bg-surface p-3">
       <div className="mb-1.5 flex items-center justify-between">
         <div className="flex items-center gap-1.5">
           <Avatar src={profile?.picture} alt={name} size="xs" />

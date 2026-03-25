@@ -146,7 +146,7 @@ export function UploadTrackModal({ open, onClose, defaultAlbumRef, defaultVisibi
 
   return (
     <Modal open={open} onClose={onClose}>
-      <div className="w-full max-w-md max-h-[90vh] rounded-2xl border border-edge card-glass shadow-xl flex flex-col">
+      <div className="w-full max-w-md max-h-[90vh] rounded-2xl border border-border card-glass shadow-xl flex flex-col">
         <div className="shrink-0 flex items-center justify-between p-6 pb-0 mb-4">
           <h2 className="text-lg font-semibold text-heading">Upload Track</h2>
           <button onClick={onClose} className="text-soft hover:text-heading">
@@ -169,7 +169,7 @@ export function UploadTrackModal({ open, onClose, defaultAlbumRef, defaultVisibi
             />
             <button
               onClick={() => audioInputRef.current?.click()}
-              className="flex w-full items-center gap-2 rounded-xl border border-dashed border-edge px-4 py-3 text-sm text-soft transition-colors hover:border-pulse/40 hover:text-heading"
+              className="flex w-full items-center gap-2 rounded-xl border border-dashed border-border px-4 py-3 text-sm text-soft transition-colors hover:border-primary/40 hover:text-heading"
             >
               {audioFile ? (
                 <>
@@ -194,7 +194,7 @@ export function UploadTrackModal({ open, onClose, defaultAlbumRef, defaultVisibi
               type="text"
               value={title}
               onChange={(e) => setTitle(e.target.value)}
-              className="w-full rounded-xl border border-edge bg-field px-3 py-1.5 text-sm text-heading outline-none focus:border-pulse/30"
+              className="w-full rounded-xl border border-border bg-field px-3 py-1.5 text-sm text-heading outline-none focus:border-primary/30"
               placeholder="Track title"
             />
           </div>
@@ -208,7 +208,7 @@ export function UploadTrackModal({ open, onClose, defaultAlbumRef, defaultVisibi
               type="text"
               value={artist}
               onChange={(e) => setArtist(e.target.value)}
-              className="w-full rounded-xl border border-edge bg-field px-3 py-1.5 text-sm text-heading outline-none focus:border-pulse/30"
+              className="w-full rounded-xl border border-border bg-field px-3 py-1.5 text-sm text-heading outline-none focus:border-primary/30"
               placeholder="Artist name"
             />
           </div>
@@ -219,7 +219,7 @@ export function UploadTrackModal({ open, onClose, defaultAlbumRef, defaultVisibi
               type="checkbox"
               checked={iAmArtist}
               onChange={(e) => setIAmArtist(e.target.checked)}
-              className="h-4 w-4 rounded border-2 border-edge bg-field checked:bg-pulse checked:border-pulse accent-purple-400"
+              className="h-4 w-4 rounded border-2 border-border bg-field checked:bg-primary checked:border-primary accent-purple-400"
             />
             I am the artist
           </label>
@@ -247,7 +247,7 @@ export function UploadTrackModal({ open, onClose, defaultAlbumRef, defaultVisibi
             <select
               value={albumRef}
               onChange={(e) => setAlbumRef(e.target.value)}
-              className="w-full rounded-xl border border-edge bg-field px-3 py-1.5 text-sm text-heading outline-none focus:border-pulse/30"
+              className="w-full rounded-xl border border-border bg-field px-3 py-1.5 text-sm text-heading outline-none focus:border-primary/30"
             >
               <option value="">None (single)</option>
               {ownAlbums.length > 0 && (
@@ -292,7 +292,7 @@ export function UploadTrackModal({ open, onClose, defaultAlbumRef, defaultVisibi
             />
             <div className="flex items-center gap-2">
               {(embeddedCover || coverFile) && (
-                <div className="h-10 w-10 shrink-0 overflow-hidden rounded-lg border border-edge">
+                <div className="h-10 w-10 shrink-0 overflow-hidden rounded-lg border border-border">
                   <img
                     src={embeddedCover?.objectUrl ?? (coverFile ? URL.createObjectURL(coverFile) : "")}
                     alt="Cover"
@@ -326,7 +326,7 @@ export function UploadTrackModal({ open, onClose, defaultAlbumRef, defaultVisibi
           <button
             onClick={handleSubmit}
             disabled={!audioFile || !title.trim() || uploading || (visibility === "space" && !spaceId)}
-            className="w-full rounded-xl bg-gradient-to-r from-pulse to-pulse-soft py-2 text-sm font-medium text-white transition-opacity hover:opacity-90 press-effect disabled:opacity-50"
+            className="w-full rounded-xl bg-gradient-to-r from-primary to-primary-soft py-2 text-sm font-medium text-white transition-opacity hover:opacity-90 press-effect disabled:opacity-50"
           >
             {uploading
               ? "Uploading..."

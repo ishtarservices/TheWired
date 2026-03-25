@@ -11,7 +11,7 @@ export function ChatEditBanner({ originalContent, onCancel }: ChatEditBannerProp
     : originalContent;
 
   return (
-    <div className="flex items-center gap-2 border-t border-edge bg-panel px-4 py-2">
+    <div className="flex items-center gap-2 border-t border-border bg-panel px-4 py-2">
       <div className="h-4 w-0.5 rounded-full bg-amber-400" />
       <Pencil size={12} className="text-amber-400 shrink-0" />
       <div className="min-w-0 flex-1">

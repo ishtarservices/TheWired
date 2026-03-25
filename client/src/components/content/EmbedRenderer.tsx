@@ -41,7 +41,7 @@ function EmbedIframe({ embed }: { embed: EmbedMatch }) {
   const dimensions = getIframeDimensions(embed.platform);
 
   return (
-    <div className="my-2 -mx-3 min-w-[280px] max-w-md overflow-hidden rounded-lg border border-edge-light">
+    <div className="my-2 -mx-3 min-w-[280px] max-w-md overflow-hidden rounded-lg border border-border-light">
       <div className={dimensions.wrapperClass}>
         <iframe
           src={embed.embedUrl!}
@@ -61,7 +61,7 @@ function EmbedIframe({ embed }: { embed: EmbedMatch }) {
 
 function EmbedLinkCard({ embed }: { embed: EmbedMatch }) {
   return (
-    <div className="my-2 -mx-3 min-w-[280px] max-w-md overflow-hidden rounded-lg border border-edge-light bg-surface">
+    <div className="my-2 -mx-3 min-w-[280px] max-w-md overflow-hidden rounded-lg border border-border-light bg-surface">
       <div className="flex items-center gap-3 px-3 py-2.5">
         <div className={`h-2.5 w-2.5 shrink-0 rounded-full ${PLATFORM_COLORS[embed.platform]}`} />
         <div className="min-w-0 flex-1">
@@ -87,7 +87,7 @@ function EmbedLinkCard({ embed }: { embed: EmbedMatch }) {
 
 function EmbedFooter({ embed }: { embed: EmbedMatch }) {
   return (
-    <div className="flex items-center justify-between border-t border-edge px-3 py-1.5 bg-surface">
+    <div className="flex items-center justify-between border-t border-border px-3 py-1.5 bg-surface">
       <div className="flex items-center gap-2">
         <div className={`h-2 w-2 rounded-full ${PLATFORM_COLORS[embed.platform]}`} />
         <span className="text-[11px] text-muted">{PLATFORM_LABELS[embed.platform]}</span>

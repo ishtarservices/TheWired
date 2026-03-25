@@ -9,7 +9,7 @@ interface GifPreviewProps {
 export function GifPreview({ gif, onRemove }: GifPreviewProps) {
   return (
     <div className="px-3 pt-2 pb-1">
-      <div className="group/gif relative inline-block rounded-lg border border-edge-light bg-surface overflow-hidden">
+      <div className="group/gif relative inline-block rounded-lg border border-border-light bg-surface overflow-hidden">
         <button
           type="button"
           onClick={onRemove}

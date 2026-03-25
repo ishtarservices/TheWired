@@ -93,10 +93,10 @@ export function EmojiPicker({ spaceId, onEmojiSelect, onClose }: EmojiPickerProp
     return (
       <div
         ref={pickerRef}
-        className="absolute bottom-full left-0 mb-2 z-50 rounded-xl overflow-hidden shadow-xl border border-edge bg-panel flex items-center justify-center"
+        className="absolute bottom-full left-0 mb-2 z-50 rounded-xl overflow-hidden shadow-xl border border-border bg-panel flex items-center justify-center"
         style={{ width: 352, height: 435 }}
       >
-        <div className="h-5 w-5 animate-spin rounded-full border-2 border-pulse border-t-transparent" />
+        <div className="h-5 w-5 animate-spin rounded-full border-2 border-primary border-t-transparent" />
       </div>
     );
   }
@@ -106,7 +106,7 @@ export function EmojiPicker({ spaceId, onEmojiSelect, onClose }: EmojiPickerProp
   return (
     <div
       ref={pickerRef}
-      className="absolute bottom-full left-0 mb-2 z-50 rounded-xl overflow-hidden shadow-xl border border-edge"
+      className="absolute bottom-full left-0 mb-2 z-50 rounded-xl overflow-hidden shadow-xl border border-border"
     >
       <Picker
         data={emojiData}

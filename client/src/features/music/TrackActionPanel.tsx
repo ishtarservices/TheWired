@@ -315,13 +315,13 @@ export function TrackActionPanel({
             transition={{ type: "spring", duration: 0.25, bounce: 0.1 }}
             onClick={(e) => e.stopPropagation()}
             onMouseDown={(e) => e.stopPropagation()}
-            className="flex w-[480px] max-h-[80vh] flex-col rounded-2xl border border-edge/60 card-glass shadow-2xl"
+            className="flex w-[480px] max-h-[80vh] flex-col rounded-2xl border border-border/60 card-glass shadow-2xl"
           >
             {/* Header */}
             <PanelHeader track={track} onClose={onClose} />
 
             {/* Tab bar */}
-            <div className="flex border-b border-edge/40 px-2">
+            <div className="flex border-b border-border/40 px-2">
               {visibleTabs.map((tab) => (
                 <button
                   key={tab.id}
@@ -334,12 +334,12 @@ export function TrackActionPanel({
                 >
                   {tab.label}
                   {tab.badge !== undefined && (
-                    <span className="ml-1 rounded-full bg-pulse/15 px-1.5 py-0.5 text-[9px] font-semibold text-pulse">
+                    <span className="ml-1 rounded-full bg-primary/15 px-1.5 py-0.5 text-[9px] font-semibold text-primary">
                       {tab.badge}
                     </span>
                   )}
                   {activeTab === tab.id && (
-                    <span className="absolute bottom-0 left-1/2 h-0.5 w-6 -translate-x-1/2 rounded-full bg-pulse" />
+                    <span className="absolute bottom-0 left-1/2 h-0.5 w-6 -translate-x-1/2 rounded-full bg-primary" />
                   )}
                 </button>
               ))}

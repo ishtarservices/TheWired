@@ -44,7 +44,7 @@ export function FormattingToolbar({ textareaRef, value, setValue }: FormattingTo
   );
 
   return (
-    <div className="flex items-center gap-0.5 px-2 py-1 border-b border-edge/30">
+    <div className="flex items-center gap-0.5 px-2 py-1 border-b border-border/30">
       {BUTTONS.map((btn) => (
         <button
           key={btn.marker}

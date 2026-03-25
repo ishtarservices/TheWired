@@ -19,7 +19,7 @@ interface MembersTabProps {
 }
 
 function RoleBadge({ role, size = "sm" }: { role: SpaceRole; size?: "sm" | "xs" }) {
-  const color = role.color ?? "#6b7280";
+  const color = role.color ?? "var(--color-muted)";
   return (
     <span
       className={`inline-flex items-center gap-1 rounded-full font-medium ${
@@ -104,7 +104,7 @@ function MemberRow({
       {/* Expanded role management */}
       {expanded && allRoles.length > 0 && (
         <div className="px-2.5 pb-2.5">
-          <div className="rounded-lg bg-surface/60 border border-edge/50 p-2">
+          <div className="rounded-lg bg-surface/60 border border-border/50 p-2">
             <div className="flex items-center justify-between mb-1.5 px-0.5">
               <p className="text-[10px] text-muted">Roles</p>
               {memberRoles.length > 0 && (
@@ -121,7 +121,7 @@ function MemberRow({
                 })
                 .map((role) => {
                   const isAssigned = assignedIds.has(role.id);
-                  const color = role.color ?? "#6b7280";
+                  const color = role.color ?? "var(--color-muted)";
                   return (
                     <button
                       key={role.id}
@@ -136,7 +136,7 @@ function MemberRow({
                             }
                           : {
                               backgroundColor: "transparent",
-                              color: "#6b7280",
+                              color: "var(--color-muted)",
                               border: "1.5px dashed #374151",
                             }
                       }
@@ -149,7 +149,7 @@ function MemberRow({
                       <span
                         className="shrink-0 rounded-full"
                         style={{
-                          backgroundColor: isAssigned ? color : "#6b7280",
+                          backgroundColor: isAssigned ? color : "var(--color-muted)",
                           width: 6,
                           height: 6,
                           opacity: isAssigned ? 1 : 0.4,
@@ -184,7 +184,7 @@ function FeedSourceRow({
         <div className="truncate text-sm text-heading">{name}</div>
         <div className="truncate text-[10px] text-muted font-mono">{pubkey.slice(0, 16)}...</div>
       </div>
-      <Rss size={12} className="text-neon/60 shrink-0" />
+      <Rss size={12} className="text-primary/60 shrink-0" />
       <button
         onClick={onRemove}
         className="rounded p-1 text-muted opacity-0 hover:bg-red-500/10 hover:text-red-400 transition-all group-hover:opacity-100"
@@ -294,7 +294,7 @@ export function MembersTab({ spaceId }: MembersTabProps) {
 
           {canManageFeed && (
             <div className="relative">
-              <div className="flex items-center gap-2 rounded-xl bg-field border border-edge px-3 py-1.5 focus-within:border-neon transition-colors">
+              <div className="flex items-center gap-2 rounded-xl bg-field border border-border px-3 py-1.5 focus-within:border-primary transition-colors">
                 <Search size={14} className="text-muted shrink-0" />
                 <input
                   type="text"
@@ -365,7 +365,7 @@ export function MembersTab({ spaceId }: MembersTabProps) {
           value={memberFilter}
           onChange={(e) => setMemberFilter(e.target.value)}
           placeholder={`Filter ${isFeedMode ? "spectators" : "members"}...`}
-          className="w-full rounded-xl bg-field border border-edge px-3 py-1.5 text-sm text-heading placeholder-muted focus:border-neon focus:outline-none transition-colors"
+          className="w-full rounded-xl bg-field border border-border px-3 py-1.5 text-sm text-heading placeholder-muted focus:border-primary focus:outline-none transition-colors"
         />
 
         <div className="space-y-0.5 max-h-96 overflow-y-auto">

@@ -70,7 +70,7 @@ export function GenrePicker({
           onChange={handleInputChange}
           onFocus={() => setOpen(true)}
           onKeyDown={handleKeyDown}
-          className="w-full rounded-xl border border-edge bg-field px-3 py-1.5 pr-8 text-sm text-heading outline-none focus:border-pulse/30"
+          className="w-full rounded-xl border border-border bg-field px-3 py-1.5 pr-8 text-sm text-heading outline-none focus:border-primary/30"
           placeholder={placeholder}
         />
         <button
@@ -85,7 +85,7 @@ export function GenrePicker({
         </button>
       </div>
       {open && filtered.length > 0 && (
-        <div className="absolute z-50 mt-1 max-h-48 w-full overflow-y-auto rounded-xl border border-edge bg-card shadow-lg">
+        <div className="absolute z-50 mt-1 max-h-48 w-full overflow-y-auto rounded-xl border border-border bg-card shadow-lg">
           {filtered.map((genre) => (
             <button
               key={genre}
@@ -102,7 +102,7 @@ export function GenrePicker({
             <button
               type="button"
               onClick={() => handleSelect(search)}
-              className="w-full border-t border-edge px-3 py-1.5 text-left text-sm text-soft hover:bg-surface-hover"
+              className="w-full border-t border-border px-3 py-1.5 text-left text-sm text-soft hover:bg-surface-hover"
             >
               Use "{search}"
             </button>

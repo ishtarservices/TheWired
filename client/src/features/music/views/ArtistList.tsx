@@ -82,7 +82,7 @@ function ArtistNameItem({ entry }: { entry: Extract<ArtistEntry, { type: "name" 
         <img
           src={avatarSrc}
           alt={entry.name}
-          className="h-12 w-12 rounded-full object-cover ring-1 ring-edge"
+          className="h-12 w-12 rounded-full object-cover ring-1 ring-border"
         />
       ) : (
         <div className="flex h-12 w-12 items-center justify-center rounded-full bg-card text-soft">

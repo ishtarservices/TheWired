@@ -42,7 +42,7 @@ export function InsightsChart({ data, height = 200 }: InsightsChartProps) {
               y1={y}
               x2={chartWidth - padding.right}
               y2={y}
-              className="stroke-edge"
+              className="stroke-border"
               strokeWidth={0.5}
               strokeDasharray="4 4"
             />
@@ -86,7 +86,7 @@ export function InsightsChart({ data, height = 200 }: InsightsChartProps) {
               width={barWidth}
               height={Math.max(barHeight, 0)}
               rx={1}
-              className={isHovered ? "fill-pulse" : "fill-pulse/60"}
+              className={isHovered ? "fill-primary" : "fill-primary/60"}
               style={{ transition: "fill 0.15s" }}
             />
             {/* Hover tooltip */}

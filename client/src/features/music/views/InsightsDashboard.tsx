@@ -59,7 +59,7 @@ export function InsightsDashboard() {
   if (isLoading) {
     return (
       <div className="flex flex-1 items-center justify-center text-soft">
-        <div className="h-5 w-5 animate-spin rounded-full border-2 border-pulse border-t-transparent" />
+        <div className="h-5 w-5 animate-spin rounded-full border-2 border-primary border-t-transparent" />
         <span className="ml-2">Loading insights...</span>
       </div>
     );
@@ -118,7 +118,7 @@ export function InsightsDashboard() {
               </button>
             </div>
           </div>
-          <div className="rounded-lg border border-edge bg-panel p-4">
+          <div className="rounded-lg border border-border bg-panel p-4">
             <div className="mb-2 flex gap-4 text-xs text-soft">
               <span>{formatNumber(selectedTrackInsights.totalPlays)} plays</span>
               <span>{formatNumber(selectedTrackInsights.uniqueListeners)} unique listeners</span>
@@ -134,10 +134,10 @@ export function InsightsDashboard() {
         {summary.trackBreakdown.length === 0 ? (
           <p className="text-sm text-soft">No tracks published yet.</p>
         ) : (
-          <div className="rounded-lg border border-edge bg-panel">
+          <div className="rounded-lg border border-border bg-panel">
             <table className="w-full text-sm">
               <thead>
-                <tr className="border-b border-edge text-left text-xs text-muted">
+                <tr className="border-b border-border text-left text-xs text-muted">
                   <th className="px-4 py-2 font-medium">#</th>
                   <th className="px-4 py-2 font-medium">Track</th>
                   <th className="px-4 py-2 text-right font-medium">Plays</th>
@@ -151,7 +151,7 @@ export function InsightsDashboard() {
                     <tr
                       key={item.addressableId}
                       onClick={() => handleTrackClick(item.addressableId, displayTitle)}
-                      className="cursor-pointer border-b border-edge/50 transition-colors last:border-0 hover:bg-surface"
+                      className="cursor-pointer border-b border-border/50 transition-colors last:border-0 hover:bg-surface"
                     >
                       <td className="px-4 py-2.5 text-muted">{idx + 1}</td>
                       <td className="px-4 py-2.5 text-body">{displayTitle}</td>
@@ -180,7 +180,7 @@ function SummaryCard({
   value: string;
 }) {
   return (
-    <div className="rounded-lg border border-edge bg-panel p-4">
+    <div className="rounded-lg border border-border bg-panel p-4">
       <div className="mb-2 flex items-center gap-2 text-soft">
         {icon}
         <span className="text-xs">{label}</span>

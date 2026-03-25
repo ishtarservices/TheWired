@@ -81,20 +81,20 @@ export function RightPanel() {
           onDoubleClick={onDoubleClick}
           className="group absolute left-0 top-0 bottom-0 z-20 w-1.5 cursor-col-resize"
         >
-          <div className="absolute inset-y-0 left-0 w-px bg-gradient-to-b from-neon/10 via-edge to-pulse/20" />
+          <div className="absolute inset-y-0 left-0 w-px bg-gradient-to-b from-primary-soft/10 via-border to-primary/20" />
           <div
             className={cn(
               "absolute inset-y-0 left-0 w-0 transition-all duration-150",
               isDragging
-                ? "w-[2px] bg-pulse/40"
-                : "group-hover:w-[2px] group-hover:bg-pulse/20",
+                ? "w-[2px] bg-primary/40"
+                : "group-hover:w-[2px] group-hover:bg-primary/20",
             )}
           />
         </div>
       )}
 
       {/* Header */}
-      <div className="flex h-14 items-center justify-between border-b border-edge px-4">
+      <div className="flex h-14 items-center justify-between border-b border-border px-4">
         <div className="flex items-center gap-2">
           <span className="text-soft">{headerIcon}</span>
           <span className="text-sm font-semibold text-body">{headerTitle}</span>

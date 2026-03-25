@@ -176,7 +176,7 @@ const ImageThumbnail = memo(function ImageThumbnail({
   const [errored, setErrored] = useState(false);
 
   return (
-    <div className="flex flex-col overflow-hidden rounded-lg border border-edge bg-surface">
+    <div className="flex flex-col overflow-hidden rounded-lg border border-border bg-surface">
       <button
         onClick={onClick}
         className="group relative w-full shrink-0"
@@ -211,7 +211,7 @@ const VideoThumbnail = memo(function VideoThumbnail({
   const thumb = useVideoThumbnail(item.url, item.thumbnailUrl);
 
   return (
-    <div className="flex flex-col overflow-hidden rounded-lg border border-edge bg-surface">
+    <div className="flex flex-col overflow-hidden rounded-lg border border-border bg-surface">
       <button
         onClick={onClick}
         className="group relative w-full shrink-0"
@@ -276,7 +276,7 @@ const EmbedThumbnail = memo(function EmbedThumbnail({
   const hasThumb = embed.platform === "youtube";
 
   return (
-    <div className="flex flex-col overflow-hidden rounded-lg border border-edge bg-surface">
+    <div className="flex flex-col overflow-hidden rounded-lg border border-border bg-surface">
       <button
         onClick={onClick}
         className="group relative w-full shrink-0"
@@ -332,8 +332,8 @@ function ExpandedEmbedView({
   const [iframeError, setIframeError] = useState(false);
 
   return (
-    <div className="flex flex-1 flex-col overflow-hidden bg-[#0a0a1a]">
-      <div className="flex items-center gap-3 border-b border-edge px-4 py-2">
+    <div className="flex flex-1 flex-col overflow-hidden bg-background">
+      <div className="flex items-center gap-3 border-b border-border px-4 py-2">
         <button
           onClick={onClose}
           className="rounded-md px-2 py-1 text-xs text-soft hover:bg-surface-hover hover:text-heading"
@@ -370,7 +370,7 @@ function ExpandedEmbedView({
             </div>
           </div>
         ) : (
-          <div className="flex w-full max-w-3xl flex-col items-center justify-center rounded-lg border border-edge bg-surface p-8">
+          <div className="flex w-full max-w-3xl flex-col items-center justify-center rounded-lg border border-border bg-surface p-8">
             <div className={`rounded-xl p-4 ${PLATFORM_ICONS[embed.platform].bg}`}>
               <ExternalLink size={32} className={PLATFORM_ICONS[embed.platform].accent} />
             </div>
@@ -388,7 +388,7 @@ function ExpandedEmbedView({
           </div>
         )}
         {text && (
-          <div className="mt-4 w-full max-w-3xl rounded-lg border border-edge bg-surface p-4">
+          <div className="mt-4 w-full max-w-3xl rounded-lg border border-border bg-surface p-4">
             <AuthorBadge pubkey={item.event.pubkey} />
             <div className="mt-2 text-sm leading-relaxed text-body">
               <RichContent content={text} />
@@ -442,7 +442,7 @@ function ExpandedVideoView({
         />
       </div>
       {text && (
-        <div className="mt-4 w-full max-w-4xl rounded-lg border border-edge bg-surface p-4">
+        <div className="mt-4 w-full max-w-4xl rounded-lg border border-border bg-surface p-4">
           <AuthorBadge pubkey={item.event.pubkey} />
           <div className="mt-2 text-sm leading-relaxed text-body">
             <RichContent content={text} />
@@ -463,8 +463,8 @@ function ExpandedImageView({
   const text = getItemText(item);
 
   return (
-    <div className="flex flex-1 flex-col overflow-hidden bg-[#0a0a1a]">
-      <div className="flex items-center gap-3 border-b border-edge px-4 py-2">
+    <div className="flex flex-1 flex-col overflow-hidden bg-background">
+      <div className="flex items-center gap-3 border-b border-border px-4 py-2">
         <button
           onClick={onClose}
           className="rounded-md px-2 py-1 text-xs text-soft hover:bg-surface-hover hover:text-heading"
@@ -482,7 +482,7 @@ function ExpandedImageView({
         />
       </div>
       {text && (
-        <div className="border-t border-edge px-4 py-3">
+        <div className="border-t border-border px-4 py-3">
           <div className="text-sm text-soft">
             <RichContent content={text} />
           </div>
@@ -510,7 +510,7 @@ function TabButton({
       onClick={onClick}
       className={`rounded-md px-2.5 py-1 text-xs font-medium transition-colors ${
         active
-          ? "bg-pulse/15 text-pulse-soft"
+          ? "bg-primary/15 text-primary-soft"
           : "text-soft hover:bg-surface-hover hover:text-heading"
       }`}
     >

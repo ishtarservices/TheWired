@@ -146,7 +146,7 @@ export function SpacePickerModal({
 
   return (
     <Modal open={open} onClose={handleClose}>
-      <div className="w-full max-w-sm rounded-2xl border border-edge card-glass p-6 shadow-xl">
+      <div className="w-full max-w-sm rounded-2xl border border-border card-glass p-6 shadow-xl">
         <div className="mb-4 flex items-center justify-between">
           {selectedSpace ? (
             <div className="flex items-center gap-2">
@@ -174,7 +174,7 @@ export function SpacePickerModal({
 
         {sending && (
           <div className="mb-2 flex items-center gap-2 text-xs text-soft">
-            <div className="h-3 w-3 animate-spin rounded-full border-2 border-pulse border-t-transparent" />
+            <div className="h-3 w-3 animate-spin rounded-full border-2 border-primary border-t-transparent" />
             Sharing...
           </div>
         )}
@@ -213,7 +213,7 @@ export function SpacePickerModal({
                   value={searchQuery}
                   onChange={(e) => setSearchQuery(e.target.value)}
                   placeholder="Search spaces..."
-                  className="w-full rounded-xl border border-edge bg-field pl-9 pr-3 py-2 text-sm text-heading placeholder-muted outline-none focus:border-pulse/30"
+                  className="w-full rounded-xl border border-border bg-field pl-9 pr-3 py-2 text-sm text-heading placeholder-muted outline-none focus:border-primary/30"
                   autoFocus
                 />
               </div>

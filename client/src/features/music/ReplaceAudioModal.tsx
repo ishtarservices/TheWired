@@ -139,7 +139,7 @@ export function ReplaceAudioModal({ track, onClose, onBack }: ReplaceAudioModalP
 
   return (
     <Modal open={true} onClose={onClose}>
-      <div className="w-full max-w-md rounded-2xl border border-edge card-glass p-6 shadow-xl">
+      <div className="w-full max-w-md rounded-2xl border border-border card-glass p-6 shadow-xl">
         <div className="mb-4 flex items-center justify-between">
           <div className="flex items-center gap-2">
             {onBack && (
@@ -156,7 +156,7 @@ export function ReplaceAudioModal({ track, onClose, onBack }: ReplaceAudioModalP
 
         <div className="space-y-4">
           {/* Current audio info */}
-          <div className="rounded-xl border border-edge bg-surface/50 p-3">
+          <div className="rounded-xl border border-border bg-surface/50 p-3">
             <p className="mb-2 text-xs font-medium text-soft">Current Audio</p>
             <div className="flex items-center gap-3">
               <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-card">
@@ -166,7 +166,7 @@ export function ReplaceAudioModal({ track, onClose, onBack }: ReplaceAudioModalP
                 <p className="truncate text-sm text-heading">{currentFilename}</p>
                 <div className="flex items-center gap-2 text-xs text-muted">
                   <span>{formatMime(currentMime)}</span>
-                  <span className="text-edge">|</span>
+                  <span className="text-border">|</span>
                   <span>{formatDuration(track.duration)}</span>
                 </div>
               </div>
@@ -187,7 +187,7 @@ export function ReplaceAudioModal({ track, onClose, onBack }: ReplaceAudioModalP
             />
             <button
               onClick={() => audioInputRef.current?.click()}
-              className="flex w-full items-center gap-2 rounded-xl border border-dashed border-edge px-4 py-3 text-sm text-soft transition-colors hover:border-pulse/40 hover:text-heading"
+              className="flex w-full items-center gap-2 rounded-xl border border-dashed border-border px-4 py-3 text-sm text-soft transition-colors hover:border-primary/40 hover:text-heading"
             >
               {audioFile ? (
                 <>
@@ -217,7 +217,7 @@ export function ReplaceAudioModal({ track, onClose, onBack }: ReplaceAudioModalP
               type="text"
               value={revisionSummary}
               onChange={(e) => setRevisionSummary(e.target.value)}
-              className="w-full rounded-xl border border-edge bg-field px-3 py-1.5 text-sm text-heading outline-none focus:border-pulse/30"
+              className="w-full rounded-xl border border-border bg-field px-3 py-1.5 text-sm text-heading outline-none focus:border-primary/30"
               placeholder="e.g., Remastered mix, fixed intro timing..."
             />
           </div>
@@ -234,7 +234,7 @@ export function ReplaceAudioModal({ track, onClose, onBack }: ReplaceAudioModalP
           <button
             onClick={handleSubmit}
             disabled={!audioFile || uploading}
-            className="w-full rounded-xl bg-gradient-to-r from-pulse to-pulse-soft py-2 text-sm font-medium text-white transition-opacity hover:opacity-90 press-effect disabled:opacity-50"
+            className="w-full rounded-xl bg-gradient-to-r from-primary to-primary-soft py-2 text-sm font-medium text-white transition-opacity hover:opacity-90 press-effect disabled:opacity-50"
           >
             {uploading ? "Uploading & Replacing..." : "Replace Audio"}
           </button>

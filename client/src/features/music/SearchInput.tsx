@@ -116,7 +116,7 @@ export function SearchInput() {
 
   return (
     <div ref={containerRef} className="relative">
-      <div className="flex items-center gap-2 rounded-xl bg-field ring-1 ring-edge px-2.5 py-1.5 focus-within:ring-pulse/30 focus-within:shadow-[0_0_12px_rgba(139,92,246,0.1)] transition-all">
+      <div className="flex items-center gap-2 rounded-xl bg-field ring-1 ring-border px-2.5 py-1.5 focus-within:ring-primary/30 focus-within:shadow-[0_0_12px_var(--focus-glow-color)] transition-all">
         <Search size={14} className="shrink-0 text-muted" />
         <input
           ref={inputRef}
@@ -139,16 +139,16 @@ export function SearchInput() {
       </div>
 
       {showDropdown && (
-        <div className="absolute right-0 top-full z-50 mt-1.5 w-80 rounded-xl border border-edge card-glass shadow-xl overflow-hidden">
+        <div className="absolute right-0 top-full z-50 mt-1.5 w-80 rounded-xl border border-border card-glass shadow-xl overflow-hidden">
           {isSearching && !hasResults && (
             <div className="flex items-center gap-2 px-3 py-3">
-              <div className="h-3.5 w-3.5 animate-spin rounded-full border-2 border-pulse border-t-transparent" />
+              <div className="h-3.5 w-3.5 animate-spin rounded-full border-2 border-primary border-t-transparent" />
               <span className="text-xs text-muted">Searching...</span>
             </div>
           )}
 
           {results.tracks.length > 0 && (
-            <div className="border-b border-edge/50">
+            <div className="border-b border-border/50">
               <p className="px-3 pb-1 pt-2.5 text-[10px] font-semibold uppercase tracking-wider text-muted">
                 Tracks
               </p>
@@ -190,7 +190,7 @@ export function SearchInput() {
           )}
 
           {results.albums.length > 0 && (
-            <div className="border-b border-edge/50">
+            <div className="border-b border-border/50">
               <p className="px-3 pb-1 pt-2.5 text-[10px] font-semibold uppercase tracking-wider text-muted">
                 Albums
               </p>
@@ -239,10 +239,10 @@ export function SearchInput() {
                 activeIdx === itemIdx ? "bg-surface" : "hover:bg-surface/50"
               }`}
             >
-              <span className="text-xs font-medium text-pulse">
+              <span className="text-xs font-medium text-primary">
                 View all results
               </span>
-              <ArrowRight size={12} className="text-pulse" />
+              <ArrowRight size={12} className="text-primary" />
             </button>
           )}
 

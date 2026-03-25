@@ -69,7 +69,7 @@ export function HashtagInput({
         value={input}
         onChange={(e) => setInput(e.target.value)}
         onKeyDown={handleKeyDown}
-        className="w-full rounded-xl border border-edge bg-field px-3 py-1.5 text-sm text-heading outline-none focus:border-pulse/30"
+        className="w-full rounded-xl border border-border bg-field px-3 py-1.5 text-sm text-heading outline-none focus:border-primary/30"
         placeholder={placeholder}
       />
       {suggestions && suggestions.length > 0 && (
@@ -81,7 +81,7 @@ export function HashtagInput({
                 key={s}
                 type="button"
                 onClick={() => addTag(s)}
-                className="rounded-full border border-edge px-2 py-0.5 text-[10px] text-muted transition-colors hover:border-pulse/30 hover:text-heading"
+                className="rounded-full border border-border px-2 py-0.5 text-[10px] text-muted transition-colors hover:border-primary/30 hover:text-heading"
               >
                 #{s}
               </button>

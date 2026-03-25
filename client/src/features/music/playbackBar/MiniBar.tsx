@@ -167,7 +167,7 @@ export function MiniBar() {
             <Maximize2 size={12} />
             <span className="truncate max-w-[120px]">{currentTrack.title}</span>
             {ltActive && (
-              <span className="flex items-center gap-0.5 text-pulse">
+              <span className="flex items-center gap-0.5 text-primary">
                 <Headphones size={10} />
                 {ltListenerCount}
               </span>
@@ -208,7 +208,7 @@ export function MiniBar() {
             cy={RING_SIZE / 2}
             r={RING_RADIUS}
             fill="none"
-            stroke="rgba(139, 92, 246, 0.2)"
+            stroke="var(--color-primary-dim)"
             strokeWidth={2}
           />
           <circle
@@ -225,8 +225,8 @@ export function MiniBar() {
           />
           <defs>
             <linearGradient id="miniProgressGradient" x1="0%" y1="0%" x2="100%" y2="100%">
-              <stop offset="0%" stopColor="var(--color-pulse)" />
-              <stop offset="100%" stopColor="var(--color-neon)" />
+              <stop offset="0%" stopColor="var(--color-primary)" />
+              <stop offset="100%" stopColor="var(--color-primary-soft)" />
             </linearGradient>
           </defs>
         </svg>

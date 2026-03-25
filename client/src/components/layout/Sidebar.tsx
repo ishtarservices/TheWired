@@ -43,20 +43,20 @@ export function Sidebar({ expanded }: SidebarProps) {
           className="group absolute right-0 top-0 bottom-0 z-20 w-1.5 cursor-col-resize"
         >
           {/* Decorative gradient edge */}
-          <div className="absolute inset-y-0 right-0 w-px bg-linear-to-b from-pulse/20 via-edge to-neon/10" />
+          <div className="absolute inset-y-0 right-0 w-px bg-linear-to-b from-primary/20 via-border to-primary-soft/10" />
           {/* Interactive highlight */}
           <div
             className={cn(
               "absolute inset-y-0 right-0 w-0 transition-all duration-150",
               isDragging
-                ? "w-[2px] bg-pulse/40"
-                : "group-hover:w-[2px] group-hover:bg-pulse/20",
+                ? "w-[2px] bg-primary/40"
+                : "group-hover:w-[2px] group-hover:bg-primary/20",
             )}
           />
         </div>
       )}
 
-      <div className="flex h-14 items-center justify-between border-b border-edge px-5">
+      <div className="flex h-14 items-center justify-between border-b border-border px-5">
         <span className="text-sm font-bold tracking-[0.2em] text-gradient-accent uppercase">
           The Wired
         </span>
@@ -69,7 +69,7 @@ export function Sidebar({ expanded }: SidebarProps) {
             className={cn(
               "rounded-lg p-1.5 transition-colors",
               sidebarMode === "spaces"
-                ? "bg-pulse/15 text-pulse"
+                ? "bg-primary/10 text-primary"
                 : "text-muted hover:text-heading hover:bg-surface",
             )}
             title="Spaces"
@@ -84,7 +84,7 @@ export function Sidebar({ expanded }: SidebarProps) {
             className={cn(
               "rounded-lg p-1.5 transition-colors",
               sidebarMode === "music"
-                ? "bg-pulse/15 text-pulse"
+                ? "bg-primary/10 text-primary"
                 : "text-muted hover:text-heading hover:bg-surface",
             )}
             title="Music"
@@ -99,14 +99,14 @@ export function Sidebar({ expanded }: SidebarProps) {
             className={cn(
               "relative rounded-lg p-1.5 transition-colors",
               sidebarMode === "messages"
-                ? "bg-pulse/15 text-pulse"
+                ? "bg-primary/10 text-primary"
                 : "text-muted hover:text-heading hover:bg-surface",
             )}
             title="Messages"
           >
             <MessageCircle size={14} />
             {dmUnreadCount > 0 && (
-              <span className="absolute -top-0.5 -right-0.5 flex h-3.5 min-w-3.5 items-center justify-center rounded-full bg-pulse px-0.5 text-[9px] font-bold text-white">
+              <span className="absolute -top-0.5 -right-0.5 flex h-3.5 min-w-3.5 items-center justify-center rounded-full bg-primary px-0.5 text-[9px] font-bold text-white">
                 {dmUnreadCount}
               </span>
             )}
@@ -118,7 +118,7 @@ export function Sidebar({ expanded }: SidebarProps) {
         {sidebarMode === "spaces" && (
           <>
             {/* Spaces */}
-            <div className="border-b border-edge pb-2">
+            <div className="border-b border-border pb-2">
               <div className="px-5 pt-4 pb-2 text-[10px] font-semibold uppercase tracking-[0.15em] text-muted">
                 Spaces
               </div>
@@ -146,7 +146,7 @@ export function Sidebar({ expanded }: SidebarProps) {
       <VoiceStatusBar />
 
       {/* User profile */}
-      <div className="relative border-t border-edge p-4">
+      <div className="relative border-t border-border p-4">
         {isLoggedIn ? (
           <ProfileCard />
         ) : (

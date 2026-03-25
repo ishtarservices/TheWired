@@ -11,7 +11,7 @@ export function RelayStatusPanel() {
   return (
     <div className="flex flex-1 flex-col overflow-y-auto p-4">
       <div className="mb-4 flex items-center gap-2">
-        <Wifi size={18} className="text-neon" />
+        <Wifi size={18} className="text-primary" />
         <h2 className="text-lg font-bold text-heading">Relay Status</h2>
         <span className="ml-auto rounded-full bg-card px-2 py-0.5 text-xs text-soft">
           {connected}/{relays.length} connected

@@ -66,7 +66,7 @@ export function EmojiAutocomplete({ query, onSelect, onClose }: EmojiAutocomplet
   return (
     <div
       ref={listRef}
-      className="absolute bottom-full left-0 mb-1 w-64 max-h-48 overflow-y-auto rounded-lg border border-edge bg-panel shadow-lg z-50"
+      className="absolute bottom-full left-0 mb-1 w-64 max-h-48 overflow-y-auto rounded-lg border border-border bg-panel shadow-lg z-50"
     >
       {matches.map((emoji, i) => (
         <button
@@ -75,7 +75,7 @@ export function EmojiAutocomplete({ query, onSelect, onClose }: EmojiAutocomplet
           onClick={() => onSelect(emoji.shortcode, emoji.url)}
           className={`flex w-full items-center gap-2.5 px-3 py-1.5 text-sm transition-colors ${
             i === selectedIndex
-              ? "bg-pulse/15 text-heading"
+              ? "bg-primary/10 text-heading"
               : "text-body hover:bg-surface-hover"
           }`}
         >

@@ -86,10 +86,10 @@ export function GifPicker({ onSelect, onClose }: GifPickerProps) {
   const displayGifs = activeTab === "favorites" ? favorites : results;
 
   return (
-    <div className="absolute bottom-full left-0 mb-2 w-[360px] max-h-[420px] flex flex-col rounded-xl border border-edge bg-panel shadow-xl z-50 overflow-hidden">
+    <div className="absolute bottom-full left-0 mb-2 w-[360px] max-h-[420px] flex flex-col rounded-xl border border-border bg-panel shadow-xl z-50 overflow-hidden">
       {/* Header */}
       <div className="flex items-center gap-2 px-3 pt-3 pb-2">
-        <div className="flex-1 flex items-center gap-2 rounded-lg bg-field px-2.5 py-1.5 ring-1 ring-edge">
+        <div className="flex-1 flex items-center gap-2 rounded-lg bg-field px-2.5 py-1.5 ring-1 ring-border">
           <Search size={14} className="text-muted shrink-0" />
           <input
             ref={searchInputRef}
@@ -166,7 +166,7 @@ export function GifPicker({ onSelect, onClose }: GifPickerProps) {
               key={gif.id}
               type="button"
               onClick={() => handleSelect(gif)}
-              className="group relative rounded-lg overflow-hidden bg-surface-hover hover:ring-2 hover:ring-pulse/50 transition-all cursor-pointer"
+              className="group relative rounded-lg overflow-hidden bg-surface-hover hover:ring-2 hover:ring-primary/50 transition-all cursor-pointer"
               style={{
                 aspectRatio: gif.width && gif.height ? `${gif.width}/${gif.height}` : "4/3",
               }}
@@ -196,13 +196,13 @@ export function GifPicker({ onSelect, onClose }: GifPickerProps) {
         </div>
         {loading && (
           <div className="flex justify-center py-4">
-            <div className="h-5 w-5 animate-spin rounded-full border-2 border-pulse border-t-transparent" />
+            <div className="h-5 w-5 animate-spin rounded-full border-2 border-primary border-t-transparent" />
           </div>
         )}
       </div>
 
       {/* Attribution */}
-      <div className="border-t border-edge px-3 py-1.5 text-[10px] text-faint text-center">
+      <div className="border-t border-border px-3 py-1.5 text-[10px] text-faint text-center">
         Powered by Tenor
       </div>
     </div>
@@ -226,7 +226,7 @@ function TabButton({
       onClick={onClick}
       className={`flex items-center gap-1 rounded-md px-2 py-1 text-[11px] font-medium transition-colors ${
         active
-          ? "bg-pulse/15 text-pulse"
+          ? "bg-primary/15 text-primary"
           : "text-muted hover:text-heading hover:bg-surface-hover"
       }`}
     >

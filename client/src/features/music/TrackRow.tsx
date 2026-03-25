@@ -81,15 +81,15 @@ export const TrackRow = memo(function TrackRow({
       <div
         onClick={handlePlay}
         className={`group grid cursor-pointer grid-cols-[2rem_1fr_1fr_4rem_2rem] items-center gap-4 rounded-lg px-3 py-1.5 text-sm transition-colors hover:bg-surface ${
-          isCurrent ? "text-neon" : "text-soft"
+          isCurrent ? "text-primary" : "text-soft"
         }`}
       >
         {/* Index / play icon */}
         <div className="flex items-center justify-center">
           {isPlaying ? (
             <div className="flex items-center gap-0.5">
-              <span className="block h-2.5 w-0.5 animate-pulse bg-neon" />
-              <span className="block h-2.5 w-0.5 animate-pulse bg-neon delay-75" />
+              <span className="block h-2.5 w-0.5 animate-pulse bg-primary" />
+              <span className="block h-2.5 w-0.5 animate-pulse bg-primary delay-75" />
             </div>
           ) : (
             <>
@@ -105,7 +105,7 @@ export const TrackRow = memo(function TrackRow({
 
         {/* Title + artist */}
         <div className="min-w-0">
-          <p className={`truncate text-sm ${isCurrent ? "text-neon" : "text-heading"}`}>
+          <p className={`truncate text-sm ${isCurrent ? "text-primary" : "text-heading"}`}>
             {track.title}
             {isLocal && (
               <span className="ml-1.5 inline-block rounded bg-card px-1 py-0.5 text-[10px] text-muted">
@@ -114,7 +114,7 @@ export const TrackRow = memo(function TrackRow({
             )}
             {isDownloaded && (
               <span title="Available offline" className="ml-1.5 inline-block align-middle">
-                <HardDriveDownload size={12} className="text-pulse/70" />
+                <HardDriveDownload size={12} className="text-primary/70" />
               </span>
             )}
           </p>

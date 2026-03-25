@@ -68,7 +68,7 @@ function IdentityInfoSection() {
       <h3 className="text-sm font-semibold text-heading">Identity</h3>
 
       <div className="flex items-center gap-2">
-        <span className="rounded-full bg-pulse/15 px-2.5 py-0.5 text-xs font-medium text-pulse">
+        <span className="rounded-full bg-primary/15 px-2.5 py-0.5 text-xs font-medium text-primary">
           {signerLabel}
         </span>
       </div>
@@ -236,7 +236,7 @@ function ImportKeySection() {
           value={input}
           onChange={(e) => setInput(e.target.value)}
           placeholder="nsec1... or hex"
-          className="flex-1 rounded-lg border border-edge bg-surface px-3 py-2 text-sm text-heading placeholder:text-muted focus:border-pulse/40 focus:outline-none"
+          className="flex-1 rounded-lg border border-border bg-surface px-3 py-2 text-sm text-heading placeholder:text-muted focus:border-primary/40 focus:outline-none"
         />
         <Button variant="secondary" size="md" onClick={handleImport} disabled={loading || !input.trim()}>
           {loading ? <Spinner size="sm" /> : <Key size={14} className="mr-1.5" />}
@@ -339,16 +339,16 @@ export function SecuritySettingsTab() {
   return (
     <div className="mx-auto max-w-lg space-y-6">
       <div className="flex items-center gap-2">
-        <Shield size={16} className="text-pulse" />
+        <Shield size={16} className="text-primary" />
         <h2 className="text-sm font-bold text-heading">Security &amp; Keys</h2>
       </div>
 
       <IdentityInfoSection />
-      <hr className="border-edge" />
+      <hr className="border-border" />
       <SecretKeySection />
-      <hr className="border-edge" />
+      <hr className="border-border" />
       <ImportKeySection />
-      <hr className="border-edge" />
+      <hr className="border-border" />
       <DangerZoneSection />
     </div>
   );

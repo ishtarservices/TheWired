@@ -1,7 +1,7 @@
 import { type ButtonHTMLAttributes } from "react";
 import { cn } from "@/lib/utils";
 
-type ButtonVariant = "primary" | "secondary" | "ghost" | "neon";
+type ButtonVariant = "primary" | "secondary" | "ghost" | "accent";
 type ButtonSize = "sm" | "md" | "lg";
 
 interface ButtonProps extends ButtonHTMLAttributes<HTMLButtonElement> {
@@ -10,10 +10,10 @@ interface ButtonProps extends ButtonHTMLAttributes<HTMLButtonElement> {
 }
 
 const variantStyles: Record<ButtonVariant, string> = {
-  primary: "bg-gradient-to-r from-pulse to-pulse-soft text-white shadow-[0_0_12px_rgba(139,92,246,0.25)] hover:shadow-[0_0_20px_rgba(139,92,246,0.4)] hover-lift press-effect",
-  secondary: "bg-surface border border-edge text-heading hover:bg-surface-hover hover-lift press-effect",
+  primary: "bg-primary text-primary-fg hover:brightness-110 hover-lift press-effect",
+  secondary: "bg-surface border border-border text-heading hover:bg-surface-hover hover-lift press-effect",
   ghost: "bg-transparent hover:bg-surface-hover text-soft hover:text-heading press-effect",
-  neon: "bg-neon/10 text-neon border border-neon/20 hover:bg-neon/20 hover:border-neon/40 hover:glow-neon hover-lift press-effect",
+  accent: "bg-primary/10 text-primary border border-primary/20 hover:bg-primary/20 hover:border-primary/40 hover-lift press-effect",
 };
 
 const sizeStyles: Record<ButtonSize, string> = {
@@ -34,7 +34,7 @@ export function Button({
     <button
       className={cn(
         "inline-flex items-center justify-center rounded-xl font-medium transition-all duration-150",
-        "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-pulse/50 focus-visible:shadow-[0_0_12px_rgba(139,92,246,0.15)]",
+        "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
         "disabled:opacity-50 disabled:pointer-events-none",
         variantStyles[variant],
         sizeStyles[size],

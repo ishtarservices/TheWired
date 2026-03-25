@@ -101,7 +101,7 @@ export function CreateChannelModal({
                 value={name.replace(/^#/, "")}
                 onChange={(e) => setName(e.target.value.replace(/\s+/g, "-").toLowerCase())}
                 placeholder="general"
-                className="w-full rounded-xl bg-field border border-edge px-3 py-1.5 text-sm text-heading placeholder-muted focus:border-neon focus:outline-none transition-colors"
+                className="w-full rounded-xl bg-field border border-border px-3 py-1.5 text-sm text-heading placeholder-muted focus:border-primary focus:outline-none transition-colors"
               />
             </div>
           </div>
@@ -113,7 +113,7 @@ export function CreateChannelModal({
             <select
               value={type}
               onChange={(e) => setType(e.target.value as SpaceChannelType)}
-              className="w-full rounded-xl bg-field border border-edge px-3 py-1.5 text-sm text-heading focus:border-neon focus:outline-none transition-colors"
+              className="w-full rounded-xl bg-field border border-border px-3 py-1.5 text-sm text-heading focus:border-primary focus:outline-none transition-colors"
             >
               {ALL_TYPES.map((t) => (
                 <option key={t.value} value={t.value} disabled={disabledTypes.has(t.value)}>
@@ -130,7 +130,7 @@ export function CreateChannelModal({
               id="adminOnly"
               checked={adminOnly}
               onChange={(e) => setAdminOnly(e.target.checked)}
-              className="rounded border-edge"
+              className="rounded border-border"
             />
             <label htmlFor="adminOnly" className="text-sm text-soft">
               Admin-only channel
@@ -148,7 +148,7 @@ export function CreateChannelModal({
                 max="3600"
                 value={slowModeSeconds}
                 onChange={(e) => setSlowModeSeconds(Math.max(0, parseInt(e.target.value) || 0))}
-                className="w-full rounded-xl bg-field border border-edge px-3 py-1.5 text-sm text-heading placeholder-muted focus:border-neon focus:outline-none transition-colors"
+                className="w-full rounded-xl bg-field border border-border px-3 py-1.5 text-sm text-heading placeholder-muted focus:border-primary focus:outline-none transition-colors"
               />
             </div>
           )}
@@ -160,7 +160,7 @@ export function CreateChannelModal({
                 id="temporary"
                 checked={temporary}
                 onChange={(e) => setTemporary(e.target.checked)}
-                className="rounded border-edge"
+                className="rounded border-border"
               />
               <label htmlFor="temporary" className="text-sm text-soft">
                 Temporary channel

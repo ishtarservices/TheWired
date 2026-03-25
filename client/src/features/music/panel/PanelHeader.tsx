@@ -13,7 +13,7 @@ export function PanelHeader({ track, onClose }: PanelHeaderProps) {
   const imageUrl = getTrackImage(track, albums);
 
   return (
-    <div className="flex items-center gap-3 border-b border-edge/40 px-4 py-3">
+    <div className="flex items-center gap-3 border-b border-border/40 px-4 py-3">
       {/* Thumbnail */}
       <div className="h-10 w-10 flex-none overflow-hidden rounded-lg bg-surface">
         {imageUrl ? (

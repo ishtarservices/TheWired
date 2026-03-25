@@ -61,7 +61,7 @@ export function ProfileSettingsTab() {
   };
 
   return (
-    <div className="mx-auto w-full max-w-lg rounded-xl border border-edge bg-panel p-4">
+    <div className="mx-auto w-full max-w-lg rounded-xl border border-border bg-panel p-4">
       <h3 className="mb-3 text-sm font-semibold text-heading">
         Profile Information
       </h3>
@@ -91,7 +91,7 @@ export function ProfileSettingsTab() {
                 ref={aboutRef}
                 value={form[key] ?? ""}
                 onChange={(e) => updateField(key, e.target.value)}
-                className="w-full resize-none overflow-hidden rounded-xl border border-edge bg-field px-3 py-2 text-sm text-heading focus:border-neon focus:outline-none transition-colors"
+                className="w-full resize-none overflow-hidden rounded-xl border border-border bg-field px-3 py-2 text-sm text-heading focus:border-primary focus:outline-none transition-colors"
                 rows={2}
               />
             ) : (
@@ -99,7 +99,7 @@ export function ProfileSettingsTab() {
                 type="text"
                 value={form[key] ?? ""}
                 onChange={(e) => updateField(key, e.target.value)}
-                className="w-full rounded-xl border border-edge bg-field px-3 py-2 text-sm text-heading focus:border-neon focus:outline-none transition-colors"
+                className="w-full rounded-xl border border-border bg-field px-3 py-2 text-sm text-heading focus:border-primary focus:outline-none transition-colors"
               />
             )}
           </div>

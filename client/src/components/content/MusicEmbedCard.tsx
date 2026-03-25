@@ -41,7 +41,7 @@ export function MusicEmbedCard({ kind, pubkey, identifier }: MusicEmbedCardProps
   // Not yet in store -- render a minimal placeholder
   if (!title) {
     return (
-      <span className="font-mono text-xs text-neon/70 bg-surface px-1 py-0.5 rounded">
+      <span className="font-mono text-xs text-primary/70 bg-surface px-1 py-0.5 rounded">
         {identifier || "music"}
       </span>
     );
@@ -70,8 +70,8 @@ export function MusicEmbedCard({ kind, pubkey, identifier }: MusicEmbedCardProps
       }}
       className={`mt-1 inline-flex items-center gap-3 rounded-xl border px-3 py-2 text-left transition-all hover-lift max-w-xs ${
         isCurrent
-          ? "border-pulse/40 card-glass"
-          : "border-edge card-glass hover:border-edge-light"
+          ? "border-primary/40 card-glass"
+          : "border-border card-glass hover:border-border-light"
       }`}
     >
       {image ? (
@@ -86,7 +86,7 @@ export function MusicEmbedCard({ kind, pubkey, identifier }: MusicEmbedCardProps
         </div>
       )}
       <div className="min-w-0 flex-1">
-        <p className={`truncate text-sm font-medium ${isCurrent ? "text-neon" : "text-heading"}`}>
+        <p className={`truncate text-sm font-medium ${isCurrent ? "text-primary" : "text-heading"}`}>
           {title}
         </p>
         <p className="truncate text-xs text-soft">{artist}</p>
@@ -94,13 +94,13 @@ export function MusicEmbedCard({ kind, pubkey, identifier }: MusicEmbedCardProps
       {isTrack && (
         <div className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-full transition-colors ${
           isPlaying
-            ? "bg-white/10 border border-pulse/40"
-            : "bg-gradient-to-r from-pulse to-pulse-soft"
+            ? "bg-white/10 border border-primary/40"
+            : "bg-gradient-to-r from-primary to-primary-soft"
         }`}>
           <PlayPauseIcon
             size={12}
             fill={isPlaying ? "currentColor" : "white"}
-            className={isPlaying ? "text-pulse" : "ml-0.5 text-white"}
+            className={isPlaying ? "text-primary" : "ml-0.5 text-white"}
           />
         </div>
       )}

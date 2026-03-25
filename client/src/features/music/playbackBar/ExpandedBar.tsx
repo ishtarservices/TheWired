@@ -103,7 +103,7 @@ export function ExpandedBar() {
       transition={{ type: "spring", duration: 0.3, bounce: 0.1 }}
       className="fixed bottom-4 left-1/2 z-40 -translate-x-1/2 w-[680px] max-w-[calc(100vw-2rem)]"
     >
-      <div className="glass-panel rounded-2xl shadow-[var(--shadow-elevated)] border border-pulse/8 px-4 py-2.5">
+      <div className="glass-panel rounded-2xl shadow-[var(--shadow-elevated)] border border-primary/8 px-4 py-2.5">
         <div className="flex items-center gap-3">
           {/* ── Left: Art + Info + Heart ── */}
           <div className="flex items-center gap-3 w-[180px] shrink-0">
@@ -152,7 +152,7 @@ export function ExpandedBar() {
               <button
                 onClick={toggleShuffle}
                 className={`rounded p-1 transition-colors ${
-                  player.shuffle ? "text-neon" : "text-soft hover:text-heading"
+                  player.shuffle ? "text-primary" : "text-soft hover:text-heading"
                 }`}
               >
                 <Shuffle size={14} />
@@ -165,7 +165,7 @@ export function ExpandedBar() {
               </button>
               <button
                 onClick={togglePlay}
-                className="flex h-8 w-8 items-center justify-center rounded-full bg-gradient-to-br from-pulse to-pulse-soft text-white transition-transform hover:scale-105 press-effect"
+                className="flex h-8 w-8 items-center justify-center rounded-full bg-gradient-to-br from-primary to-primary-soft text-white transition-transform hover:scale-105 press-effect"
               >
                 {player.isPlaying ? (
                   <Pause size={14} fill="currentColor" />
@@ -182,7 +182,7 @@ export function ExpandedBar() {
               <button
                 onClick={cycleRepeat}
                 className={`rounded p-1 transition-colors ${
-                  player.repeat !== "none" ? "text-neon" : "text-soft hover:text-heading"
+                  player.repeat !== "none" ? "text-primary" : "text-soft hover:text-heading"
                 }`}
               >
                 {player.repeat === "one" ? <Repeat1 size={14} /> : <Repeat size={14} />}
@@ -226,7 +226,7 @@ export function ExpandedBar() {
                     step={0.01}
                     value={player.isMuted ? 0 : player.volume}
                     onChange={(e) => setVolume(parseFloat(e.target.value))}
-                    className="h-20 w-1.5 cursor-pointer appearance-none rounded-full bg-surface-hover accent-pulse
+                    className="h-20 w-1.5 cursor-pointer appearance-none rounded-full bg-surface-hover accent-primary
                       [writing-mode:vertical-lr] [direction:rtl]
                       [&::-webkit-slider-thumb]:h-3 [&::-webkit-slider-thumb]:w-3 [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-heading"
                   />
@@ -240,7 +240,7 @@ export function ExpandedBar() {
                   : dispatch(openRightPanelToTab({ context: "music", tab: "queue" }))
               }
               className={`rounded p-1 transition-colors ${
-                queueVisible ? "text-neon" : "text-soft hover:text-heading"
+                queueVisible ? "text-primary" : "text-soft hover:text-heading"
               }`}
             >
               <ListMusic size={15} />

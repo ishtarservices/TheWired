@@ -165,7 +165,7 @@ export function ChannelOverridesPanel({ spaceId, channelId }: ChannelOverridesPa
         <select
           value={selectedRoleId ?? ""}
           onChange={(e) => setSelectedRoleId(e.target.value)}
-          className="flex-1 rounded-lg bg-field border border-edge px-2 py-1 text-xs text-heading focus:border-neon focus:outline-none"
+          className="flex-1 rounded-lg bg-field border border-border px-2 py-1 text-xs text-heading focus:border-primary focus:outline-none"
         >
           {nonAdminRoles.map((role) => (
             <option key={role.id} value={role.id}>
@@ -209,7 +209,7 @@ export function ChannelOverridesPanel({ spaceId, channelId }: ChannelOverridesPa
           <button
             onClick={handleSave}
             disabled={saving}
-            className="w-full rounded-xl bg-pulse/15 px-3 py-1.5 text-xs font-medium text-pulse-soft hover:bg-pulse/25 transition-colors disabled:opacity-50"
+            className="w-full rounded-xl bg-primary/15 px-3 py-1.5 text-xs font-medium text-primary-soft hover:bg-primary/25 transition-colors disabled:opacity-50"
           >
             {saving ? "Saving..." : "Save Overrides"}
           </button>

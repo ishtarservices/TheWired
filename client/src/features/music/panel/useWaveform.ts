@@ -34,9 +34,9 @@ function downsampleToRMS(channelData: Float32Array, buckets: number): Float32Arr
 }
 
 /** Resolve pulse color from CSS once, cache the result */
-function resolvePulseColor(canvas: HTMLCanvasElement): [number, number, number] {
+function resolvePrimaryColor(canvas: HTMLCanvasElement): [number, number, number] {
   const style = getComputedStyle(canvas);
-  const raw = style.getPropertyValue("--color-pulse").trim();
+  const raw = style.getPropertyValue("--color-primary").trim();
   if (raw) {
     const tmp = document.createElement("div");
     tmp.style.color = raw;
@@ -46,6 +46,7 @@ function resolvePulseColor(canvas: HTMLCanvasElement): [number, number, number] 
     const m = computed.match(/(\d+),\s*(\d+),\s*(\d+)/);
     if (m) return [Number(m[1]), Number(m[2]), Number(m[3])];
   }
+  // Fallback RGB for --color-primary (reads from CSS var at runtime)
   return [139, 92, 246]; // violet-500 fallback
 }
 
@@ -107,7 +108,7 @@ export function useWaveform(
     ctxRef.current = ctx;
 
     // Resolve color once
-    const [r, g, b] = resolvePulseColor(canvas);
+    const [r, g, b] = resolvePrimaryColor(canvas);
     colorsRef.current = {
       active: `rgba(${r}, ${g}, ${b}, 0.9)`,
       dim: `rgba(${r}, ${g}, ${b}, 0.2)`,

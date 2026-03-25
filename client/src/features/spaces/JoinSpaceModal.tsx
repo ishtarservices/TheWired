@@ -187,7 +187,7 @@ export function JoinSpaceModal({ open, onClose, initialCode }: JoinSpaceModalPro
                 onKeyDown={handleKeyDown}
                 placeholder="Enter invite code..."
                 autoFocus
-                className="w-full rounded-xl bg-field border border-edge px-3 py-2 text-sm text-heading placeholder-muted focus:border-neon focus:outline-none transition-colors"
+                className="w-full rounded-xl bg-field border border-border px-3 py-2 text-sm text-heading placeholder-muted focus:border-primary focus:outline-none transition-colors"
               />
             </div>
 
@@ -203,7 +203,7 @@ export function JoinSpaceModal({ open, onClose, initialCode }: JoinSpaceModalPro
                 Cancel
               </Button>
               <Button
-                variant="neon"
+                variant="accent"
                 size="md"
                 onClick={handleLookup}
                 disabled={!codeInput.trim() || loading}
@@ -217,7 +217,7 @@ export function JoinSpaceModal({ open, onClose, initialCode }: JoinSpaceModalPro
         {/* Step 2: Preview */}
         {step === "preview" && invite && (
           <div className="space-y-4">
-            <div className="flex items-center gap-4 rounded-xl bg-surface border border-edge p-4">
+            <div className="flex items-center gap-4 rounded-xl bg-surface border border-border p-4">
               <Avatar
                 src={invite.space.picture}
                 alt={invite.space.name}

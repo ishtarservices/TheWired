@@ -313,7 +313,7 @@ export function DMInput({
   );
 
   return (
-    <form onSubmit={handleSubmit} className={`relative border-t border-edge p-3 ${inputMarginClass}`}>
+    <form onSubmit={handleSubmit} className={`relative border-t border-border p-3 ${inputMarginClass}`}>
       {mentionQuery !== null && (
         <MentionAutocomplete
           query={mentionQuery}
@@ -332,7 +332,7 @@ export function DMInput({
 
       {/* GIF Picker */}
       {showGifPicker && (
-        <Suspense fallback={<div className="absolute bottom-full left-0 mb-2 w-[360px] h-[420px] rounded-xl border border-edge bg-panel flex items-center justify-center"><div className="h-5 w-5 animate-spin rounded-full border-2 border-pulse border-t-transparent" /></div>}>
+        <Suspense fallback={<div className="absolute bottom-full left-0 mb-2 w-[360px] h-[420px] rounded-xl border border-border bg-panel flex items-center justify-center"><div className="h-5 w-5 animate-spin rounded-full border-2 border-primary border-t-transparent" /></div>}>
           <LazyGifPicker
             onSelect={handleGifSelect}
             onClose={() => setShowGifPicker(false)}
@@ -342,7 +342,7 @@ export function DMInput({
 
       {/* Emoji Picker */}
       {showEmojiPicker && (
-        <Suspense fallback={<div className="absolute bottom-full left-0 mb-2 w-[352px] h-[435px] rounded-xl border border-edge bg-panel flex items-center justify-center"><div className="h-5 w-5 animate-spin rounded-full border-2 border-pulse border-t-transparent" /></div>}>
+        <Suspense fallback={<div className="absolute bottom-full left-0 mb-2 w-[352px] h-[435px] rounded-xl border border-border bg-panel flex items-center justify-center"><div className="h-5 w-5 animate-spin rounded-full border-2 border-primary border-t-transparent" /></div>}>
           <LazyEmojiPicker
             onEmojiSelect={handleEmojiPickerSelect}
             onClose={() => setShowEmojiPicker(false)}
@@ -358,7 +358,7 @@ export function DMInput({
         <GifPreview gif={pendingGif} onRemove={() => setPendingGif(null)} />
       )}
 
-      <div className="rounded-xl bg-field ring-1 ring-edge">
+      <div className="rounded-xl bg-field ring-1 ring-border">
         <FormattingToolbar textareaRef={textareaRef} value={value} setValue={setValue} />
         <div className="flex items-end gap-2 px-3 py-2">
           <button
@@ -380,7 +380,7 @@ export function DMInput({
             disabled={disabled}
             className={`flex-shrink-0 rounded-md px-1.5 py-0.5 text-[11px] font-bold transition-colors disabled:opacity-50 ${
               showGifPicker
-                ? "bg-pulse/20 text-pulse"
+                ? "bg-primary/20 text-primary"
                 : "text-muted hover:text-heading hover:bg-surface-hover"
             }`}
             title="Search GIFs"
@@ -397,7 +397,7 @@ export function DMInput({
             disabled={disabled}
             className={`flex-shrink-0 rounded-lg p-1 transition-colors disabled:opacity-50 ${
               showEmojiPicker
-                ? "bg-pulse/20 text-pulse"
+                ? "bg-primary/20 text-primary"
                 : "text-muted hover:text-heading hover:bg-surface-hover"
             }`}
             title="Emoji"

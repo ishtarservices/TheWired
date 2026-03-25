@@ -31,7 +31,7 @@ const GENRE_GRADIENTS: Record<string, string> = {
 };
 
 function getGradient(genre: string): string {
-  return GENRE_GRADIENTS[genre.toLowerCase()] ?? "from-pulse/40 to-pulse-soft/20";
+  return GENRE_GRADIENTS[genre.toLowerCase()] ?? "from-primary/40 to-primary-soft/20";
 }
 
 export function GenreCard({ genre, count, isActive, onClick }: GenreCardProps) {
@@ -39,7 +39,7 @@ export function GenreCard({ genre, count, isActive, onClick }: GenreCardProps) {
     <button
       onClick={onClick}
       className={`flex w-32 shrink-0 flex-col justify-end rounded-xl bg-gradient-to-br p-3 transition-all duration-150 hover:scale-[1.03] ${getGradient(genre)} ${
-        isActive ? "ring-1 ring-pulse/60" : ""
+        isActive ? "ring-1 ring-primary/60" : ""
       }`}
       style={{ minHeight: 80 }}
     >

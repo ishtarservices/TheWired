@@ -84,7 +84,7 @@ export const DMMessage = memo(function DMMessage({
           )
         )}
         <div className={`max-w-[70%] ${isMe ? "items-end" : "items-start"}`}>
-          <div className="rounded-2xl px-4 py-2 text-sm italic text-faint bg-surface border border-edge rounded-bl-sm">
+          <div className="rounded-2xl px-4 py-2 text-sm italic text-faint bg-surface border border-border rounded-bl-sm">
             Message deleted
           </div>
         </div>
@@ -118,8 +118,8 @@ export const DMMessage = memo(function DMMessage({
         <div
           className={`rounded-2xl px-4 py-2 text-sm ${
             isMe
-              ? "bg-pulse-dim text-heading rounded-br-sm border border-pulse/15"
-              : "bg-card text-body rounded-bl-sm border border-edge"
+              ? "bg-primary-dim text-heading rounded-br-sm border border-primary/15"
+              : "bg-card text-body rounded-bl-sm border border-border"
           }`}
         >
           {message.replyToWrapId && (
@@ -175,7 +175,7 @@ function DMInlineReplyPreview({
   if (!replyMsg) {
     return (
       <div className="mb-1 flex items-center gap-1.5 text-[11px] text-muted">
-        <div className="h-3 w-0.5 rounded-full bg-edge-light" />
+        <div className="h-3 w-0.5 rounded-full bg-border-light" />
         <span className="italic">Message not loaded</span>
       </div>
     );
@@ -191,8 +191,8 @@ function DMInlineReplyPreview({
       onClick={() => onJump?.(replyToWrapId)}
       className="mb-1 flex items-center gap-1.5 text-[11px] text-muted overflow-hidden cursor-pointer hover:opacity-80 transition-opacity w-full text-left"
     >
-      <div className="h-3 w-0.5 shrink-0 rounded-full bg-pulse/50" />
-      <span className="font-medium text-pulse-soft/70 shrink-0">{name}</span>
+      <div className="h-3 w-0.5 shrink-0 rounded-full bg-primary/50" />
+      <span className="font-medium text-primary-soft/70 shrink-0">{name}</span>
       <span className="truncate">{preview}</span>
     </button>
   );

@@ -185,7 +185,7 @@ export function SpaceContextMenu({
           )}
 
           {/* Divider */}
-          <div className="my-1 border-t border-edge" />
+          <div className="my-1 border-t border-border" />
 
           {/* Leave Space */}
           <button

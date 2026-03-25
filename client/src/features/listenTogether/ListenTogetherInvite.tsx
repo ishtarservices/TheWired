@@ -19,10 +19,10 @@ export function ListenTogetherInvite() {
   const trackArtist = pendingInvite.trackMeta?.artist;
 
   return (
-    <div className="flex items-center gap-3 px-4 py-2.5 bg-pulse/8 border-b border-pulse/15 animate-fade-in">
+    <div className="flex items-center gap-3 px-4 py-2.5 bg-primary/8 border-b border-primary/15 animate-fade-in">
       {/* Icon */}
-      <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-pulse/15">
-        <Headphones size={16} className="text-pulse" />
+      <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-primary/15">
+        <Headphones size={16} className="text-primary" />
       </div>
 
       {/* Info */}
@@ -42,7 +42,7 @@ export function ListenTogetherInvite() {
       {/* Actions */}
       <button
         onClick={joinSession}
-        className="shrink-0 rounded-lg bg-pulse/20 px-3 py-1.5 text-xs font-semibold text-pulse hover:bg-pulse/30 transition-colors"
+        className="shrink-0 rounded-lg bg-primary/20 px-3 py-1.5 text-xs font-semibold text-primary hover:bg-primary/30 transition-colors"
       >
         Join
       </button>

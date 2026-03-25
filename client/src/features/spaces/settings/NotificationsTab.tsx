@@ -72,7 +72,7 @@ export function NotificationsTab({ spaceId }: NotificationsTabProps) {
         {isMuted ? (
           <button
             onClick={handleUnmute}
-            className="rounded-xl bg-pulse/10 px-4 py-2 text-sm font-medium text-pulse hover:bg-pulse/20 transition-colors"
+            className="rounded-xl bg-primary/10 px-4 py-2 text-sm font-medium text-primary hover:bg-primary/20 transition-colors"
           >
             Unmute Space
           </button>
@@ -104,7 +104,7 @@ export function NotificationsTab({ spaceId }: NotificationsTabProps) {
                 name="space-notif-mode"
                 checked={mode === m}
                 onChange={() => updateSettings({ mode: m })}
-                className="accent-pulse"
+                className="accent-primary"
               />
               <div>
                 <div className="text-sm text-heading capitalize">{m === "all" ? "All Messages" : m === "mentions" ? "Mentions Only" : "Nothing"}</div>
@@ -161,7 +161,7 @@ function ChannelOverrideRow({ channelId, label }: { channelId: string; label: st
       <select
         value={currentMode}
         onChange={(e) => dispatch(setChannelNotifMode({ channelId, mode: e.target.value as ChannelNotifMode }))}
-        className="rounded-lg bg-field border border-edge px-2 py-1 text-xs text-heading focus:border-neon focus:outline-none"
+        className="rounded-lg bg-field border border-border px-2 py-1 text-xs text-heading focus:border-primary focus:outline-none"
       >
         {CHANNEL_MODES.map((m) => (
           <option key={m.value} value={m.value}>{m.label}</option>
@@ -191,7 +191,7 @@ function Toggle({ label, checked, onChange }: { label: string; checked: boolean;
         role="switch"
         aria-checked={checked}
         onClick={() => onChange(!checked)}
-        className={`relative h-5 w-9 rounded-full transition-colors ${checked ? "bg-pulse" : "bg-surface-hover"}`}
+        className={`relative h-5 w-9 rounded-full transition-colors ${checked ? "bg-primary" : "bg-surface-hover"}`}
       >
         <span
           className={`absolute top-0.5 left-0.5 h-4 w-4 rounded-full bg-white transition-transform ${checked ? "translate-x-4" : ""}`}

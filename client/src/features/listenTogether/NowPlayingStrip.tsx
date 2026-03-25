@@ -27,7 +27,7 @@ export function NowPlayingStrip({ onExpand }: NowPlayingStripProps) {
   return (
     <button
       onClick={onExpand}
-      className="flex items-center gap-2.5 w-full px-3 py-1.5 bg-pulse/5 border-b border-pulse/10 hover:bg-pulse/8 transition-colors text-left"
+      className="flex items-center gap-2.5 w-full px-3 py-1.5 bg-primary/5 border-b border-primary/10 hover:bg-primary/8 transition-colors text-left"
     >
       {/* Album art */}
       {imageUrl ? (
@@ -53,7 +53,7 @@ export function NowPlayingStrip({ onExpand }: NowPlayingStripProps) {
       </div>
 
       {/* DJ badge */}
-      <span className="shrink-0 text-[10px] text-pulse bg-pulse/10 px-1.5 py-0.5 rounded-full">
+      <span className="shrink-0 text-[10px] text-primary bg-primary/10 px-1.5 py-0.5 rounded-full">
         DJ: {djName}
       </span>
 

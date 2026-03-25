@@ -25,7 +25,7 @@ export function UserSearchInput() {
 
   return (
     <div ref={containerRef} className="relative">
-      <div className="flex items-center gap-2 rounded-xl bg-field ring-1 ring-edge px-3 py-1.5 transition-all focus-within:ring-pulse/30 focus-within:shadow-[0_0_12px_rgba(139,92,246,0.1)]">
+      <div className="flex items-center gap-2 rounded-xl bg-field ring-1 ring-border px-3 py-1.5 transition-all focus-within:ring-primary/30 focus-within:shadow-[0_0_12px_var(--focus-glow-color)]">
         <Search size={14} className="text-muted" />
         <input
           type="text"
@@ -46,7 +46,7 @@ export function UserSearchInput() {
       </div>
 
       {showDropdown && (
-        <div className="absolute right-0 top-full z-50 mt-1 w-64 rounded-xl bg-panel border border-edge-light shadow-xl shadow-black/40 overflow-hidden">
+        <div className="absolute right-0 top-full z-50 mt-1 w-64 rounded-xl bg-panel border border-border-light shadow-xl shadow-black/40 overflow-hidden">
           {isSearching && (
             <p className="px-3 py-2 text-xs text-muted">Searching...</p>
           )}

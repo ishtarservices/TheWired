@@ -42,7 +42,7 @@ const ThreadReply = memo(function ThreadReply({ event, rootId }: { event: NostrE
   }
 
   return (
-    <div className="border-l-2 border-edge pl-4 py-2.5">
+    <div className="border-l-2 border-border pl-4 py-2.5">
       {isNestedReply && threadRef.mentionedPubkeys[0] && (
         <ReplyIndicator pubkey={threadRef.mentionedPubkeys[0]} />
       )}

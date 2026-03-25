@@ -56,14 +56,14 @@ export function SpaceList() {
               className={cn(
                 "flex w-full items-center gap-2 rounded-xl px-3 py-2 text-sm transition-all duration-150",
                 space.id === activeSpaceId
-                  ? "bg-pulse/8 text-heading"
+                  ? "bg-primary/8 text-heading"
                   : "text-soft hover:bg-surface-hover hover:text-heading",
               )}
             >
               <div className="relative shrink-0">
                 <Avatar src={space.picture} alt={space.name} size="sm" />
                 {mentions > 0 && (
-                  <span className="absolute -top-0.5 -right-0.5 h-2.5 w-2.5 rounded-full bg-pulse ring-2 ring-surface animate-pulse" />
+                  <span className="absolute -top-0.5 -right-0.5 h-2.5 w-2.5 rounded-full bg-primary ring-2 ring-surface animate-pulse" />
                 )}
               </div>
               <span className={cn(
@@ -77,7 +77,7 @@ export function SpaceList() {
                 <span
                   className={cn(
                     "flex h-4 min-w-4 shrink-0 items-center justify-center rounded-full px-1 text-[10px] font-bold text-white",
-                    mentions > 0 ? "bg-pulse" : "bg-surface-hover",
+                    mentions > 0 ? "bg-primary" : "bg-surface-hover",
                   )}
                 >
                   {mentions > 0 ? mentions : unread}
@@ -96,7 +96,7 @@ export function SpaceList() {
         {/* Create / Join button */}
         <button
           onClick={() => setShowAction(true)}
-          className="flex w-full items-center justify-center gap-1 rounded-xl border border-dashed border-edge px-3 py-2 text-xs text-muted transition-all duration-150 hover:border-pulse/40 hover:text-pulse hover:bg-pulse/5"
+          className="flex w-full items-center justify-center gap-1 rounded-xl border border-dashed border-border px-3 py-2 text-xs text-muted transition-all duration-150 hover:border-primary/40 hover:text-primary hover:bg-primary/5"
         >
           <Plus size={14} />
           <span>New Space</span>

@@ -60,7 +60,7 @@ export function ParticipantTile({ participant, isLocal, compact }: ParticipantTi
           : "rounded-2xl aspect-video",
         participant.isSpeaking
           ? "ring-2 ring-green-400/70"
-          : "ring-1 ring-edge/30",
+          : "ring-1 ring-border/30",
         !hasVideo && "bg-card",
       )}
     >

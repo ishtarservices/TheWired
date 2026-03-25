@@ -41,7 +41,7 @@ export function ArticleCard({ article, onClick }: ArticleCardProps) {
           {article.hashtags.slice(0, 3).map((tag) => (
             <span
               key={tag}
-              className="rounded-full bg-pulse/10 px-1.5 py-0.5 text-xs text-pulse-soft"
+              className="rounded-full bg-primary/10 px-1.5 py-0.5 text-xs text-primary-soft"
             >
               #{tag}
             </span>

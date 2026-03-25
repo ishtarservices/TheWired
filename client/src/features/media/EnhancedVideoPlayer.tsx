@@ -322,14 +322,14 @@ export function EnhancedVideoPlayer({
               <span>{playbackRate}x</span>
             </button>
             {showSpeedMenu && (
-              <div className="absolute bottom-full right-0 mb-1 rounded-xl border border-edge card-glass py-1 shadow-lg">
+              <div className="absolute bottom-full right-0 mb-1 rounded-xl border border-border card-glass py-1 shadow-lg">
                 {PLAYBACK_SPEEDS.map((speed) => (
                   <button
                     key={speed}
                     onClick={() => { setPlaybackRate(speed); setShowSpeedMenu(false); }}
                     className={`block w-full px-3 py-1 text-left text-xs transition-colors ${
                       speed === playbackRate
-                        ? "bg-pulse/15 text-pulse-soft"
+                        ? "bg-primary/15 text-primary-soft"
                         : "text-body hover:bg-surface-hover"
                     }`}
                   >

@@ -292,7 +292,7 @@ export function NoteComposer() {
           setExpanded(true);
           requestAnimationFrame(() => textareaRef.current?.focus());
         }}
-        className="mx-6 mt-4 flex items-center gap-3 rounded-xl border border-edge bg-surface px-4 py-3 text-left transition-colors hover:border-edge-light hover:bg-surface-hover"
+        className="mx-6 mt-4 flex items-center gap-3 rounded-xl border border-border bg-surface px-4 py-3 text-left transition-colors hover:border-border-light hover:bg-surface-hover"
       >
         <Avatar
           src={profile?.picture}
@@ -307,7 +307,7 @@ export function NoteComposer() {
 
   // Expanded state
   return (
-    <div className="relative mx-6 mt-4 rounded-xl border border-edge bg-surface">
+    <div className="relative mx-6 mt-4 rounded-xl border border-border bg-surface">
       {/* Autocomplete popups */}
       <div className="relative">
         {mentionQuery !== null && (
@@ -335,8 +335,8 @@ export function NoteComposer() {
         <div className="absolute bottom-full left-0 z-50 mb-2">
           <Suspense
             fallback={
-              <div className="w-[360px] h-[420px] rounded-xl border border-edge bg-panel flex items-center justify-center">
-                <div className="h-5 w-5 animate-spin rounded-full border-2 border-pulse border-t-transparent" />
+              <div className="w-[360px] h-[420px] rounded-xl border border-border bg-panel flex items-center justify-center">
+                <div className="h-5 w-5 animate-spin rounded-full border-2 border-primary border-t-transparent" />
               </div>
             }
           >
@@ -353,8 +353,8 @@ export function NoteComposer() {
         <div className="absolute bottom-full left-0 z-50 mb-2">
           <Suspense
             fallback={
-              <div className="w-[352px] h-[435px] rounded-xl border border-edge bg-panel flex items-center justify-center">
-                <div className="h-5 w-5 animate-spin rounded-full border-2 border-pulse border-t-transparent" />
+              <div className="w-[352px] h-[435px] rounded-xl border border-border bg-panel flex items-center justify-center">
+                <div className="h-5 w-5 animate-spin rounded-full border-2 border-primary border-t-transparent" />
               </div>
             }
           >
@@ -408,7 +408,7 @@ export function NoteComposer() {
       )}
 
       {/* Toolbar */}
-      <div className="flex items-center justify-between border-t border-edge px-3 py-2">
+      <div className="flex items-center justify-between border-t border-border px-3 py-2">
         <div className="flex items-center gap-1">
           <button
             type="button"
@@ -434,7 +434,7 @@ export function NoteComposer() {
             }}
             className={`rounded-md px-1.5 py-1 text-[11px] font-bold transition-colors ${
               showGifPicker
-                ? "bg-pulse/20 text-pulse"
+                ? "bg-primary/20 text-primary"
                 : "text-muted hover:text-heading hover:bg-surface-hover"
             }`}
             title="Search GIFs"
@@ -449,7 +449,7 @@ export function NoteComposer() {
             }}
             className={`rounded-lg p-1.5 transition-colors ${
               showEmojiPicker
-                ? "bg-pulse/20 text-pulse"
+                ? "bg-primary/20 text-primary"
                 : "text-muted hover:text-heading hover:bg-surface-hover"
             }`}
             title="Emoji"
@@ -477,7 +477,7 @@ export function NoteComposer() {
             type="button"
             onClick={handleSubmit}
             disabled={!hasContent || publishing || isUploading}
-            className="flex items-center gap-1.5 rounded-lg bg-pulse/20 px-4 py-1.5 text-sm font-medium text-pulse transition-colors hover:bg-pulse/30 disabled:opacity-40 disabled:cursor-not-allowed"
+            className="flex items-center gap-1.5 rounded-lg bg-primary/20 px-4 py-1.5 text-sm font-medium text-primary transition-colors hover:bg-primary/30 disabled:opacity-40 disabled:cursor-not-allowed"
           >
             {publishing ? (
               <Loader2 size={14} className="animate-spin" />

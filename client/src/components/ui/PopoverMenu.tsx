@@ -133,5 +133,5 @@ export function PopoverMenuItem({
 }
 
 export function PopoverMenuSeparator() {
-  return <div className="my-1.5 border-t border-edge" />;
+  return <div className="my-1.5 border-t border-border" />;
 }

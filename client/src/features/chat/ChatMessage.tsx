@@ -102,7 +102,7 @@ export function ChatMessage({
           </button>
           <div className="min-w-0 flex-1">
             <div className="flex items-baseline gap-2">
-              <span className="text-sm font-semibold text-pulse-soft">{displayName}</span>
+              <span className="text-sm font-semibold text-primary-soft">{displayName}</span>
               <span className="text-xs text-muted">{timeAgo}</span>
             </div>
             <div className="text-sm text-body break-words">
@@ -117,7 +117,7 @@ export function ChatMessage({
   return (
     <div
       className={`group flex gap-3.5 px-5 py-2 hover:bg-surface transition-colors duration-100 ${
-        isMentioned ? "bg-pulse/[0.06] border-l-2 border-l-pulse/50" : ""
+        isMentioned ? "bg-primary/[0.06] border-l-2 border-l-primary/50" : ""
       }`}
       onContextMenu={handleContextMenu}
     >
@@ -134,7 +134,7 @@ export function ChatMessage({
       </button>
       <div className="min-w-0 flex-1">
         <div className="flex items-baseline gap-2">
-          <span className="text-sm font-semibold text-pulse-soft">
+          <span className="text-sm font-semibold text-primary-soft">
             {displayName}
           </span>
           <span className="text-xs text-muted">{timeAgo}</span>
@@ -145,7 +145,7 @@ export function ChatMessage({
             <div className="relative">
               <button
                 onClick={() => setShowReactionPicker((prev) => !prev)}
-                className="text-xs text-muted hover:text-pulse-soft"
+                className="text-xs text-muted hover:text-primary-soft"
                 title="React"
               >
                 <SmilePlus size={14} />
@@ -162,7 +162,7 @@ export function ChatMessage({
             {onReply && (
               <button
                 onClick={() => onReply(event.id, event.pubkey)}
-                className="text-xs text-muted hover:text-pulse-soft"
+                className="text-xs text-muted hover:text-primary-soft"
               >
                 Reply
               </button>
@@ -179,7 +179,7 @@ export function ChatMessage({
             {reactions.map(({ content, count }) => (
               <span
                 key={content}
-                className="inline-flex items-center gap-1 rounded-full bg-surface-hover px-2 py-0.5 text-xs text-body border border-edge"
+                className="inline-flex items-center gap-1 rounded-full bg-surface-hover px-2 py-0.5 text-xs text-body border border-border"
               >
                 {content.startsWith(":") && content.endsWith(":") ? (
                   <ReactionEmoji shortcode={content} />
@@ -218,7 +218,7 @@ function InlineReplyPreview({ eventId, onJump }: { eventId: string; onJump?: (ev
   if (!replyEvent) {
     return (
       <div className="mb-1 flex items-center gap-1.5 text-[11px] text-muted">
-        <div className="h-3 w-0.5 rounded-full bg-edge-light" />
+        <div className="h-3 w-0.5 rounded-full bg-border-light" />
         <span className="italic">Message not loaded</span>
       </div>
     );
@@ -227,7 +227,7 @@ function InlineReplyPreview({ eventId, onJump }: { eventId: string; onJump?: (ev
   if (isBlocked) {
     return (
       <div className="mb-1 flex items-center gap-1.5 text-[11px] text-muted overflow-hidden">
-        <div className="h-3 w-0.5 shrink-0 rounded-full bg-edge-light" />
+        <div className="h-3 w-0.5 shrink-0 rounded-full bg-border-light" />
         <span className="italic">Blocked message</span>
       </div>
     );
@@ -246,8 +246,8 @@ function InlineReplyPreview({ eventId, onJump }: { eventId: string; onJump?: (ev
       onClick={() => onJump?.(eventId)}
       className="mb-1 flex items-center gap-1.5 text-[11px] text-muted overflow-hidden cursor-pointer hover:bg-surface-hover rounded px-1 -ml-1 py-0.5 transition-colors"
     >
-      <div className="h-3 w-0.5 shrink-0 rounded-full bg-pulse/50" />
-      <span className="font-medium text-pulse-soft/70 shrink-0">{name}</span>
+      <div className="h-3 w-0.5 shrink-0 rounded-full bg-primary/50" />
+      <span className="font-medium text-primary-soft/70 shrink-0">{name}</span>
       <span className="truncate">{preview}</span>
     </button>
   );

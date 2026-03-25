@@ -126,7 +126,7 @@ function PubkeyArtistDetail({ pubkey }: { pubkey: string }) {
           {!profile?.picture && (
             <button
               onClick={pickImage}
-              className="absolute inset-0 flex items-center justify-center rounded-full bg-backdrop/60 opacity-0 transition-opacity group-hover:opacity-100"
+              className="absolute inset-0 flex items-center justify-center rounded-full bg-background/60 opacity-0 transition-opacity group-hover:opacity-100"
               title="Set artist image"
             >
               <Camera size={16} className="text-heading" />
@@ -289,7 +289,7 @@ function NameArtistDetail({ normalizedName }: { normalizedName: string }) {
             <img
               src={avatarSrc}
               alt={displayName}
-              className="h-16 w-16 rounded-full object-cover ring-1 ring-edge"
+              className="h-16 w-16 rounded-full object-cover ring-1 ring-border"
             />
           ) : (
             <div className="flex h-16 w-16 items-center justify-center rounded-full bg-card text-soft">
@@ -298,7 +298,7 @@ function NameArtistDetail({ normalizedName }: { normalizedName: string }) {
           )}
           <button
             onClick={pickImage}
-            className="absolute inset-0 flex items-center justify-center rounded-full bg-backdrop/60 opacity-0 transition-opacity group-hover:opacity-100"
+            className="absolute inset-0 flex items-center justify-center rounded-full bg-background/60 opacity-0 transition-opacity group-hover:opacity-100"
             title="Set artist image"
           >
             <Camera size={16} className="text-heading" />

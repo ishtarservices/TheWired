@@ -110,26 +110,26 @@ export function RevisionCard({ revision, isFirst, isLast }: RevisionCardProps) {
       <div className="flex flex-col items-center">
         {/* Line above (hidden for first item) */}
         <div
-          className={`w-px flex-none ${isFirst ? "bg-transparent" : "bg-edge"}`}
+          className={`w-px flex-none ${isFirst ? "bg-transparent" : "bg-border"}`}
           style={{ height: 12 }}
         />
         {/* Dot */}
         <div
           className={`h-3 w-3 flex-none rounded-full border-2 ${
             isFirst
-              ? "border-pulse bg-pulse/30"
-              : "border-edge-light bg-card"
+              ? "border-primary bg-primary/30"
+              : "border-border-light bg-card"
           }`}
         />
         {/* Line below (hidden for last item) */}
         <div
-          className={`w-px flex-1 ${isLast ? "bg-transparent" : "bg-edge"}`}
+          className={`w-px flex-1 ${isLast ? "bg-transparent" : "bg-border"}`}
         />
       </div>
 
       {/* Content */}
       <div className="flex-1 pb-5">
-        <div className="rounded-xl border border-edge bg-card/50 p-3 transition-colors hover:border-edge-light">
+        <div className="rounded-xl border border-border bg-card/50 p-3 transition-colors hover:border-border-light">
           {/* Header row */}
           <div className="flex items-start justify-between gap-2">
             <div className="flex items-center gap-2">

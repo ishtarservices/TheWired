@@ -36,11 +36,11 @@ export function FollowListModal({ pubkeys, loading, mode, onClose }: FollowListM
 
   return (
     <Modal open onClose={onClose}>
-      <div className="card-glass w-full max-w-lg rounded-2xl border border-edge max-h-[80vh] flex flex-col">
+      <div className="card-glass w-full max-w-lg rounded-2xl border border-border max-h-[80vh] flex flex-col">
         {/* Header */}
-        <div className="flex items-center justify-between border-b border-edge px-5 py-4">
+        <div className="flex items-center justify-between border-b border-border px-5 py-4">
           <div className="flex items-center gap-2">
-            <Users size={18} className="text-pulse" />
+            <Users size={18} className="text-primary" />
             <h2 className="text-lg font-semibold text-heading">{title}</h2>
             <span className="rounded-full bg-surface-hover px-2 py-0.5 text-xs text-muted">
               {pubkeys.length}
@@ -55,7 +55,7 @@ export function FollowListModal({ pubkeys, loading, mode, onClose }: FollowListM
         </div>
 
         {/* Search */}
-        <div className="px-5 py-3 border-b border-edge">
+        <div className="px-5 py-3 border-b border-border">
           <div className="flex items-center gap-2 rounded-lg bg-field px-3 py-2">
             <Search size={14} className="text-muted shrink-0" />
             <input
@@ -92,7 +92,7 @@ export function FollowListModal({ pubkeys, loading, mode, onClose }: FollowListM
               {hasMore && (
                 <button
                   onClick={() => setVisibleCount((c) => c + PAGE_SIZE)}
-                  className="mx-auto mt-2 rounded-lg bg-surface px-4 py-2 text-sm text-soft transition-colors hover:bg-edge hover:text-heading"
+                  className="mx-auto mt-2 rounded-lg bg-surface px-4 py-2 text-sm text-soft transition-colors hover:bg-border hover:text-heading"
                 >
                   Show more ({filtered.length - visibleCount} remaining)
                 </button>

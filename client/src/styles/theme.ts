@@ -1,7 +1,10 @@
+// Legacy theme object — uses new CSS variable names.
+// Prefer using Tailwind classes directly (e.g. `bg-background`, `text-heading`).
+
 export const theme = {
   colors: {
     bg: {
-      primary: "var(--color-backdrop)",
+      primary: "var(--color-background)",
       secondary: "var(--color-panel)",
       tertiary: "var(--color-field)",
       hover: "var(--color-card-hover)",
@@ -11,11 +14,11 @@ export const theme = {
       primary: "var(--color-heading)",
       secondary: "var(--color-body)",
       muted: "var(--color-muted)",
-      accent: "var(--color-neon)",
+      accent: "var(--color-primary)",
     },
     border: {
-      default: "var(--color-edge)",
-      light: "var(--color-edge-light)",
+      default: "var(--color-border)",
+      light: "var(--color-border-light)",
     },
     surface: {
       default: "var(--color-surface)",
@@ -28,12 +31,12 @@ export const theme = {
       error: "#ef4444",
     },
     accent: {
-      primary: "var(--color-pulse)",
-      hover: "var(--color-pulse-soft)",
+      primary: "var(--color-primary)",
+      hover: "var(--color-primary-soft)",
     },
     accentSecondary: {
-      primary: "var(--color-neon)",
-      hover: "var(--color-neon-soft)",
+      primary: "var(--color-primary)",
+      hover: "var(--color-primary-soft)",
     },
   },
 } as const;

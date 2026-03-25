@@ -20,7 +20,7 @@ export function MentionLink({ pubkey, onClick }: MentionLinkProps) {
       onClick={() => {
         if (onClick && ref.current) onClick(pubkey, ref.current);
       }}
-      className="inline text-pulse hover:text-pulse-soft hover:underline font-medium cursor-pointer"
+      className="inline text-primary hover:text-primary-soft hover:underline font-medium cursor-pointer"
     >
       @{displayName}
     </button>

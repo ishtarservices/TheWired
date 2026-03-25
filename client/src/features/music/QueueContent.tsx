@@ -118,12 +118,12 @@ export function QueueContent() {
             }}
             className={cn(
               "group flex cursor-pointer items-center gap-2 rounded-lg px-3 py-1.5 transition-colors hover:bg-surface",
-              isCurrent && "bg-pulse/8",
+              isCurrent && "bg-primary/8",
               isDragSource && "opacity-40",
               isDropTarget &&
                 (dropIdx! < dragging!.fromIdx
-                  ? "border-t-2 border-pulse/60"
-                  : "border-b-2 border-pulse/60"),
+                  ? "border-t-2 border-primary/60"
+                  : "border-b-2 border-primary/60"),
             )}
           >
             <GripVertical
@@ -143,7 +143,7 @@ export function QueueContent() {
             <div className="min-w-0 flex-1">
               <p
                 className={`truncate text-xs font-medium ${
-                  isCurrent ? "text-neon" : "text-heading"
+                  isCurrent ? "text-primary" : "text-heading"
                 }`}
               >
                 {track.title}

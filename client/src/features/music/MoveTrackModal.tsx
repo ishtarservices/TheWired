@@ -125,7 +125,7 @@ export function MoveTrackModal({ track, onClose, onBack }: MoveTrackModalProps) 
 
   return (
     <Modal open={true} onClose={onClose}>
-      <div className="w-full max-w-md rounded-2xl border border-edge card-glass p-6 shadow-xl">
+      <div className="w-full max-w-md rounded-2xl border border-border card-glass p-6 shadow-xl">
         <div className="mb-4 flex items-center justify-between">
           <div className="flex items-center gap-2">
             {onBack && (
@@ -142,7 +142,7 @@ export function MoveTrackModal({ track, onClose, onBack }: MoveTrackModalProps) 
 
         <div className="space-y-3">
           {/* Track being moved */}
-          <div className="rounded-xl border border-edge bg-surface px-3 py-2">
+          <div className="rounded-xl border border-border bg-surface px-3 py-2">
             <p className="text-sm font-medium text-heading">{track.title}</p>
             <p className="text-xs text-muted">{track.artist}</p>
           </div>
@@ -167,7 +167,7 @@ export function MoveTrackModal({ track, onClose, onBack }: MoveTrackModalProps) 
             <select
               value={targetAlbumId}
               onChange={(e) => setTargetAlbumId(e.target.value)}
-              className="w-full rounded-xl border border-edge bg-field px-3 py-1.5 text-sm text-heading outline-none focus:border-pulse/30"
+              className="w-full rounded-xl border border-border bg-field px-3 py-1.5 text-sm text-heading outline-none focus:border-primary/30"
             >
               <option value="">None (single)</option>
               {availableAlbums.map((a) => (
@@ -188,7 +188,7 @@ export function MoveTrackModal({ track, onClose, onBack }: MoveTrackModalProps) 
               type="text"
               value={revisionSummary}
               onChange={(e) => setRevisionSummary(e.target.value)}
-              className="w-full rounded-xl border border-edge bg-field px-3 py-1.5 text-sm text-heading outline-none focus:border-pulse/30"
+              className="w-full rounded-xl border border-border bg-field px-3 py-1.5 text-sm text-heading outline-none focus:border-primary/30"
               placeholder="e.g. Moved to final album"
             />
           </div>
@@ -198,7 +198,7 @@ export function MoveTrackModal({ track, onClose, onBack }: MoveTrackModalProps) 
           <button
             onClick={handleMove}
             disabled={isSameAlbum || submitting}
-            className="w-full rounded-xl bg-gradient-to-r from-pulse to-pulse-soft py-2 text-sm font-medium text-white transition-opacity hover:opacity-90 press-effect disabled:opacity-50"
+            className="w-full rounded-xl bg-gradient-to-r from-primary to-primary-soft py-2 text-sm font-medium text-white transition-opacity hover:opacity-90 press-effect disabled:opacity-50"
           >
             {submitting ? "Moving..." : "Move Track"}
           </button>

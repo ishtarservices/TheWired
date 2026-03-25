@@ -135,7 +135,7 @@ export function EmojiSetManager({ spaceId }: EmojiSetManagerProps) {
           {spaceEmojis.map((emoji) => (
             <div
               key={emoji.shortcode}
-              className="group relative flex flex-col items-center gap-1 rounded-lg border border-edge p-2 hover:bg-surface-hover transition-colors"
+              className="group relative flex flex-col items-center gap-1 rounded-lg border border-border p-2 hover:bg-surface-hover transition-colors"
             >
               <img
                 src={emoji.url}
@@ -156,7 +156,7 @@ export function EmojiSetManager({ spaceId }: EmojiSetManagerProps) {
           ))}
         </div>
       ) : (
-        <div className="rounded-lg border border-dashed border-edge p-6 text-center text-sm text-muted">
+        <div className="rounded-lg border border-dashed border-border p-6 text-center text-sm text-muted">
           No custom emojis yet. Add one below.
         </div>
       )}
@@ -172,10 +172,10 @@ export function EmojiSetManager({ spaceId }: EmojiSetManagerProps) {
               setError(null);
             }}
             placeholder="shortcode"
-            className="flex-1 rounded-lg bg-field px-3 py-1.5 text-sm text-heading placeholder:text-muted ring-1 ring-edge outline-none focus:ring-pulse/50"
+            className="flex-1 rounded-lg bg-field px-3 py-1.5 text-sm text-heading placeholder:text-muted ring-1 ring-border outline-none focus:ring-primary/50"
             maxLength={32}
           />
-          <label className="flex items-center gap-1.5 rounded-lg bg-pulse/15 px-3 py-1.5 text-sm font-medium text-pulse cursor-pointer hover:bg-pulse/25 transition-colors">
+          <label className="flex items-center gap-1.5 rounded-lg bg-primary/15 px-3 py-1.5 text-sm font-medium text-primary cursor-pointer hover:bg-primary/25 transition-colors">
             <Upload size={14} />
             {uploading ? "Uploading..." : "Upload"}
             <input

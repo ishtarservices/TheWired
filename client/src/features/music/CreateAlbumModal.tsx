@@ -369,7 +369,7 @@ export function CreateAlbumModal({ open, onClose, album }: CreateAlbumModalProps
               />
               <button
                 onClick={() => coverInputRef.current?.click()}
-                className="group relative flex h-24 w-24 items-center justify-center overflow-hidden rounded-xl border border-dashed border-edge bg-surface transition-colors hover:border-pulse/40"
+                className="group relative flex h-24 w-24 items-center justify-center overflow-hidden rounded-xl border border-dashed border-border bg-surface transition-colors hover:border-primary/40"
               >
                 {coverPreview || (isEditing && album.imageUrl) ? (
                   <img
@@ -394,7 +394,7 @@ export function CreateAlbumModal({ open, onClose, album }: CreateAlbumModalProps
                   type="text"
                   value={title}
                   onChange={(e) => setTitle(e.target.value)}
-                  className="w-full rounded-xl border border-edge bg-field px-3 py-1.5 text-sm text-heading outline-none focus:border-pulse/30"
+                  className="w-full rounded-xl border border-border bg-field px-3 py-1.5 text-sm text-heading outline-none focus:border-primary/30"
                   placeholder="Project title"
                 />
               </div>
@@ -404,7 +404,7 @@ export function CreateAlbumModal({ open, onClose, album }: CreateAlbumModalProps
                   type="text"
                   value={artist}
                   onChange={(e) => setArtist(e.target.value)}
-                  className="w-full rounded-xl border border-edge bg-field px-3 py-1.5 text-sm text-heading outline-none focus:border-pulse/30"
+                  className="w-full rounded-xl border border-border bg-field px-3 py-1.5 text-sm text-heading outline-none focus:border-primary/30"
                 />
               </div>
             </div>
@@ -416,7 +416,7 @@ export function CreateAlbumModal({ open, onClose, album }: CreateAlbumModalProps
               type="checkbox"
               checked={iAmArtist}
               onChange={(e) => setIAmArtist(e.target.checked)}
-              className="h-4 w-4 rounded border-2 border-edge bg-field checked:bg-pulse checked:border-pulse accent-purple-400"
+              className="h-4 w-4 rounded border-2 border-border bg-field checked:bg-primary checked:border-primary accent-purple-400"
             />
             I am the artist
           </label>
@@ -438,7 +438,7 @@ export function CreateAlbumModal({ open, onClose, album }: CreateAlbumModalProps
               <select
                 value={projectType}
                 onChange={(e) => setProjectType(e.target.value as ProjectType)}
-                className="w-full rounded-xl border border-edge bg-field px-3 py-1.5 text-sm text-heading outline-none focus:border-pulse/30"
+                className="w-full rounded-xl border border-border bg-field px-3 py-1.5 text-sm text-heading outline-none focus:border-primary/30"
               >
                 <option value="album">Album</option>
                 <option value="ep">EP</option>
@@ -508,7 +508,7 @@ export function CreateAlbumModal({ open, onClose, album }: CreateAlbumModalProps
               <button
                 type="button"
                 onClick={() => trackInputRef.current?.click()}
-                className="flex w-full flex-col items-center gap-2 rounded-xl border border-dashed border-edge px-4 py-6 text-sm text-soft transition-colors hover:border-pulse/40 hover:text-heading"
+                className="flex w-full flex-col items-center gap-2 rounded-xl border border-dashed border-border px-4 py-6 text-sm text-soft transition-colors hover:border-primary/40 hover:text-heading"
               >
                 <Upload size={20} />
                 <span>Drop audio files or click to browse</span>
@@ -520,8 +520,8 @@ export function CreateAlbumModal({ open, onClose, album }: CreateAlbumModalProps
 
             {/* Parsing indicator */}
             {uploadPhase === "parsing" && (
-              <div className="flex items-center gap-2 rounded-xl border border-edge bg-surface px-4 py-3 text-sm text-soft">
-                <div className="h-4 w-4 animate-spin rounded-full border-2 border-pulse/30 border-t-pulse" />
+              <div className="flex items-center gap-2 rounded-xl border border-border bg-surface px-4 py-3 text-sm text-soft">
+                <div className="h-4 w-4 animate-spin rounded-full border-2 border-primary/30 border-t-primary" />
                 <span>Reading metadata from files...</span>
               </div>
             )}
@@ -547,7 +547,7 @@ export function CreateAlbumModal({ open, onClose, album }: CreateAlbumModalProps
                     onDrop={() => handleDrop(idx)}
                     onDragEnd={handleDragEnd}
                     className={`group flex items-center gap-1.5 rounded-lg px-1 py-1 transition-colors ${
-                      dragOverIndex === idx ? "bg-pulse/10" : "hover:bg-surface-hover"
+                      dragOverIndex === idx ? "bg-primary/10" : "hover:bg-surface-hover"
                     } ${track.status === "done" ? "opacity-60" : ""} ${
                       track.status === "error" ? "bg-red-500/5" : ""
                     }`}
@@ -613,13 +613,13 @@ export function CreateAlbumModal({ open, onClose, album }: CreateAlbumModalProps
                     {/* Status / Actions */}
                     <div className="flex w-28 shrink-0 items-center justify-end gap-1">
                       {track.status === "uploading" && (
-                        <div className="h-3 w-3 animate-spin rounded-full border border-pulse/30 border-t-pulse" />
+                        <div className="h-3 w-3 animate-spin rounded-full border border-primary/30 border-t-primary" />
                       )}
                       {track.status === "done" && (
                         <span className="text-[10px] text-green-400">Done</span>
                       )}
                       {track.hasId3 && track.status === "pending" && (
-                        <span className="rounded bg-pulse/10 px-1 py-0.5 text-[9px] text-pulse" title="Has ID3 metadata">
+                        <span className="rounded bg-primary/10 px-1 py-0.5 text-[9px] text-primary" title="Has ID3 metadata">
                           ID3
                         </span>
                       )}
@@ -692,7 +692,7 @@ export function CreateAlbumModal({ open, onClose, album }: CreateAlbumModalProps
           {userTracks.length > 0 && (
             <div>
               <label className="mb-1 block text-xs font-medium text-soft">Existing Tracks</label>
-              <div className="max-h-32 overflow-y-auto rounded-xl border border-edge bg-field p-2">
+              <div className="max-h-32 overflow-y-auto rounded-xl border border-border bg-field p-2">
                 {userTracks.map((track) => (
                   <label
                     key={track.addressableId}
@@ -702,7 +702,7 @@ export function CreateAlbumModal({ open, onClose, album }: CreateAlbumModalProps
                       type="checkbox"
                       checked={selectedTrackRefs.includes(track.addressableId)}
                       onChange={() => toggleTrack(track.addressableId)}
-                      className="h-4 w-4 rounded border-2 border-edge bg-field checked:bg-pulse checked:border-pulse accent-purple-400"
+                      className="h-4 w-4 rounded border-2 border-border bg-field checked:bg-primary checked:border-primary accent-purple-400"
                     />
                     <span className="truncate">{track.title}</span>
                     <span className="ml-auto text-xs text-muted">{track.artist}</span>
@@ -729,7 +729,7 @@ export function CreateAlbumModal({ open, onClose, album }: CreateAlbumModalProps
               </div>
               <div className="h-1.5 overflow-hidden rounded-full bg-surface">
                 <div
-                  className="h-full rounded-full bg-gradient-to-r from-pulse to-pulse-soft transition-all duration-300"
+                  className="h-full rounded-full bg-gradient-to-r from-primary to-primary-soft transition-all duration-300"
                   style={{ width: `${(uploadProgress.current / uploadProgress.total) * 100}%` }}
                 />
               </div>
@@ -741,7 +741,7 @@ export function CreateAlbumModal({ open, onClose, album }: CreateAlbumModalProps
           <button
             onClick={handleSubmit}
             disabled={!title.trim() || submitting || (visibility === "space" && !spaceId)}
-            className="w-full rounded-xl bg-gradient-to-r from-pulse to-pulse-soft py-2 text-sm font-medium text-white transition-opacity hover:opacity-90 press-effect disabled:opacity-50"
+            className="w-full rounded-xl bg-gradient-to-r from-primary to-primary-soft py-2 text-sm font-medium text-white transition-opacity hover:opacity-90 press-effect disabled:opacity-50"
           >
             {submitting
               ? uploadProgress.total > 0

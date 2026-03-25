@@ -45,7 +45,7 @@ export function VolumeBalance() {
 
       {/* Music volume */}
       <div className="flex items-center gap-2">
-        <Volume2 size={14} className="text-pulse shrink-0" />
+        <Volume2 size={14} className="text-primary shrink-0" />
         <input
           type="range"
           min={0}
@@ -53,8 +53,8 @@ export function VolumeBalance() {
           step={0.01}
           value={musicVolume}
           onChange={(e) => handleMusicVolume(parseFloat(e.target.value))}
-          className="flex-1 h-1 cursor-pointer appearance-none rounded-full bg-surface-hover accent-pulse
-            [&::-webkit-slider-thumb]:h-3 [&::-webkit-slider-thumb]:w-3 [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-pulse"
+          className="flex-1 h-1 cursor-pointer appearance-none rounded-full bg-surface-hover accent-primary
+            [&::-webkit-slider-thumb]:h-3 [&::-webkit-slider-thumb]:w-3 [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-primary"
         />
         <span className="text-[10px] text-muted w-7 text-right tabular-nums">
           {Math.round(musicVolume * 100)}

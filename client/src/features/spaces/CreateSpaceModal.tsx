@@ -197,7 +197,7 @@ export function CreateSpaceModal({
               value={name}
               onChange={(e) => setName(e.target.value)}
               placeholder="My Space"
-              className="w-full rounded-xl bg-field border border-edge px-3 py-1.5 text-sm text-heading placeholder-muted focus:border-neon focus:outline-none transition-colors"
+              className="w-full rounded-xl bg-field border border-border px-3 py-1.5 text-sm text-heading placeholder-muted focus:border-primary focus:outline-none transition-colors"
             />
           </div>
 
@@ -211,7 +211,7 @@ export function CreateSpaceModal({
               onChange={(e) => setAbout(e.target.value)}
               placeholder="What's this space about?"
               rows={2}
-              className="w-full resize-none overflow-hidden rounded-xl bg-field border border-edge px-3 py-1.5 text-sm text-heading placeholder-muted focus:border-neon focus:outline-none transition-colors"
+              className="w-full resize-none overflow-hidden rounded-xl bg-field border border-border px-3 py-1.5 text-sm text-heading placeholder-muted focus:border-primary focus:outline-none transition-colors"
             />
           </div>
 
@@ -232,7 +232,7 @@ export function CreateSpaceModal({
                 onClick={() => setMode("read-write")}
                 className={`flex-1 rounded-xl px-3 py-2 text-sm font-medium transition-all duration-150 ${
                   mode === "read-write"
-                    ? "bg-pulse/15 text-pulse-soft ring-1 ring-pulse/30"
+                    ? "bg-primary/15 text-primary-soft ring-1 ring-primary/30"
                     : "bg-surface text-soft hover:text-heading"
                 }`}
               >
@@ -242,7 +242,7 @@ export function CreateSpaceModal({
                 onClick={() => setMode("read")}
                 className={`flex-1 rounded-xl px-3 py-2 text-sm font-medium transition-all duration-150 ${
                   mode === "read"
-                    ? "bg-pulse/15 text-pulse-soft ring-1 ring-pulse/30"
+                    ? "bg-primary/15 text-primary-soft ring-1 ring-primary/30"
                     : "bg-surface text-soft hover:text-heading"
                 }`}
               >
@@ -280,7 +280,7 @@ export function CreateSpaceModal({
                       checked={selectedChannels.has(opt.type)}
                       onChange={() => toggleChannel(opt.type)}
                       disabled={disabled}
-                      className="rounded border-edge"
+                      className="rounded border-border"
                     />
                     <span className="text-sm text-heading">{opt.label}</span>
                     <span className="text-[11px] text-muted">{opt.description}</span>
@@ -302,7 +302,7 @@ export function CreateSpaceModal({
 
               {/* Search input */}
               <div ref={searchContainerRef} className="relative mb-2">
-                <div className="flex items-center gap-2 rounded-xl bg-field border border-edge px-3 py-1.5 focus-within:border-neon transition-colors">
+                <div className="flex items-center gap-2 rounded-xl bg-field border border-border px-3 py-1.5 focus-within:border-primary transition-colors">
                   <Search size={14} className="text-muted shrink-0" />
                   <input
                     type="text"

@@ -42,7 +42,7 @@ function InlineImage({ url }: { url: string }) {
         href={url}
         target="_blank"
         rel="noopener noreferrer"
-        className="text-xs text-neon underline"
+        className="text-xs text-primary underline"
       >
         {url}
       </a>
@@ -98,14 +98,14 @@ function InlineVideo({ url }: { url: string }) {
           <span>{playbackRate}x</span>
         </button>
         {showSpeedMenu && (
-          <div className="absolute right-0 top-full mt-1 rounded-xl border border-edge card-glass py-1 shadow-lg">
+          <div className="absolute right-0 top-full mt-1 rounded-xl border border-border card-glass py-1 shadow-lg">
             {VALID_SPEEDS.map((speed) => (
               <button
                 key={speed}
                 onClick={() => { setPlaybackRate(speed); setShowSpeedMenu(false); }}
                 className={`block w-full px-3 py-1 text-left text-xs transition-colors ${
                   speed === playbackRate
-                    ? "bg-pulse/15 text-pulse-soft"
+                    ? "bg-primary/15 text-primary-soft"
                     : "text-body hover:bg-surface-hover"
                 }`}
               >
@@ -239,7 +239,7 @@ const NoteCard = memo(function NoteCard({ event }: { event: NostrEvent }) {
   }
 
   return (
-    <div className="rounded-lg border-neon-glow bg-card p-4 hover-lift transition-all duration-150 hover:glow-neon">
+    <div className="rounded-lg border-primary-glow bg-card p-4 hover-lift transition-all duration-150 hover:glow-primary">
       <div className="mb-2 flex items-center gap-2">
         <button
           ref={avatarRef}

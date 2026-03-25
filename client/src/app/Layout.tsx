@@ -3,6 +3,7 @@ import { Sidebar } from "../components/layout/Sidebar";
 import { CenterPanel } from "../components/layout/CenterPanel";
 import { RightPanel } from "../components/layout/RightPanel";
 import { TopBar } from "../components/layout/TopBar";
+import { ThemeBackground } from "../components/layout/ThemeBackground";
 import { FloatingPlaybackBar } from "../features/music/playbackBar/FloatingPlaybackBar";
 import { UserPopoverProvider } from "../features/profile/UserPopoverContext";
 import { NotificationToastStack } from "../features/notifications/NotificationToast";
@@ -20,7 +21,8 @@ export function Layout() {
 
   return (
     <UserPopoverProvider>
-      <div className="flex h-screen flex-col overflow-hidden bg-ambient animate-gradient-shift">
+      <ThemeBackground />
+      <div className="flex h-screen flex-col overflow-hidden bg-background">
         <TopBar
           sidebarExpanded={sidebarExpanded}
           onToggleSidebar={() => setSidebarExpanded((v) => !v)}

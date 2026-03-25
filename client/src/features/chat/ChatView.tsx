@@ -141,9 +141,9 @@ export function ChatView() {
     <div ref={upload.dropZoneRef} className="relative flex flex-1 flex-col overflow-hidden">
       {/* Drag overlay — covers the entire chat view */}
       {upload.dragOver && (
-        <div className="pointer-events-none absolute inset-0 z-30 flex items-center justify-center border-2 border-dashed border-pulse/40 bg-pulse/[0.06] backdrop-blur-[1px]">
-          <div className="rounded-xl bg-surface/80 px-6 py-4 text-center shadow-lg border border-pulse/20">
-            <p className="text-sm font-medium text-pulse">Drop files to attach</p>
+        <div className="pointer-events-none absolute inset-0 z-30 flex items-center justify-center border-2 border-dashed border-primary/40 bg-primary/[0.06] backdrop-blur-[1px]">
+          <div className="rounded-xl bg-surface/80 px-6 py-4 text-center shadow-lg border border-primary/20">
+            <p className="text-sm font-medium text-primary">Drop files to attach</p>
             <p className="mt-1 text-xs text-muted">Images, videos, audio, or PDFs</p>
           </div>
         </div>
@@ -219,7 +219,7 @@ export function ChatView() {
       {jumpBackEventId && (
         <button
           onClick={handleJumpBack}
-          className="absolute right-4 bottom-20 z-10 flex items-center gap-1.5 rounded-full bg-pulse/90 px-3 py-1.5 text-xs font-medium text-white shadow-lg hover:bg-pulse transition-colors animate-fade-in-up"
+          className="absolute right-4 bottom-20 z-10 flex items-center gap-1.5 rounded-full bg-primary/90 px-3 py-1.5 text-xs font-medium text-white shadow-lg hover:bg-primary transition-colors animate-fade-in-up"
         >
           <ArrowDown size={12} />
           Jump back
@@ -238,7 +238,7 @@ export function ChatView() {
       )}
 
       {isReadOnly ? (
-        <div className="flex items-center justify-center gap-2 border-t border-edge px-4 py-3 text-muted">
+        <div className="flex items-center justify-center gap-2 border-t border-border px-4 py-3 text-muted">
           <Lock size={14} />
           <span className="text-xs">This is a read-only space</span>
         </div>

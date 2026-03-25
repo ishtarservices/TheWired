@@ -76,7 +76,7 @@ function ActionButton({
           : variant === "danger"
             ? "text-red-400 hover:bg-red-500/10"
             : active
-              ? "bg-pulse/10 text-pulse"
+              ? "bg-primary/10 text-primary"
               : "text-body hover:bg-surface-hover hover:text-heading"
       }`}
     >
@@ -97,7 +97,7 @@ function SectionLabel({ children }: { children: ReactNode }) {
 }
 
 function SectionDivider() {
-  return <div className="col-span-2 my-0.5 border-t border-edge/30" />;
+  return <div className="col-span-2 my-0.5 border-t border-border/30" />;
 }
 
 interface ActionsTabProps {

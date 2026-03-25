@@ -45,7 +45,7 @@ export function PinnedNotesSection({ pubkey }: PinnedNotesSectionProps) {
           return (
             <div
               key={event.id}
-              className="relative rounded-xl border-l-2 border-pulse/40"
+              className="relative rounded-xl border-l-2 border-primary/40"
             >
               <ProfileNoteCard item={item} />
             </div>
@@ -54,7 +54,7 @@ export function PinnedNotesSection({ pubkey }: PinnedNotesSectionProps) {
       </div>
 
       {/* Divider */}
-      <div className="mt-4 border-b border-edge" />
+      <div className="mt-4 border-b border-border" />
     </div>
   );
 }

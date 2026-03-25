@@ -223,7 +223,7 @@ export function AlbumDetail() {
               <button
                 onClick={() => playQueue(queueIds, 0)}
                 disabled={queueIds.length === 0}
-                className="flex items-center gap-1.5 rounded-full bg-linear-to-r from-pulse to-pulse-soft px-4 py-1.5 text-sm font-medium text-white transition-transform hover:scale-105 press-effect disabled:opacity-50"
+                className="flex items-center gap-1.5 rounded-full bg-linear-to-r from-primary to-primary-soft px-4 py-1.5 text-sm font-medium text-white transition-transform hover:scale-105 press-effect disabled:opacity-50"
               >
                 <Play size={14} fill="currentColor" />
                 Play All
@@ -234,7 +234,7 @@ export function AlbumDetail() {
                   playQueue(shuffled, 0);
                 }}
                 disabled={queueIds.length === 0}
-                className="flex items-center gap-1.5 rounded-full border border-edge px-4 py-1.5 text-sm text-soft transition-colors hover:border-edge-light hover:text-heading disabled:opacity-50"
+                className="flex items-center gap-1.5 rounded-full border border-border px-4 py-1.5 text-sm text-soft transition-colors hover:border-border-light hover:text-heading disabled:opacity-50"
               >
                 <Shuffle size={14} />
                 Shuffle
@@ -249,7 +249,7 @@ export function AlbumDetail() {
                       setTimeout(() => setCopied(false), 2000);
                     }
                   }}
-                  className="flex items-center gap-1.5 rounded-full border border-edge px-4 py-1.5 text-sm text-soft transition-colors hover:border-edge-light hover:text-heading"
+                  className="flex items-center gap-1.5 rounded-full border border-border px-4 py-1.5 text-sm text-soft transition-colors hover:border-border-light hover:text-heading"
                 >
                   <Link2 size={14} />
                   {copied ? "Copied!" : "Copy Link"}
@@ -277,7 +277,7 @@ export function AlbumDetail() {
                           saveAlbum(album.addressableId);
                         }
                       }}
-                      className="flex items-center gap-1.5 rounded-full border border-edge px-4 py-1.5 text-sm text-soft transition-colors hover:border-edge-light hover:text-heading"
+                      className="flex items-center gap-1.5 rounded-full border border-border px-4 py-1.5 text-sm text-soft transition-colors hover:border-border-light hover:text-heading"
                     >
                       {isAlbumSaved(album.addressableId) ? (
                         <Check size={14} className="text-green-400" />
@@ -295,7 +295,7 @@ export function AlbumDetail() {
                         favoriteAlbum(album.addressableId);
                       }
                     }}
-                    className="flex items-center gap-1.5 rounded-full border border-edge px-4 py-1.5 text-sm text-soft transition-colors hover:border-edge-light hover:text-heading"
+                    className="flex items-center gap-1.5 rounded-full border border-border px-4 py-1.5 text-sm text-soft transition-colors hover:border-border-light hover:text-heading"
                   >
                     <Heart
                       size={14}
@@ -310,8 +310,8 @@ export function AlbumDetail() {
                   onClick={() => setShowMembers((v) => !v)}
                   className={`flex items-center gap-1.5 rounded-full border px-4 py-1.5 text-sm transition-colors ${
                     showMembers
-                      ? "border-pulse/40 text-heading"
-                      : "border-edge text-soft hover:border-edge-light hover:text-heading"
+                      ? "border-primary/40 text-heading"
+                      : "border-border text-soft hover:border-border-light hover:text-heading"
                   }`}
                 >
                   <Users size={14} />
@@ -328,7 +328,7 @@ export function AlbumDetail() {
                       }),
                     )
                   }
-                  className="flex items-center gap-1.5 rounded-full border border-edge px-4 py-1.5 text-sm text-soft transition-colors hover:border-edge-light hover:text-heading"
+                  className="flex items-center gap-1.5 rounded-full border border-border px-4 py-1.5 text-sm text-soft transition-colors hover:border-border-light hover:text-heading"
                 >
                   <Clock size={14} />
                   History
@@ -344,7 +344,7 @@ export function AlbumDetail() {
                       }),
                     )
                   }
-                  className="flex items-center gap-1.5 rounded-full border border-edge px-4 py-1.5 text-sm text-soft transition-colors hover:border-edge-light hover:text-heading"
+                  className="flex items-center gap-1.5 rounded-full border border-border px-4 py-1.5 text-sm text-soft transition-colors hover:border-border-light hover:text-heading"
                 >
                   <GitPullRequest size={14} />
                   Proposals
@@ -356,8 +356,8 @@ export function AlbumDetail() {
 
         {/* Update Available banner */}
         {hasUpdate && !isOwner && (
-          <div className="mx-6 mt-2 flex items-center gap-3 rounded-xl border border-pulse/30 bg-pulse/5 px-4 py-3">
-            <RefreshCw size={16} className="shrink-0 text-pulse" />
+          <div className="mx-6 mt-2 flex items-center gap-3 rounded-xl border border-primary/30 bg-primary/5 px-4 py-3">
+            <RefreshCw size={16} className="shrink-0 text-primary" />
             <div className="flex-1">
               <p className="text-sm font-medium text-heading">Update Available</p>
               <p className="text-xs text-soft">
@@ -366,7 +366,7 @@ export function AlbumDetail() {
             </div>
             <button
               onClick={() => setShowReleaseNotes(true)}
-              className="shrink-0 rounded-lg bg-pulse/20 px-3 py-1.5 text-xs font-medium text-pulse hover:bg-pulse/30 transition-colors"
+              className="shrink-0 rounded-lg bg-primary/20 px-3 py-1.5 text-xs font-medium text-primary hover:bg-primary/30 transition-colors"
             >
               View Details
             </button>
@@ -396,7 +396,7 @@ export function AlbumDetail() {
                   }
                 }
               }}
-              className="mt-3 flex items-center gap-1.5 rounded-lg border border-dashed border-edge px-3 py-2 text-sm text-soft transition-colors hover:border-edge-light hover:text-heading"
+              className="mt-3 flex items-center gap-1.5 rounded-lg border border-dashed border-border px-3 py-2 text-sm text-soft transition-colors hover:border-border-light hover:text-heading"
             >
               <Plus size={14} />
               Add {unsavedTrackCount} remaining track{unsavedTrackCount !== 1 ? "s" : ""}
@@ -429,8 +429,8 @@ export function AlbumDetail() {
       )}
 
       {showMembers && (
-        <div className="flex w-64 shrink-0 flex-col border-l border-edge">
-          <div className="flex h-12 items-center border-b border-edge px-4">
+        <div className="flex w-64 shrink-0 flex-col border-l border-border">
+          <div className="flex h-12 items-center border-b border-border px-4">
             <Users size={16} className="mr-2 text-soft" />
             <span className="text-sm font-semibold text-body">Members</span>
             <button
@@ -473,7 +473,7 @@ export function AlbumDetail() {
 
             {/* Add collaborator (owner only) */}
             {isOwner && (
-              <div className="mt-3 border-t border-edge pt-3 px-1">
+              <div className="mt-3 border-t border-border pt-3 px-1">
                 <div className="mb-1.5 flex items-center gap-1 text-[10px] font-semibold uppercase tracking-wider text-muted">
                   <UserPlus size={10} />
                   Add Collaborator
@@ -493,12 +493,12 @@ export function AlbumDetail() {
                       }
                     }}
                     placeholder="npub or hex pubkey..."
-                    className="w-full rounded-xl border border-edge bg-field px-3 py-1.5 text-sm text-heading placeholder-muted focus:border-pulse/40 focus:outline-none transition-colors"
+                    className="w-full rounded-xl border border-border bg-field px-3 py-1.5 text-sm text-heading placeholder-muted focus:border-primary/40 focus:outline-none transition-colors"
                   />
                   <button
                     onClick={handleAddCollaborator}
                     disabled={!addInput.trim()}
-                    className="w-full rounded-xl bg-linear-to-r from-pulse to-pulse-soft px-3 py-1.5 text-sm font-medium text-white hover:opacity-90 transition-all duration-150 press-effect disabled:opacity-40"
+                    className="w-full rounded-xl bg-linear-to-r from-primary to-primary-soft px-3 py-1.5 text-sm font-medium text-white hover:opacity-90 transition-all duration-150 press-effect disabled:opacity-40"
                   >
                     Add
                   </button>

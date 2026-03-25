@@ -68,7 +68,7 @@ export function SpaceAlbumDetail({ albumId, onBack }: SpaceAlbumDetailProps) {
             <button
               onClick={() => playQueue(queueIds, 0)}
               disabled={queueIds.length === 0}
-              className="flex items-center gap-1.5 rounded-full bg-gradient-to-r from-pulse to-pulse-soft px-4 py-1.5 text-sm font-medium text-white transition-transform hover:scale-105 press-effect disabled:opacity-50"
+              className="flex items-center gap-1.5 rounded-full bg-gradient-to-r from-primary to-primary-soft px-4 py-1.5 text-sm font-medium text-white transition-transform hover:scale-105 press-effect disabled:opacity-50"
             >
               <Play size={14} fill="currentColor" />
               Play All
@@ -79,7 +79,7 @@ export function SpaceAlbumDetail({ albumId, onBack }: SpaceAlbumDetailProps) {
                 playQueue(shuffled, 0);
               }}
               disabled={queueIds.length === 0}
-              className="flex items-center gap-1.5 rounded-full border border-edge px-4 py-1.5 text-sm text-soft transition-colors hover:border-edge-light hover:text-heading disabled:opacity-50"
+              className="flex items-center gap-1.5 rounded-full border border-border px-4 py-1.5 text-sm text-soft transition-colors hover:border-border-light hover:text-heading disabled:opacity-50"
             >
               <Shuffle size={14} />
               Shuffle
@@ -89,7 +89,7 @@ export function SpaceAlbumDetail({ albumId, onBack }: SpaceAlbumDetailProps) {
                 if (saved) unsaveAlbum(albumId);
                 else saveAlbum(albumId);
               }}
-              className="flex items-center gap-1.5 rounded-full border border-edge px-4 py-1.5 text-sm text-soft transition-colors hover:border-edge-light hover:text-heading"
+              className="flex items-center gap-1.5 rounded-full border border-border px-4 py-1.5 text-sm text-soft transition-colors hover:border-border-light hover:text-heading"
             >
               {saved ? (
                 <Check size={14} className="text-green-400" />
@@ -103,7 +103,7 @@ export function SpaceAlbumDetail({ albumId, onBack }: SpaceAlbumDetailProps) {
                 if (favorited) unfavoriteAlbum(albumId);
                 else favoriteAlbum(albumId);
               }}
-              className="flex items-center gap-1.5 rounded-full border border-edge px-4 py-1.5 text-sm text-soft transition-colors hover:border-edge-light hover:text-heading"
+              className="flex items-center gap-1.5 rounded-full border border-border px-4 py-1.5 text-sm text-soft transition-colors hover:border-border-light hover:text-heading"
             >
               <Heart
                 size={14}

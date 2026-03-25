@@ -102,7 +102,7 @@ export function ImageUpload({
             setError(null);
           }}
           placeholder="https://..."
-          className="w-full rounded-xl bg-field border border-edge px-3 py-1.5 text-sm text-heading placeholder-muted focus:border-neon focus:outline-none transition-colors"
+          className="w-full rounded-xl bg-field border border-border px-3 py-1.5 text-sm text-heading placeholder-muted focus:border-primary focus:outline-none transition-colors"
         />
       ) : (
         <div className="flex items-start gap-3">
@@ -112,12 +112,12 @@ export function ImageUpload({
               <img
                 src={value}
                 alt="Preview"
-                className={`${previewClass} object-cover border border-edge`}
+                className={`${previewClass} object-cover border border-border`}
               />
               <button
                 type="button"
                 onClick={() => onChange("")}
-                className="absolute -top-1.5 -right-1.5 rounded-full bg-surface p-0.5 text-soft hover:text-heading border border-edge transition-colors"
+                className="absolute -top-1.5 -right-1.5 rounded-full bg-surface p-0.5 text-soft hover:text-heading border border-border transition-colors"
               >
                 <X size={12} />
               </button>
@@ -135,8 +135,8 @@ export function ImageUpload({
             onClick={handlePick}
             className={`flex-1 flex flex-col items-center justify-center rounded-xl border border-dashed px-3 py-4 cursor-pointer transition-colors ${
               dragOver
-                ? "border-neon bg-neon/5"
-                : "border-edge-light hover:border-edge-light hover:bg-surface"
+                ? "border-primary bg-primary/5"
+                : "border-border-light hover:border-border-light hover:bg-surface"
             }`}
           >
             {uploading ? (

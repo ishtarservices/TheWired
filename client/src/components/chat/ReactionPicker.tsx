@@ -75,7 +75,7 @@ export function ReactionPicker({
   return (
     <div
       ref={pickerRef}
-      className="absolute bottom-full right-0 mb-1 z-50 rounded-lg border border-edge bg-panel shadow-lg p-1.5"
+      className="absolute bottom-full right-0 mb-1 z-50 rounded-lg border border-border bg-panel shadow-lg p-1.5"
     >
       {/* Quick reactions row */}
       <div className="flex gap-0.5">
@@ -95,7 +95,7 @@ export function ReactionPicker({
             type="button"
             onClick={() => setShowCustom((prev) => !prev)}
             className={`rounded-md p-1.5 transition-colors ${
-              showCustom ? "bg-pulse/15 text-pulse" : "text-muted hover:bg-surface-hover hover:text-heading"
+              showCustom ? "bg-primary/15 text-primary" : "text-muted hover:bg-surface-hover hover:text-heading"
             }`}
             title="More reactions"
           >
@@ -106,7 +106,7 @@ export function ReactionPicker({
 
       {/* Custom emojis */}
       {showCustom && customEmojis.length > 0 && (
-        <div className="mt-1 pt-1 border-t border-edge">
+        <div className="mt-1 pt-1 border-t border-border">
           <div className="grid grid-cols-8 gap-0.5">
             {customEmojis.map((emoji) => (
               <button

@@ -98,7 +98,7 @@ export const AlbumCard = memo(function AlbumCard({ album, onNavigate }: AlbumCar
             }
           }
         }}
-        className="group relative flex w-full cursor-pointer flex-col rounded-xl border border-edge card-glass transition-all hover:border-edge-light hover-lift"
+        className="group relative flex w-full cursor-pointer flex-col rounded-xl border border-border card-glass transition-all hover:border-border-light hover-lift"
       >
         <div className="relative aspect-square w-full overflow-hidden rounded-t-xl">
           {hasUpdate && (
@@ -124,7 +124,7 @@ export const AlbumCard = memo(function AlbumCard({ album, onNavigate }: AlbumCar
             tabIndex={0}
             onClick={handlePlayAll}
             onKeyDown={(e) => { if (e.key === "Enter") handlePlayAll(e as unknown as React.MouseEvent); }}
-            className="absolute bottom-2 right-2 z-10 translate-y-2 scale-90 rounded-full bg-gradient-to-br from-pulse to-pulse-soft p-2 text-white opacity-0 shadow-lg transition-all duration-200 group-hover:translate-y-0 group-hover:scale-100 group-hover:opacity-100 hover:scale-110 press-effect"
+            className="absolute bottom-2 right-2 z-10 translate-y-2 scale-90 rounded-full bg-gradient-to-br from-primary to-primary-soft p-2 text-white opacity-0 shadow-lg transition-all duration-200 group-hover:translate-y-0 group-hover:scale-100 group-hover:opacity-100 hover:scale-110 press-effect"
             title="Play All"
           >
             <Play size={16} fill="currentColor" className="ml-0.5" />
@@ -139,7 +139,7 @@ export const AlbumCard = memo(function AlbumCard({ album, onNavigate }: AlbumCar
                   e.stopPropagation();
                   setMenuOpen((v) => !v);
                 }}
-                className="rounded-full bg-backdrop/70 p-1 text-soft hover:text-heading"
+                className="rounded-full bg-background/70 p-1 text-soft hover:text-heading"
               >
                 <MoreHorizontal size={16} />
               </button>

@@ -37,14 +37,14 @@ function AttachmentItem({
       className={`group/att relative flex-shrink-0 rounded-lg border transition-colors ${
         isError
           ? "border-red-500/30 bg-red-500/5"
-          : "border-edge-light bg-surface"
+          : "border-border-light bg-surface"
       }`}
     >
       {/* Remove button */}
       <button
         type="button"
         onClick={onRemove}
-        className="absolute -top-1.5 -right-1.5 z-10 rounded-full bg-surface border border-edge-light p-0.5 text-muted hover:text-heading transition-colors opacity-0 group-hover/att:opacity-100"
+        className="absolute -top-1.5 -right-1.5 z-10 rounded-full bg-surface border border-border-light p-0.5 text-muted hover:text-heading transition-colors opacity-0 group-hover/att:opacity-100"
       >
         <X size={12} />
       </button>
@@ -87,7 +87,7 @@ function AttachmentItem({
 
       {category === "audio" && (
         <div className="flex h-20 w-36 flex-col items-center justify-center gap-1.5 rounded-lg px-2">
-          <Music size={18} className="text-pulse/70" />
+          <Music size={18} className="text-primary/70" />
           <span className="w-full truncate text-center text-[10px] text-soft">
             {attachment.file.name}
           </span>

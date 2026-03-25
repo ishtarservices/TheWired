@@ -13,7 +13,7 @@ export function ReplyIndicator({ pubkey }: ReplyIndicatorProps) {
     <div className="mb-1.5 flex items-center gap-1.5 text-xs text-muted/70">
       <CornerDownRight size={12} />
       <span>Replying to</span>
-      <span className="text-neon">{name}</span>
+      <span className="text-primary">{name}</span>
     </div>
   );
 }

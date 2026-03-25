@@ -38,14 +38,14 @@ export function DMSidebar({ activePartner, onSelectContact }: DMSidebarProps) {
   );
 
   return (
-    <div className="flex flex-col border-r border-edge w-72">
+    <div className="flex flex-col border-r border-border w-72">
       {/* Tab bar */}
-      <div className="flex items-center border-b border-edge">
+      <div className="flex items-center border-b border-border">
         <button
           onClick={() => setActiveTab("messages")}
           className={`flex flex-1 items-center justify-center gap-1.5 px-3 py-2.5 text-xs font-semibold transition-colors ${
             activeTab === "messages"
-              ? "border-b-2 border-pulse text-pulse"
+              ? "border-b-2 border-primary text-primary"
               : "text-soft hover:text-heading"
           }`}
         >
@@ -56,7 +56,7 @@ export function DMSidebar({ activePartner, onSelectContact }: DMSidebarProps) {
           onClick={() => setActiveTab("friends")}
           className={`flex flex-1 items-center justify-center gap-1.5 px-3 py-2.5 text-xs font-semibold transition-colors ${
             activeTab === "friends"
-              ? "border-b-2 border-pulse text-pulse"
+              ? "border-b-2 border-primary text-primary"
               : "text-soft hover:text-heading"
           }`}
         >
@@ -107,12 +107,12 @@ export function DMSidebar({ activePartner, onSelectContact }: DMSidebarProps) {
           <>
             {/* Pending friend requests */}
             {pendingIncoming.length > 0 && (
-              <div className="border-b border-edge">
+              <div className="border-b border-border">
                 <div className="flex items-center gap-2 px-4 pt-3 pb-1.5">
                   <span className="text-[10px] font-semibold uppercase tracking-wider text-muted">
                     Pending Requests
                   </span>
-                  <span className="flex h-4 min-w-4 items-center justify-center rounded-full bg-pulse px-1 text-[10px] font-bold text-white">
+                  <span className="flex h-4 min-w-4 items-center justify-center rounded-full bg-primary px-1 text-[10px] font-bold text-white">
                     {pendingIncoming.length}
                   </span>
                 </div>
@@ -194,7 +194,7 @@ const DMContactItem = memo(function DMContactItem({
             {contact.lastMessagePreview}
           </span>
           {contact.unreadCount > 0 && (
-            <span className="ml-2 flex h-4 min-w-4 items-center justify-center rounded-full bg-pulse px-1 text-[10px] font-bold text-white">
+            <span className="ml-2 flex h-4 min-w-4 items-center justify-center rounded-full bg-primary px-1 text-[10px] font-bold text-white">
               {contact.unreadCount}
             </span>
           )}
@@ -263,7 +263,7 @@ const PendingRequestItem = memo(function PendingRequestItem({
       <div className="flex items-center gap-1 shrink-0">
         <button
           onClick={() => acceptFriendRequestAction(request.pubkey)}
-          className="rounded-md bg-pulse/20 px-2 py-1 text-[10px] font-semibold text-pulse hover:bg-pulse/30 transition-colors"
+          className="rounded-md bg-primary/20 px-2 py-1 text-[10px] font-semibold text-primary hover:bg-primary/30 transition-colors"
         >
           Accept
         </button>

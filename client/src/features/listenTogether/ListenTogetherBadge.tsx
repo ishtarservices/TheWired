@@ -12,7 +12,7 @@ export function ListenTogetherBadge() {
 
   return (
     <span
-      className="flex items-center gap-1 rounded-full bg-pulse/10 px-2 py-0.5 text-[10px] text-pulse shrink-0"
+      className="flex items-center gap-1 rounded-full bg-primary/10 px-2 py-0.5 text-[10px] text-primary shrink-0"
       title={
         isLocalDJ
           ? `You are the DJ — ${listenerCount} listening`

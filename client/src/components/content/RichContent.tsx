@@ -18,7 +18,7 @@ export function RichContent({ content, emojiTags, onMentionClick }: RichContentP
   const segments = parseContent(content, emojiTags);
 
   return (
-    <span className="whitespace-pre-wrap break-words">
+    <span className="whitespace-pre-wrap wrap-break-word">
       {segments.map((seg, i) => (
         <RichSegment key={i} segment={seg} onMentionClick={onMentionClick} />
       ))}
@@ -42,7 +42,7 @@ function RichSegment({
 
     case "event-ref":
       return (
-        <span className="font-mono text-xs text-neon/70 bg-surface px-1 py-0.5 rounded">
+        <span className="font-mono text-xs text-primary/70 bg-surface px-1 py-0.5 rounded">
           {segment.id.slice(0, 8)}...
         </span>
       );
@@ -58,7 +58,7 @@ function RichSegment({
         );
       }
       return (
-        <span className="font-mono text-xs text-neon/70 bg-surface px-1 py-0.5 rounded">
+        <span className="font-mono text-xs text-primary/70 bg-surface px-1 py-0.5 rounded">
           {segment.identifier || "addr"}
         </span>
       );
@@ -69,7 +69,7 @@ function RichSegment({
           href={segment.url}
           target="_blank"
           rel="noopener noreferrer"
-          className="text-neon hover:underline break-all"
+          className="text-primary hover:underline break-all"
         >
           {segment.url}
         </a>
@@ -104,9 +104,9 @@ function RichSegment({
           href={segment.url}
           target="_blank"
           rel="noopener noreferrer"
-          className="mt-1 inline-flex items-center gap-2 rounded-lg border border-edge-light bg-surface px-3 py-2 text-sm text-neon hover:bg-surface-hover transition-colors"
+          className="mt-1 inline-flex items-center gap-2 rounded-lg border border-border-light bg-surface px-3 py-2 text-sm text-primary hover:bg-surface-hover transition-colors"
         >
-          <FileText size={16} className="flex-shrink-0 text-red-400/70" />
+          <FileText size={16} className="shrink-0 text-red-400/70" />
           <span className="truncate">{segment.filename}</span>
         </a>
       );
@@ -126,7 +126,7 @@ function RichSegment({
       );
 
     case "hashtag":
-      return <span className="text-pulse/80 font-medium">#{segment.value}</span>;
+      return <span className="text-primary/80 font-medium">#{segment.value}</span>;
 
     default:
       return null;

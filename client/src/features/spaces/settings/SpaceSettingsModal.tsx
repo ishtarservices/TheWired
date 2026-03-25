@@ -57,8 +57,8 @@ export function SpaceSettingsModal({ open, onClose, spaceId }: SpaceSettingsModa
     <Modal open={open} onClose={onClose}>
       <div className="flex w-full max-w-3xl rounded-2xl card-glass shadow-2xl overflow-hidden" style={{ height: "min(80vh, 640px)" }}>
         {/* Tab navigation */}
-        <div className="flex w-44 shrink-0 flex-col border-r border-edge bg-surface/50">
-          <div className="flex items-center justify-between px-4 py-3 border-b border-edge">
+        <div className="flex w-44 shrink-0 flex-col border-r border-border bg-surface/50">
+          <div className="flex items-center justify-between px-4 py-3 border-b border-border">
             <h2 className="text-sm font-bold text-heading">Settings</h2>
             <button
               onClick={onClose}
@@ -75,7 +75,7 @@ export function SpaceSettingsModal({ open, onClose, spaceId }: SpaceSettingsModa
                 className={cn(
                   "flex w-full items-center gap-2 rounded-xl px-3 py-2 text-sm transition-all duration-150",
                   activeTab === tab.id
-                    ? "bg-pulse/10 text-pulse"
+                    ? "bg-primary/10 text-primary"
                     : "text-soft hover:bg-surface-hover hover:text-heading",
                 )}
               >

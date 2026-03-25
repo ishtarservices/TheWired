@@ -26,11 +26,11 @@ export function DJTransferModal({ open, onClose }: DJTransferModalProps) {
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm">
-      <div className="w-80 rounded-2xl bg-surface border border-edge/50 shadow-2xl overflow-hidden">
+      <div className="w-80 rounded-2xl bg-surface border border-border/50 shadow-2xl overflow-hidden">
         {/* Header */}
-        <div className="flex items-center justify-between px-4 py-3 border-b border-edge/50">
+        <div className="flex items-center justify-between px-4 py-3 border-b border-border/50">
           <div className="flex items-center gap-2">
-            <Crown size={14} className="text-pulse" />
+            <Crown size={14} className="text-primary" />
             <span className="text-sm font-medium text-heading">Transfer DJ</span>
           </div>
           <button
@@ -82,7 +82,7 @@ function ParticipantRow({
         <p className="truncate text-xs font-medium text-heading">{displayName}</p>
         <p className="truncate text-[10px] text-muted">{pubkey.slice(0, 16)}...</p>
       </div>
-      <Crown size={12} className="text-pulse/50 shrink-0" />
+      <Crown size={12} className="text-primary/50 shrink-0" />
     </button>
   );
 }

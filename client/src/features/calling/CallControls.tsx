@@ -29,7 +29,7 @@ export function CallControls() {
         className={cn(
           "rounded-full p-3 transition-colors",
           ltActive
-            ? "bg-pulse/20 text-pulse"
+            ? "bg-primary/20 text-primary"
             : pickerOpen
               ? "bg-surface-hover text-heading"
               : "bg-surface-hover text-heading",

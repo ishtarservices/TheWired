@@ -1,8 +1,6 @@
 import { useState, useEffect } from "react";
-import { Sun, Moon } from "lucide-react";
 import { useAppDispatch } from "../../store/hooks";
 import { setSidebarExpanded } from "../../store/slices/uiSlice";
-import { useTheme } from "../../contexts/ThemeContext";
 
 const STORAGE_KEY = "thewired_app_settings";
 
@@ -51,7 +49,7 @@ function Toggle({ label, description, checked, onChange }: ToggleProps) {
         aria-checked={checked}
         onClick={() => onChange(!checked)}
         className={`relative inline-flex h-5 w-9 items-center rounded-full transition-colors ${
-          checked ? "bg-pulse" : "bg-faint"
+          checked ? "bg-primary" : "bg-faint"
         }`}
       >
         <span
@@ -66,7 +64,6 @@ function Toggle({ label, description, checked, onChange }: ToggleProps) {
 
 export function AppSettingsTab() {
   const dispatch = useAppDispatch();
-  const { theme, setTheme } = useTheme();
   const [settings, setSettings] = useState<AppSettings>(loadSettings);
 
   useEffect(() => {
@@ -83,40 +80,8 @@ export function AppSettingsTab() {
 
   return (
     <div className="mx-auto w-full max-w-lg space-y-4">
-      {/* Theme selection */}
-      <div className="rounded-lg border border-edge bg-panel p-4">
-        <h3 className="mb-1 text-sm font-semibold text-heading">Theme</h3>
-        <p className="mb-3 text-xs text-muted">
-          Choose your preferred appearance.
-        </p>
-        <div className="flex gap-2">
-          <button
-            onClick={() => setTheme("dark")}
-            className={`flex flex-1 items-center justify-center gap-2 rounded-lg border px-4 py-3 text-sm font-medium transition-all duration-150 ${
-              theme === "dark"
-                ? "border-neon/40 bg-neon/10 text-neon glow-neon"
-                : "border-edge bg-card text-soft hover:bg-card-hover hover:text-heading"
-            }`}
-          >
-            <Moon size={16} />
-            Dark
-          </button>
-          <button
-            onClick={() => setTheme("light")}
-            className={`flex flex-1 items-center justify-center gap-2 rounded-lg border px-4 py-3 text-sm font-medium transition-all duration-150 ${
-              theme === "light"
-                ? "border-neon/40 bg-neon/10 text-neon glow-neon"
-                : "border-edge bg-card text-soft hover:bg-card-hover hover:text-heading"
-            }`}
-          >
-            <Sun size={16} />
-            Light
-          </button>
-        </div>
-      </div>
-
       {/* App preferences */}
-      <div className="rounded-lg border border-edge bg-panel p-4">
+      <div className="rounded-lg border border-border bg-panel p-4">
         <h3 className="mb-1 text-sm font-semibold text-heading">
           App Preferences
         </h3>
@@ -124,7 +89,7 @@ export function AppSettingsTab() {
           These settings are stored locally on this device.
         </p>
 
-        <div className="divide-y divide-edge">
+        <div className="divide-y divide-border">
           <Toggle
             label="Sidebar default expanded"
             description="Show the sidebar expanded when the app starts"

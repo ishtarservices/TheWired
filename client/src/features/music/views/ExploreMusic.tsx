@@ -180,7 +180,7 @@ export function ExploreMusic() {
                 onClick={() => handleTagClick(t.tag)}
                 className={`rounded-full px-2.5 py-1 text-xs transition-colors ${
                   explore.activeTag === t.tag
-                    ? "bg-pulse/20 text-heading ring-1 ring-pulse/40"
+                    ? "bg-primary/20 text-heading ring-1 ring-primary/40"
                     : "bg-card text-soft hover:bg-card-hover hover:text-heading"
                 }`}
               >
@@ -228,7 +228,7 @@ export function ExploreMusic() {
             onClick={() => dispatch(setExploreTab("tracks"))}
             className={`rounded-lg px-3 py-1.5 text-xs font-medium transition-colors ${
               explore.browseTab === "tracks"
-                ? "bg-pulse/15 text-heading"
+                ? "bg-primary/15 text-heading"
                 : "text-soft hover:text-heading"
             }`}
           >
@@ -238,7 +238,7 @@ export function ExploreMusic() {
             onClick={() => dispatch(setExploreTab("albums"))}
             className={`rounded-lg px-3 py-1.5 text-xs font-medium transition-colors ${
               explore.browseTab === "albums"
-                ? "bg-pulse/15 text-heading"
+                ? "bg-primary/15 text-heading"
                 : "text-soft hover:text-heading"
             }`}
           >
@@ -253,7 +253,7 @@ export function ExploreMusic() {
                 onClick={() => dispatch(setExploreSort(opt.value))}
                 className={`rounded-lg px-3 py-1.5 text-xs font-medium transition-colors ${
                   explore.browseSort === opt.value
-                    ? "bg-pulse/15 text-heading"
+                    ? "bg-primary/15 text-heading"
                     : "text-soft hover:text-heading"
                 }`}
               >
@@ -267,7 +267,7 @@ export function ExploreMusic() {
       {/* Results grid */}
       {explore.isLoading ? (
         <div className="flex items-center justify-center py-12">
-          <div className="h-6 w-6 animate-spin rounded-full border-2 border-pulse border-t-transparent" />
+          <div className="h-6 w-6 animate-spin rounded-full border-2 border-primary border-t-transparent" />
         </div>
       ) : explore.browseTab === "tracks" ? (
         browseTracks.length > 0 ? (

@@ -70,9 +70,9 @@ export function NewDMModal({ open, onClose, onSelect }: NewDMModalProps) {
 
   return (
     <Modal open={open} onClose={onClose}>
-      <div className="w-full max-w-md rounded-2xl card-glass border border-edge shadow-2xl overflow-hidden">
+      <div className="w-full max-w-md rounded-2xl card-glass border border-border shadow-2xl overflow-hidden">
         {/* Header */}
-        <div className="flex items-center justify-between border-b border-edge px-4 py-3">
+        <div className="flex items-center justify-between border-b border-border px-4 py-3">
           <h2 className="text-sm font-semibold text-heading">New Message</h2>
           <button
             onClick={onClose}
@@ -83,8 +83,8 @@ export function NewDMModal({ open, onClose, onSelect }: NewDMModalProps) {
         </div>
 
         {/* Search input */}
-        <div className="px-4 py-3 border-b border-edge">
-          <div className="flex items-center gap-2 rounded-xl bg-field border border-edge px-3 py-2 focus-within:border-pulse/40 transition-colors">
+        <div className="px-4 py-3 border-b border-border">
+          <div className="flex items-center gap-2 rounded-xl bg-field border border-border px-3 py-2 focus-within:border-primary/40 transition-colors">
             <Search size={14} className="text-muted shrink-0" />
             <input
               ref={inputRef}

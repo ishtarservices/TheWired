@@ -24,7 +24,7 @@ export function CallNowPlaying() {
     djProfile?.name ?? djProfile?.display_name ?? djPubkey?.slice(0, 8) ?? "DJ";
 
   return (
-    <div className="relative border-t border-edge bg-field">
+    <div className="relative border-t border-border bg-field">
       <ReactionOverlay reactions={reactions} />
 
       {/* Album art background blur */}
@@ -61,7 +61,7 @@ export function CallNowPlaying() {
             {currentTrack.artist}
           </p>
           <div className="flex items-center gap-1.5 mt-0.5">
-            <span className="flex items-center gap-0.5 text-[9px] text-pulse">
+            <span className="flex items-center gap-0.5 text-[9px] text-primary">
               <Crown size={8} />
               {djName}
             </span>
@@ -80,7 +80,7 @@ export function CallNowPlaying() {
               </button>
               <button
                 onClick={togglePlay}
-                className="flex h-7 w-7 items-center justify-center rounded-full bg-card-hover text-heading hover:bg-edge-light transition-colors"
+                className="flex h-7 w-7 items-center justify-center rounded-full bg-card-hover text-heading hover:bg-border-light transition-colors"
               >
                 {player.isPlaying ? (
                   <Pause size={12} fill="currentColor" />

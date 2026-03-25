@@ -53,7 +53,7 @@ export function GeneralTab({ spaceId }: GeneralTabProps) {
           type="text"
           value={name}
           onChange={(e) => setName(e.target.value)}
-          className="w-full rounded-xl bg-field border border-edge px-3 py-1.5 text-sm text-heading placeholder-muted focus:border-neon focus:outline-none transition-colors"
+          className="w-full rounded-xl bg-field border border-border px-3 py-1.5 text-sm text-heading placeholder-muted focus:border-primary focus:outline-none transition-colors"
         />
       </div>
 
@@ -64,7 +64,7 @@ export function GeneralTab({ spaceId }: GeneralTabProps) {
           value={about}
           onChange={(e) => setAbout(e.target.value)}
           rows={2}
-          className="w-full resize-none overflow-hidden rounded-xl bg-field border border-edge px-3 py-1.5 text-sm text-heading placeholder-muted focus:border-neon focus:outline-none transition-colors"
+          className="w-full resize-none overflow-hidden rounded-xl bg-field border border-border px-3 py-1.5 text-sm text-heading placeholder-muted focus:border-primary focus:outline-none transition-colors"
         />
       </div>
 

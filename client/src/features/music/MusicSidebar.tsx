@@ -63,7 +63,7 @@ export function MusicSidebar() {
               className={cn(
                 "flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-sm transition-all duration-150",
                 isActive
-                  ? "bg-pulse/8 text-heading"
+                  ? "bg-primary/8 text-heading"
                   : "text-soft hover:bg-surface hover:text-heading",
               )}
             >
@@ -77,7 +77,7 @@ export function MusicSidebar() {
       <div className="mt-auto p-2">
         <button
           onClick={() => setUploadOpen(true)}
-          className="flex w-full items-center gap-2 rounded-md border border-dashed border-edge px-2 py-1.5 text-sm text-soft transition-colors hover:border-pulse/40 hover:text-heading"
+          className="flex w-full items-center gap-2 rounded-md border border-dashed border-border px-2 py-1.5 text-sm text-soft transition-colors hover:border-primary/40 hover:text-heading"
         >
           <Upload size={16} />
           <span>Upload</span>

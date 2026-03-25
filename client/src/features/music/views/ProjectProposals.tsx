@@ -86,7 +86,7 @@ export function ProjectProposals() {
   return (
     <div className={`flex flex-1 flex-col overflow-y-auto ${scrollPaddingClass}`}>
       {/* Header */}
-      <div className="flex items-center gap-3 border-b border-edge px-6 py-4">
+      <div className="flex items-center gap-3 border-b border-border px-6 py-4">
         <button
           onClick={() =>
             albumId
@@ -97,7 +97,7 @@ export function ProjectProposals() {
         >
           <ArrowLeft size={20} />
         </button>
-        <GitPullRequest size={20} className="text-pulse" />
+        <GitPullRequest size={20} className="text-primary" />
         <div>
           <h1 className="text-lg font-bold text-heading">Proposals</h1>
           <p className="text-xs text-soft">
@@ -107,7 +107,7 @@ export function ProjectProposals() {
         {(isOwner || isCollaborator) && (
           <button
             onClick={() => setShowCreate(true)}
-            className="ml-auto flex items-center gap-1.5 rounded-full bg-gradient-to-r from-pulse to-pulse-soft px-4 py-1.5 text-sm font-medium text-white transition-transform hover:scale-105 press-effect"
+            className="ml-auto flex items-center gap-1.5 rounded-full bg-gradient-to-r from-primary to-primary-soft px-4 py-1.5 text-sm font-medium text-white transition-transform hover:scale-105 press-effect"
           >
             <Plus size={14} />
             New Proposal
@@ -119,7 +119,7 @@ export function ProjectProposals() {
       <div className="p-6">
         {loading ? (
           <div className="flex items-center justify-center py-12">
-            <div className="h-6 w-6 animate-spin rounded-full border-2 border-pulse border-t-transparent" />
+            <div className="h-6 w-6 animate-spin rounded-full border-2 border-primary border-t-transparent" />
           </div>
         ) : proposals.length === 0 ? (
           <div className="flex flex-col items-center justify-center py-16 text-center">

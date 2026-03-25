@@ -26,11 +26,11 @@ export const UnreadDivider = forwardRef<HTMLDivElement, UnreadDividerProps>(
         ref={ref}
         className={`flex items-center gap-3 px-5 py-1.5 transition-opacity duration-500 ${fading ? "opacity-0" : "opacity-100"}`}
       >
-        <div className="h-px flex-1 bg-pulse/40" />
-        <span className="text-[10px] font-semibold uppercase tracking-wider text-pulse/70">
+        <div className="h-px flex-1 bg-primary/40" />
+        <span className="text-[10px] font-semibold uppercase tracking-wider text-primary/70">
           New messages
         </span>
-        <div className="h-px flex-1 bg-pulse/40" />
+        <div className="h-px flex-1 bg-primary/40" />
       </div>
     );
   },

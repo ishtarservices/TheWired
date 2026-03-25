@@ -182,7 +182,7 @@ export function SearchResults() {
 
       {search.isLoading && search.query && (
         <div className="flex items-center justify-center py-12">
-          <div className="h-6 w-6 animate-spin rounded-full border-2 border-pulse border-t-transparent" />
+          <div className="h-6 w-6 animate-spin rounded-full border-2 border-primary border-t-transparent" />
         </div>
       )}
 
@@ -269,7 +269,7 @@ function ArtistChip({
   return (
     <button
       onClick={onClick}
-      className="flex shrink-0 items-center gap-2.5 rounded-xl border border-edge card-glass px-3 py-2 transition-all hover:border-edge-light hover-lift"
+      className="flex shrink-0 items-center gap-2.5 rounded-xl border border-border card-glass px-3 py-2 transition-all hover:border-border-light hover-lift"
     >
       {profile?.picture ? (
         <img

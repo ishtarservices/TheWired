@@ -154,26 +154,26 @@ export function PlaylistDetail() {
                 type="text"
                 value={editTitle}
                 onChange={(e) => setEditTitle(e.target.value)}
-                className="w-full rounded-lg border border-edge bg-field px-3 py-1.5 text-lg font-bold text-heading outline-none focus:border-pulse/30"
+                className="w-full rounded-lg border border-border bg-field px-3 py-1.5 text-lg font-bold text-heading outline-none focus:border-primary/30"
               />
               <textarea
                 value={editDesc}
                 onChange={(e) => setEditDesc(e.target.value)}
                 rows={2}
-                className="w-full resize-none rounded-lg border border-edge bg-field px-3 py-1.5 text-sm text-heading outline-none focus:border-pulse/30"
+                className="w-full resize-none rounded-lg border border-border bg-field px-3 py-1.5 text-sm text-heading outline-none focus:border-primary/30"
                 placeholder="Description (optional)"
               />
               <div className="flex gap-2">
                 <button
                   onClick={saveEdit}
                   disabled={!editTitle.trim() || saving}
-                  className="rounded-lg bg-gradient-to-r from-pulse to-pulse-soft px-4 py-1.5 text-sm font-medium text-white transition-opacity hover:opacity-90 disabled:opacity-50"
+                  className="rounded-lg bg-gradient-to-r from-primary to-primary-soft px-4 py-1.5 text-sm font-medium text-white transition-opacity hover:opacity-90 disabled:opacity-50"
                 >
                   {saving ? "Saving..." : "Save"}
                 </button>
                 <button
                   onClick={() => setEditing(false)}
-                  className="rounded-lg border border-edge px-4 py-1.5 text-sm text-soft hover:text-heading"
+                  className="rounded-lg border border-border px-4 py-1.5 text-sm text-soft hover:text-heading"
                 >
                   Cancel
                 </button>
@@ -193,7 +193,7 @@ export function PlaylistDetail() {
                 <button
                   onClick={() => playQueue(queueIds, 0)}
                   disabled={queueIds.length === 0}
-                  className="flex items-center gap-1.5 rounded-full bg-gradient-to-r from-pulse to-pulse-soft px-4 py-1.5 text-sm font-medium text-white transition-transform hover:scale-105 press-effect disabled:opacity-50"
+                  className="flex items-center gap-1.5 rounded-full bg-gradient-to-r from-primary to-primary-soft px-4 py-1.5 text-sm font-medium text-white transition-transform hover:scale-105 press-effect disabled:opacity-50"
                 >
                   <Play size={14} fill="currentColor" />
                   Play All
@@ -204,7 +204,7 @@ export function PlaylistDetail() {
                     playQueue(shuffled, 0);
                   }}
                   disabled={queueIds.length === 0}
-                  className="flex items-center gap-1.5 rounded-full border border-edge px-4 py-1.5 text-sm text-soft transition-colors hover:border-edge-light hover:text-heading disabled:opacity-50"
+                  className="flex items-center gap-1.5 rounded-full border border-border px-4 py-1.5 text-sm text-soft transition-colors hover:border-border-light hover:text-heading disabled:opacity-50"
                 >
                   <Shuffle size={14} />
                   Shuffle
@@ -213,7 +213,7 @@ export function PlaylistDetail() {
                   <>
                     <button
                       onClick={startEditing}
-                      className="flex items-center gap-1.5 rounded-full border border-edge px-3 py-1.5 text-sm text-soft transition-colors hover:border-edge-light hover:text-heading"
+                      className="flex items-center gap-1.5 rounded-full border border-border px-3 py-1.5 text-sm text-soft transition-colors hover:border-border-light hover:text-heading"
                     >
                       <Pencil size={14} />
                     </button>
@@ -229,7 +229,7 @@ export function PlaylistDetail() {
                     ) : (
                       <button
                         onClick={() => setConfirmDelete(true)}
-                        className="flex items-center gap-1.5 rounded-full border border-edge px-3 py-1.5 text-sm text-soft transition-colors hover:border-red-500/30 hover:text-red-400"
+                        className="flex items-center gap-1.5 rounded-full border border-border px-3 py-1.5 text-sm text-soft transition-colors hover:border-red-500/30 hover:text-red-400"
                       >
                         <Trash2 size={14} />
                       </button>

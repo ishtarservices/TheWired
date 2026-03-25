@@ -34,10 +34,10 @@ export function ReplyComposer({ targetPubkey, onSend, onCancel }: ReplyComposerP
   };
 
   return (
-    <div className="mt-2 rounded-xl card-glass border border-edge">
-      <div className="flex items-center gap-1 border-l-2 border-pulse px-3 pt-2 text-xs text-muted">
+    <div className="mt-2 rounded-xl card-glass border border-border">
+      <div className="flex items-center gap-1 border-l-2 border-primary px-3 pt-2 text-xs text-muted">
         <span>Replying to</span>
-        <span className="text-pulse">{name}</span>
+        <span className="text-primary">{name}</span>
       </div>
       <div className="flex items-end gap-2 p-2">
         <textarea
@@ -53,7 +53,7 @@ export function ReplyComposer({ targetPubkey, onSend, onCancel }: ReplyComposerP
           <button
             onClick={() => { if (text.trim()) { onSend(text); setText(""); } }}
             disabled={!text.trim()}
-            className="rounded-md p-1.5 text-pulse transition-colors hover:bg-pulse/10 disabled:opacity-40"
+            className="rounded-md p-1.5 text-primary transition-colors hover:bg-primary/10 disabled:opacity-40"
           >
             <Send size={14} />
           </button>

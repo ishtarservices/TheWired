@@ -32,7 +32,7 @@ export function PlaylistList() {
         <h2 className="text-lg font-semibold text-heading">Playlists</h2>
         <button
           onClick={() => setCreateOpen(true)}
-          className="flex items-center gap-1.5 rounded-xl border border-edge px-3 py-1.5 text-sm text-soft transition-colors hover:border-edge-light hover:text-heading press-effect"
+          className="flex items-center gap-1.5 rounded-xl border border-border px-3 py-1.5 text-sm text-soft transition-colors hover:border-border-light hover:text-heading press-effect"
         >
           <Plus size={14} />
           <span>Create</span>

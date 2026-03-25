@@ -28,10 +28,10 @@ export function SpaceInfoPanel() {
           <img
             src={space.picture}
             alt={space.name}
-            className="h-12 w-12 rounded-xl object-cover ring-1 ring-edge"
+            className="h-12 w-12 rounded-xl object-cover ring-1 ring-border"
           />
         ) : (
-          <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-gradient-to-br from-pulse/20 to-neon/10 ring-1 ring-edge">
+          <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-gradient-to-br from-primary/20 to-primary-soft/10 ring-1 ring-border">
             <Globe size={20} className="text-soft" />
           </div>
         )}

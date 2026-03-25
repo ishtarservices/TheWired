@@ -49,14 +49,14 @@ function InlineToken({ token }: { token: InlineToken }) {
 
     case "code":
       return (
-        <code className="rounded bg-surface px-1.5 py-0.5 text-xs font-mono text-neon/80">
+        <code className="rounded bg-surface px-1.5 py-0.5 text-xs font-mono text-primary/80">
           {token.text}
         </code>
       );
 
     case "code-block":
       return (
-        <pre className="my-1 block rounded-lg bg-panel border border-edge p-3 text-xs font-mono text-neon/80 overflow-x-auto whitespace-pre-wrap">
+        <pre className="my-1 block rounded-lg bg-panel border border-border p-3 text-xs font-mono text-primary/80 overflow-x-auto whitespace-pre-wrap">
           {token.lang && (
             <span className="block text-[10px] text-faint mb-1">{token.lang}</span>
           )}

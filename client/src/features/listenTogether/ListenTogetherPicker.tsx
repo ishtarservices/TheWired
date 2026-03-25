@@ -65,16 +65,16 @@ export function ListenTogetherPicker() {
   const context = connectedRoom ? "space" : activeCall ? "dm" : null;
 
   return (
-    <div className="absolute inset-y-0 right-0 z-30 w-80 flex flex-col bg-surface/95 backdrop-blur-lg border-l border-edge/50 shadow-2xl">
+    <div className="absolute inset-y-0 right-0 z-30 w-80 flex flex-col bg-surface/95 backdrop-blur-lg border-l border-border/50 shadow-2xl">
       {/* Header */}
-      <div className="flex items-center justify-between px-3 py-2 border-b border-edge/50">
+      <div className="flex items-center justify-between px-3 py-2 border-b border-border/50">
         <div className="flex items-center gap-2">
-          <Headphones size={14} className={active ? "text-pulse" : "text-muted"} />
+          <Headphones size={14} className={active ? "text-primary" : "text-muted"} />
           <span className="text-sm font-medium text-heading">
             {active ? "Listen Together" : "Music"}
           </span>
           {active && (
-            <span className="text-[10px] text-pulse bg-pulse/10 px-1.5 py-0.5 rounded-full">
+            <span className="text-[10px] text-primary bg-primary/10 px-1.5 py-0.5 rounded-full">
               Live
             </span>
           )}
@@ -90,8 +90,8 @@ export function ListenTogetherPicker() {
       {/* ── Not active: Start Session landing or Join existing ── */}
       {!active && (
         <div className="flex-1 flex flex-col items-center justify-center gap-4 px-6">
-          <div className="flex h-16 w-16 items-center justify-center rounded-full bg-pulse/10">
-            <Radio size={28} className="text-pulse" />
+          <div className="flex h-16 w-16 items-center justify-center rounded-full bg-primary/10">
+            <Radio size={28} className="text-primary" />
           </div>
           {pendingInvite ? (
             <>
@@ -109,7 +109,7 @@ export function ListenTogetherPicker() {
               </div>
               <button
                 onClick={joinSession}
-                className="rounded-xl bg-pulse/20 px-6 py-2.5 text-sm font-semibold text-pulse hover:bg-pulse/30 transition-colors"
+                className="rounded-xl bg-primary/20 px-6 py-2.5 text-sm font-semibold text-primary hover:bg-primary/30 transition-colors"
               >
                 Join Session
               </button>
@@ -127,7 +127,7 @@ export function ListenTogetherPicker() {
               {context ? (
                 <button
                   onClick={handleStartSession}
-                  className="rounded-xl bg-pulse/20 px-6 py-2.5 text-sm font-semibold text-pulse hover:bg-pulse/30 transition-colors"
+                  className="rounded-xl bg-primary/20 px-6 py-2.5 text-sm font-semibold text-primary hover:bg-primary/30 transition-colors"
                 >
                   Start Session
                 </button>
@@ -145,9 +145,9 @@ export function ListenTogetherPicker() {
       {active && (
         <>
           {/* Session info bar */}
-          <div className="flex items-center justify-between px-3 py-1.5 bg-pulse/5 border-b border-edge/30">
+          <div className="flex items-center justify-between px-3 py-1.5 bg-primary/5 border-b border-border/30">
             <span className="flex items-center gap-1 text-[10px] text-soft">
-              <Crown size={10} className="text-pulse" />
+              <Crown size={10} className="text-primary" />
               {isLocalDJ ? "You are DJ" : `DJ: ${djPubkey?.slice(0, 8)}...`}
               <span className="text-muted ml-1">
                 {listenerCount} listening
@@ -171,14 +171,14 @@ export function ListenTogetherPicker() {
           </div>
 
           {/* Tabs */}
-          <div className="flex border-b border-edge/50">
+          <div className="flex border-b border-border/50">
             {(["library", "search", "queue"] as PickerTab[]).map((t) => (
               <button
                 key={t}
                 onClick={() => setTab(t)}
                 className={`flex-1 flex items-center justify-center gap-1.5 px-2 py-2 text-xs transition-colors ${
                   tab === t
-                    ? "text-heading border-b-2 border-pulse"
+                    ? "text-heading border-b-2 border-primary"
                     : "text-muted hover:text-soft"
                 }`}
               >
@@ -226,7 +226,7 @@ export function ListenTogetherPicker() {
           </div>
 
           {/* Volume balance */}
-          <div className="border-t border-edge/50">
+          <div className="border-t border-border/50">
             <VolumeBalance />
           </div>
         </>
@@ -270,7 +270,7 @@ function LibraryTab({
       {isLocalDJ && available.length > 0 && onPlayQueue && (
         <button
           onClick={() => onPlayQueue(available, 0)}
-          className="w-full px-3 py-2 text-left text-xs text-pulse hover:bg-pulse/5 transition-colors"
+          className="w-full px-3 py-2 text-left text-xs text-primary hover:bg-primary/5 transition-colors"
         >
           Play all in call
         </button>
@@ -320,7 +320,7 @@ function SearchTab({
             value={query}
             onChange={(e) => setQuery(e.target.value)}
             placeholder="Search tracks..."
-            className="w-full rounded-lg bg-surface-hover pl-8 pr-3 py-1.5 text-xs text-heading placeholder:text-muted outline-none focus:ring-1 focus:ring-pulse/50"
+            className="w-full rounded-lg bg-surface-hover pl-8 pr-3 py-1.5 text-xs text-heading placeholder:text-muted outline-none focus:ring-1 focus:ring-primary/50"
           />
         </div>
       </div>
@@ -403,7 +403,7 @@ function QueueTab({
           <div
             key={`${id}-${i}`}
             className={`group flex items-center gap-2 px-3 py-1.5 hover:bg-surface-hover transition-colors ${
-              isCurrent ? "bg-pulse/5" : ""
+              isCurrent ? "bg-primary/5" : ""
             }`}
           >
             {isLocalDJ && (
@@ -420,7 +420,7 @@ function QueueTab({
               </div>
             )}
             <div className="min-w-0 flex-1">
-              <p className={`truncate text-xs leading-tight ${isCurrent ? "text-pulse font-medium" : "text-heading"}`}>
+              <p className={`truncate text-xs leading-tight ${isCurrent ? "text-primary font-medium" : "text-heading"}`}>
                 {track.title}
               </p>
               <p className="truncate text-[10px] text-soft leading-tight">

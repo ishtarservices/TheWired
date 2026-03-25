@@ -213,7 +213,7 @@ export function NotesTab({ targetRef, targetName, ownerPubkey }: NotesTabProps) 
 
       {/* Empty state */}
       {!loading && visible.length === 0 && (
-        <div className="rounded-xl border border-dashed border-edge/40 px-4 py-6 text-center">
+        <div className="rounded-xl border border-dashed border-border/40 px-4 py-6 text-center">
           <Feather size={20} className="mx-auto mb-2 text-muted/40" />
           <p className="text-xs text-muted">No notes yet</p>
         </div>
@@ -221,12 +221,12 @@ export function NotesTab({ targetRef, targetName, ownerPubkey }: NotesTabProps) 
 
       {/* ── Inline Composer ── */}
       {pubkey && (
-        <div className="sticky bottom-0 border-t border-edge/40 bg-card/80 backdrop-blur-sm pt-3 -mx-3 px-3 pb-1">
+        <div className="sticky bottom-0 border-t border-border/40 bg-card/80 backdrop-blur-sm pt-3 -mx-3 px-3 pb-1">
           <textarea
             value={content}
             onChange={(e) => setContent(e.target.value)}
             rows={2}
-            className="w-full rounded-xl border border-edge/50 bg-transparent px-3 py-2 text-sm text-heading placeholder-muted/50 outline-none transition-colors focus:border-pulse/30 resize-none leading-relaxed"
+            className="w-full rounded-xl border border-border/50 bg-transparent px-3 py-2 text-sm text-heading placeholder-muted/50 outline-none transition-colors focus:border-primary/30 resize-none leading-relaxed"
             placeholder={`Add a note about "${targetName}"...`}
           />
 
@@ -238,7 +238,7 @@ export function NotesTab({ targetRef, targetName, ownerPubkey }: NotesTabProps) 
                 onClick={() => toggleLabel(l.value)}
                 className={`rounded-full px-2 py-0.5 text-[10px] font-medium transition-all ${
                   label === l.value
-                    ? "bg-pulse/15 text-pulse ring-1 ring-pulse/30"
+                    ? "bg-primary/15 text-primary ring-1 ring-primary/30"
                     : "bg-surface/60 text-muted hover:text-soft hover:bg-surface"
                 }`}
               >
@@ -249,7 +249,7 @@ export function NotesTab({ targetRef, targetName, ownerPubkey }: NotesTabProps) 
               onClick={() => toggleLabel("custom")}
               className={`rounded-full px-2 py-0.5 text-[10px] font-medium transition-all ${
                 label === "custom"
-                  ? "bg-pulse/15 text-pulse ring-1 ring-pulse/30"
+                  ? "bg-primary/15 text-primary ring-1 ring-primary/30"
                   : "bg-surface/60 text-muted hover:text-soft hover:bg-surface"
               }`}
             >
@@ -263,7 +263,7 @@ export function NotesTab({ targetRef, targetName, ownerPubkey }: NotesTabProps) 
               value={customLabel}
               onChange={(e) => setCustomLabel(e.target.value)}
               placeholder="Label name..."
-              className="mt-1.5 w-full rounded-lg border border-edge/50 bg-transparent px-2.5 py-1 text-xs text-heading placeholder-muted/50 outline-none focus:border-pulse/30"
+              className="mt-1.5 w-full rounded-lg border border-border/50 bg-transparent px-2.5 py-1 text-xs text-heading placeholder-muted/50 outline-none focus:border-primary/30"
             />
           )}
 
@@ -272,7 +272,7 @@ export function NotesTab({ targetRef, targetName, ownerPubkey }: NotesTabProps) 
             <select
               value={selectedSpaceId ?? ""}
               onChange={(e) => setSelectedSpaceId(e.target.value || null)}
-              className="mt-1.5 w-full rounded-lg border border-edge/50 bg-transparent px-2.5 py-1 text-xs text-heading outline-none focus:border-pulse/30"
+              className="mt-1.5 w-full rounded-lg border border-border/50 bg-transparent px-2.5 py-1 text-xs text-heading outline-none focus:border-primary/30"
             >
               <option value="">Select space...</option>
               {spaces.map((s) => (
@@ -293,7 +293,7 @@ export function NotesTab({ targetRef, targetName, ownerPubkey }: NotesTabProps) 
             <button
               onClick={handlePost}
               disabled={submitting || !content.trim() || (visibility === "space" && !selectedSpaceId)}
-              className="rounded-full bg-gradient-to-r from-pulse to-pulse-soft px-4 py-1 text-[11px] font-medium text-white transition-all hover:opacity-90 press-effect disabled:opacity-40"
+              className="rounded-full bg-gradient-to-r from-primary to-primary-soft px-4 py-1 text-[11px] font-medium text-white transition-all hover:opacity-90 press-effect disabled:opacity-40"
             >
               {submitting ? "Posting..." : "Post"}
             </button>

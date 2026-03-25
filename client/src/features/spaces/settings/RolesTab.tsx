@@ -116,7 +116,7 @@ export function RolesTab({ spaceId }: RolesTabProps) {
                 {isExpanded ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
                 <span
                   className="h-2.5 w-2.5 rounded-full shrink-0"
-                  style={{ backgroundColor: role.color ?? "#6b7280" }}
+                  style={{ backgroundColor: role.color ?? "var(--color-muted)" }}
                 />
                 <span className="text-heading font-medium">{role.name}</span>
                 {role.isAdmin && (
@@ -128,7 +128,7 @@ export function RolesTab({ spaceId }: RolesTabProps) {
               </button>
 
               {isExpanded && (
-                <div className="border-t border-edge p-3 space-y-3">
+                <div className="border-t border-border p-3 space-y-3">
                   {/* Name */}
                   <div>
                     <label className="mb-1 block text-[10px] font-semibold uppercase tracking-wider text-muted">
@@ -138,7 +138,7 @@ export function RolesTab({ spaceId }: RolesTabProps) {
                       value={role.name}
                       onChange={(e) => updateRole(role.id, { name: e.target.value })}
                       disabled={isProtected}
-                      className="w-full rounded-xl bg-field border border-edge px-2 py-1 text-sm text-heading focus:border-neon focus:outline-none disabled:opacity-50"
+                      className="w-full rounded-xl bg-field border border-border px-2 py-1 text-sm text-heading focus:border-primary focus:outline-none disabled:opacity-50"
                     />
                   </div>
 
@@ -154,7 +154,7 @@ export function RolesTab({ spaceId }: RolesTabProps) {
                           onClick={() => updateRole(role.id, { color })}
                           className={cn(
                             "h-6 w-6 rounded-full transition-transform hover:scale-110",
-                            role.color === color && "ring-2 ring-edge-light ring-offset-1 ring-offset-surface",
+                            role.color === color && "ring-2 ring-border-light ring-offset-1 ring-offset-surface",
                           )}
                           style={{ backgroundColor: color }}
                         />
@@ -181,7 +181,7 @@ export function RolesTab({ spaceId }: RolesTabProps) {
                                   type="checkbox"
                                   checked={role.permissions.includes(perm)}
                                   onChange={() => togglePermission(role.id, perm, role.permissions)}
-                                  className="rounded border-edge mt-0.5"
+                                  className="rounded border-border mt-0.5"
                                 />
                                 <span className="flex-1">
                                   <span className="block">{perm.replace(/_/g, " ").toLowerCase()}</span>
@@ -237,9 +237,9 @@ export function RolesTab({ spaceId }: RolesTabProps) {
           onChange={(e) => setNewRoleName(e.target.value)}
           placeholder="New role name..."
           onKeyDown={(e) => e.key === "Enter" && handleCreateRole()}
-          className="flex-1 rounded-xl bg-field border border-edge px-3 py-1.5 text-sm text-heading placeholder-muted focus:border-neon focus:outline-none transition-colors"
+          className="flex-1 rounded-xl bg-field border border-border px-3 py-1.5 text-sm text-heading placeholder-muted focus:border-primary focus:outline-none transition-colors"
         />
-        <Button variant="neon" size="md" onClick={handleCreateRole} disabled={!newRoleName.trim()}>
+        <Button variant="accent" size="md" onClick={handleCreateRole} disabled={!newRoleName.trim()}>
           Add Role
         </Button>
       </div>

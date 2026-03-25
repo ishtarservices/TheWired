@@ -230,18 +230,18 @@ export function UserPopoverCard({
       {/* Card */}
       <div
         ref={cardRef}
-        className="fixed z-[100] w-80 rounded-xl border border-edge-light overflow-hidden animate-fade-in-up"
+        className="fixed z-[100] w-80 rounded-xl border border-border-light overflow-hidden animate-fade-in-up"
         style={{
           top: position.top,
           left: position.left,
           backgroundColor: "var(--color-panel)",
           boxShadow:
-            "var(--shadow-elevated), 0 0 0 1px rgba(255,255,255,0.04)",
+            "var(--shadow-elevated), 0 0 0 1px var(--color-surface-hover)",
         }}
       >
         {/* Banner */}
         <div
-          className="relative h-20 bg-gradient-to-r from-pulse/30 via-neon/20 to-pulse/30"
+          className="relative h-20 bg-gradient-to-r from-primary/30 via-primary-soft/20 to-primary/30"
           style={
             profile?.banner
               ? {
@@ -265,7 +265,7 @@ export function UserPopoverCard({
               {showOverflow && (
                 <div
                   ref={overflowRef}
-                  className="absolute right-0 top-full mt-1 w-48 rounded-lg border border-edge-light overflow-hidden z-20"
+                  className="absolute right-0 top-full mt-1 w-48 rounded-lg border border-border-light overflow-hidden z-20"
                   style={{
                     backgroundColor: "var(--color-card)",
                     boxShadow: "var(--shadow-elevated)",
@@ -289,7 +289,7 @@ export function UserPopoverCard({
                     {copied ? "Copied!" : "Copy Public Key"}
                   </button>
 
-                  <div className="border-t border-edge" />
+                  <div className="border-t border-border" />
 
                   <button
                     onClick={handleMute}
@@ -352,7 +352,7 @@ export function UserPopoverCard({
                   {displayName}
                 </span>
                 {friendStatus === "friends" && isMutual && (
-                  <span className="inline-flex items-center gap-1 rounded-full bg-pulse/15 px-2 py-0.5 text-[10px] font-semibold text-pulse shrink-0">
+                  <span className="inline-flex items-center gap-1 rounded-full bg-primary/15 px-2 py-0.5 text-[10px] font-semibold text-primary shrink-0">
                     <HeartHandshake size={10} />
                     Friends
                   </span>
@@ -375,7 +375,7 @@ export function UserPopoverCard({
         {/* NIP-05 */}
         {profile?.nip05 && (
           <div className="px-4 mt-1.5">
-            <span className="text-xs text-neon/70">{profile.nip05}</span>
+            <span className="text-xs text-primary/70">{profile.nip05}</span>
           </div>
         )}
 
@@ -411,7 +411,7 @@ export function UserPopoverCard({
         )}
 
         {/* Actions */}
-        <div className="px-4 py-3 mt-2 border-t border-edge space-y-2">
+        <div className="px-4 py-3 mt-2 border-t border-border space-y-2">
           {/* Row 1: Profile, Message, Follow */}
           <div className="flex items-center gap-2">
             <button
@@ -446,7 +446,7 @@ export function UserPopoverCard({
                   className={`flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-medium transition-colors ml-auto ${
                     iFollow
                       ? "bg-surface-hover text-muted hover:bg-red-500/10 hover:text-red-400"
-                      : "bg-pulse/20 text-pulse hover:bg-pulse/30"
+                      : "bg-primary/20 text-primary hover:bg-primary/30"
                   }`}
                 >
                   {iFollow ? (
@@ -474,7 +474,7 @@ export function UserPopoverCard({
                     sendFriendRequest(pubkey);
                     onClose();
                   }}
-                  className="flex items-center gap-1.5 rounded-lg bg-neon/20 px-3 py-1.5 text-xs font-medium text-neon hover:bg-neon/30 transition-colors w-full justify-center"
+                  className="flex items-center gap-1.5 rounded-lg bg-primary/20 px-3 py-1.5 text-xs font-medium text-primary hover:bg-primary/30 transition-colors w-full justify-center"
                 >
                   <HeartHandshake size={12} />
                   Add Friend
@@ -496,7 +496,7 @@ export function UserPopoverCard({
                     acceptFriendRequestAction(pubkey);
                     onClose();
                   }}
-                  className="flex items-center gap-1.5 rounded-lg bg-pulse/20 px-3 py-1.5 text-xs font-medium text-pulse hover:bg-pulse/30 transition-colors w-full justify-center"
+                  className="flex items-center gap-1.5 rounded-lg bg-primary/20 px-3 py-1.5 text-xs font-medium text-primary hover:bg-primary/30 transition-colors w-full justify-center"
                 >
                   <HeartHandshake size={12} />
                   Accept Friend Request
@@ -505,7 +505,7 @@ export function UserPopoverCard({
               {friendStatus === "friends" && !showUnfriendConfirm && (
                 <button
                   onClick={() => setShowUnfriendConfirm(true)}
-                  className="flex items-center gap-1.5 rounded-lg bg-pulse/15 px-3 py-1.5 text-xs font-semibold text-pulse hover:bg-red-500/10 hover:text-red-400 transition-colors w-full justify-center"
+                  className="flex items-center gap-1.5 rounded-lg bg-primary/15 px-3 py-1.5 text-xs font-semibold text-primary hover:bg-red-500/10 hover:text-red-400 transition-colors w-full justify-center"
                   title="Remove friend"
                 >
                   <HeartHandshake size={12} />
@@ -513,7 +513,7 @@ export function UserPopoverCard({
                 </button>
               )}
               {friendStatus === "friends" && showUnfriendConfirm && (
-                <div className="w-full rounded-lg border border-edge-light p-2.5 space-y-2">
+                <div className="w-full rounded-lg border border-border-light p-2.5 space-y-2">
                   <p className="text-[11px] text-heading font-medium">
                     Remove this user as a friend?
                   </p>
@@ -541,7 +541,7 @@ export function UserPopoverCard({
 
           {/* Unfollow-friend confirmation */}
           {showUnfollowConfirm && (
-            <div className="px-4 py-2 border-t border-edge">
+            <div className="px-4 py-2 border-t border-border">
               <p className="text-[11px] text-heading font-medium mb-1">
                 Unfollowing will also remove them as a friend.
               </p>

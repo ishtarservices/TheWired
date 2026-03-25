@@ -31,7 +31,7 @@ function Toggle({ label, description, checked, onChange }: ToggleProps) {
         aria-checked={checked}
         onClick={() => onChange(!checked)}
         className={`relative inline-flex h-5 w-9 items-center rounded-full transition-colors ${
-          checked ? "bg-pulse" : "bg-faint"
+          checked ? "bg-primary" : "bg-faint"
         }`}
       >
         <span
@@ -82,16 +82,16 @@ export function NotificationSettingsTab() {
   return (
     <div className="mx-auto w-full max-w-lg space-y-4">
       {/* Notification types */}
-      <div className="rounded-lg border border-edge bg-panel p-4">
+      <div className="rounded-lg border border-border bg-panel p-4">
         <div className="mb-1 flex items-center gap-2">
-          <Bell size={16} className="text-neon" />
+          <Bell size={16} className="text-primary" />
           <h3 className="text-sm font-semibold text-heading">Notifications</h3>
         </div>
         <p className="mb-3 text-xs text-muted">
           Choose which events trigger notifications.
         </p>
 
-        <div className="divide-y divide-edge">
+        <div className="divide-y divide-border">
           <Toggle
             label="Enable notifications"
             description="Master switch for all notifications"
@@ -138,9 +138,9 @@ export function NotificationSettingsTab() {
       </div>
 
       {/* Do Not Disturb */}
-      <div className="rounded-lg border border-edge bg-panel p-4">
+      <div className="rounded-lg border border-border bg-panel p-4">
         <div className="mb-1 flex items-center gap-2">
-          <BellOff size={16} className="text-pulse" />
+          <BellOff size={16} className="text-primary" />
           <h3 className="text-sm font-semibold text-heading">Do Not Disturb</h3>
         </div>
         <p className="mb-3 text-xs text-muted">
@@ -166,7 +166,7 @@ export function NotificationSettingsTab() {
               <button
                 key={d.label}
                 onClick={() => handleDndDuration(d.ms)}
-                className="flex items-center gap-1.5 rounded-lg border border-edge bg-card px-3 py-1.5 text-xs text-soft transition-colors hover:bg-card-hover hover:text-heading"
+                className="flex items-center gap-1.5 rounded-lg border border-border bg-card px-3 py-1.5 text-xs text-soft transition-colors hover:bg-card-hover hover:text-heading"
               >
                 <Clock size={12} />
                 {d.label}

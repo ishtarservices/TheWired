@@ -61,7 +61,7 @@ export function BlockedMessage({ variant, onUnblock, children }: BlockedMessageP
 
   if (variant === "reply") {
     return (
-      <div className="group flex items-center gap-2 border-l-2 border-edge pl-4 py-2">
+      <div className="group flex items-center gap-2 border-l-2 border-border pl-4 py-2">
         <div className="flex items-center gap-1.5 text-xs text-muted">
           <EyeOff size={12} />
           <span>Blocked message</span>
@@ -78,7 +78,7 @@ export function BlockedMessage({ variant, onUnblock, children }: BlockedMessageP
 
   // note variant
   return (
-    <div className="group rounded-lg border border-edge bg-card/50 px-4 py-3 flex items-center gap-2">
+    <div className="group rounded-lg border border-border bg-card/50 px-4 py-3 flex items-center gap-2">
       <div className="flex items-center gap-1.5 text-xs text-muted">
         <EyeOff size={12} />
         <span>Blocked message</span>

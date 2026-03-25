@@ -173,7 +173,7 @@ export function NowPlayingOverlay() {
             className="absolute inset-0 h-full w-full object-cover scale-110 blur-[80px] opacity-30"
           />
         )}
-        <div className="absolute inset-0 bg-backdrop/80 backdrop-blur-sm" />
+        <div className="absolute inset-0 bg-background/80 backdrop-blur-sm" />
       </div>
 
       {/* Scrollable content */}
@@ -251,7 +251,7 @@ export function NowPlayingOverlay() {
               <button
                 onClick={toggleShuffle}
                 className={`rounded p-1.5 transition-colors ${
-                  player.shuffle ? "text-neon" : "text-soft hover:text-heading"
+                  player.shuffle ? "text-primary" : "text-soft hover:text-heading"
                 }`}
               >
                 <Shuffle size={18} />
@@ -264,7 +264,7 @@ export function NowPlayingOverlay() {
               </button>
               <button
                 onClick={togglePlay}
-                className="flex h-14 w-14 items-center justify-center rounded-full bg-gradient-to-br from-pulse to-pulse-soft text-white transition-transform hover:scale-105 press-effect"
+                className="flex h-14 w-14 items-center justify-center rounded-full bg-gradient-to-br from-primary to-primary-soft text-white transition-transform hover:scale-105 press-effect"
               >
                 {player.isPlaying ? (
                   <Pause size={24} fill="currentColor" />
@@ -281,7 +281,7 @@ export function NowPlayingOverlay() {
               <button
                 onClick={cycleRepeat}
                 className={`rounded p-1.5 transition-colors ${
-                  player.repeat !== "none" ? "text-neon" : "text-soft hover:text-heading"
+                  player.repeat !== "none" ? "text-primary" : "text-soft hover:text-heading"
                 }`}
               >
                 {player.repeat === "one" ? <Repeat1 size={18} /> : <Repeat size={18} />}
@@ -303,7 +303,7 @@ export function NowPlayingOverlay() {
                 step={0.01}
                 value={player.isMuted ? 0 : player.volume}
                 onChange={(e) => setVolume(parseFloat(e.target.value))}
-                className="h-1 flex-1 cursor-pointer appearance-none rounded-full bg-white/10 accent-pulse
+                className="h-1 flex-1 cursor-pointer appearance-none rounded-full bg-white/10 accent-primary
                   [&::-webkit-slider-thumb]:h-3 [&::-webkit-slider-thumb]:w-3 [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-heading"
               />
             </div>
@@ -321,7 +321,7 @@ export function NowPlayingOverlay() {
                       dispatch(toggleNowPlaying());
                       dispatch(openRightPanelToTab({ context: "music", tab: "queue" }));
                     }}
-                    className="text-xs text-pulse hover:text-pulse-soft transition-colors"
+                    className="text-xs text-primary hover:text-primary-soft transition-colors"
                   >
                     Open Queue Panel
                   </button>
@@ -346,12 +346,12 @@ export function NowPlayingOverlay() {
                             }
                           }}
                           className={`group flex cursor-pointer items-center gap-2 rounded-lg px-2 py-1.5 transition-colors hover:bg-white/8 ${
-                            isCurrent ? "bg-pulse/10" : "bg-white/[0.03]"
+                            isCurrent ? "bg-primary/10" : "bg-white/[0.03]"
                           } ${isDragSource ? "opacity-40" : ""} ${
                             isDropTarget
                               ? dropIdx! < dragging!.fromIdx
-                                ? "border-t-2 border-pulse/60"
-                                : "border-b-2 border-pulse/60"
+                                ? "border-t-2 border-primary/60"
+                                : "border-b-2 border-primary/60"
                               : ""
                           }`}
                         >
@@ -362,7 +362,7 @@ export function NowPlayingOverlay() {
                           />
                           <span className="w-5 text-center text-[10px] tabular-nums shrink-0">
                             {isCurrent ? (
-                              <span className="inline-block h-2 w-2 rounded-full bg-neon animate-pulse" />
+                              <span className="inline-block h-2 w-2 rounded-full bg-primary animate-pulse" />
                             ) : (
                               <span className="text-faint">{idx + 1}</span>
                             )}
@@ -375,7 +375,7 @@ export function NowPlayingOverlay() {
                             </div>
                           )}
                           <div className="min-w-0 flex-1">
-                            <p className={`truncate text-sm font-medium ${isCurrent ? "text-neon" : "text-heading"}`}>
+                            <p className={`truncate text-sm font-medium ${isCurrent ? "text-primary" : "text-heading"}`}>
                               {track.title}
                             </p>
                             <p className="truncate text-xs text-muted">{track.artist}</p>

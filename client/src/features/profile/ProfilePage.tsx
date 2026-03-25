@@ -194,7 +194,7 @@ export function ProfilePage({ pubkey }: ProfilePageProps) {
   return (
     <div ref={scrollRef} className={`flex min-h-0 flex-1 flex-col overflow-y-auto ${scrollPaddingClass}`}>
       {/* Banner */}
-      <div className="relative h-40 shrink-0 overflow-hidden bg-gradient-to-r from-pulse/40 to-neon/15">
+      <div className="relative h-40 shrink-0 overflow-hidden bg-linear-to-r from-primary/40 to-primary-soft/15">
         {profile?.banner && (
           <img
             src={profile.banner}
@@ -214,7 +214,7 @@ export function ProfilePage({ pubkey }: ProfilePageProps) {
       {/* Profile info */}
       <div className="relative z-10 px-6 pb-4">
         <div className="-mt-12 mb-4 flex items-end justify-between">
-          <Avatar src={profile?.picture} alt={displayName} size="lg" className="h-24 w-24 border-4 border-backdrop ring-2 ring-pulse/20" />
+          <Avatar src={profile?.picture} alt={displayName} size="lg" className="h-24 w-24 border-4 border-background ring-2 ring-primary/20" />
 
           {/* Action buttons */}
           {!isMe && (
@@ -231,7 +231,7 @@ export function ProfilePage({ pubkey }: ProfilePageProps) {
               {friendStatus === "none" && (
                 <button
                   onClick={() => sendFriendRequest(pubkey)}
-                  className="flex items-center gap-1.5 rounded-lg bg-neon/20 px-4 py-2 text-sm font-medium text-neon hover:bg-neon/30 transition-colors"
+                  className="flex items-center gap-1.5 rounded-lg bg-primary/20 px-4 py-2 text-sm font-medium text-primary hover:bg-primary/30 transition-colors"
                 >
                   <HeartHandshake size={14} />
                   Add Friend
@@ -250,7 +250,7 @@ export function ProfilePage({ pubkey }: ProfilePageProps) {
               {friendStatus === "pending_incoming" && (
                 <button
                   onClick={() => acceptFriendRequestAction(pubkey)}
-                  className="flex items-center gap-1.5 rounded-lg bg-pulse/20 px-4 py-2 text-sm font-medium text-pulse hover:bg-pulse/30 transition-colors"
+                  className="flex items-center gap-1.5 rounded-lg bg-primary/20 px-4 py-2 text-sm font-medium text-primary hover:bg-primary/30 transition-colors"
                 >
                   <HeartHandshake size={14} />
                   Accept Request
@@ -260,7 +260,7 @@ export function ProfilePage({ pubkey }: ProfilePageProps) {
                 <div className="relative">
                 <button
                   onClick={() => setShowUnfriendConfirm(true)}
-                  className="flex items-center gap-1.5 rounded-lg bg-pulse/15 px-4 py-2 text-sm font-semibold text-pulse hover:bg-red-500/10 hover:text-red-400 transition-colors"
+                  className="flex items-center gap-1.5 rounded-lg bg-primary/15 px-4 py-2 text-sm font-semibold text-primary hover:bg-red-500/10 hover:text-red-400 transition-colors"
                   title="Remove friend"
                 >
                   <HeartHandshake size={14} />
@@ -270,7 +270,7 @@ export function ProfilePage({ pubkey }: ProfilePageProps) {
                 {showUnfriendConfirm && (
                   <div
                     ref={unfriendConfirmRef}
-                    className="absolute right-0 top-full mt-1 z-50 w-64 rounded-lg border border-edge-light p-3"
+                    className="absolute right-0 top-full mt-1 z-50 w-64 rounded-lg border border-border-light p-3"
                     style={{
                       backgroundColor: "var(--color-card)",
                       boxShadow: "var(--shadow-elevated)",
@@ -308,7 +308,7 @@ export function ProfilePage({ pubkey }: ProfilePageProps) {
                 className={`flex items-center gap-1.5 rounded-lg px-4 py-2 text-sm font-medium transition-colors ${
                   iFollow
                     ? "bg-surface-hover text-heading hover:bg-red-500/10 hover:text-red-400"
-                    : "bg-pulse/20 text-pulse hover:bg-pulse/30"
+                    : "bg-primary/20 text-primary hover:bg-primary/30"
                 }`}
               >
                 {iFollow ? (
@@ -328,7 +328,7 @@ export function ProfilePage({ pubkey }: ProfilePageProps) {
               {showUnfollowConfirm && (
                 <div
                   ref={unfollowConfirmRef}
-                  className="absolute right-0 top-full mt-1 z-50 w-64 rounded-lg border border-edge-light p-3"
+                  className="absolute right-0 top-full mt-1 z-50 w-64 rounded-lg border border-border-light p-3"
                   style={{
                     backgroundColor: "var(--color-card)",
                     boxShadow: "var(--shadow-elevated)",
@@ -369,7 +369,7 @@ export function ProfilePage({ pubkey }: ProfilePageProps) {
 
                 {showOverflow && (
                   <div
-                    className="absolute right-0 top-full mt-1 z-50 w-48 rounded-lg border border-edge-light overflow-hidden"
+                    className="absolute right-0 top-full mt-1 z-50 w-48 rounded-lg border border-border-light overflow-hidden"
                     style={{
                       backgroundColor: "var(--color-card)",
                       boxShadow: "var(--shadow-elevated)",
@@ -383,7 +383,7 @@ export function ProfilePage({ pubkey }: ProfilePageProps) {
                       {npubCopied ? "Copied!" : "Copy Public Key"}
                     </button>
 
-                    <div className="border-t border-edge" />
+                    <div className="border-t border-border" />
 
                     <button
                       onClick={handleMute}
@@ -446,7 +446,7 @@ export function ProfilePage({ pubkey }: ProfilePageProps) {
         <div className="flex items-center gap-2">
           <h1 className="text-2xl font-bold tracking-tight text-heading">{displayName}</h1>
           {friendStatus === "friends" && isMutual && (
-            <span className="inline-flex items-center gap-1 rounded-full bg-pulse/15 px-2.5 py-0.5 text-xs font-semibold text-pulse">
+            <span className="inline-flex items-center gap-1 rounded-full bg-primary/15 px-2.5 py-0.5 text-xs font-semibold text-primary">
               <HeartHandshake size={12} />
               Friends
             </span>
@@ -459,7 +459,7 @@ export function ProfilePage({ pubkey }: ProfilePageProps) {
         </div>
 
         {profile?.nip05 && (
-          <div className="mt-1 flex items-center gap-1 text-sm text-neon">
+          <div className="mt-1 flex items-center gap-1 text-sm text-primary">
             <AtSign size={14} />
             <span>{profile.nip05}</span>
           </div>
@@ -477,7 +477,7 @@ export function ProfilePage({ pubkey }: ProfilePageProps) {
               href={profile.website}
               target="_blank"
               rel="noopener noreferrer"
-              className="flex items-center gap-1 hover:text-neon transition-colors"
+              className="flex items-center gap-1 hover:text-primary transition-colors"
             >
               <Globe size={14} />
               <span>{profile.website}</span>
@@ -511,13 +511,13 @@ export function ProfilePage({ pubkey }: ProfilePageProps) {
       </div>
 
       {/* Stats bar — clickable Following/Followers */}
-      <div className="flex gap-8 border-b border-edge px-8 pb-3 text-sm">
+      <div className="flex gap-8 border-b border-border px-8 pb-3 text-sm">
         <span className="text-soft">
           <span className="font-semibold text-heading">{feed.allItems.length}</span> Notes
         </span>
         <button
           onClick={() => setFollowModal("following")}
-          className="text-soft hover:text-neon transition-colors"
+          className="text-soft hover:text-primary transition-colors"
         >
           <span className="font-semibold text-heading">
             {followingLoading ? "\u2014" : following.length}
@@ -525,7 +525,7 @@ export function ProfilePage({ pubkey }: ProfilePageProps) {
         </button>
         <button
           onClick={() => setFollowModal("followers")}
-          className="text-soft hover:text-neon transition-colors"
+          className="text-soft hover:text-primary transition-colors"
         >
           <span className="font-semibold text-heading">
             {followers.length > 0 ? followers.length : "\u2014"}
@@ -534,7 +534,7 @@ export function ProfilePage({ pubkey }: ProfilePageProps) {
       </div>
 
       {/* Tab bar */}
-      <div className="flex border-b border-edge">
+      <div className="flex border-b border-border">
         {tabs.map((tab) => {
           const Icon = tab.icon;
           return (
@@ -543,7 +543,7 @@ export function ProfilePage({ pubkey }: ProfilePageProps) {
               onClick={() => handleTabChange(tab.id)}
               className={`flex items-center gap-1.5 px-6 py-3 text-sm font-medium transition-colors ${
                 activeTab === tab.id
-                  ? "border-b-2 border-pulse text-pulse"
+                  ? "border-b-2 border-primary text-primary"
                   : "text-soft hover:text-heading"
               }`}
             >

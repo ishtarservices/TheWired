@@ -247,16 +247,16 @@ export function DMConversation({ partnerPubkey, onBack }: DMConversationProps) {
     <div ref={upload.dropZoneRef} className="relative flex flex-1 flex-col overflow-hidden">
       {/* Drag overlay — covers the entire DM view */}
       {upload.dragOver && (
-        <div className="pointer-events-none absolute inset-0 z-30 flex items-center justify-center border-2 border-dashed border-pulse/40 bg-pulse/[0.06] backdrop-blur-[1px]">
-          <div className="rounded-xl bg-surface/80 px-6 py-4 text-center shadow-lg border border-pulse/20">
-            <p className="text-sm font-medium text-pulse">Drop files to attach</p>
+        <div className="pointer-events-none absolute inset-0 z-30 flex items-center justify-center border-2 border-dashed border-primary/40 bg-primary/[0.06] backdrop-blur-[1px]">
+          <div className="rounded-xl bg-surface/80 px-6 py-4 text-center shadow-lg border border-primary/20">
+            <p className="text-sm font-medium text-primary">Drop files to attach</p>
             <p className="mt-1 text-xs text-muted">Images, videos, audio, or PDFs</p>
           </div>
         </div>
       )}
 
       {/* Header */}
-      <div className="flex items-center gap-3 border-b border-edge px-4 py-3">
+      <div className="flex items-center gap-3 border-b border-border px-4 py-3">
         <button
           onClick={onBack}
           className="rounded-lg p-1 text-muted hover:text-heading hover:bg-surface-hover transition-colors"
@@ -318,11 +318,11 @@ export function DMConversation({ partnerPubkey, onBack }: DMConversationProps) {
               {/* Date separator */}
               {showDateSeparator && (
                 <div className="flex items-center gap-3 px-6 py-3">
-                  <div className="flex-1 border-t border-edge" />
+                  <div className="flex-1 border-t border-border" />
                   <span className="text-[10px] font-semibold uppercase tracking-wider text-faint">
                     {formatDateLabel(msg.createdAt)}
                   </span>
-                  <div className="flex-1 border-t border-edge" />
+                  <div className="flex-1 border-t border-border" />
                 </div>
               )}
               {/* Unread divider */}
@@ -348,7 +348,7 @@ export function DMConversation({ partnerPubkey, onBack }: DMConversationProps) {
       {jumpBackWrapId && (
         <button
           onClick={handleJumpBack}
-          className={`absolute right-4 z-10 flex items-center gap-1.5 rounded-full bg-pulse/90 px-3 py-1.5 text-xs font-medium text-white shadow-lg hover:bg-pulse transition-colors animate-fade-in-up ${inputMarginClass ? "bottom-28" : "bottom-20"}`}
+          className={`absolute right-4 z-10 flex items-center gap-1.5 rounded-full bg-primary/90 px-3 py-1.5 text-xs font-medium text-white shadow-lg hover:bg-primary transition-colors animate-fade-in-up ${inputMarginClass ? "bottom-28" : "bottom-20"}`}
         >
           <ArrowDown size={12} />
           Jump back
@@ -359,7 +359,7 @@ export function DMConversation({ partnerPubkey, onBack }: DMConversationProps) {
       {showScrollButton && !jumpBackWrapId && (
         <button
           onClick={scrollToBottom}
-          className={`absolute right-4 z-10 flex h-9 w-9 items-center justify-center rounded-full bg-surface border border-edge shadow-lg text-muted hover:text-heading hover:bg-surface-hover transition-all animate-fade-in-up ${inputMarginClass ? "bottom-28" : "bottom-20"}`}
+          className={`absolute right-4 z-10 flex h-9 w-9 items-center justify-center rounded-full bg-surface border border-border shadow-lg text-muted hover:text-heading hover:bg-surface-hover transition-all animate-fade-in-up ${inputMarginClass ? "bottom-28" : "bottom-20"}`}
           title="Scroll to bottom"
         >
           <ChevronDown size={18} />
@@ -368,12 +368,12 @@ export function DMConversation({ partnerPubkey, onBack }: DMConversationProps) {
 
       {/* Reply indicator */}
       {replyTo && !editingMessage && (
-        <div className="flex items-center gap-2 border-t border-edge bg-panel px-4 py-2">
-          <div className="h-4 w-0.5 rounded-full bg-pulse" />
-          <Reply size={12} className="text-pulse shrink-0" />
+        <div className="flex items-center gap-2 border-t border-border bg-panel px-4 py-2">
+          <div className="h-4 w-0.5 rounded-full bg-primary" />
+          <Reply size={12} className="text-primary shrink-0" />
           <span className="text-xs text-soft min-w-0 flex-1 truncate">
             Replying to{" "}
-            <span className="text-pulse-soft">
+            <span className="text-primary-soft">
               {(replyTo.editedContent ?? replyTo.content).slice(0, 50)}
             </span>
           </span>
@@ -388,7 +388,7 @@ export function DMConversation({ partnerPubkey, onBack }: DMConversationProps) {
 
       {/* Edit banner */}
       {editingMessage && (
-        <div className="flex items-center gap-2 border-t border-edge bg-panel px-4 py-2">
+        <div className="flex items-center gap-2 border-t border-border bg-panel px-4 py-2">
           <div className="h-4 w-0.5 rounded-full bg-amber-400" />
           <Pencil size={12} className="text-amber-400 shrink-0" />
           <div className="min-w-0 flex-1">

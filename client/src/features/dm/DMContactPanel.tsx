@@ -51,7 +51,7 @@ export function DMContactPanel() {
           {displayName}
         </h3>
         {profile?.nip05 && (
-          <p className="text-[11px] text-pulse truncate max-w-full">
+          <p className="text-[11px] text-primary truncate max-w-full">
             {profile.nip05}
           </p>
         )}

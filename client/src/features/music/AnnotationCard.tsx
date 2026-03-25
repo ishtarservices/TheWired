@@ -95,8 +95,8 @@ export function AnnotationCard({ annotation, isArtistNote, onDelete, onTogglePin
     <div
       className={`group relative rounded-xl border p-4 transition-colors ${
         isArtistNote
-          ? "border-pulse/20 bg-pulse/[0.03]"
-          : "border-edge/40 bg-surface/30"
+          ? "border-primary/20 bg-primary/[0.03]"
+          : "border-border/40 bg-surface/30"
       }`}
     >
       {/* Author row */}
@@ -105,7 +105,7 @@ export function AnnotationCard({ annotation, isArtistNote, onDelete, onTogglePin
         <div className="flex-1 min-w-0">
           <span className="text-xs font-medium text-heading">{name}</span>
           {isArtistNote && (
-            <span className="ml-1.5 rounded-full bg-pulse/10 px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wider text-pulse">
+            <span className="ml-1.5 rounded-full bg-primary/10 px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wider text-primary">
               Artist
             </span>
           )}
@@ -155,12 +155,12 @@ export function AnnotationCard({ annotation, isArtistNote, onDelete, onTogglePin
             onKeyDown={(e) => { if (e.key === "Enter") handleQuoteSubmit(); if (e.key === "Escape") setQuoting(false); }}
             placeholder="Add your thoughts..."
             autoFocus
-            className="flex-1 rounded-lg border border-edge/50 bg-transparent px-2.5 py-1 text-xs text-heading placeholder-muted/50 outline-none focus:border-pulse/30"
+            className="flex-1 rounded-lg border border-border/50 bg-transparent px-2.5 py-1 text-xs text-heading placeholder-muted/50 outline-none focus:border-primary/30"
           />
           <button
             onClick={handleQuoteSubmit}
             disabled={!quoteText.trim()}
-            className="rounded-lg bg-pulse/10 px-3 py-1 text-[10px] font-medium text-pulse transition-colors hover:bg-pulse/20 disabled:opacity-40"
+            className="rounded-lg bg-primary/10 px-3 py-1 text-[10px] font-medium text-primary transition-colors hover:bg-primary/20 disabled:opacity-40"
           >
             Post
           </button>
@@ -211,7 +211,7 @@ export function AnnotationCard({ annotation, isArtistNote, onDelete, onTogglePin
             onClick={() => setQuoting((v) => !v)}
             className={`rounded-lg p-1 transition-all ${
               quoting
-                ? "text-pulse"
+                ? "text-primary"
                 : "text-muted hover:text-soft hover:bg-surface"
             }`}
             title="Quote"

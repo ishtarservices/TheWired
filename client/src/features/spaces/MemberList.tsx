@@ -147,7 +147,7 @@ const FeedSourceItem = memo(function FeedSourceItem({
       >
         <Avatar src={profile?.picture} alt={name} size="sm" />
         <span className="truncate text-sm text-body">{name}</span>
-        <Rss size={11} className="shrink-0 text-neon/60" />
+        <Rss size={11} className="shrink-0 text-primary/60" />
       </button>
 
       {canManage && (
@@ -213,7 +213,7 @@ function FeedSourceSearch({
 
   return (
     <div className="relative px-1 mb-1">
-      <div className="flex items-center gap-2 rounded-xl bg-field border border-edge px-2.5 py-1.5 focus-within:border-neon/40 transition-colors">
+      <div className="flex items-center gap-2 rounded-xl bg-field border border-border px-2.5 py-1.5 focus-within:border-primary/40 transition-colors">
         <Search size={13} className="text-muted shrink-0" />
         <input
           type="text"
@@ -332,7 +332,7 @@ export function MemberList() {
         )}
 
         {/* Spectators (collapsible) */}
-        <div className="mt-3 border-t border-edge pt-3">
+        <div className="mt-3 border-t border-border pt-3">
           <button
             onClick={() => setSpectatorsOpen(!spectatorsOpen)}
             className="flex w-full items-center gap-1 px-2 text-[10px] font-semibold uppercase tracking-wider text-muted hover:text-soft transition-colors"
@@ -357,10 +357,10 @@ export function MemberList() {
         </div>
 
         {canInvite && (
-          <div className="mt-3 border-t border-edge pt-3 px-1">
+          <div className="mt-3 border-t border-border pt-3 px-1">
             <button
               onClick={() => setShowInvite(true)}
-              className="flex w-full items-center justify-center gap-1.5 rounded-xl border border-dashed border-edge px-3 py-2 text-xs text-muted transition-all duration-150 hover:border-neon/40 hover:text-neon hover:bg-neon/5"
+              className="flex w-full items-center justify-center gap-1.5 rounded-xl border border-dashed border-border px-3 py-2 text-xs text-muted transition-all duration-150 hover:border-primary/40 hover:text-primary hover:bg-primary/5"
             >
               <Link2 size={13} />
               <span>Invite People</span>
@@ -417,10 +417,10 @@ export function MemberList() {
       )}
 
       {canInvite && (
-        <div className="border-t border-edge pt-3 px-1">
+        <div className="border-t border-border pt-3 px-1">
           <button
             onClick={() => setShowInvite(true)}
-            className="flex w-full items-center justify-center gap-1.5 rounded-xl border border-dashed border-edge px-3 py-2 text-xs text-muted transition-all duration-150 hover:border-neon/40 hover:text-neon hover:bg-neon/5"
+            className="flex w-full items-center justify-center gap-1.5 rounded-xl border border-dashed border-border px-3 py-2 text-xs text-muted transition-all duration-150 hover:border-primary/40 hover:text-primary hover:bg-primary/5"
           >
             <Link2 size={13} />
             <span>Invite People</span>

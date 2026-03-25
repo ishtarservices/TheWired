@@ -23,12 +23,12 @@ const TYPE_ICONS: Record<NotificationType, typeof AtSign> = {
 };
 
 const TYPE_COLORS: Record<NotificationType, string> = {
-  mention: "text-pulse",
-  dm: "text-neon",
-  follow: "text-pulse-soft",
+  mention: "text-primary",
+  dm: "text-primary",
+  follow: "text-primary-soft",
   chat: "text-soft",
-  invite: "text-neon",
-  friend_request: "text-pulse",
+  invite: "text-primary",
+  friend_request: "text-primary",
 };
 
 export function NotificationToastStack() {
@@ -176,7 +176,7 @@ function Toast({
           {showFollowBack && (
             <button
               onClick={handleFollowBack}
-              className="mt-1.5 rounded-md bg-pulse/20 px-2 py-0.5 text-[10px] font-semibold text-pulse hover:bg-pulse/30 transition-colors"
+              className="mt-1.5 rounded-md bg-primary/20 px-2 py-0.5 text-[10px] font-semibold text-primary hover:bg-primary/30 transition-colors"
             >
               Follow Back
             </button>
@@ -184,7 +184,7 @@ function Toast({
           {showAcceptFriend && (
             <button
               onClick={handleAcceptFriend}
-              className="mt-1.5 rounded-md bg-pulse/20 px-2 py-0.5 text-[10px] font-semibold text-pulse hover:bg-pulse/30 transition-colors"
+              className="mt-1.5 rounded-md bg-primary/20 px-2 py-0.5 text-[10px] font-semibold text-primary hover:bg-primary/30 transition-colors"
             >
               Accept
             </button>

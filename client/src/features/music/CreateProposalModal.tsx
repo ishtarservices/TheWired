@@ -77,8 +77,8 @@ export function CreateProposalModal({ album, onClose }: CreateProposalModalProps
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-backdrop/60">
-      <div className="relative w-full max-w-lg rounded-2xl border border-edge card-glass p-6 shadow-xl">
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-background/60">
+      <div className="relative w-full max-w-lg rounded-2xl border border-border card-glass p-6 shadow-xl">
         <button
           onClick={onClose}
           className="absolute right-3 top-3 rounded p-1 text-muted hover:text-heading"
@@ -100,7 +100,7 @@ export function CreateProposalModal({ album, onClose }: CreateProposalModalProps
             value={title}
             onChange={(e) => setTitle(e.target.value)}
             placeholder="e.g. Add my remix to the album"
-            className="w-full rounded-xl border border-edge bg-field px-3 py-2 text-sm text-heading placeholder-muted focus:border-pulse/40 focus:outline-none transition-colors"
+            className="w-full rounded-xl border border-border bg-field px-3 py-2 text-sm text-heading placeholder-muted focus:border-primary/40 focus:outline-none transition-colors"
           />
         </div>
 
@@ -114,7 +114,7 @@ export function CreateProposalModal({ album, onClose }: CreateProposalModalProps
             onChange={(e) => setDescription(e.target.value)}
             placeholder="Explain your proposed changes..."
             rows={2}
-            className="w-full rounded-xl border border-edge bg-field px-3 py-2 text-sm text-heading placeholder-muted focus:border-pulse/40 focus:outline-none transition-colors resize-none"
+            className="w-full rounded-xl border border-border bg-field px-3 py-2 text-sm text-heading placeholder-muted focus:border-primary/40 focus:outline-none transition-colors resize-none"
           />
         </div>
 
@@ -125,14 +125,14 @@ export function CreateProposalModal({ album, onClose }: CreateProposalModalProps
           </label>
           <div className="space-y-2">
             {changes.map((change, i) => (
-              <div key={i} className="flex items-start gap-2 rounded-xl border border-edge bg-surface/50 p-3">
+              <div key={i} className="flex items-start gap-2 rounded-xl border border-border bg-surface/50 p-3">
                 <div className="flex-1 space-y-2">
                   <select
                     value={change.type}
                     onChange={(e) =>
                       updateChange(i, { type: e.target.value as ProposalChange["type"] })
                     }
-                    className="w-full rounded-lg border border-edge bg-field px-2 py-1.5 text-xs text-heading focus:outline-none"
+                    className="w-full rounded-lg border border-border bg-field px-2 py-1.5 text-xs text-heading focus:outline-none"
                   >
                     {Object.entries(CHANGE_TYPE_LABELS).map(([val, label]) => (
                       <option key={val} value={val}>
@@ -148,7 +148,7 @@ export function CreateProposalModal({ album, onClose }: CreateProposalModalProps
                         value={change.trackRef ?? ""}
                         onChange={(e) => updateChange(i, { trackRef: e.target.value })}
                         placeholder="Track addressable ID"
-                        className="flex-1 rounded-lg border border-edge bg-field px-2 py-1 text-xs text-heading placeholder-muted focus:outline-none"
+                        className="flex-1 rounded-lg border border-border bg-field px-2 py-1 text-xs text-heading placeholder-muted focus:outline-none"
                       />
                       <input
                         type="number"
@@ -159,7 +159,7 @@ export function CreateProposalModal({ album, onClose }: CreateProposalModalProps
                           })
                         }
                         placeholder="Position"
-                        className="w-20 rounded-lg border border-edge bg-field px-2 py-1 text-xs text-heading placeholder-muted focus:outline-none"
+                        className="w-20 rounded-lg border border-border bg-field px-2 py-1 text-xs text-heading placeholder-muted focus:outline-none"
                       />
                     </div>
                   )}
@@ -168,7 +168,7 @@ export function CreateProposalModal({ album, onClose }: CreateProposalModalProps
                     <select
                       value={change.trackRef ?? ""}
                       onChange={(e) => updateChange(i, { trackRef: e.target.value })}
-                      className="w-full rounded-lg border border-edge bg-field px-2 py-1.5 text-xs text-heading focus:outline-none"
+                      className="w-full rounded-lg border border-border bg-field px-2 py-1.5 text-xs text-heading focus:outline-none"
                     >
                       <option value="">Select track to remove</option>
                       {albumTrackRefs.map((ref) => {
@@ -193,7 +193,7 @@ export function CreateProposalModal({ album, onClose }: CreateProposalModalProps
                           })
                         }
                         placeholder="From position"
-                        className="flex-1 rounded-lg border border-edge bg-field px-2 py-1 text-xs text-heading placeholder-muted focus:outline-none"
+                        className="flex-1 rounded-lg border border-border bg-field px-2 py-1 text-xs text-heading placeholder-muted focus:outline-none"
                       />
                       <input
                         type="number"
@@ -204,7 +204,7 @@ export function CreateProposalModal({ album, onClose }: CreateProposalModalProps
                           })
                         }
                         placeholder="To position"
-                        className="flex-1 rounded-lg border border-edge bg-field px-2 py-1 text-xs text-heading placeholder-muted focus:outline-none"
+                        className="flex-1 rounded-lg border border-border bg-field px-2 py-1 text-xs text-heading placeholder-muted focus:outline-none"
                       />
                     </div>
                   )}
@@ -216,14 +216,14 @@ export function CreateProposalModal({ album, onClose }: CreateProposalModalProps
                         value={change.field ?? ""}
                         onChange={(e) => updateChange(i, { field: e.target.value })}
                         placeholder="Field name"
-                        className="flex-1 rounded-lg border border-edge bg-field px-2 py-1 text-xs text-heading placeholder-muted focus:outline-none"
+                        className="flex-1 rounded-lg border border-border bg-field px-2 py-1 text-xs text-heading placeholder-muted focus:outline-none"
                       />
                       <input
                         type="text"
                         value={change.value ?? ""}
                         onChange={(e) => updateChange(i, { value: e.target.value })}
                         placeholder="New value"
-                        className="flex-1 rounded-lg border border-edge bg-field px-2 py-1 text-xs text-heading placeholder-muted focus:outline-none"
+                        className="flex-1 rounded-lg border border-border bg-field px-2 py-1 text-xs text-heading placeholder-muted focus:outline-none"
                       />
                     </div>
                   )}
@@ -243,7 +243,7 @@ export function CreateProposalModal({ album, onClose }: CreateProposalModalProps
 
           <button
             onClick={() => setChanges((prev) => [...prev, emptyChange()])}
-            className="mt-2 flex items-center gap-1 rounded-lg px-2 py-1 text-xs text-pulse hover:bg-surface transition-colors"
+            className="mt-2 flex items-center gap-1 rounded-lg px-2 py-1 text-xs text-primary hover:bg-surface transition-colors"
           >
             <Plus size={12} />
             Add Change
@@ -255,14 +255,14 @@ export function CreateProposalModal({ album, onClose }: CreateProposalModalProps
         <div className="flex justify-end gap-2">
           <button
             onClick={onClose}
-            className="rounded-xl border border-edge px-4 py-2 text-sm text-soft hover:border-edge-light hover:text-heading transition-colors"
+            className="rounded-xl border border-border px-4 py-2 text-sm text-soft hover:border-border-light hover:text-heading transition-colors"
           >
             Cancel
           </button>
           <button
             onClick={handleSubmit}
             disabled={submitting || !title.trim() || changes.length === 0}
-            className="rounded-xl bg-gradient-to-r from-pulse to-pulse-soft px-4 py-2 text-sm font-medium text-white hover:opacity-90 transition-all duration-150 press-effect disabled:opacity-40"
+            className="rounded-xl bg-gradient-to-r from-primary to-primary-soft px-4 py-2 text-sm font-medium text-white hover:opacity-90 transition-all duration-150 press-effect disabled:opacity-40"
           >
             {submitting ? "Submitting..." : "Submit Proposal"}
           </button>

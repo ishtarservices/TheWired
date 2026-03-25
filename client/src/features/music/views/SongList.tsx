@@ -27,7 +27,7 @@ export function SongList() {
       <h2 className="mb-3 text-lg font-semibold text-heading">Songs</h2>
 
       {/* Column headers */}
-      <div className="grid grid-cols-[2rem_1fr_1fr_4rem_2rem] gap-4 border-b border-edge px-3 pb-2 text-xs font-semibold uppercase tracking-[0.15em] text-muted">
+      <div className="grid grid-cols-[2rem_1fr_1fr_4rem_2rem] gap-4 border-b border-border px-3 pb-2 text-xs font-semibold uppercase tracking-[0.15em] text-muted">
         <span>#</span>
         <span>Title</span>
         <span>Genre</span>

@@ -46,7 +46,7 @@ export function VoiceControls({
   const { active: ltActive, togglePicker, pickerOpen } = useListenTogether();
 
   return (
-    <div className="flex items-center justify-center gap-1.5 border-t border-edge px-4 py-3 bg-panel/80 backdrop-blur-sm">
+    <div className="flex items-center justify-center gap-1.5 border-t border-border px-4 py-3 bg-panel/80 backdrop-blur-sm">
       {/* Listen Together — music button */}
       <ControlButton
         onClick={togglePicker}
@@ -140,12 +140,12 @@ function ControlButton({
       className={cn(
         "rounded-full p-2.5 transition-colors",
         accent
-          ? "bg-pulse/15 text-pulse hover:bg-pulse/25"
+          ? "bg-primary/15 text-primary hover:bg-primary/25"
           : danger
             ? "bg-red-500/12 text-red-500 hover:bg-red-500/20"
             : active
-              ? "bg-card-hover text-heading hover:bg-edge-light"
-              : "bg-card-hover text-soft hover:bg-edge-light hover:text-heading",
+              ? "bg-card-hover text-heading hover:bg-border-light"
+              : "bg-card-hover text-soft hover:bg-border-light hover:text-heading",
       )}
       title={label}
     >

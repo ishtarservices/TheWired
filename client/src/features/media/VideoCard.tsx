@@ -34,8 +34,8 @@ export function VideoCard({ video, onClick }: VideoCardProps) {
       </div>
 
       {/* Neon-tinted overlay on hover */}
-      <div className="absolute inset-0 flex items-center justify-center bg-pulse/80 opacity-0 transition-opacity duration-150 group-hover:opacity-100">
-        <div className="rounded-full bg-white/20 p-3 backdrop-blur-sm shadow-[0_0_20px_rgba(139,92,246,0.4)]">
+      <div className="absolute inset-0 flex items-center justify-center bg-primary/80 opacity-0 transition-opacity duration-150 group-hover:opacity-100">
+        <div className="rounded-full bg-white/20 p-3 backdrop-blur-sm glow-primary">
           <Play size={24} className="text-white" fill="white" />
         </div>
       </div>
