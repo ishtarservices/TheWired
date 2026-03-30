@@ -258,3 +258,48 @@ export const selectArtistAlbums = (artistPubkey: string) =>
     const librarySet = new Set(music.library.savedAlbumIds);
     return ids.map((id) => music.albums[id]).filter((a) => isAlbumInLibrary(a, librarySet, userPubkey));
   });
+
+/** Tracks where pubkey is owner, artist, or featured artist -- for profile display (no library filter) */
+export const selectProfileTracks = (pubkey: string) =>
+  createSelector(selectMusicState, (music) => {
+    // Start with indexed tracks for this pubkey
+    const indexedIds = new Set(music.tracksByArtist[pubkey] ?? []);
+    // Also scan for owner match (pubkey field) and featured artist inclusion
+    const all = Object.values(music.tracks).filter(
+      (t) =>
+        t.pubkey === pubkey ||
+        indexedIds.has(t.addressableId) ||
+        t.artistPubkeys.includes(pubkey) ||
+        t.featuredArtists.includes(pubkey),
+    );
+    // Deduplicate by addressableId and sort newest first
+    const seen = new Set<string>();
+    return all
+      .filter((t) => {
+        if (seen.has(t.addressableId)) return false;
+        seen.add(t.addressableId);
+        return true;
+      })
+      .sort((a, b) => b.createdAt - a.createdAt);
+  });
+
+/** Albums where pubkey is owner, artist, or featured -- for profile display (no library filter) */
+export const selectProfileAlbums = (pubkey: string) =>
+  createSelector(selectMusicState, (music) => {
+    const indexedIds = new Set(music.albumsByArtist[pubkey] ?? []);
+    const all = Object.values(music.albums).filter(
+      (a) =>
+        a.pubkey === pubkey ||
+        indexedIds.has(a.addressableId) ||
+        a.artistPubkeys.includes(pubkey) ||
+        a.featuredArtists.includes(pubkey),
+    );
+    const seen = new Set<string>();
+    return all
+      .filter((a) => {
+        if (seen.has(a.addressableId)) return false;
+        seen.add(a.addressableId);
+        return true;
+      })
+      .sort((a, b) => b.createdAt - a.createdAt);
+  });

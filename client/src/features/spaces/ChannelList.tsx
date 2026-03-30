@@ -1,7 +1,7 @@
-import { useState, useEffect, useCallback, memo } from "react";
+import { useState, useEffect, useCallback, memo, useMemo } from "react";
 import { useNavigate, useLocation } from "react-router-dom";
 import { cn } from "@/lib/utils";
-import { MessageSquare, FileText, Image, BookOpen, Music, Plus, BellOff, Headphones, Video, Users } from "lucide-react";
+import { MessageSquare, FileText, Image, BookOpen, Music, Plus, BellOff, Headphones, Video, Users, ChevronRight } from "lucide-react";
 import { useSpace } from "./useSpace";
 import { useSpaceChannels } from "./useSpaceChannels";
 import { useAppSelector } from "../../store/hooks";
@@ -14,7 +14,8 @@ import { ChannelContextMenu } from "./ChannelContextMenu";
 import { VoiceChannelPreview } from "../voice/VoiceChannelPreview";
 import { useVoiceRoomPresence } from "../voice/useVoiceRoomPresence";
 import { selectIsInChannel, selectVoiceParticipantCount, selectChannelPresence } from "../voice/voiceSelectors";
-import type { SpaceChannelType } from "../../types/space";
+import { FRIENDS_FEED_ID, FRIENDS_FEED_CHANNELS } from "../friends/friendsFeedConstants";
+import type { SpaceChannel, SpaceChannelType } from "../../types/space";
 
 const CHANNEL_ICONS: Record<SpaceChannelType, typeof MessageSquare> = {
   chat: MessageSquare,
@@ -28,16 +29,60 @@ const CHANNEL_ICONS: Record<SpaceChannelType, typeof MessageSquare> = {
 
 export function ChannelList() {
   const { activeSpace, activeChannelId, selectChannel } = useSpace();
-  const { channels } = useSpaceChannels(activeSpace?.id ?? null);
+  const { channels: backendChannels } = useSpaceChannels(
+    activeSpace?.id && activeSpace.id !== FRIENDS_FEED_ID ? activeSpace.id : null,
+  );
   const navigate = useNavigate();
   const location = useLocation();
   const currentPubkey = useAppSelector((s) => s.identity.pubkey);
+  const activeSpaceId = useAppSelector((s) => s.spaces.activeSpaceId);
   const { can, channelOverrides } = usePermissions(activeSpace?.id ?? null);
   const [createModalOpen, setCreateModalOpen] = useState(false);
   const [ctxMenu, setCtxMenu] = useState<{ channelId: string; x: number; y: number } | null>(null);
 
+  // Track collapsed categories in localStorage
+  const [collapsedCategories, setCollapsedCategories] = useState<Set<string>>(() => {
+    if (!activeSpaceId) return new Set();
+    try {
+      const stored = localStorage.getItem(`collapsed_categories:${activeSpaceId}`);
+      return stored ? new Set(JSON.parse(stored)) : new Set();
+    } catch {
+      return new Set();
+    }
+  });
+
+  // Reset collapsed state when switching spaces
+  useEffect(() => {
+    if (!activeSpaceId) return;
+    try {
+      const stored = localStorage.getItem(`collapsed_categories:${activeSpaceId}`);
+      setCollapsedCategories(stored ? new Set(JSON.parse(stored)) : new Set());
+    } catch {
+      setCollapsedCategories(new Set());
+    }
+  }, [activeSpaceId]);
+
+  const toggleCategory = useCallback((categoryId: string) => {
+    setCollapsedCategories((prev) => {
+      const next = new Set(prev);
+      if (next.has(categoryId)) {
+        next.delete(categoryId);
+      } else {
+        next.add(categoryId);
+      }
+      if (activeSpaceId) {
+        localStorage.setItem(`collapsed_categories:${activeSpaceId}`, JSON.stringify([...next]));
+      }
+      return next;
+    });
+  }, [activeSpaceId]);
+
+  // Use Friends Feed channels for virtual space
+  const isFriendsFeed = activeSpaceId === FRIENDS_FEED_ID;
+  const channels: SpaceChannel[] = isFriendsFeed ? FRIENDS_FEED_CHANNELS : backendChannels;
+
   // Poll backend for voice room presence (visible to all space members)
-  useVoiceRoomPresence(activeSpace?.id ?? null);
+  useVoiceRoomPresence(activeSpace?.id && !isFriendsFeed ? activeSpace.id : null);
 
   const handleChannelContextMenu = useCallback((e: React.MouseEvent, channelId: string) => {
     e.preventDefault();
@@ -47,14 +92,15 @@ export function ChannelList() {
   // When channels load and the current activeChannelId is null or doesn't match
   // any loaded channel (e.g. stale "chat" fallback), auto-select the best default
   useEffect(() => {
-    if (!activeSpace || channels.length === 0) return;
+    if ((!activeSpace && !isFriendsFeed) || channels.length === 0) return;
 
     const channelIdPart = parseChannelIdPart(activeChannelId);
     const isValid = channels.some((c) => c.id === channelIdPart);
 
     if (!isValid) {
+      const spaceId = isFriendsFeed ? FRIENDS_FEED_ID : activeSpace!.id;
       // Restore last-visited channel if it still exists
-      const lastId = getLastChannel(activeSpace.id);
+      const lastId = getLastChannel(spaceId);
       const restored = lastId ? channels.find((c) => c.id === lastId) : undefined;
       if (restored) {
         selectChannel(restored.id);
@@ -62,7 +108,7 @@ export function ChannelList() {
       }
       // Filter: hide chat for read-only spaces
       const visible =
-        activeSpace.mode === "read"
+        !isFriendsFeed && activeSpace?.mode === "read"
           ? channels.filter((c) => c.type !== "chat")
           : channels;
       const sorted = [...(visible.length > 0 ? visible : channels)].sort(
@@ -73,12 +119,16 @@ export function ChannelList() {
         selectChannel(best.id);
       }
     }
-  }, [activeSpace, activeChannelId, channels, selectChannel]);
+  }, [activeSpace, activeChannelId, channels, selectChannel, isFriendsFeed]);
 
-  if (!activeSpace) return null;
+  if (!activeSpace && !isFriendsFeed) return null;
+
+  const spaceId = isFriendsFeed ? FRIENDS_FEED_ID : activeSpace!.id;
 
   // Use backend permissions if available, fall back to local admin check
-  const isAdmin = can("MANAGE_CHANNELS") || (!!currentPubkey && activeSpace.adminPubkeys.includes(currentPubkey));
+  const isAdmin = !isFriendsFeed && (
+    can("MANAGE_CHANNELS") || (!!currentPubkey && activeSpace!.adminPubkeys.includes(currentPubkey))
+  );
 
   const handleSelectChannel = (channelId: string) => {
     selectChannel(channelId);
@@ -90,15 +140,32 @@ export function ChannelList() {
   const sortedChannels = [...channels].sort((a, b) => a.position - b.position);
 
   // Filter channels: read-only hides chat, VIEW_CHANNEL hides channels with explicit deny overrides.
-  // For backwards compat: if VIEW_CHANNEL isn't in the user's permissions at all (old spaces),
-  // don't filter — only filter when there's an explicit deny override.
   const visibleChannels = sortedChannels.filter((ch) => {
-    if (ch.type === "chat" && activeSpace.mode === "read") return false;
-    // Only hide if there's an explicit VIEW_CHANNEL deny override for this channel
+    if (isFriendsFeed) return true;
+    if (ch.type === "chat" && activeSpace?.mode === "read") return false;
     const ov = channelOverrides[ch.id];
     if (ov?.deny.includes("VIEW_CHANNEL") && !isAdmin) return false;
     return true;
   });
+
+  // Group channels by categoryId
+  const groupedChannels = useMemo(() => {
+    const groups: { categoryId: string | null; channels: SpaceChannel[] }[] = [];
+    const categoryMap = new Map<string | null, SpaceChannel[]>();
+
+    for (const ch of visibleChannels) {
+      const cat = ch.categoryId ?? null;
+      if (!categoryMap.has(cat)) {
+        categoryMap.set(cat, []);
+        groups.push({ categoryId: cat, channels: categoryMap.get(cat)! });
+      }
+      categoryMap.get(cat)!.push(ch);
+    }
+
+    return groups;
+  }, [visibleChannels]);
+
+  const hasCategories = groupedChannels.some((g) => g.categoryId !== null);
 
   return (
     <div className="p-3 space-y-1">
@@ -116,47 +183,172 @@ export function ChannelList() {
           </button>
         )}
       </div>
-      {visibleChannels.map((ch) => {
-        const channelActiveId = `${activeSpace.id}:${ch.id}`;
-        const isActive = channelActiveId === activeChannelId;
-        const Icon = CHANNEL_ICONS[ch.type] ?? MessageSquare;
-        const isVoice = ch.type === "voice" || ch.type === "video";
 
-        return (
-          <div key={ch.id}>
-            <ChannelButton
-              channelId={channelActiveId}
-              spaceId={activeSpace.id}
-              rawChannelId={ch.id}
-              label={ch.label}
-              isActive={isActive}
-              slowModeSeconds={ch.slowModeSeconds}
-              isVoiceType={isVoice}
-              Icon={Icon}
-              onClick={() => handleSelectChannel(ch.id)}
-              onContextMenu={(e) => handleChannelContextMenu(e, channelActiveId)}
+      {hasCategories ? (
+        groupedChannels.map((group) => {
+          const isCollapsed = group.categoryId ? collapsedCategories.has(group.categoryId) : false;
+
+          return (
+            <div key={group.categoryId ?? "__ungrouped__"}>
+              {group.categoryId && (
+                <CategoryHeader
+                  categoryId={group.categoryId}
+                  spaceId={spaceId}
+                  channels={group.channels}
+                  isCollapsed={isCollapsed}
+                  onToggle={() => toggleCategory(group.categoryId!)}
+                />
+              )}
+              {!isCollapsed && group.channels.map((ch) => (
+                <ChannelItem
+                  key={ch.id}
+                  ch={ch}
+                  spaceId={spaceId}
+                  activeChannelId={activeChannelId}
+                  isFriendsFeed={isFriendsFeed}
+                  onSelect={handleSelectChannel}
+                  onContextMenu={handleChannelContextMenu}
+                />
+              ))}
+            </div>
+          );
+        })
+      ) : (
+        visibleChannels.map((ch) => (
+          <ChannelItem
+            key={ch.id}
+            ch={ch}
+            spaceId={spaceId}
+            activeChannelId={activeChannelId}
+            isFriendsFeed={isFriendsFeed}
+            onSelect={handleSelectChannel}
+            onContextMenu={handleChannelContextMenu}
+          />
+        ))
+      )}
+
+      {!isFriendsFeed && (
+        <>
+          <CreateChannelModal
+            open={createModalOpen}
+            onClose={() => setCreateModalOpen(false)}
+            spaceId={spaceId}
+            existingChannels={channels}
+          />
+          {ctxMenu && (
+            <ChannelContextMenu
+              open
+              onClose={() => setCtxMenu(null)}
+              channelId={ctxMenu.channelId}
+              position={{ x: ctxMenu.x, y: ctxMenu.y }}
             />
-            {isVoice && (
-              <VoiceChannelPreview spaceId={activeSpace.id} channelId={ch.id} />
-            )}
-          </div>
-        );
-      })}
+          )}
+        </>
+      )}
+    </div>
+  );
+}
 
-      <CreateChannelModal
-        open={createModalOpen}
-        onClose={() => setCreateModalOpen(false)}
-        spaceId={activeSpace.id}
-        existingChannels={channels}
+/** Collapsible category header with aggregated unread */
+function CategoryHeader({
+  categoryId,
+  spaceId,
+  channels,
+  isCollapsed,
+  onToggle,
+}: {
+  categoryId: string;
+  spaceId: string;
+  channels: SpaceChannel[];
+  isCollapsed: boolean;
+  onToggle: () => void;
+}) {
+  return (
+    <button
+      onClick={onToggle}
+      className="flex w-full items-center gap-1 px-2 pt-2.5 pb-0.5 group"
+    >
+      <ChevronRight
+        size={10}
+        className={cn(
+          "text-muted transition-transform duration-150",
+          !isCollapsed && "rotate-90",
+        )}
       />
+      <span className="text-[10px] font-semibold uppercase tracking-[0.12em] text-muted group-hover:text-heading transition-colors">
+        {categoryId}
+      </span>
+      {isCollapsed && (
+        <CollapsedUnreadBadge spaceId={spaceId} channels={channels} />
+      )}
+    </button>
+  );
+}
 
-      {ctxMenu && (
-        <ChannelContextMenu
-          open
-          onClose={() => setCtxMenu(null)}
-          channelId={ctxMenu.channelId}
-          position={{ x: ctxMenu.x, y: ctxMenu.y }}
-        />
+/** Shows aggregated unread count for collapsed category */
+function CollapsedUnreadBadge({ spaceId, channels }: { spaceId: string; channels: SpaceChannel[] }) {
+  const channelUnread = useAppSelector((s) => s.notifications.channelUnread);
+  const channelMentions = useAppSelector((s) => s.notifications.channelMentions);
+
+  let totalUnread = 0;
+  let totalMentions = 0;
+  for (const ch of channels) {
+    const key = `${spaceId}:${ch.id}`;
+    totalUnread += channelUnread[key] ?? 0;
+    totalMentions += channelMentions[key] ?? 0;
+  }
+
+  if (totalUnread === 0 && totalMentions === 0) return null;
+
+  return (
+    <span
+      className={cn(
+        "ml-auto flex h-4 min-w-4 items-center justify-center rounded-full px-1 text-[10px] font-bold text-white",
+        totalMentions > 0 ? "bg-primary" : "bg-surface-hover",
+      )}
+    >
+      {totalMentions > 0 ? totalMentions : totalUnread}
+    </span>
+  );
+}
+
+/** Single channel entry (renders button + optional voice preview) */
+function ChannelItem({
+  ch,
+  spaceId,
+  activeChannelId,
+  isFriendsFeed,
+  onSelect,
+  onContextMenu,
+}: {
+  ch: SpaceChannel;
+  spaceId: string;
+  activeChannelId: string | null;
+  isFriendsFeed: boolean;
+  onSelect: (channelId: string) => void;
+  onContextMenu: (e: React.MouseEvent, channelId: string) => void;
+}) {
+  const channelActiveId = `${spaceId}:${ch.id}`;
+  const isActive = channelActiveId === activeChannelId;
+  const Icon = CHANNEL_ICONS[ch.type] ?? MessageSquare;
+  const isVoice = ch.type === "voice" || ch.type === "video";
+
+  return (
+    <div>
+      <ChannelButton
+        channelId={channelActiveId}
+        spaceId={spaceId}
+        rawChannelId={ch.id}
+        label={ch.label}
+        isActive={isActive}
+        slowModeSeconds={ch.slowModeSeconds}
+        isVoiceType={isVoice}
+        Icon={Icon}
+        onClick={() => onSelect(ch.id)}
+        onContextMenu={isFriendsFeed ? undefined : (e) => onContextMenu(e, channelActiveId)}
+      />
+      {isVoice && !isFriendsFeed && (
+        <VoiceChannelPreview spaceId={spaceId} channelId={ch.id} />
       )}
     </div>
   );
@@ -184,7 +376,7 @@ const ChannelButton = memo(function ChannelButton({
   isVoiceType: boolean;
   Icon: typeof MessageSquare;
   onClick: () => void;
-  onContextMenu: (e: React.MouseEvent) => void;
+  onContextMenu?: (e: React.MouseEvent) => void;
 }) {
   const unread = useChannelUnread(channelId);
   const mentions = useChannelMentions(channelId);

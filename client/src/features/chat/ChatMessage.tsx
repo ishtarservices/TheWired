@@ -50,6 +50,7 @@ export function ChatMessage({
   const { profile } = useProfile(event.pubkey);
   const isBlocked = useIsBlocked(event.pubkey);
   const avatarRef = useRef<HTMLButtonElement>(null);
+  const reactionBtnRef = useRef<HTMLButtonElement>(null);
   const displayName =
     profile?.display_name || profile?.name || event.pubkey.slice(0, 8) + "...";
   const timeAgo = formatDistanceToNow(event.created_at * 1000, {
@@ -142,23 +143,23 @@ export function ChatMessage({
             <span className="text-[10px] text-faint italic">(edited)</span>
           )}
           <div className="ml-auto flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-            <div className="relative">
-              <button
-                onClick={() => setShowReactionPicker((prev) => !prev)}
-                className="text-xs text-muted hover:text-primary-soft"
-                title="React"
-              >
-                <SmilePlus size={14} />
-              </button>
-              {showReactionPicker && (
-                <ReactionPicker
-                  targetEventId={event.id}
-                  targetPubkey={event.pubkey}
-                  targetKind={event.kind}
-                  onClose={() => setShowReactionPicker(false)}
-                />
-              )}
-            </div>
+            <button
+              ref={reactionBtnRef}
+              onClick={() => setShowReactionPicker((prev) => !prev)}
+              className="text-xs text-muted hover:text-primary-soft"
+              title="React"
+            >
+              <SmilePlus size={14} />
+            </button>
+            {showReactionPicker && (
+              <ReactionPicker
+                targetEventId={event.id}
+                targetPubkey={event.pubkey}
+                targetKind={event.kind}
+                anchorRef={reactionBtnRef}
+                onClose={() => setShowReactionPicker(false)}
+              />
+            )}
             {onReply && (
               <button
                 onClick={() => onReply(event.id, event.pubkey)}

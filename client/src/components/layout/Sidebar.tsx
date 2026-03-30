@@ -1,15 +1,19 @@
+import { useCallback } from "react";
 import { cn } from "@/lib/utils";
-import { LayoutGrid, Music2, MessageCircle } from "lucide-react";
+import { LayoutGrid, Music2, MessageCircle, Compass } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import { useAppSelector, useAppDispatch } from "../../store/hooks";
 import { setSidebarMode } from "../../store/slices/uiSlice";
+import { setActiveConversation } from "../../store/slices/dmSlice";
 import { SpaceList } from "../../features/spaces/SpaceList";
 import { ChannelList } from "../../features/spaces/ChannelList";
 import { MusicSidebar } from "../../features/music/MusicSidebar";
+import { DMSidebar } from "../../features/dm/DMSidebar";
 import { ProfileCard } from "../../features/identity/ProfileCard";
 import { useDMUnreadCount } from "../../features/dm/useDMContacts";
 import { VoiceStatusBar } from "../../features/voice/VoiceStatusBar";
 import { useResizeHandle } from "./useResizeHandle";
+import { FRIENDS_FEED_ID } from "../../features/friends/friendsFeedConstants";
 
 interface SidebarProps {
   expanded: boolean;
@@ -22,9 +26,21 @@ export function Sidebar({ expanded }: SidebarProps) {
   const activeSpaceId = useAppSelector((s) => s.spaces.activeSpaceId);
   const sidebarMode = useAppSelector((s) => s.ui.sidebarMode);
   const dmUnreadCount = useDMUnreadCount();
+  const activeConversation = useAppSelector((s) => s.dm.activeConversation);
   const { width, isDragging, onMouseDown, onDoubleClick } = useResizeHandle({
     side: "right",
   });
+
+  // Show channels for real spaces (not Friends Feed virtual space)
+  const showChannels = activeSpaceId && activeSpaceId !== FRIENDS_FEED_ID;
+
+  const handleSelectDMContact = useCallback(
+    (pubkey: string) => {
+      dispatch(setActiveConversation(pubkey));
+      navigate(`/dm/${pubkey}`);
+    },
+    [dispatch, navigate],
+  );
 
   return (
     <div
@@ -111,6 +127,18 @@ export function Sidebar({ expanded }: SidebarProps) {
               </span>
             )}
           </button>
+
+          {/* Separator */}
+          <div className="mx-0.5 h-4 w-px bg-border" />
+
+          {/* Discover */}
+          <button
+            onClick={() => navigate("/discover")}
+            className="rounded-lg p-1.5 text-muted hover:text-heading hover:bg-surface transition-colors"
+            title="Discover"
+          >
+            <Compass size={14} />
+          </button>
         </div>
       </div>
 
@@ -126,19 +154,15 @@ export function Sidebar({ expanded }: SidebarProps) {
             </div>
 
             {/* Channels for active space */}
-            {activeSpaceId && <ChannelList />}
+            {showChannels && <ChannelList />}
           </>
         )}
         {sidebarMode === "music" && <MusicSidebar />}
         {sidebarMode === "messages" && (
-          <div className="px-5 pt-4">
-            <div className="pb-2 text-[10px] font-semibold uppercase tracking-[0.15em] text-muted">
-              Direct Messages
-            </div>
-            <p className="text-xs text-muted">
-              View your conversations in the main panel.
-            </p>
-          </div>
+          <DMSidebar
+            activePartner={activeConversation}
+            onSelectContact={handleSelectDMContact}
+          />
         )}
       </div>
 

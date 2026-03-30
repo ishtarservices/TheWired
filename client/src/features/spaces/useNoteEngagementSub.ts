@@ -3,8 +3,12 @@ import { subscriptionManager } from "../../lib/nostr/subscriptionManager";
 
 const BATCH_LIMIT = 100;
 
-/** Batch subscribe for reactions, reposts, and reply counts for visible notes */
-export function useNoteEngagementSub(noteEventIds: string[], relayUrl: string | undefined) {
+/**
+ * Batch subscribe for reactions, reposts, and reply counts for visible notes.
+ * Pass `relayUrls: undefined` to use all read relays (for Friends Feed / read-only spaces).
+ * Pass `relayUrls: [url]` for a specific host relay (community spaces).
+ */
+export function useNoteEngagementSub(noteEventIds: string[], relayUrls: string[] | undefined) {
   // Stabilize the ID key so the effect only fires when content actually changes
   const idsKey = useMemo(
     () => noteEventIds.slice(0, BATCH_LIMIT).join(","),
@@ -14,7 +18,7 @@ export function useNoteEngagementSub(noteEventIds: string[], relayUrl: string | 
   const prevIdsRef = useRef<string>("");
 
   useEffect(() => {
-    if (!relayUrl || !idsKey) return;
+    if (!idsKey) return;
 
     // Only re-subscribe if the ID set actually changed
     if (idsKey === prevIdsRef.current) return;
@@ -27,7 +31,7 @@ export function useNoteEngagementSub(noteEventIds: string[], relayUrl: string | 
     subIds.push(
       subscriptionManager.subscribe({
         filters: [{ kinds: [7], "#e": ids }],
-        relayUrls: [relayUrl],
+        relayUrls,
       }),
     );
 
@@ -35,7 +39,7 @@ export function useNoteEngagementSub(noteEventIds: string[], relayUrl: string | 
     subIds.push(
       subscriptionManager.subscribe({
         filters: [{ kinds: [6], "#e": ids }],
-        relayUrls: [relayUrl],
+        relayUrls,
       }),
     );
 
@@ -43,7 +47,7 @@ export function useNoteEngagementSub(noteEventIds: string[], relayUrl: string | 
     subIds.push(
       subscriptionManager.subscribe({
         filters: [{ kinds: [1], "#e": ids }],
-        relayUrls: [relayUrl],
+        relayUrls,
       }),
     );
 
@@ -53,5 +57,5 @@ export function useNoteEngagementSub(noteEventIds: string[], relayUrl: string | 
       }
       prevIdsRef.current = "";
     };
-  }, [idsKey, relayUrl]);
+  }, [idsKey, relayUrls]);
 }

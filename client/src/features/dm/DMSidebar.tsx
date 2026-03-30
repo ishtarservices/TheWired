@@ -1,5 +1,5 @@
 import { useState, useCallback, memo } from "react";
-import { MessageCircle, Users, X, SquarePen } from "lucide-react";
+import { MessageCircle, Users, X, SquarePen, Search } from "lucide-react";
 import { Avatar } from "@/components/ui/Avatar";
 import { useProfile } from "@/features/profile/useProfile";
 import { useRelativeTime } from "@/hooks/useRelativeTime";
@@ -11,7 +11,9 @@ import { acceptFriendRequestAction, declineFriendRequestAction } from "@/lib/nos
 import { DMConversationContextMenu } from "./DMConversationContextMenu";
 import { NewDMModal } from "./NewDMModal";
 import { getDisplayName } from "./dmUtils";
+import { SearchPanel } from "@/features/search/SearchPanel";
 import type { DMContact } from "@/store/slices/dmSlice";
+import type { MessageSearchResult } from "@/features/search/useMessageSearch";
 
 type SidebarTab = "messages" | "friends";
 
@@ -27,6 +29,8 @@ export function DMSidebar({ activePartner, onSelectContact }: DMSidebarProps) {
   const pendingIncoming = useAppSelector(selectPendingIncomingRequests);
 
   const [showNewDM, setShowNewDM] = useState(false);
+  const [searchOpen, setSearchOpen] = useState(false);
+  const [contactFilter, setContactFilter] = useState("");
   const [ctxMenu, setCtxMenu] = useState<{ pubkey: string; x: number; y: number } | null>(null);
 
   const handleContactContextMenu = useCallback(
@@ -37,8 +41,30 @@ export function DMSidebar({ activePartner, onSelectContact }: DMSidebarProps) {
     [],
   );
 
+  const handleSearchJump = useCallback(
+    (result: MessageSearchResult) => {
+      if (result.partnerPubkey) {
+        onSelectContact(result.partnerPubkey);
+        // Scroll to the message after navigation renders
+        if (result.wrapId) {
+          requestAnimationFrame(() => {
+            requestAnimationFrame(() => {
+              const el = document.querySelector(`[data-wrap-id="${result.wrapId}"]`);
+              if (el) {
+                el.scrollIntoView({ behavior: "smooth", block: "center" });
+                el.classList.add("animate-highlight-flash");
+                setTimeout(() => el.classList.remove("animate-highlight-flash"), 1500);
+              }
+            });
+          });
+        }
+      }
+    },
+    [onSelectContact],
+  );
+
   return (
-    <div className="flex flex-col border-r border-border w-72">
+    <div className="flex flex-col flex-1">
       {/* Tab bar */}
       <div className="flex items-center border-b border-border">
         <button
@@ -69,6 +95,17 @@ export function DMSidebar({ activePartner, onSelectContact }: DMSidebarProps) {
           )}
         </button>
         <button
+          onClick={() => setSearchOpen(!searchOpen)}
+          className={`rounded-lg p-1.5 transition-colors ${
+            searchOpen
+              ? "text-primary bg-primary/10"
+              : "text-muted hover:text-heading hover:bg-surface-hover"
+          }`}
+          title="Search all messages"
+        >
+          <Search size={15} />
+        </button>
+        <button
           onClick={() => setShowNewDM(true)}
           className="mr-2 rounded-lg p-1.5 text-muted hover:text-heading hover:bg-surface-hover transition-colors"
           title="New message"
@@ -76,6 +113,42 @@ export function DMSidebar({ activePartner, onSelectContact }: DMSidebarProps) {
           <SquarePen size={15} />
         </button>
       </div>
+
+      {/* Cross-conversation search panel */}
+      {searchOpen && (
+        <div className="border-b border-border px-2 py-2">
+          <SearchPanel
+            mode="dm"
+            partnerPubkey={null}
+            onClose={() => setSearchOpen(false)}
+            onJumpToMessage={handleSearchJump}
+          />
+        </div>
+      )}
+
+      {/* Contact filter */}
+      {activeTab === "messages" && contacts.length > 3 && !searchOpen && (
+        <div className="px-3 py-2 border-b border-border">
+          <div className="flex items-center gap-1.5 rounded-lg bg-field ring-1 ring-border px-2 py-1 transition-all focus-within:ring-primary/30">
+            <Search size={11} className="text-muted shrink-0" />
+            <input
+              type="text"
+              value={contactFilter}
+              onChange={(e) => setContactFilter(e.target.value)}
+              placeholder="Filter conversations…"
+              className="w-full bg-transparent text-xs text-heading placeholder-muted outline-none"
+            />
+            {contactFilter && (
+              <button
+                onClick={() => setContactFilter("")}
+                className="text-muted hover:text-heading"
+              >
+                <X size={10} />
+              </button>
+            )}
+          </div>
+        </div>
+      )}
 
       {/* Tab content */}
       <div className="flex-1 overflow-y-auto">
@@ -91,6 +164,7 @@ export function DMSidebar({ activePartner, onSelectContact }: DMSidebarProps) {
                   key={contact.pubkey}
                   contact={contact}
                   isActive={activePartner === contact.pubkey}
+                  filter={contactFilter}
                   onClick={() => onSelectContact(contact.pubkey)}
                   onContextMenu={(e) => handleContactContextMenu(contact.pubkey, e)}
                 />
@@ -159,17 +233,28 @@ export function DMSidebar({ activePartner, onSelectContact }: DMSidebarProps) {
 const DMContactItem = memo(function DMContactItem({
   contact,
   isActive,
+  filter,
   onClick,
   onContextMenu,
 }: {
   contact: DMContact;
   isActive: boolean;
+  filter?: string;
   onClick: () => void;
   onContextMenu: (e: React.MouseEvent) => void;
 }) {
   const { profile } = useProfile(contact.pubkey);
   const displayName = getDisplayName(profile, contact.pubkey);
   const timeAgo = useRelativeTime(contact.lastMessageAt);
+
+  // Hide if contact filter is active and doesn't match
+  if (filter) {
+    const q = filter.toLowerCase();
+    const matchesName = displayName.toLowerCase().includes(q);
+    const matchesNip05 = profile?.nip05?.toLowerCase().includes(q);
+    const matchesPubkey = contact.pubkey.startsWith(q);
+    if (!matchesName && !matchesNip05 && !matchesPubkey) return null;
+  }
 
   return (
     <button

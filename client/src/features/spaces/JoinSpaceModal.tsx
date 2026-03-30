@@ -149,7 +149,7 @@ export function JoinSpaceModal({ open, onClose, initialCode }: JoinSpaceModalPro
 
   return (
     <Modal open={open} onClose={handleClose}>
-      <div className="w-full max-w-md rounded-2xl card-glass p-8 shadow-2xl">
+      <div className="w-full max-w-md max-h-[90vh] overflow-y-auto rounded-2xl card-glass p-8 shadow-2xl">
         {/* Header */}
         <div className="mb-6 flex items-center justify-between">
           <div className="flex items-center gap-2">

@@ -78,7 +78,7 @@ export function CreateProposalModal({ album, onClose }: CreateProposalModalProps
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-background/60">
-      <div className="relative w-full max-w-lg rounded-2xl border border-border card-glass p-6 shadow-xl">
+      <div className="relative w-full max-w-lg max-h-[90vh] overflow-y-auto rounded-2xl border border-border card-glass p-6 shadow-xl">
         <button
           onClick={onClose}
           className="absolute right-3 top-3 rounded p-1 text-muted hover:text-heading"

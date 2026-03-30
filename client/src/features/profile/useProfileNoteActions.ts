@@ -5,6 +5,7 @@ import type { NostrEvent } from "../../types/nostr";
 import { buildReaction, buildRepost, buildReply, buildQuoteNote, buildPinnedNotesEvent, buildDeletionEvent } from "../../lib/nostr/eventBuilder";
 import { signAndPublish } from "../../lib/nostr/publish";
 import { saveUserState } from "../../lib/db/userStateStore";
+import { deleteEvent as deleteEventFromDB } from "../../lib/db/eventStore";
 import { removeEvent, removeNote } from "../../store/slices/eventsSlice";
 import { parseThreadRef } from "../spaces/noteParser";
 
@@ -86,9 +87,10 @@ export function useProfileNoteActions(event: NostrEvent) {
       signAndPublish(pinUnsigned).catch(() => {});
       saveUserState("pinned_notes", newPinIds);
     }
-    // Remove from Redux immediately (optimistic)
+    // Remove from Redux + IndexedDB immediately (optimistic)
     dispatch(removeEvent(eventId));
     dispatch(removeNote({ pubkey: event.pubkey, eventId }));
+    deleteEventFromDB(eventId).catch(() => {});
     // Publish kind:5 deletion event
     const unsigned = buildDeletionEvent(
       pubkey,

@@ -33,6 +33,10 @@ import { MoveTrackModal } from "./MoveTrackModal";
 import { AddToPlaylistModal } from "./AddToPlaylistModal";
 import { RecipientPickerModal } from "@/components/sharing/RecipientPickerModal";
 import { SpacePickerModal } from "@/components/sharing/SpacePickerModal";
+import { MusicPostModal } from "./MusicPostModal";
+import { useProfileShowcase } from "@/features/profile/useProfileShowcase";
+import { buildRepost } from "@/lib/nostr/eventBuilder";
+import { getTrackImage } from "./trackImage";
 
 type TabId = "actions" | "notes" | "audio" | "history";
 
@@ -123,8 +127,33 @@ export function TrackActionPanel({
   // Flash states for async actions
   const [dmSentFlash, triggerDmSent] = useFlash();
   const [spaceSharedFlash, triggerSpaceShared] = useFlash();
+  const [showcaseFlash, triggerShowcase] = useFlash();
+  const [repostFlash, triggerRepost] = useFlash();
+  const [postModalOpen, setPostModalOpen] = useState(false);
 
-  const anyModalOpen = replaceAudioOpen || moveOpen || playlistOpen || dmPickerOpen || spacePickerOpen;
+  // Profile showcase (picks)
+  const { addItem: addShowcaseItem, removeItem: removeShowcaseItem, isInShowcase } = useProfileShowcase(pubkey ?? null);
+  const trackInShowcase = isInShowcase(track.addressableId);
+
+  const anyModalOpen = replaceAudioOpen || moveOpen || playlistOpen || dmPickerOpen || spacePickerOpen || postModalOpen;
+
+  const albums = useAppSelector((s) => s.music.albums);
+  const originalEvent = useAppSelector((s) => s.events.entities[track.eventId]);
+
+  const handleRepost = async () => {
+    if (!pubkey || !originalEvent) return;
+    try {
+      const unsigned = buildRepost(
+        pubkey,
+        { id: originalEvent.id, pubkey: originalEvent.pubkey },
+        JSON.stringify(originalEvent),
+      );
+      await signAndPublish(unsigned);
+      triggerRepost();
+    } catch {
+      // Best-effort
+    }
+  };
 
   const panelRef = useRef<HTMLDivElement>(null);
 
@@ -276,6 +305,15 @@ export function TrackActionPanel({
     else favoriteTrack(track.addressableId);
   };
 
+  const handleShowcaseToggle = async () => {
+    if (trackInShowcase) {
+      await removeShowcaseItem(track.addressableId);
+    } else {
+      await addShowcaseItem({ type: "track", addressableId: track.addressableId });
+    }
+    triggerShowcase();
+  };
+
   const handleDelete = async () => {
     onClose();
     setConfirmDelete(false);
@@ -384,6 +422,12 @@ export function TrackActionPanel({
                   onExport={handleExport}
                   onDeleteStart={() => setConfirmDelete(true)}
                   onDeleteConfirm={handleDelete}
+                  onShowcaseToggle={pubkey ? handleShowcaseToggle : undefined}
+                  inShowcase={trackInShowcase}
+                  showcaseFlash={showcaseFlash}
+                  onRepost={!isLocal && originalEvent ? handleRepost : undefined}
+                  repostFlash={repostFlash}
+                  onPostWithNote={!isLocal ? () => setPostModalOpen(true) : undefined}
                 />
               )}
               {activeTab === "notes" && (
@@ -454,6 +498,21 @@ export function TrackActionPanel({
           onBack={() => setSpacePickerOpen(false)}
           onSelect={handleShareToSpace}
           channelTypes={["chat", "notes", "music"]}
+        />
+      )}
+      {postModalOpen && (
+        <MusicPostModal
+          open={postModalOpen}
+          onClose={() => setPostModalOpen(false)}
+          target={{
+            addressableId: track.addressableId,
+            eventId: track.eventId,
+            pubkey: track.pubkey,
+            title: track.title,
+            artist: track.artist,
+            imageUrl: getTrackImage(track, albums),
+            kind: "track",
+          }}
         />
       )}
     </>

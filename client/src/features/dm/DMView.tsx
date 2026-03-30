@@ -1,6 +1,5 @@
 import { useState, useCallback, useEffect } from "react";
 import { useParams, useNavigate } from "react-router-dom";
-import { DMSidebar } from "./DMSidebar";
 import { DMConversation } from "./DMConversation";
 import { NewDMModal } from "./NewDMModal";
 import { useAppDispatch, useAppSelector } from "@/store/hooks";
@@ -49,10 +48,6 @@ export function DMView() {
 
   return (
     <div className="flex flex-1 overflow-hidden">
-      <DMSidebar
-        activePartner={activePubkey ?? null}
-        onSelectContact={handleSelectContact}
-      />
       {activePubkey ? (
         <DMConversation partnerPubkey={activePubkey} onBack={handleBack} />
       ) : (

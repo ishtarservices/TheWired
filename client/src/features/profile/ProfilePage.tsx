@@ -24,6 +24,8 @@ import {
   BookOpen,
   Repeat2,
   Loader2,
+  Mic2,
+  Music2,
 } from "lucide-react";
 import { npubEncode } from "nostr-tools/nip19";
 import { Avatar } from "../../components/ui/Avatar";
@@ -38,6 +40,8 @@ import { FollowListModal } from "./FollowListModal";
 import { ArticleCard } from "../longform/ArticleCard";
 import { NoteComposer } from "./NoteComposer";
 import { PinnedNotesSection } from "./PinnedNotesSection";
+import { ProfileMusicTab } from "./ProfileMusicTab";
+import { ProfileShowcaseTab } from "./ProfileShowcaseTab";
 import { followUser, unfollowUser } from "../../lib/nostr/follow";
 import { sendFriendRequest, acceptFriendRequestAction, cancelFriendRequestAction, removeFriendAction, wouldBreakFriendship } from "../../lib/nostr/friendRequest";
 import { useAppSelector, useAppDispatch } from "../../store/hooks";
@@ -46,10 +50,12 @@ import { buildMuteListEvent } from "../../lib/nostr/eventBuilder";
 import { signAndPublish } from "../../lib/nostr/publish";
 import { useClickOutside } from "../../hooks/useClickOutside";
 import { RichContent } from "../../components/content/RichContent";
+import { useProfileSettings } from "./useProfileSettings";
+import type { ProfileTab } from "./profileSettings";
 import type { ProfileFeedItem } from "./useProfileNotes";
 import type { LongFormArticle } from "../../types/media";
 
-type Tab = "notes" | "reposts" | "replies" | "media" | "reads";
+type Tab = "notes" | "reposts" | "replies" | "media" | "reads" | "music" | "showcase";
 
 interface ProfilePageProps {
   pubkey: string;
@@ -70,11 +76,21 @@ export function ProfilePage({ pubkey }: ProfilePageProps) {
   const isMuted = muteList.some((m) => m.type === "pubkey" && m.value === pubkey);
   const navigate = useNavigate();
   const { scrollPaddingClass } = usePlaybackBarSpacing();
+  const { settings: profileDisplaySettings } = useProfileSettings(pubkey);
+
+  // If the active tab is hidden by the viewed user's display settings, fall back
+  useEffect(() => {
+    if (isMe) return;
+    const visible = profileDisplaySettings.visibleTabs;
+    if (visible.length > 0 && !visible.includes(activeTab as ProfileTab)) {
+      setActiveTab(visible[0] as Tab);
+    }
+  }, [profileDisplaySettings.visibleTabs, activeTab, isMe]);
 
   // Per-tab scroll position persistence
   const scrollRef = useRef<HTMLDivElement>(null);
   const scrollPositions = useRef<Record<Tab, number>>({
-    notes: 0, reposts: 0, replies: 0, media: 0, reads: 0,
+    notes: 0, reposts: 0, replies: 0, media: 0, reads: 0, music: 0, showcase: 0,
   });
 
   const handleTabChange = useCallback((newTab: Tab) => {
@@ -183,13 +199,20 @@ export function ProfilePage({ pubkey }: ProfilePageProps) {
   const displayName =
     profile?.display_name || profile?.name || pubkey.slice(0, 12) + "...";
 
-  const tabs: { id: Tab; label: string; icon: typeof FileText; count?: number }[] = [
+  const allTabs: { id: Tab; label: string; icon: typeof FileText; count?: number }[] = [
     { id: "notes", label: "Notes", icon: FileText, count: feed.totalNotes },
     { id: "reposts", label: "Reposts", icon: Repeat2, count: feed.totalReposts },
     { id: "replies", label: "Replies", icon: MessageSquare, count: feed.totalReplies },
     { id: "media", label: "Media", icon: ImageIcon, count: feed.totalMedia },
     { id: "reads", label: "Reads", icon: BookOpen, count: feed.totalArticles },
+    { id: "music", label: "Music", icon: Mic2 },
+    { id: "showcase", label: "Library", icon: Music2 },
   ];
+
+  // Own profile always shows all tabs; other profiles respect their display settings
+  const tabs = isMe
+    ? allTabs
+    : allTabs.filter((t) => profileDisplaySettings.visibleTabs.includes(t.id as ProfileTab));
 
   return (
     <div ref={scrollRef} className={`flex min-h-0 flex-1 flex-col overflow-y-auto ${scrollPaddingClass}`}>
@@ -515,22 +538,44 @@ export function ProfilePage({ pubkey }: ProfilePageProps) {
         <span className="text-soft">
           <span className="font-semibold text-heading">{feed.allItems.length}</span> Notes
         </span>
-        <button
-          onClick={() => setFollowModal("following")}
-          className="text-soft hover:text-primary transition-colors"
-        >
-          <span className="font-semibold text-heading">
-            {followingLoading ? "\u2014" : following.length}
-          </span> Following
-        </button>
-        <button
-          onClick={() => setFollowModal("followers")}
-          className="text-soft hover:text-primary transition-colors"
-        >
-          <span className="font-semibold text-heading">
-            {followers.length > 0 ? followers.length : "\u2014"}
-          </span> Followers
-        </button>
+
+        {/* Following — respect hideFollowingCount / hideFollowingList (own profile always visible) */}
+        {(isMe || !profileDisplaySettings.hideFollowingCount) && (
+          <button
+            onClick={() => {
+              if (!isMe && profileDisplaySettings.hideFollowingList) return;
+              setFollowModal("following");
+            }}
+            className={`text-soft transition-colors ${
+              isMe || !profileDisplaySettings.hideFollowingList
+                ? "hover:text-primary cursor-pointer"
+                : "cursor-default"
+            }`}
+          >
+            <span className="font-semibold text-heading">
+              {followingLoading ? "\u2014" : following.length}
+            </span> Following
+          </button>
+        )}
+
+        {/* Followers — respect hideFollowerCount / hideFollowerList (own profile always visible) */}
+        {(isMe || !profileDisplaySettings.hideFollowerCount) && (
+          <button
+            onClick={() => {
+              if (!isMe && profileDisplaySettings.hideFollowerList) return;
+              setFollowModal("followers");
+            }}
+            className={`text-soft transition-colors ${
+              isMe || !profileDisplaySettings.hideFollowerList
+                ? "hover:text-primary cursor-pointer"
+                : "cursor-default"
+            }`}
+          >
+            <span className="font-semibold text-heading">
+              {followers.length > 0 ? followers.length : "\u2014"}
+            </span> Followers
+          </button>
+        )}
       </div>
 
       {/* Tab bar */}
@@ -620,10 +665,13 @@ export function ProfilePage({ pubkey }: ProfilePageProps) {
             onLoadMore={feed.loadMoreArticles}
           />
         )}
+        {activeTab === "music" && <ProfileMusicTab pubkey={pubkey} />}
+        {activeTab === "showcase" && <ProfileShowcaseTab pubkey={pubkey} />}
       </div>
 
-      {/* Follow list modals */}
-      {followModal === "following" && (
+      {/* Follow list modals — guard with display settings */}
+      {followModal === "following" &&
+        (isMe || !profileDisplaySettings.hideFollowingList) && (
         <FollowListModal
           pubkeys={following}
           loading={followingLoading}
@@ -631,7 +679,8 @@ export function ProfilePage({ pubkey }: ProfilePageProps) {
           onClose={() => setFollowModal(null)}
         />
       )}
-      {followModal === "followers" && (
+      {followModal === "followers" &&
+        (isMe || !profileDisplaySettings.hideFollowerList) && (
         <FollowListModal
           pubkeys={followers}
           loading={followersLoading}

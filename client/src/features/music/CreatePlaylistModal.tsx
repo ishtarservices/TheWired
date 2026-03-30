@@ -44,7 +44,7 @@ export function CreatePlaylistModal({ open, onClose }: CreatePlaylistModalProps)
 
   return (
     <Modal open={open} onClose={onClose}>
-      <div className="w-full max-w-md rounded-2xl border border-border card-glass p-6 shadow-xl">
+      <div className="w-full max-w-md max-h-[90vh] overflow-y-auto rounded-2xl border border-border card-glass p-6 shadow-xl">
         <div className="mb-4 flex items-center justify-between">
           <h2 className="text-lg font-semibold text-heading">Create Playlist</h2>
           <button onClick={onClose} className="text-soft hover:text-heading">

@@ -89,7 +89,7 @@ export function RecipientPickerModal({
 
   return (
     <Modal open={open} onClose={onClose}>
-      <div className="w-full max-w-sm rounded-2xl border border-border card-glass p-6 shadow-xl">
+      <div className="w-full max-w-sm max-h-[90vh] overflow-y-auto rounded-2xl border border-border card-glass p-6 shadow-xl">
         <div className="mb-4 flex items-center justify-between">
           <div className="flex items-center gap-2">
             {onBack && (

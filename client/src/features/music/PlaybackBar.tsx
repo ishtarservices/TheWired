@@ -1,3 +1,4 @@
+import { useState } from "react";
 import {
   Shuffle,
   SkipBack,
@@ -10,12 +11,14 @@ import {
   VolumeX,
   ListMusic,
   Heart,
+  Share2,
 } from "lucide-react";
 import { useAudioPlayer } from "./useAudioPlayer";
 import { useAppDispatch, useAppSelector } from "@/store/hooks";
 import { openRightPanelToTab, toggleRightPanel } from "@/store/slices/uiSlice";
 import { useLibrary } from "./useLibrary";
 import { getTrackImage } from "./trackImage";
+import { MusicPostModal } from "./MusicPostModal";
 
 function formatTime(seconds: number): string {
   if (!isFinite(seconds) || seconds < 0) return "0:00";
@@ -52,10 +55,12 @@ export function PlaybackBar() {
   });
   const { saveTrack, unsaveTrack, isTrackSaved } = useLibrary();
   const isSaved = currentTrack ? isTrackSaved(currentTrack.addressableId) : false;
+  const [postModalOpen, setPostModalOpen] = useState(false);
 
   if (!currentTrack) return null;
 
   const imageUrl = getTrackImage(currentTrack, albums);
+  const isLocal = currentTrack.visibility === "local";
 
   const handleSaveToggle = () => {
     if (!currentTrack) return;
@@ -170,8 +175,17 @@ export function PlaybackBar() {
         </div>
       </div>
 
-      {/* Right: Volume + queue */}
-      <div className="flex w-48 items-center justify-end gap-3 shrink-0">
+      {/* Right: Share + Volume + queue */}
+      <div className="flex w-56 items-center justify-end gap-3 shrink-0">
+        {!isLocal && (
+          <button
+            onClick={() => setPostModalOpen(true)}
+            className="rounded p-1 text-soft transition-colors hover:text-heading"
+            title="Share track"
+          >
+            <Share2 size={16} />
+          </button>
+        )}
         <button
           onClick={toggleMute}
           className="rounded p-1 text-soft transition-colors hover:text-heading"
@@ -207,6 +221,23 @@ export function PlaybackBar() {
           <ListMusic size={16} />
         </button>
       </div>
+
+      {/* Quick Post Modal */}
+      {postModalOpen && currentTrack && (
+        <MusicPostModal
+          open={postModalOpen}
+          onClose={() => setPostModalOpen(false)}
+          target={{
+            addressableId: currentTrack.addressableId,
+            eventId: currentTrack.eventId,
+            pubkey: currentTrack.pubkey,
+            title: currentTrack.title,
+            artist: currentTrack.artist,
+            imageUrl,
+            kind: "track",
+          }}
+        />
+      )}
     </div>
   );
 }

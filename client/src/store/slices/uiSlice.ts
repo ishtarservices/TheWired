@@ -3,7 +3,7 @@ import { createSlice, type PayloadAction } from "@reduxjs/toolkit";
 type ActiveTab = "chat" | "reels" | "longform";
 type SidebarMode = "spaces" | "music" | "messages";
 
-export type PanelContext = "space" | "music" | "dm" | "profile" | "none";
+export type PanelContext = "space" | "music" | "dm" | "profile" | "discover" | "none";
 
 interface RightPanelState {
   /** Per-context visibility — closing in one context doesn't affect others */
@@ -22,6 +22,8 @@ interface UIState {
   notifications: AppNotification[];
   sidebarMode: SidebarMode;
   rightPanel: RightPanelState;
+  /** Space IDs pinned to the Favorites section (persisted to IndexedDB) */
+  pinnedSpaceIds: string[];
 }
 
 interface AppNotification {
@@ -42,6 +44,7 @@ const initialState: UIState = {
       music: false,
       dm: false,
       profile: false,
+      discover: false,
       none: false,
     },
     activeTabByContext: {
@@ -49,10 +52,12 @@ const initialState: UIState = {
       music: "queue",
       dm: "profile",
       profile: "info",
+      discover: "preview",
       none: "",
     },
     contextOverride: null,
   },
+  pinnedSpaceIds: [],
 };
 
 export const uiSlice = createSlice({
@@ -120,6 +125,23 @@ export const uiSlice = createSlice({
       state.rightPanel.activeTabByContext[context] = tab;
       state.rightPanel.contextOverride = context;
     },
+
+    // ── Pinned spaces actions ──
+
+    /** Toggle a space's pinned status */
+    togglePinnedSpace(state, action: PayloadAction<string>) {
+      const id = action.payload;
+      const idx = state.pinnedSpaceIds.indexOf(id);
+      if (idx >= 0) {
+        state.pinnedSpaceIds.splice(idx, 1);
+      } else {
+        state.pinnedSpaceIds.push(id);
+      }
+    },
+    /** Restore pinned space IDs from IndexedDB */
+    setPinnedSpaceIds(state, action: PayloadAction<string[]>) {
+      state.pinnedSpaceIds = action.payload;
+    },
   },
 });
 
@@ -134,4 +156,6 @@ export const {
   setRightPanelOpen,
   setRightPanelTab,
   openRightPanelToTab,
+  togglePinnedSpace,
+  setPinnedSpaceIds,
 } = uiSlice.actions;

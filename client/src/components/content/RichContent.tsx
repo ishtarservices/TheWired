@@ -1,11 +1,11 @@
 import { useState } from "react";
-import { FileText } from "lucide-react";
+import { FileText, Download } from "lucide-react";
 import { parseContent, type ContentSegment } from "@/lib/content/parseContent";
 import { MentionLink } from "./MentionLink";
 import { InlineMarkdown } from "./InlineMarkdown";
 import { EmbedRenderer } from "./EmbedRenderer";
 import { MusicEmbedCard } from "./MusicEmbedCard";
-import { MediaLightbox } from "../ui/MediaLightbox";
+import { MediaLightbox, downloadMedia } from "../ui/MediaLightbox";
 
 interface RichContentProps {
   content: string;
@@ -80,12 +80,21 @@ function RichSegment({
 
     case "video":
       return (
-        <video
-          src={segment.url}
-          controls
-          preload="metadata"
-          className="max-w-xs max-h-60 rounded-lg mt-1"
-        />
+        <span className="relative mt-1 inline-block group/vid">
+          <video
+            src={segment.url}
+            controls
+            preload="metadata"
+            className="max-w-xs max-h-60 rounded-lg"
+          />
+          <button
+            onClick={() => downloadMedia(segment.url)}
+            className="absolute right-2 top-2 rounded-full bg-black/50 p-1.5 text-white/70 opacity-0 group-hover/vid:opacity-100 hover:bg-black/70 hover:text-white transition-all"
+            title="Download video"
+          >
+            <Download size={14} />
+          </button>
+        </span>
       );
 
     case "audio":

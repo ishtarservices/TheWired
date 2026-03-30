@@ -16,6 +16,9 @@ import {
   BarChart3,
   SkipForward,
   CheckCircle2,
+  Music2,
+  Repeat2,
+  MessageSquare,
 } from "lucide-react";
 
 // ── Flash hook: returns [flashing, trigger] ──
@@ -133,6 +136,12 @@ interface ActionsTabProps {
   onExport: () => void;
   onDeleteStart: () => void;
   onDeleteConfirm: () => void;
+  onShowcaseToggle?: () => void;
+  inShowcase?: boolean;
+  showcaseFlash?: boolean;
+  onRepost?: () => void;
+  repostFlash?: boolean;
+  onPostWithNote?: () => void;
 }
 
 export function ActionsTab({
@@ -168,6 +177,12 @@ export function ActionsTab({
   onExport,
   onDeleteStart,
   onDeleteConfirm,
+  onShowcaseToggle,
+  inShowcase,
+  showcaseFlash,
+  onRepost,
+  repostFlash,
+  onPostWithNote,
 }: ActionsTabProps) {
   const [playNextFlash, triggerPlayNext] = useFlash();
   const [queueFlash, triggerQueue] = useFlash();
@@ -260,6 +275,40 @@ export function ActionsTab({
             confirmedLabel="Shared!"
             confirmed={spaceSharedFlash}
             onClick={onShareToSpace}
+          />
+          {onRepost && (
+            <ActionButton
+              icon={<Repeat2 size={14} />}
+              confirmedIcon={confirmIcon}
+              label="Repost"
+              confirmedLabel="Reposted!"
+              confirmed={repostFlash}
+              onClick={onRepost}
+            />
+          )}
+          {onPostWithNote && (
+            <ActionButton
+              icon={<MessageSquare size={14} />}
+              label="Post with Note"
+              onClick={onPostWithNote}
+            />
+          )}
+        </>
+      )}
+
+      {/* ── Profile Library ── */}
+      {onShowcaseToggle && !isLocal && (
+        <>
+          <SectionDivider />
+          <SectionLabel>Profile</SectionLabel>
+          <ActionButton
+            icon={<Music2 size={14} className={inShowcase ? "text-primary" : ""} />}
+            confirmedIcon={confirmIcon}
+            label={inShowcase ? "In Profile Library" : "Add to Profile Library"}
+            confirmedLabel={inShowcase ? "Removed!" : "Added!"}
+            confirmed={showcaseFlash}
+            onClick={onShowcaseToggle}
+            active={inShowcase}
           />
         </>
       )}

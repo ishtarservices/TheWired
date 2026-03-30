@@ -1,14 +1,17 @@
 import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import { BellOff, Bell, Clock, Link2, LogOut, Trash2 } from "lucide-react";
+import { BellOff, Bell, Clock, Link2, LogOut, Trash2, Pin, PinOff } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useAppDispatch, useAppSelector } from "../../store/hooks";
 import { setSpaceMute, removeSpaceMute } from "../../store/slices/notificationSlice";
+import { togglePinnedSpace } from "../../store/slices/uiSlice";
 import { useSpaceMuted } from "../notifications/useNotifications";
 import { usePermissions } from "./usePermissions";
 import { useSpace } from "./useSpace";
 import { InviteGenerateModal } from "./InviteGenerateModal";
 import { deleteSpaceApi, leaveSpaceApi } from "../../lib/api/spaces";
+import { saveUserState } from "../../lib/db/userStateStore";
+import { store } from "../../store";
 
 const MUTE_DURATIONS = [
   { label: "1 hour", ms: 60 * 60 * 1000 },
@@ -32,6 +35,7 @@ export function SpaceContextMenu({
 }: SpaceContextMenuProps) {
   const dispatch = useAppDispatch();
   const isMuted = useSpaceMuted(spaceId);
+  const isPinned = useAppSelector((s) => s.ui.pinnedSpaceIds.includes(spaceId));
   const { can } = usePermissions(spaceId);
   const { deleteSpace } = useSpace();
   const space = useAppSelector((s) => s.spaces.list.find((sp) => sp.id === spaceId));
@@ -157,6 +161,23 @@ export function SpaceContextMenu({
         </div>
       ) : (
         <>
+          {/* Pin / Unpin */}
+          <button
+            onClick={() => {
+              dispatch(togglePinnedSpace(spaceId));
+              // Persist after Redux update (next tick)
+              setTimeout(() => {
+                const updated = store.getState().ui.pinnedSpaceIds;
+                saveUserState("pinnedSpaceIds", updated);
+              }, 0);
+              onClose();
+            }}
+            className="flex w-full items-center gap-2 rounded-lg mx-1 px-3.5 py-2.5 text-sm text-body hover:bg-surface-hover hover:text-heading transition-colors"
+          >
+            {isPinned ? <PinOff size={14} /> : <Pin size={14} />}
+            {isPinned ? "Unpin from Favorites" : "Pin to Favorites"}
+          </button>
+
           {can("CREATE_INVITES") && (
             <button
               onClick={() => { setShowInvite(true); onClose(); }}

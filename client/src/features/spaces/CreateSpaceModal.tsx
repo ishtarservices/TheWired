@@ -176,7 +176,7 @@ export function CreateSpaceModal({
 
   return (
     <Modal open={open} onClose={onClose}>
-      <div className="w-full max-w-md rounded-2xl card-glass p-8 shadow-2xl">
+      <div className="w-full max-w-md max-h-[90vh] overflow-y-auto rounded-2xl card-glass p-8 shadow-2xl">
         <div className="mb-4 flex items-center justify-between">
           <h2 className="text-lg font-bold text-heading">Create Space</h2>
           <button

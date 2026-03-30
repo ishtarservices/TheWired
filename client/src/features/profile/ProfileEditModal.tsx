@@ -56,7 +56,7 @@ export function ProfileEditModal({ onClose }: ProfileEditModalProps) {
 
   return (
     <Modal open onClose={onClose}>
-      <div className="w-full max-w-md rounded-2xl card-glass p-8">
+      <div className="w-full max-w-md max-h-[90vh] overflow-y-auto rounded-2xl card-glass p-8">
         <div className="mb-4 flex items-center justify-between">
           <h2 className="text-lg font-bold text-heading">Edit Profile</h2>
           <Button variant="ghost" size="sm" onClick={onClose}>

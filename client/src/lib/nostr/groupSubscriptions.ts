@@ -220,6 +220,169 @@ export function leaveClientSpace(spaceId: string): void {
   }
 }
 
+// ── Friends Feed ─────────────────────────────────────────────────
+
+import { FRIENDS_FEED_ID } from "../../features/friends/friendsFeedConstants";
+
+/**
+ * Enter the Friends Feed virtual space: subscribe to notes from the
+ * user's follow list on their read relays.
+ */
+export function enterFriendsFeed(channelType: string): void {
+  const state = store.getState();
+  const followList = state.identity.followList;
+  if (followList.length === 0) return;
+
+  const channelId = `${FRIENDS_FEED_ID}:${channelType}`;
+
+  // Close any existing Friends Feed subscription
+  const oldSubId = state.spaces.subscriptions[channelId];
+  if (oldSubId) {
+    subscriptionManager.close(oldSubId);
+    store.dispatch(removeChannelSubscription(channelId));
+  }
+
+  const route = getSpaceChannelRoute(channelType);
+  if (!route) return;
+
+  const filter: NostrFilter = {
+    authors: followList.slice(0, 500), // Cap to avoid oversized filters
+    kinds: route.kinds,
+    limit: route.pageSize,
+  };
+
+  // Subscribe to all read relays (follow list authors publish to their own relays)
+  const subId = subscriptionManager.subscribe({
+    filters: [filter],
+    relayUrls: undefined, // all read relays
+  });
+
+  store.dispatch(setChannelSubscription({ channelId, subId }));
+}
+
+/** Switch channel within the Friends Feed */
+export function switchFriendsFeedChannel(channelType: string): void {
+  const state = store.getState();
+
+  // Close previous Friends Feed channel subscription
+  const activeChannelId = state.spaces.activeChannelId;
+  if (activeChannelId && activeChannelId.startsWith(FRIENDS_FEED_ID + ":")) {
+    const oldSubId = state.spaces.subscriptions[activeChannelId];
+    if (oldSubId) {
+      subscriptionManager.close(oldSubId);
+      store.dispatch(removeChannelSubscription(activeChannelId));
+    }
+  }
+
+  enterFriendsFeed(channelType);
+}
+
+/** Leave the Friends Feed: close all subscriptions */
+export function leaveFriendsFeed(): void {
+  const state = store.getState();
+  for (const [channelId, subId] of Object.entries(state.spaces.subscriptions)) {
+    if (channelId.startsWith(FRIENDS_FEED_ID + ":")) {
+      subscriptionManager.close(subId);
+      store.dispatch(removeChannelSubscription(channelId));
+    }
+  }
+}
+
+/** Refresh the Friends Feed (pull to refresh, newer events) */
+export function refreshFriendsFeed(channelType: string): void {
+  const state = store.getState();
+  const followList = state.identity.followList;
+  if (followList.length === 0) return;
+
+  const route = getSpaceChannelRoute(channelType);
+  if (!route) return;
+
+  const contextId = `${FRIENDS_FEED_ID}:${channelType}`;
+  const meta = state.feed.meta[contextId];
+
+  store.dispatch(setRefreshing({ contextId, value: true }));
+
+  const filter: NostrFilter = {
+    authors: followList.slice(0, 500),
+    kinds: route.kinds,
+    limit: route.pageSize,
+  };
+  if (meta?.newestAt) {
+    filter.since = meta.newestAt;
+  }
+
+  let settled = false;
+  const subId = subscriptionManager.subscribe({
+    filters: [filter],
+    relayUrls: undefined,
+    onEOSE: () => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timeout);
+      store.dispatch(setRefreshing({ contextId, value: false }));
+    },
+  });
+
+  const timeout = setTimeout(() => {
+    if (settled) return;
+    settled = true;
+    store.dispatch(setRefreshing({ contextId, value: false }));
+    subscriptionManager.close(subId);
+  }, PAGINATION_TIMEOUT_MS);
+}
+
+/** Load older Friends Feed events */
+export function loadMoreFriendsFeed(channelType: string): void {
+  const state = store.getState();
+  const followList = state.identity.followList;
+  if (followList.length === 0) return;
+
+  const route = getSpaceChannelRoute(channelType);
+  if (!route) return;
+
+  const contextId = `${FRIENDS_FEED_ID}:${channelType}`;
+  const meta = state.feed.meta[contextId];
+  if (!meta?.oldestAt) return;
+
+  store.dispatch(setLoadingMore({ contextId, value: true }));
+
+  const filter: NostrFilter = {
+    authors: followList.slice(0, 500),
+    kinds: route.kinds,
+    until: meta.oldestAt - 1,
+    limit: route.pageSize,
+  };
+
+  const previousOldest = meta.oldestAt;
+
+  let settled = false;
+  const subId = subscriptionManager.subscribe({
+    filters: [filter],
+    relayUrls: undefined,
+    onEOSE: () => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timeout);
+
+      store.dispatch(setLoadingMore({ contextId, value: false }));
+
+      const updatedMeta = store.getState().feed.meta[contextId];
+      if (!updatedMeta || updatedMeta.oldestAt >= previousOldest) {
+        store.dispatch(setHasMore({ contextId, value: false }));
+      }
+
+      subscriptionManager.close(subId);
+    },
+  });
+
+  const timeout = setTimeout(() => {
+    if (settled) return;
+    settled = true;
+    store.dispatch(setLoadingMore({ contextId, value: false }));
+    subscriptionManager.close(subId);
+  }, PAGINATION_TIMEOUT_MS);
+}
+
 // ── Feed pagination ──────────────────────────────────────────────
 
 /**

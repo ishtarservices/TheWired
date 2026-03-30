@@ -11,7 +11,10 @@ import { RelayStatusPanel } from "../features/relay/RelayStatusPanel";
 import { ProfilePage } from "../features/profile/ProfilePage";
 import { SettingsPage } from "../features/settings/SettingsPage";
 import { DMView } from "../features/dm/DMView";
+import { DiscoverPage } from "../features/discover/DiscoverPage";
+import { FriendsFeedPanel } from "../features/friends/FriendsFeedPanel";
 import { JoinSpaceModal } from "../features/spaces/JoinSpaceModal";
+import { FRIENDS_FEED_ID } from "../features/friends/friendsFeedConstants";
 import { Spinner } from "../components/ui/Spinner";
 import { ThemeProvider } from "../contexts/ThemeContext";
 import { tryRestoreSession } from "../lib/nostr/loginFlow";
@@ -42,8 +45,10 @@ function AuthGate() {
 
 function MainContent() {
   const activeChannelId = useAppSelector((s) => s.spaces.activeChannelId);
+  const activeSpaceId = useAppSelector((s) => s.spaces.activeSpaceId);
   const sidebarMode = useAppSelector((s) => s.ui.sidebarMode);
   const isMusic = sidebarMode === "music";
+  const isFriendsFeed = activeSpaceId === FRIENDS_FEED_ID;
 
   return (
     <>
@@ -54,7 +59,9 @@ function MainContent() {
 
       {/* Spaces view */}
       <div className={isMusic ? "hidden" : "flex flex-1 flex-col overflow-hidden"}>
-        {!activeChannelId ? (
+        {isFriendsFeed ? (
+          <FriendsFeedPanel />
+        ) : !activeChannelId ? (
           <SpaceView>
             <div className="relative flex flex-1 items-center justify-center overflow-hidden bg-grid">
               <div className="pointer-events-none absolute inset-0 bg-ambient opacity-60" />
@@ -88,6 +95,7 @@ export default function App() {
               <Route index element={<MainContent />} />
               <Route path="relays" element={<RelayStatusPanel />} />
               <Route path="settings" element={<SettingsPage />} />
+              <Route path="discover" element={<DiscoverPage />} />
               <Route path="dm" element={<DMView />} />
               <Route path="dm/:pubkey" element={<DMView />} />
               <Route path="music/album/:pubkey/:slug" element={<MusicLinkResolver type="album" />} />

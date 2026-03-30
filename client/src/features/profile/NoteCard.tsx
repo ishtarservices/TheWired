@@ -1,8 +1,9 @@
 import { useState, useEffect, useMemo, useRef, memo, useCallback } from "react";
-import { ChevronUp, ChevronDown, Image as ImageIcon, CornerUpLeft, MoreHorizontal, Trash2 } from "lucide-react";
-import { MediaLightbox } from "../../components/ui/MediaLightbox";
+import { ChevronUp, ChevronDown, Image as ImageIcon, CornerUpLeft, MoreHorizontal, Trash2, Download } from "lucide-react";
+import { MediaLightbox, downloadMedia } from "../../components/ui/MediaLightbox";
 import { Avatar } from "../../components/ui/Avatar";
 import { RichContent } from "../../components/content/RichContent";
+import { MusicEmbedCard } from "../../components/content/MusicEmbedCard";
 import { NoteActionBar } from "../spaces/notes/NoteActionBar";
 import { QuotedNote } from "../spaces/notes/QuotedNote";
 import { ReplyComposer } from "../spaces/notes/ReplyComposer";
@@ -20,7 +21,8 @@ import { eventsSelectors, removeEvent, removeRepost } from "../../store/slices/e
 import { subscriptionManager } from "../../lib/nostr/subscriptionManager";
 import { buildDeletionEvent } from "../../lib/nostr/eventBuilder";
 import { signAndPublish } from "../../lib/nostr/publish";
-import type { NostrEvent } from "../../types/nostr";
+import { deleteEvent as deleteEventFromDB } from "../../lib/db/eventStore";
+import { EVENT_KINDS, type NostrEvent } from "../../types/nostr";
 import type { ProfileFeedItem } from "./useProfileNotes";
 
 function formatRelativeTime(unixSeconds: number): string {
@@ -53,9 +55,10 @@ export const ProfileNoteCard = memo(function ProfileNoteCard({
     // Only allow unreposting own reposts
     if (item.reposterPubkey !== myPubkey) return;
     const repostEventId = item.event.id;
-    // Optimistic removal from Redux
+    // Optimistic removal from Redux + IndexedDB
     dispatch(removeEvent(repostEventId));
     dispatch(removeRepost({ pubkey: myPubkey, eventId: repostEventId }));
+    deleteEventFromDB(repostEventId).catch(() => {});
     // Publish kind:5 deletion targeting the kind:6 repost
     const unsigned = buildDeletionEvent(
       myPubkey,
@@ -103,6 +106,23 @@ function RepostedNoteInner({ repostEvent }: { repostEvent: NostrEvent }) {
     return (
       <div className="card-glass rounded-xl p-5 text-sm text-muted">
         Loading reposted note...
+      </div>
+    );
+  }
+
+  // Music event reposts: render as MusicEmbedCard instead of NoteCardInner
+  if (
+    originalEvent.kind === EVENT_KINDS.MUSIC_TRACK ||
+    originalEvent.kind === EVENT_KINDS.MUSIC_ALBUM
+  ) {
+    const dTag = originalEvent.tags.find((t) => t[0] === "d")?.[1] ?? "";
+    return (
+      <div className="card-glass rounded-xl p-5">
+        <MusicEmbedCard
+          kind={originalEvent.kind}
+          pubkey={originalEvent.pubkey}
+          identifier={dTag}
+        />
       </div>
     );
   }
@@ -272,23 +292,41 @@ function NoteCardInner({
       {showMedia && media.length > 0 && (
         <div className="mt-3 flex flex-col gap-2">
           {media.map((m) => (
-            <div key={m.url}>
+            <div key={m.url} className="group/media relative">
               {m.type === "image" && (
-                <img
-                  src={m.url}
-                  alt=""
-                  loading="lazy"
-                  onClick={() => setLightboxSrc(m.url)}
-                  className="max-h-96 w-full rounded-lg object-cover cursor-zoom-in hover:opacity-90 transition-opacity"
-                />
+                <>
+                  <img
+                    src={m.url}
+                    alt=""
+                    loading="lazy"
+                    onClick={() => setLightboxSrc(m.url)}
+                    className="max-h-96 w-full rounded-lg object-cover cursor-zoom-in hover:opacity-90 transition-opacity"
+                  />
+                  <button
+                    onClick={() => downloadMedia(m.url)}
+                    className="absolute right-2 top-2 rounded-full bg-black/50 p-1.5 text-white/70 opacity-0 group-hover/media:opacity-100 hover:bg-black/70 hover:text-white transition-all"
+                    title="Download image"
+                  >
+                    <Download size={14} />
+                  </button>
+                </>
               )}
               {m.type === "video" && (
-                <video
-                  src={m.url}
-                  controls
-                  preload="metadata"
-                  className="max-h-96 w-full rounded-lg"
-                />
+                <>
+                  <video
+                    src={m.url}
+                    controls
+                    preload="metadata"
+                    className="max-h-96 w-full rounded-lg"
+                  />
+                  <button
+                    onClick={() => downloadMedia(m.url)}
+                    className="absolute right-2 top-2 rounded-full bg-black/50 p-1.5 text-white/70 opacity-0 group-hover/media:opacity-100 hover:bg-black/70 hover:text-white transition-all"
+                    title="Download video"
+                  >
+                    <Download size={14} />
+                  </button>
+                </>
               )}
               {m.type === "audio" && (
                 <audio src={m.url} controls className="w-full" />

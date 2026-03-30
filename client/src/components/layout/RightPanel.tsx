@@ -30,6 +30,7 @@ const CONTEXT_TITLES: Record<PanelContext, string> = {
   music: "Music",
   dm: "Contact",
   profile: "Profile",
+  discover: "Preview",
   none: "",
 };
 
@@ -38,6 +39,7 @@ const CONTEXT_ICONS: Record<PanelContext, React.ReactNode> = {
   music: <Music2 size={16} />,
   dm: <User size={16} />,
   profile: <Link2 size={16} />,
+  discover: <Info size={16} />,
   none: null,
 };
 
@@ -159,6 +161,18 @@ export function RightPanel() {
         {mounted.has("profile") && (
           <div className={context === "profile" ? "" : "hidden"}>
             <ProfileSidePanel />
+          </div>
+        )}
+
+        {/* ── Discover context ── */}
+        {mounted.has("discover") && (
+          <div className={context === "discover" ? "" : "hidden"}>
+            <div className="flex flex-col items-center justify-center p-6 text-center">
+              <Info size={24} className="text-muted opacity-30 mb-2" />
+              <p className="text-xs text-muted">
+                Select a space or relay to preview details
+              </p>
+            </div>
           </div>
         )}
       </div>

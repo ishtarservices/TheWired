@@ -89,7 +89,7 @@ export async function getMyUploads(
 /**
  * Report a play event for a track (fire-and-forget).
  */
-export async function reportPlay(eventId: string): Promise<void> {
+export async function reportPlay(addressableId: string): Promise<void> {
   const url = `${getApiBaseUrl()}/music/play`;
   const headers: Record<string, string> = {
     "Content-Type": "application/json",
@@ -99,7 +99,7 @@ export async function reportPlay(eventId: string): Promise<void> {
   fetch(url, {
     method: "POST",
     headers,
-    body: JSON.stringify({ trackId: eventId }),
+    body: JSON.stringify({ trackId: addressableId }),
   }).catch(() => {
     // fire-and-forget, don't block playback
   });

@@ -79,7 +79,7 @@ export type MusicView =
   | "for-you"
   | "search"
   | "project-history"
-  | "project-proposals"
+  // | "project-proposals" // TODO: re-enable proposals/changes system later
   | "insights";
 
 /** Entry in the unified artist directory */

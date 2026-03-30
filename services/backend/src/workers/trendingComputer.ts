@@ -9,6 +9,7 @@ interface EventRow {
   pubkey: string;
   created_at: number;
   kind: number;
+  tags: string[][];
 }
 
 type Period = "1h" | "6h" | "24h" | "7d";
@@ -47,7 +48,7 @@ export function startTrendingComputer() {
     // Query events from relay schema for this period
     // Content kinds: reels (22), tracks (34236), longform (30023), short notes (1)
     const events = (await db.execute(
-      sql`SELECT id, pubkey, created_at, kind FROM relay.events
+      sql`SELECT id, pubkey, created_at, kind, tags FROM relay.events
           WHERE created_at >= ${sinceTs}
             AND kind IN (1, 22, 30023, 34236, 31683, 33123)
             AND NOT (tags @> '[["visibility","unlisted"]]'::jsonb)
@@ -58,12 +59,22 @@ export function startTrendingComputer() {
     const scored: { eventId: string; kind: number; score: number }[] = [];
 
     for (const event of events) {
+      // For music kinds, play counts are keyed by addressableId (stable across edits)
+      const isMusicKind = event.kind === 31683 || event.kind === 33123;
+      let playCountKey = `play_count:${event.id}`;
+      if (isMusicKind) {
+        const dTag = event.tags?.find((t: string[]) => t[0] === "d")?.[1];
+        if (dTag) {
+          playCountKey = `play_count:${event.kind}:${event.pubkey}:${dTag}`;
+        }
+      }
+
       // Fetch counters from Redis
       const [zapTotal, zapCount, viewCount, playCount] = await Promise.all([
         redis.get(`zap_total:${event.id}`).then((v) => parseInt(v ?? "0", 10)),
         redis.get(`zap_count:${event.id}`).then((v) => parseInt(v ?? "0", 10)),
         redis.get(`view_count:${event.id}`).then((v) => parseInt(v ?? "0", 10)),
-        redis.get(`play_count:${event.id}`).then((v) => parseInt(v ?? "0", 10)),
+        redis.get(playCountKey).then((v) => parseInt(v ?? "0", 10)),
       ]);
 
       // Count reactions (kind:7 with e tag pointing to this event)

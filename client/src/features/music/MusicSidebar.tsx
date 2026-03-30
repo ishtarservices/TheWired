@@ -1,10 +1,8 @@
-import { useState } from "react";
 import { useNavigate, useLocation } from "react-router-dom";
 import { cn } from "@/lib/utils";
-import { Home, Clock, Heart, Users, Disc3, Music, ListMusic, Upload, FolderUp, Compass, BarChart3 } from "lucide-react";
+import { Home, Clock, Heart, Users, Disc3, Music, ListMusic, FolderUp, Compass, BarChart3 } from "lucide-react";
 import { useAppDispatch, useAppSelector } from "@/store/hooks";
 import { setMusicView } from "@/store/slices/musicSlice";
-import { UploadTrackModal } from "./UploadTrackModal";
 import type { MusicView } from "@/types/music";
 
 interface NavItem {
@@ -23,7 +21,6 @@ const navItems: NavItem[] = [
   { view: "albums", label: "Projects", icon: Disc3 },
   { view: "songs", label: "Songs", icon: Music },
   { view: "playlists", label: "Playlists", icon: ListMusic },
-  { view: "my-uploads", label: "My Music", icon: FolderUp, requiresAuth: true },
   { view: "insights" as MusicView, label: "Insights", icon: BarChart3, requiresAuth: true },
 ];
 
@@ -33,7 +30,6 @@ export function MusicSidebar() {
   const location = useLocation();
   const activeView = useAppSelector((s) => s.music.activeView);
   const pubkey = useAppSelector((s) => s.identity.pubkey);
-  const [uploadOpen, setUploadOpen] = useState(false);
 
   const handleNav = (view: MusicView) => {
     dispatch(setMusicView(view));
@@ -53,7 +49,7 @@ export function MusicSidebar() {
           // Highlight parent nav when viewing a detail sub-view
           const isActive =
             activeView === item.view ||
-            (item.view === "albums" && (activeView === "album-detail" || activeView === "project-history" || activeView === "project-proposals")) ||
+            (item.view === "albums" && (activeView === "album-detail" || activeView === "project-history")) ||
             (item.view === "artists" && activeView === "artist-detail") ||
             (item.view === "playlists" && activeView === "playlist-detail");
           return (
@@ -74,17 +70,22 @@ export function MusicSidebar() {
         })}
       </div>
 
-      <div className="mt-auto p-2">
-        <button
-          onClick={() => setUploadOpen(true)}
-          className="flex w-full items-center gap-2 rounded-md border border-dashed border-border px-2 py-1.5 text-sm text-soft transition-colors hover:border-primary/40 hover:text-heading"
-        >
-          <Upload size={16} />
-          <span>Upload</span>
-        </button>
-      </div>
-
-      <UploadTrackModal open={uploadOpen} onClose={() => setUploadOpen(false)} />
+      {pubkey && (
+        <div className="mt-auto p-2">
+          <button
+            onClick={() => handleNav("my-uploads")}
+            className={cn(
+              "flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-sm font-medium transition-all duration-150",
+              activeView === "my-uploads"
+                ? "bg-primary/15 text-heading"
+                : "border border-dashed border-border text-soft hover:border-primary/40 hover:text-heading",
+            )}
+          >
+            <FolderUp size={16} />
+            <span>My Music</span>
+          </button>
+        </div>
+      )}
     </div>
   );
 }

@@ -1,5 +1,5 @@
-import { useState } from "react";
-import { Feather, Plus, Loader2 } from "lucide-react";
+import { useState, useMemo } from "react";
+import { Feather, Plus, Loader2, Music2 } from "lucide-react";
 import { useAppSelector, useAppDispatch } from "@/store/hooks";
 import { removeAnnotation } from "@/store/slices/musicSlice";
 import { AnnotationCard } from "./AnnotationCard";
@@ -8,6 +8,13 @@ import { useAnnotations } from "./useAnnotations";
 import { buildDeletionEvent } from "@/lib/nostr/eventBuilder";
 import { signAndPublish } from "@/lib/nostr/publish";
 import type { MusicAnnotation } from "@/types/music";
+
+/** Track info for displaying per-track annotation groups */
+interface TrackInfo {
+  addressableId: string;
+  title: string;
+  pubkey: string;
+}
 
 interface AnnotationsPanelProps {
   /** Addressable ID of the target track or album */
@@ -18,6 +25,8 @@ interface AnnotationsPanelProps {
   ownerPubkey: string;
   /** Compact mode hides the header and shows fewer items */
   compact?: boolean;
+  /** Optional: tracks in this album — enables per-track notes display */
+  albumTracks?: TrackInfo[];
 }
 
 export function AnnotationsPanel({
@@ -25,14 +34,34 @@ export function AnnotationsPanel({
   targetName,
   ownerPubkey,
   compact,
+  albumTracks,
 }: AnnotationsPanelProps) {
   const dispatch = useAppDispatch();
   const pubkey = useAppSelector((s) => s.identity.pubkey);
   const { annotations: visible, loading } = useAnnotations(targetRef);
   const [composerOpen, setComposerOpen] = useState(false);
   const [expanded, setExpanded] = useState(false);
+  const [trackNotesExpanded, setTrackNotesExpanded] = useState(false);
 
-  if (visible.length === 0 && !pubkey && !loading) return null;
+  // Collect track-level annotations from Redux (no extra subscriptions — these arrive
+  // via the same relay pipeline when tracks are loaded)
+  const allAnnotations = useAppSelector((s) => s.music.annotations);
+  const trackAnnotationGroups = useMemo(() => {
+    if (!albumTracks?.length) return [];
+    return albumTracks
+      .map((track) => {
+        const anns = (allAnnotations[track.addressableId] ?? []).filter(
+          (a) => !a.isPrivate || a.authorPubkey === pubkey,
+        );
+        return { track, annotations: anns };
+      })
+      .filter((g) => g.annotations.length > 0);
+  }, [albumTracks, allAnnotations, pubkey]);
+
+  const totalTrackNotes = trackAnnotationGroups.reduce((sum, g) => sum + g.annotations.length, 0);
+  const totalNotes = visible.length + totalTrackNotes;
+
+  if (visible.length === 0 && totalTrackNotes === 0 && !pubkey && !loading) return null;
 
   const isOwner = pubkey === ownerPubkey;
   const displayLimit = compact ? 2 : expanded ? visible.length : 3;
@@ -65,9 +94,9 @@ export function AnnotationsPanel({
           <div className="flex items-center gap-2">
             <Feather size={14} className="text-soft" />
             <h3 className="text-sm font-medium text-heading">
-              Annotations
-              {visible.length > 0 && (
-                <span className="ml-1.5 text-muted">({visible.length})</span>
+              Notes
+              {totalNotes > 0 && (
+                <span className="ml-1.5 text-muted">({totalNotes})</span>
               )}
             </h3>
           </div>
@@ -110,7 +139,7 @@ export function AnnotationsPanel({
         !compact && !loading && (
           <div className="rounded-xl border border-dashed border-border/40 px-4 py-6 text-center">
             <Feather size={20} className="mx-auto mb-2 text-muted/40" />
-            <p className="text-xs text-muted">No annotations yet</p>
+            <p className="text-xs text-muted">No notes yet</p>
             {pubkey && (
               <button
                 onClick={() => setComposerOpen(true)}
@@ -140,8 +169,47 @@ export function AnnotationsPanel({
           className="flex items-center gap-1.5 rounded-lg px-2 py-1.5 text-xs text-muted transition-colors hover:text-soft"
         >
           <Feather size={12} />
-          Add annotation
+          Add note
         </button>
+      )}
+
+      {/* ── Per-track notes (album view only) ── */}
+      {trackAnnotationGroups.length > 0 && (
+        <div className="mt-4">
+          <button
+            onClick={() => setTrackNotesExpanded((v) => !v)}
+            className="mb-2 flex items-center gap-1.5 text-[11px] font-medium text-soft transition-colors hover:text-heading"
+          >
+            <Music2 size={12} />
+            Track Notes ({totalTrackNotes})
+            <span className="text-muted">{trackNotesExpanded ? "▾" : "▸"}</span>
+          </button>
+          {trackNotesExpanded && (
+            <div className="space-y-3">
+              {trackAnnotationGroups.map(({ track, annotations: trackAnns }) => (
+                <div key={track.addressableId}>
+                  <p className="mb-1.5 text-[10px] font-semibold uppercase tracking-wider text-muted/60 px-1">
+                    {track.title} ({trackAnns.length})
+                  </p>
+                  <div className="space-y-2">
+                    {trackAnns.map((ann) => (
+                      <AnnotationCard
+                        key={ann.addressableId}
+                        annotation={ann}
+                        isArtistNote={ann.authorPubkey === track.pubkey}
+                        onDelete={
+                          ann.authorPubkey === pubkey || pubkey === ownerPubkey
+                            ? () => handleDelete(ann)
+                            : undefined
+                        }
+                      />
+                    ))}
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
       )}
 
       {composerOpen && (

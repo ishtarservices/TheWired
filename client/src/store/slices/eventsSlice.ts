@@ -28,6 +28,8 @@ interface EventsExtraState {
   deletedMessageIds: Record<string, true>;
   /** originalEventId -> editEventId (latest edit wins) */
   editedMessages: Record<string, string>;
+  /** Event IDs that have been deleted via kind:5 — prevents re-delivery from relays */
+  deletedNoteIds: Record<string, true>;
 }
 
 const initialState = eventsAdapter.getInitialState<EventsExtraState>({
@@ -46,6 +48,7 @@ const initialState = eventsAdapter.getInitialState<EventsExtraState>({
   quotes: {},
   deletedMessageIds: {},
   editedMessages: {},
+  deletedNoteIds: {},
 });
 
 /** Max events per feed index to prevent unbounded memory growth */
@@ -264,6 +267,10 @@ export const eventsSlice = createSlice({
     ) {
       state.editedMessages[action.payload.originalId] = action.payload.editEventId;
     },
+    /** Track a deleted note/repost ID to prevent re-delivery from relays */
+    trackDeletedNote(state, action: PayloadAction<string>) {
+      state.deletedNoteIds[action.payload] = true;
+    },
   },
 });
 
@@ -293,4 +300,5 @@ export const {
   removeNote,
   removeRepost,
   indexEditedMessage,
+  trackDeletedNote,
 } = eventsSlice.actions;

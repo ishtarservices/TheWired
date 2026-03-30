@@ -5,7 +5,7 @@ import { isValidEventStructure } from "./validation";
 import { verifyBridge } from "./verifyWorkerBridge";
 import { store } from "../../store";
 import { putEvent, deleteEvent } from "../db/eventStore";
-import { addEvent, indexChatMessage, indexReel, indexLongForm, indexLiveStream, indexNote, indexSpaceFeed, indexMusicTrack, indexMusicAlbum, indexReaction, indexReply, indexRepost, indexRepostByAuthor, indexQuote, removeChatMessage, hideMessage, removeEvent, indexEditedMessage } from "../../store/slices/eventsSlice";
+import { addEvent, indexChatMessage, indexReel, indexLongForm, indexLiveStream, indexNote, indexSpaceFeed, indexMusicTrack, indexMusicAlbum, indexReaction, indexReply, indexRepost, indexRepostByAuthor, indexQuote, removeChatMessage, hideMessage, removeEvent, removeNote, removeRepost, trackDeletedNote, indexEditedMessage } from "../../store/slices/eventsSlice";
 import { addTrack, indexTrackByArtist, indexTrackByAlbum, indexTrackByArtistName, indexAlbumByArtist, indexAlbumByArtistName, addAlbum, addPlaylist, addAnnotation, removeAnnotation, removeTrack, removeAlbum, removePlaylist } from "../../store/slices/musicSlice";
 import { addDMMessage, editDMMessage, remoteDeleteDMMessage } from "../../store/slices/dmSlice";
 import { parseTrackEvent } from "../../features/music/trackParser";
@@ -97,6 +97,14 @@ export async function processIncomingEvent(
   if (event.kind === EVENT_KINDS.WEBRTC_SIGNAL) {
     store.dispatch(incrementEventCount(relayUrl));
     handleWebRTCSignal(event);
+    return;
+  }
+
+  // Step 3b: Reject re-delivered deleted notes/reposts
+  if (
+    (event.kind === EVENT_KINDS.SHORT_TEXT || event.kind === EVENT_KINDS.REPOST) &&
+    store.getState().events.deletedNoteIds[event.id]
+  ) {
     return;
   }
 
@@ -328,8 +336,8 @@ function indexEvent(event: NostrEvent): void {
           const refEvent = state.events.entities[tag[1]];
           if (!refEvent || refEvent.pubkey === event.pubkey) {
             deleteEvent(tag[1]).catch(() => {});
-            // If this was a kind:9 chat message, remove from chat index + hide
             if (refEvent?.kind === EVENT_KINDS.CHAT_MESSAGE) {
+              // Chat message: remove from chat index + hide
               const refHTag = refEvent.tags.find((t) => t[0] === "h")?.[1];
               if (refHTag) {
                 const refChannelTag = refEvent.tags.find((t) => t[0] === "channel")?.[1];
@@ -338,6 +346,19 @@ function indexEvent(event: NostrEvent): void {
               }
               store.dispatch(hideMessage(tag[1]));
               store.dispatch(removeEvent(tag[1]));
+            } else if (refEvent?.kind === EVENT_KINDS.SHORT_TEXT) {
+              // Kind:1 note: remove from indexes + track deletion to prevent re-delivery
+              store.dispatch(removeNote({ pubkey: event.pubkey, eventId: tag[1] }));
+              store.dispatch(removeEvent(tag[1]));
+              store.dispatch(trackDeletedNote(tag[1]));
+            } else if (refEvent?.kind === EVENT_KINDS.REPOST) {
+              // Kind:6 repost: remove from indexes + track deletion
+              store.dispatch(removeRepost({ pubkey: event.pubkey, eventId: tag[1] }));
+              store.dispatch(removeEvent(tag[1]));
+              store.dispatch(trackDeletedNote(tag[1]));
+            } else if (!refEvent) {
+              // Event not in store (may arrive later) — track as deleted preemptively
+              store.dispatch(trackDeletedNote(tag[1]));
             }
           }
         }
@@ -402,6 +423,29 @@ function indexEventIntoSpaceFeeds(event: NostrEvent): void {
   if (!spaceFeedKinds.has(event.kind)) return;
 
   const state = store.getState();
+
+  // Index into Friends Feed if active and author is in follow list
+  if (state.spaces.activeSpaceId === "__friends_feed__") {
+    const followList = state.identity.followList;
+    if (followList.length > 0) {
+      const followSet = getCachedSet("friends_feed", followList);
+      if (followSet.has(event.pubkey)) {
+        for (const [channelType, route] of Object.entries(SPACE_CHANNEL_ROUTES)) {
+          if (route.filterMode === "htag") continue;
+          if (!route.kinds.includes(event.kind)) continue;
+          const contextId = `__friends_feed__:${channelType}`;
+          store.dispatch(indexSpaceFeed({ contextId, eventId: event.id }));
+          store.dispatch(trackFeedTimestamp({ contextId, createdAt: event.created_at }));
+        }
+        // Cross-index notes with media into media feed
+        if (event.kind === EVENT_KINDS.SHORT_TEXT && (hasMediaUrls(event.content) || hasEmbedUrls(event.content))) {
+          store.dispatch(indexSpaceFeed({ contextId: "__friends_feed__:media", eventId: event.id }));
+          store.dispatch(trackFeedTimestamp({ contextId: "__friends_feed__:media", createdAt: event.created_at }));
+        }
+      }
+    }
+  }
+
   const spaces = state.spaces.list;
   if (spaces.length === 0) return;
 

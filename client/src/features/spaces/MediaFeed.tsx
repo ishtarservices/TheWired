@@ -1,5 +1,5 @@
 import { useState, useMemo, useEffect, memo } from "react";
-import { Play, ImageIcon, Maximize2, ExternalLink } from "lucide-react";
+import { Play, ImageIcon, Maximize2, ExternalLink, Download } from "lucide-react";
 import { useAppSelector } from "../../store/hooks";
 import { usePlaybackBarSpacing } from "../../hooks/usePlaybackBarSpacing";
 import { selectSpaceMediaEvents } from "./spaceSelectors";
@@ -13,6 +13,7 @@ import { useProfile } from "../profile/useProfile";
 import { extractMediaUrls, stripMediaUrls } from "../../lib/media/mediaUrlParser";
 import { matchEmbed, type EmbedMatch, type EmbedPlatform } from "../../lib/content/embedPatterns";
 import { imageCache } from "../../lib/cache/imageCache";
+import { downloadMedia } from "../../components/ui/MediaLightbox";
 import { useScrollRestore } from "../../hooks/useScrollRestore";
 import { useVideoThumbnail } from "../../hooks/useVideoThumbnail";
 import { useFeedPagination } from "./useFeedPagination";
@@ -431,6 +432,16 @@ function ExpandedVideoView({
 
   return (
     <div className="flex flex-1 flex-col items-center overflow-y-auto bg-black p-4">
+      <div className="mb-2 flex w-full max-w-4xl items-center justify-end">
+        <button
+          onClick={() => downloadMedia(item.url)}
+          className="flex items-center gap-1.5 rounded-md bg-white/10 px-3 py-1.5 text-xs text-white/70 hover:bg-white/20 hover:text-white transition-colors"
+          title="Download video"
+        >
+          <Download size={13} />
+          Download
+        </button>
+      </div>
       <div className="w-full max-w-4xl">
         <EnhancedVideoPlayer
           src={item.url}
@@ -472,6 +483,14 @@ function ExpandedImageView({
           Back
         </button>
         <div className="flex-1" />
+        <button
+          onClick={() => downloadMedia(item.url)}
+          className="flex items-center gap-1.5 rounded-md px-2 py-1 text-xs text-soft hover:bg-surface-hover hover:text-heading transition-colors"
+          title="Download image"
+        >
+          <Download size={13} />
+          Download
+        </button>
         <AuthorBadge pubkey={item.event.pubkey} />
       </div>
       <div className="flex flex-1 items-center justify-center overflow-auto p-4">

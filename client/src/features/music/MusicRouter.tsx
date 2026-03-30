@@ -15,7 +15,8 @@ import { MyUploads } from "./views/MyUploads";
 import { ExploreMusic } from "./views/ExploreMusic";
 import { SearchResults } from "./views/SearchResults";
 import { ProjectHistory } from "./views/ProjectHistory";
-import { ProjectProposals } from "./views/ProjectProposals";
+// TODO: Re-enable proposals/changes system later
+// import { ProjectProposals } from "./views/ProjectProposals";
 import { InsightsDashboard } from "./views/InsightsDashboard";
 
 const VIEW_COMPONENTS: Record<MusicView, React.ComponentType> = {
@@ -34,7 +35,8 @@ const VIEW_COMPONENTS: Record<MusicView, React.ComponentType> = {
   "playlist-detail": PlaylistDetail,
   search: SearchResults,
   "project-history": ProjectHistory,
-  "project-proposals": ProjectProposals,
+  // TODO: Re-enable proposals/changes system later
+  // "project-proposals": ProjectProposals,
   insights: InsightsDashboard,
 };
 

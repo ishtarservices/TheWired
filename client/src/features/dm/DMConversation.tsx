@@ -13,8 +13,10 @@ import { markConversationRead, clearDMUnreadDivider } from "@/store/slices/dmSli
 import type { DMMessage as DMMessageType } from "@/store/slices/dmSlice";
 import { markDMNotificationsRead } from "@/store/slices/notificationSlice";
 import { getDisplayName } from "./dmUtils";
-import { ArrowLeft, ChevronDown, Phone, Video, X, Pencil, ArrowDown, Reply } from "lucide-react";
+import { ArrowLeft, ChevronDown, Phone, Video, X, Pencil, ArrowDown, Reply, Search } from "lucide-react";
 import { useCall } from "@/features/calling/useCall";
+import { SearchPanel } from "@/features/search/SearchPanel";
+import type { MessageSearchResult } from "@/features/search/useMessageSearch";
 
 interface DMConversationProps {
   partnerPubkey: string;
@@ -76,9 +78,20 @@ export function DMConversation({ partnerPubkey, onBack }: DMConversationProps) {
   const [editingMessage, setEditingMessage] = useState<DMMessageType | null>(null);
   const [replyTo, setReplyTo] = useState<DMMessageType | null>(null);
 
+  const [searchOpen, setSearchOpen] = useState(false);
+
   // Reply jump navigation state
   const [highlightedWrapId, setHighlightedWrapId] = useState<string | null>(null);
   const [jumpBackWrapId, setJumpBackWrapId] = useState<string | null>(null);
+
+  const handleSearchJump = useCallback((result: MessageSearchResult) => {
+    if (!result.wrapId) return;
+    const el = document.querySelector(`[data-wrap-id="${result.wrapId}"]`);
+    if (!el) return;
+    el.scrollIntoView({ behavior: "smooth", block: "center" });
+    setHighlightedWrapId(result.wrapId);
+    setTimeout(() => setHighlightedWrapId(null), 1500);
+  }, []);
 
   const scrollToMessage = useCallback((targetWrapId: string, sourceWrapId?: string) => {
     const container = scrollRef.current;
@@ -273,6 +286,22 @@ export function DMConversation({ partnerPubkey, onBack }: DMConversationProps) {
           )}
         </div>
         <div className="flex items-center gap-1">
+          {searchOpen ? (
+            <SearchPanel
+              mode="dm"
+              partnerPubkey={partnerPubkey}
+              onClose={() => setSearchOpen(false)}
+              onJumpToMessage={handleSearchJump}
+            />
+          ) : (
+            <button
+              onClick={() => setSearchOpen(true)}
+              className="rounded-lg p-2 text-muted hover:text-heading hover:bg-surface-hover transition-colors"
+              title="Search conversation"
+            >
+              <Search size={16} />
+            </button>
+          )}
           <button
             onClick={() => startCall(partnerPubkey, "audio")}
             disabled={isInCall}

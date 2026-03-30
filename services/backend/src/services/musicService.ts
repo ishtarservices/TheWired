@@ -331,21 +331,25 @@ export const musicService = {
         limit: 500, // fetch a large pool to sort by plays
       });
 
-      const candidateIds = results.hits.map((h: Record<string, unknown>) => h.id as string);
+      // Extract both eventId and addressableId from hits
+      const candidates = results.hits.map((h: Record<string, unknown>) => ({
+        eventId: h.id as string,
+        addressableId: h.addressable_id as string,
+      }));
       total = results.estimatedTotalHits ?? 0;
 
-      if (candidateIds.length > 0) {
-        // Batch-fetch play counts from Redis
+      if (candidates.length > 0) {
+        // Batch-fetch play counts from Redis keyed by addressableId
         const pipeline = redis.pipeline();
-        for (const id of candidateIds) pipeline.get(`play_count:${id}`);
+        for (const c of candidates) pipeline.get(`play_count:${c.addressableId}`);
         const counts = await pipeline.exec();
 
-        const scored = candidateIds.map((id, i) => ({
-          id,
+        const scored = candidates.map((c, i) => ({
+          eventId: c.eventId,
           plays: parseInt((counts?.[i]?.[1] as string) ?? "0", 10),
         }));
         scored.sort((a, b) => b.plays - a.plays);
-        eventIds = scored.slice(offset, offset + limit).map((s) => s.id);
+        eventIds = scored.slice(offset, offset + limit).map((s) => s.eventId);
       }
     } else if (params.sort === "trending" && params.genre) {
       // Use Redis trending sorted sets
@@ -449,73 +453,82 @@ export const musicService = {
     return { albums: events, total };
   },
 
-  async recordPlay(eventId: string, pubkey: string) {
+  async recordPlay(addressableId: string, pubkey: string) {
     const { getRedis } = await import("../lib/redis.js");
     const redis = getRedis();
 
-    // Dedup: 30s cooldown per pubkey per event
-    const dedupKey = `played:${pubkey}:${eventId}`;
+    // Dedup: 30s cooldown per pubkey per addressable event
+    const dedupKey = `played:${pubkey}:${addressableId}`;
     const wasSet = await redis.set(dedupKey, "1", "EX", 30, "NX");
     if (!wasSet) return false;
 
-    // Increment play count
-    await redis.incr(`play_count:${eventId}`);
-
-    // Track unique listeners (HyperLogLog)
-    await redis.pfadd(`unique_listeners:${eventId}`, pubkey);
-
-    // Track daily plays
     const today = new Date().toISOString().split("T")[0];
-    const dailyKey = `daily_plays:${eventId}:${today}`;
-    await redis.incr(dailyKey);
-    await redis.expire(dailyKey, 90 * 24 * 3600); // 90-day TTL
 
-    // Record in listening history (sorted set, cap at 500)
-    const ts = Math.floor(Date.now() / 1000);
-    await redis.zadd(`listening_history:${pubkey}`, ts, eventId);
-    await redis.zremrangebyrank(`listening_history:${pubkey}`, 0, -501);
+    // Redis writes (fast path for trending)
+    const redisPipeline = redis.pipeline();
+    redisPipeline.incr(`play_count:${addressableId}`);
+    redisPipeline.pfadd(`unique_listeners:${addressableId}`, pubkey);
+    const dailyKey = `daily_plays:${addressableId}:${today}`;
+    redisPipeline.incr(dailyKey);
+    redisPipeline.expire(dailyKey, 90 * 24 * 3600);
+    redisPipeline.zadd(`listening_history:${pubkey}`, Math.floor(Date.now() / 1000), addressableId);
+    redisPipeline.zremrangebyrank(`listening_history:${pubkey}`, 0, -501);
+    await redisPipeline.exec();
+
+    // PostgreSQL writes (durable persistence) — fire-and-forget
+    db.execute(
+      sql`INSERT INTO app.music_play_daily (addressable_id, date, play_count)
+          VALUES (${addressableId}, ${today}::date, 1)
+          ON CONFLICT (addressable_id, date)
+          DO UPDATE SET play_count = app.music_play_daily.play_count + 1`,
+    ).catch((err) => console.error("[music] Failed to persist daily play:", (err as Error).message));
+
+    db.execute(
+      sql`INSERT INTO app.music_play_listeners (addressable_id, pubkey)
+          VALUES (${addressableId}, ${pubkey})
+          ON CONFLICT (addressable_id, pubkey)
+          DO UPDATE SET last_played_at = NOW(), play_count = app.music_play_listeners.play_count + 1`,
+    ).catch((err) => console.error("[music] Failed to persist listener:", (err as Error).message));
 
     return true;
   },
 
   async getInsights(addressableId: string) {
-    const { getRedis } = await import("../lib/redis.js");
-    const { getMeilisearchClient } = await import("../lib/meilisearch.js");
-    const redis = getRedis();
-    const ms = getMeilisearchClient();
+    try {
+    // Total plays from PostgreSQL
+    const totalRows = (await db.execute(
+      sql`SELECT COALESCE(SUM(play_count), 0)::int AS total
+          FROM app.music_play_daily
+          WHERE addressable_id = ${addressableId}`,
+    )) as unknown as { total: number }[];
+    const totalPlays = totalRows[0]?.total ?? 0;
 
-    // Find the event ID for this addressable ID
-    const [kindStr] = addressableId.split(":");
-    const kind = parseInt(kindStr, 10);
-    const indexName = kind === 31683 ? "tracks" : "albums";
+    // Unique listeners from PostgreSQL
+    const listenerRows = (await db.execute(
+      sql`SELECT COUNT(*)::int AS count
+          FROM app.music_play_listeners
+          WHERE addressable_id = ${addressableId}`,
+    )) as unknown as { count: number }[];
+    const uniqueListeners = listenerRows[0]?.count ?? 0;
 
-    const results = await ms.index(indexName).search("", {
-      filter: `addressable_id = "${escapeMsFilter(addressableId)}"`,
-      limit: 1,
-    });
+    // Daily plays for last 30 days from PostgreSQL
+    const dailyRows = (await db.execute(
+      sql`SELECT date::text, play_count
+          FROM app.music_play_daily
+          WHERE addressable_id = ${addressableId}
+            AND date >= CURRENT_DATE - 30
+          ORDER BY date`,
+    )) as unknown as { date: string; play_count: number }[];
 
-    if (results.hits.length === 0) {
-      return { totalPlays: 0, uniqueListeners: 0, dailyPlays: [], trend: "stable" as const };
-    }
-
-    const eventId = results.hits[0].id as string;
-
-    // Total plays
-    const totalPlaysStr = await redis.get(`play_count:${eventId}`);
-    const totalPlays = totalPlaysStr ? parseInt(totalPlaysStr, 10) : 0;
-
-    // Unique listeners (HyperLogLog)
-    const uniqueListeners = await redis.pfcount(`unique_listeners:${eventId}`);
-
-    // Daily plays for last 30 days
+    // Fill in missing days with 0
+    const dailyMap = new Map(dailyRows.map((r) => [r.date, r.play_count]));
     const dailyPlays: { date: string; count: number }[] = [];
     const now = new Date();
     for (let i = 29; i >= 0; i--) {
-      const date = new Date(now);
-      date.setDate(date.getDate() - i);
-      const dateStr = date.toISOString().split("T")[0];
-      const countStr = await redis.get(`daily_plays:${eventId}:${dateStr}`);
-      dailyPlays.push({ date: dateStr, count: countStr ? parseInt(countStr, 10) : 0 });
+      const d = new Date(now);
+      d.setDate(d.getDate() - i);
+      const dateStr = d.toISOString().split("T")[0];
+      dailyPlays.push({ date: dateStr, count: dailyMap.get(dateStr) ?? 0 });
     }
 
     // Trend: compare last 7 days to previous 7 days
@@ -524,43 +537,69 @@ export const musicService = {
     const trend = last7 > prev7 * 1.1 ? "up" as const : last7 < prev7 * 0.9 ? "down" as const : "stable" as const;
 
     return { totalPlays, uniqueListeners, dailyPlays, trend };
+    } catch (err) {
+      console.error("[insights] getInsights failed:", (err as Error).message);
+      throw err;
+    }
   },
 
   async getArtistSummary(pubkey: string) {
-    const { getRedis } = await import("../lib/redis.js");
-    const { getMeilisearchClient } = await import("../lib/meilisearch.js");
-    const redis = getRedis();
-    const ms = getMeilisearchClient();
+    try {
+      const { getMeilisearchClient } = await import("../lib/meilisearch.js");
+      const ms = getMeilisearchClient();
 
-    // Find all tracks by this pubkey
-    const results = await ms.index("tracks").search("", {
-      filter: `pubkey = "${escapeMsFilter(pubkey)}"`,
-      limit: 500,
-    });
+      // Find all tracks by this pubkey from Meilisearch (for title/addressableId mapping)
+      const results = await ms.index("tracks").search("", {
+        filter: `pubkey = "${escapeMsFilter(pubkey)}"`,
+        limit: 500,
+      });
+      if (results.hits.length === 0) {
+        return { totalPlays: 0, totalListeners: 0, trackBreakdown: [], trackCount: 0 };
+      }
 
-    let totalPlays = 0;
-    let totalListeners = 0;
-    const trackBreakdown: { addressableId: string; title: string; plays: number }[] = [];
+      const trackMap = new Map<string, string>();
+      for (const hit of results.hits) {
+        trackMap.set(hit.addressable_id as string, hit.title as string);
+      }
+      const addrIds = [...trackMap.keys()];
 
-    for (const hit of results.hits) {
-      const eventId = hit.id as string;
-      const addrId = hit.addressable_id as string;
-      const title = hit.title as string;
+      // Batch query: total plays per track from PostgreSQL
+      const addrArray = sql`ARRAY[${sql.join(addrIds.map((id) => sql`${id}`), sql`, `)}]::text[]`;
+      const playRows = (await db.execute(
+        sql`SELECT addressable_id, COALESCE(SUM(play_count), 0)::int AS total
+            FROM app.music_play_daily
+            WHERE addressable_id = ANY(${addrArray})
+            GROUP BY addressable_id`,
+      )) as unknown as { addressable_id: string; total: number }[];
+      const playsMap = new Map(playRows.map((r) => [r.addressable_id, r.total]));
 
-      const playsStr = await redis.get(`play_count:${eventId}`);
-      const plays = playsStr ? parseInt(playsStr, 10) : 0;
-      totalPlays += plays;
+      // Batch query: unique listeners per track from PostgreSQL
+      const listenerRows = (await db.execute(
+        sql`SELECT addressable_id, COUNT(*)::int AS count
+            FROM app.music_play_listeners
+            WHERE addressable_id = ANY(${addrArray})
+            GROUP BY addressable_id`,
+      )) as unknown as { addressable_id: string; count: number }[];
+      const listenersMap = new Map(listenerRows.map((r) => [r.addressable_id, r.count]));
 
-      const listeners = await redis.pfcount(`unique_listeners:${eventId}`);
-      totalListeners += listeners;
+      let totalPlays = 0;
+      let totalListeners = 0;
+      const trackBreakdown: { addressableId: string; title: string; plays: number }[] = [];
 
-      trackBreakdown.push({ addressableId: addrId, title, plays });
+      for (const [addrId, title] of trackMap) {
+        const plays = playsMap.get(addrId) ?? 0;
+        totalPlays += plays;
+        totalListeners += listenersMap.get(addrId) ?? 0;
+        trackBreakdown.push({ addressableId: addrId, title, plays });
+      }
+
+      trackBreakdown.sort((a, b) => b.plays - a.plays);
+
+      return { totalPlays, totalListeners, trackBreakdown, trackCount: trackMap.size };
+    } catch (err) {
+      console.error("[insights] getArtistSummary failed:", (err as Error).message);
+      throw err;
     }
-
-    // Sort by plays descending
-    trackBreakdown.sort((a, b) => b.plays - a.plays);
-
-    return { totalPlays, totalListeners, trackBreakdown, trackCount: results.hits.length };
   },
 
   async deleteMusic(
@@ -592,6 +631,9 @@ export const musicService = {
       await ms.index(indexName).deleteDocuments(docIds);
     } catch { /* doc may not exist */ }
 
+    // Construct the stable addressableId for play data cleanup
+    const addressableId = `${kind}:${pubkey}:${slug}`;
+
     // Decrement genre/tag counts and clean up play/listener keys
     for (const row of deleted) {
       const tags = row.tags;
@@ -600,11 +642,25 @@ export const musicService = {
       if (genre) await redis.zincrby("music:genre_counts", -1, genre);
       for (const t of hashtags) await redis.zincrby("music:tag_counts", -1, t);
       await redis.srem("music:counted_events", row.id);
-      // Clean up play count and listener tracking keys
-      await redis.del(`play_count:${row.id}`, `unique_listeners:${row.id}`);
     }
     await redis.zremrangebyscore("music:genre_counts", "-inf", "0");
     await redis.zremrangebyscore("music:tag_counts", "-inf", "0");
+
+    // Clean up play data from Redis (keyed by addressableId)
+    await redis.del(`play_count:${addressableId}`, `unique_listeners:${addressableId}`);
+    // Scan and delete daily play keys
+    let cursor = "0";
+    do {
+      const [next, keys] = await redis.scan(cursor, "MATCH", `daily_plays:${addressableId}:*`, "COUNT", 100);
+      cursor = next;
+      if (keys.length > 0) await redis.del(...keys);
+    } while (cursor !== "0");
+
+    // Clean up play data from PostgreSQL
+    db.execute(sql`DELETE FROM app.music_play_daily WHERE addressable_id = ${addressableId}`)
+      .catch((err) => console.error("[music] Failed to delete daily plays:", (err as Error).message));
+    db.execute(sql`DELETE FROM app.music_play_listeners WHERE addressable_id = ${addressableId}`)
+      .catch((err) => console.error("[music] Failed to delete listeners:", (err as Error).message));
 
     return true;
   },

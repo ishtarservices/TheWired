@@ -7,6 +7,7 @@ import { startTrendingComputer } from "./workers/trendingComputer.js";
 import { startProfileRefresher } from "./workers/profileRefresher.js";
 import { startNotificationDispatcher } from "./workers/notificationDispatcher.js";
 import { startAnalyticsAggregator } from "./workers/analyticsAggregator.js";
+import { startDiscoveryScoreComputer } from "./workers/discoveryScoreComputer.js";
 import { musicService } from "./services/musicService.js";
 
 async function main() {
@@ -37,6 +38,7 @@ async function main() {
   startProfileRefresher();
   startNotificationDispatcher();
   startAnalyticsAggregator();
+  startDiscoveryScoreComputer();
 }
 
 main().catch((err) => {

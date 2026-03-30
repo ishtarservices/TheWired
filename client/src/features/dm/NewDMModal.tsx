@@ -70,7 +70,7 @@ export function NewDMModal({ open, onClose, onSelect }: NewDMModalProps) {
 
   return (
     <Modal open={open} onClose={onClose}>
-      <div className="w-full max-w-md rounded-2xl card-glass border border-border shadow-2xl overflow-hidden">
+      <div className="w-full max-w-md max-h-[90vh] rounded-2xl card-glass border border-border shadow-2xl overflow-hidden">
         {/* Header */}
         <div className="flex items-center justify-between border-b border-border px-4 py-3">
           <h2 className="text-sm font-semibold text-heading">New Message</h2>

@@ -1,18 +1,47 @@
-import { useState } from "react";
-import { Users, Settings } from "lucide-react";
+import { useState, useCallback } from "react";
+import { Users, Settings, Search } from "lucide-react";
 import { Button } from "../../components/ui/Button";
+import { SearchPanel } from "../search/SearchPanel";
 import { useSpace } from "./useSpace";
 import { useAppDispatch, useAppSelector } from "../../store/hooks";
 import { toggleRightPanel } from "../../store/slices/uiSlice";
 import { usePermissions } from "./usePermissions";
 import { SpaceSettingsModal } from "./settings/SpaceSettingsModal";
+import { parseChannelIdPart } from "./spaceSelectors";
+import type { MessageSearchResult } from "../search/useMessageSearch";
 
 export function ChannelHeader() {
-  const { activeSpace, activeChannelId, resolveActiveChannel, getActiveChannelType } = useSpace();
+  const { activeSpace, activeChannelId, resolveActiveChannel, getActiveChannelType, selectChannel } = useSpace();
   const dispatch = useAppDispatch();
   const currentPubkey = useAppSelector((s) => s.identity.pubkey);
+  const allChannels = useAppSelector((s) => s.spaces.channels);
   const { can } = usePermissions(activeSpace?.id ?? null);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [searchOpen, setSearchOpen] = useState(false);
+
+  const spaceChannels = activeSpace ? allChannels[activeSpace.id] ?? [] : [];
+
+  const handleJumpToMessage = useCallback(
+    (result: MessageSearchResult) => {
+      if (!result.eventId) return;
+
+      const currentChannelPart = parseChannelIdPart(activeChannelId);
+
+      // Switch channel if the result is in a different one
+      if (result.channelId && result.channelId !== currentChannelPart) {
+        selectChannel(result.channelId);
+        // Wait for channel switch to render, then scroll
+        requestAnimationFrame(() => {
+          requestAnimationFrame(() => {
+            scrollToEventId(result.eventId!);
+          });
+        });
+      } else {
+        scrollToEventId(result.eventId);
+      }
+    },
+    [activeChannelId, selectChannel],
+  );
 
   if (!activeSpace || !activeChannelId) return null;
 
@@ -34,6 +63,24 @@ export function ChannelHeader() {
         </span>
       )}
       <div className="ml-auto flex items-center gap-1">
+        {searchOpen ? (
+          <SearchPanel
+            mode="space"
+            spaceId={activeSpace.id}
+            channels={spaceChannels}
+            onClose={() => setSearchOpen(false)}
+            onJumpToMessage={handleJumpToMessage}
+          />
+        ) : (
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={() => setSearchOpen(true)}
+            title="Search messages"
+          >
+            <Search size={16} />
+          </Button>
+        )}
         {canManage && (
           <Button
             variant="ghost"
@@ -62,4 +109,12 @@ export function ChannelHeader() {
       )}
     </div>
   );
+}
+
+function scrollToEventId(eventId: string) {
+  const el = document.querySelector(`[data-event-id="${eventId}"]`);
+  if (!el) return;
+  el.scrollIntoView({ behavior: "smooth", block: "center" });
+  el.classList.add("animate-highlight-flash");
+  setTimeout(() => el.classList.remove("animate-highlight-flash"), 1500);
 }

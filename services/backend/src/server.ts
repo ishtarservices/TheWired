@@ -25,6 +25,7 @@ import { moderationRoutes } from "./routes/moderation.js";
 import { notificationsRoutes } from "./routes/notifications.js";
 import { voiceRoutes } from "./routes/voice.js";
 import { gifRoutes } from "./routes/gif.js";
+import { discoveryRoutes } from "./routes/discovery.js";
 import { authContext } from "./middleware/authContext.js";
 import { errorHandler } from "./middleware/errorHandler.js";
 
@@ -71,6 +72,7 @@ export async function createServer() {
   await server.register(notificationsRoutes, { prefix: "/notifications" });
   await server.register(voiceRoutes, { prefix: "/voice" });
   await server.register(gifRoutes, { prefix: "/gif" });
+  await server.register(discoveryRoutes, { prefix: "/discovery" });
 
   return server;
 }

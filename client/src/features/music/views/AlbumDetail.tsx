@@ -1,5 +1,5 @@
 import { useMemo, useState } from "react";
-import { ArrowLeft, Play, Shuffle, Disc3, Link2, Heart, Plus, Check, Trash2, Users, UserPlus, X, Clock, GitPullRequest, RefreshCw } from "lucide-react";
+import { ArrowLeft, Play, Shuffle, Disc3, Link2, Heart, Plus, Check, Trash2, Users, UserPlus, X, Clock, RefreshCw } from "lucide-react";
 import { nip19 } from "nostr-tools";
 import { useAppSelector, useAppDispatch } from "@/store/hooks";
 import { goBack, setActiveDetailId, addAlbum } from "@/store/slices/musicSlice";
@@ -334,22 +334,7 @@ export function AlbumDetail() {
                   History
                 </button>
               )}
-              {(isOwner || isCollaborator) && (
-                <button
-                  onClick={() =>
-                    dispatch(
-                      setActiveDetailId({
-                        view: "project-proposals",
-                        id: album.addressableId,
-                      }),
-                    )
-                  }
-                  className="flex items-center gap-1.5 rounded-full border border-border px-4 py-1.5 text-sm text-soft transition-colors hover:border-border-light hover:text-heading"
-                >
-                  <GitPullRequest size={14} />
-                  Proposals
-                </button>
-              )}
+              {/* TODO: Re-enable proposals/changes system later */}
             </div>
           </div>
         </div>
@@ -403,12 +388,17 @@ export function AlbumDetail() {
             </button>
           )}
 
-          {/* Annotations */}
+          {/* Notes */}
           {albumId && (
             <AnnotationsPanel
               targetRef={albumId}
               targetName={album.title}
               ownerPubkey={album.pubkey}
+              albumTracks={allAlbumTracks.map((t) => ({
+                addressableId: t.addressableId,
+                title: t.title,
+                pubkey: t.pubkey,
+              }))}
             />
           )}
         </div>

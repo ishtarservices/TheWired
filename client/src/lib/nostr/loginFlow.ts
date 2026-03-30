@@ -27,6 +27,7 @@ import { loadSpaces } from "../db/spaceStore";
 import { loadMusicLibrary } from "../db/musicStore";
 import { getEventsByKind } from "../db/eventStore";
 import { setSpaces, removeSpace, setChannels } from "../../store/slices/spacesSlice";
+import { trackDeletedNote } from "../../store/slices/eventsSlice";
 import { addNotification } from "../../store/slices/notificationSlice";
 import { validateSpaces } from "../api/spaces";
 import { removeSpaceFromStore } from "../db/spaceStore";
@@ -391,6 +392,11 @@ export async function performLogin(
     // Only filter if the event was created BEFORE or AT the deletion time.
     // Events re-published AFTER a deletion supersede it.
     return deletedAt !== undefined && event.created_at <= deletedAt;
+  }
+
+  // Populate Redux deletedNoteIds so re-delivered notes/reposts from relays are rejected
+  for (const eventId of deletedEventIds) {
+    store.dispatch(trackDeletedNote(eventId));
   }
 
   const liveTrackEvents = trackEvents.filter(

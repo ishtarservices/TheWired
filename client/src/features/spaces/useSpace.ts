@@ -14,6 +14,9 @@ import {
   switchSpaceChannel,
   openBgChatSub,
   closeBgChatSub,
+  enterFriendsFeed,
+  leaveFriendsFeed,
+  switchFriendsFeedChannel,
 } from "../../lib/nostr/groupSubscriptions";
 import {
   addSpaceToStore,
@@ -36,6 +39,7 @@ import { selectActiveSpace, parseChannelIdPart } from "./spaceSelectors";
 import { clearSpaceFeed } from "../../store/slices/eventsSlice";
 import type { Space, SpaceChannel } from "../../types/space";
 import { getLastChannel, setLastChannel, removeLastChannel } from "../../lib/db/lastChannelCache";
+import { FRIENDS_FEED_ID, FRIENDS_FEED_CHANNELS } from "../friends/friendsFeedConstants";
 
 /** Pick the best default channel for a space, respecting position and isDefault flag */
 function pickDefaultChannel(
@@ -174,11 +178,31 @@ export function useSpace() {
 
   const selectSpace = useCallback(
     (spaceId: string) => {
+      // Friends Feed virtual space — subscribe to follow list notes
+      if (spaceId === FRIENDS_FEED_ID) {
+        if (activeSpaceId && activeSpaceId !== FRIENDS_FEED_ID) {
+          leaveClientSpace(activeSpaceId);
+        } else if (activeSpaceId === FRIENDS_FEED_ID) {
+          leaveFriendsFeed();
+        }
+        dispatch(setActiveSpace(FRIENDS_FEED_ID));
+        // Default to first channel and open subscription
+        const defaultChannel = FRIENDS_FEED_CHANNELS[0];
+        if (defaultChannel) {
+          const channelId = `${FRIENDS_FEED_ID}:${defaultChannel.id}`;
+          dispatch(setActiveChannel(channelId));
+          enterFriendsFeed(defaultChannel.type);
+        }
+        return;
+      }
+
       const space = spaces.find((s) => s.id === spaceId);
       if (!space) return;
 
       // Leave previous space
-      if (activeSpaceId) {
+      if (activeSpaceId === FRIENDS_FEED_ID) {
+        leaveFriendsFeed();
+      } else if (activeSpaceId) {
         leaveClientSpace(activeSpaceId);
       }
 
@@ -232,6 +256,16 @@ export function useSpace() {
 
   const selectChannel = useCallback(
     (channelOrType: string) => {
+      // Friends Feed virtual space — switch subscription to new channel type
+      if (activeSpaceId === FRIENDS_FEED_ID) {
+        const channel = FRIENDS_FEED_CHANNELS.find((c) => c.id === channelOrType);
+        const channelType = channel?.type ?? channelOrType;
+        const channelId = `${FRIENDS_FEED_ID}:${channelOrType}`;
+        dispatch(setActiveChannel(channelId));
+        switchFriendsFeedChannel(channelType);
+        return;
+      }
+
       if (!activeSpace) return;
 
       // Try to resolve as channel ID first (from channels array)
@@ -252,12 +286,17 @@ export function useSpace() {
         switchSpaceChannel(activeSpace, channelOrType);
       }
     },
-    [dispatch, activeSpace, allChannels],
+    [dispatch, activeSpace, activeSpaceId, allChannels],
   );
 
   /** Resolve the active channel's SpaceChannel object */
   const resolveActiveChannel = useCallback((): SpaceChannel | null => {
     if (!activeSpaceId || !activeChannelId) return null;
+    // Friends Feed has hardcoded channels
+    if (activeSpaceId === FRIENDS_FEED_ID) {
+      const channelIdPart = parseChannelIdPart(activeChannelId);
+      return FRIENDS_FEED_CHANNELS.find((c) => c.id === channelIdPart) ?? null;
+    }
     const spaceChannels = allChannels[activeSpaceId];
     if (!spaceChannels) return null;
     const channelIdPart = parseChannelIdPart(activeChannelId);

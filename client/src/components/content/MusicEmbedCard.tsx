@@ -1,10 +1,13 @@
-import { useMemo } from "react";
-import { Play, Pause, Disc3 } from "lucide-react";
+import { useMemo, useState, useEffect, useCallback } from "react";
+import { Play, Pause, Disc3, Loader2, Music } from "lucide-react";
+import { useNavigate } from "react-router-dom";
 import { useAppSelector, useAppDispatch } from "@/store/hooks";
 import { setActiveDetailId } from "@/store/slices/musicSlice";
 import { setSidebarMode } from "@/store/slices/uiSlice";
 import { useAudioPlayer } from "@/features/music/useAudioPlayer";
 import { getTrackImage } from "@/features/music/trackImage";
+import { resolveMusic } from "@/lib/api/music";
+import { processIncomingEvent } from "@/lib/nostr/eventPipeline";
 
 interface MusicEmbedCardProps {
   kind: number;
@@ -14,6 +17,7 @@ interface MusicEmbedCardProps {
 
 export function MusicEmbedCard({ kind, pubkey, identifier }: MusicEmbedCardProps) {
   const dispatch = useAppDispatch();
+  const navigate = useNavigate();
   const addressableId = `${kind}:${pubkey}:${identifier}`;
   const isTrack = kind === 31683;
 
@@ -38,15 +42,72 @@ export function MusicEmbedCard({ kind, pubkey, identifier }: MusicEmbedCardProps
   const title = isTrack ? track?.title : album?.title;
   const artist = isTrack ? track?.artist : album?.artist;
 
-  // Not yet in store -- render a minimal placeholder
+  // ── Auto-resolve when data isn't in store ──
+  const [resolving, setResolving] = useState(false);
+
+  useEffect(() => {
+    if (title || resolving) return;
+    let cancelled = false;
+    const type = isTrack ? "track" : "album";
+
+    setResolving(true);
+    resolveMusic(type, pubkey, identifier)
+      .then(async (result) => {
+        if (cancelled) return;
+        const data = result.data;
+        await processIncomingEvent((data as { event: unknown }).event, "resolve");
+        if ("tracks" in data && Array.isArray(data.tracks)) {
+          for (const trackEvent of data.tracks) {
+            await processIncomingEvent(trackEvent, "resolve");
+          }
+        }
+      })
+      .catch(() => {})
+      .finally(() => { if (!cancelled) setResolving(false); });
+
+    return () => { cancelled = true; };
+  }, [title, isTrack, pubkey, identifier, resolving]);
+
+  // ── Navigate handler (used for both resolved and unresolved states) ──
+  const handleNavigate = useCallback(() => {
+    if (!isTrack) {
+      dispatch(setSidebarMode("music"));
+      dispatch(setActiveDetailId({ view: "album-detail", id: addressableId }));
+      // Navigate to root so MainContent renders (center panel may be on /profile or /dm)
+      navigate("/");
+    }
+  }, [isTrack, addressableId, dispatch, navigate]);
+
+  // ── Placeholder state (data not yet in store) ──
   if (!title) {
     return (
-      <span className="font-mono text-xs text-primary/70 bg-surface px-1 py-0.5 rounded">
-        {identifier || "music"}
-      </span>
+      <button
+        onClick={(e) => {
+          e.stopPropagation();
+          handleNavigate();
+        }}
+        className="mt-1 inline-flex items-center gap-3 rounded-xl border border-border card-glass px-3 py-2 text-left transition-all hover:border-border-light hover-lift max-w-xs cursor-pointer"
+      >
+        <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-card">
+          {resolving ? (
+            <Loader2 size={16} className="text-muted animate-spin" />
+          ) : (
+            <Music size={16} className="text-muted" />
+          )}
+        </div>
+        <div className="min-w-0 flex-1">
+          <p className="truncate text-sm font-medium text-heading">
+            {resolving ? "Loading..." : identifier || "Music"}
+          </p>
+          <p className="truncate text-xs text-soft">
+            {isTrack ? "Track" : "Album"}
+          </p>
+        </div>
+      </button>
     );
   }
 
+  // ── Resolved state ──
   const handleClick = () => {
     if (isTrack && track) {
       if (isCurrent) {
@@ -57,6 +118,7 @@ export function MusicEmbedCard({ kind, pubkey, identifier }: MusicEmbedCardProps
     } else if (!isTrack) {
       dispatch(setSidebarMode("music"));
       dispatch(setActiveDetailId({ view: "album-detail", id: addressableId }));
+      navigate("/");
     }
   };
 

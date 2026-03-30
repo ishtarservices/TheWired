@@ -147,7 +147,7 @@ export function useAudioPlayer() {
         await el.play();
         // Final guard before reporting play
         if (loadedTrackId === targetId) {
-          reportPlay(currentTrack.eventId);
+          reportPlay(currentTrack.addressableId);
         }
       } catch {
         // Autoplay might be blocked

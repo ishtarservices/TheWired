@@ -1,6 +1,6 @@
 import { useState, useMemo, useEffect, useCallback, useRef, memo } from "react";
 import { nip19 } from "nostr-tools";
-import { ChevronDown, ChevronUp, ImageIcon, Film, Gauge } from "lucide-react";
+import { ChevronDown, ChevronUp, ImageIcon, Film, Gauge, Download } from "lucide-react";
 import { useAppSelector } from "../../store/hooks";
 import { usePlaybackBarSpacing } from "../../hooks/usePlaybackBarSpacing";
 import { selectSpaceRootNotes, selectSpaceRootNoteIds, selectActiveSpace } from "./spaceSelectors";
@@ -14,6 +14,7 @@ import {
   type ExtractedMedia,
 } from "../../lib/media/mediaUrlParser";
 import { imageCache } from "../../lib/cache/imageCache";
+import { downloadMedia } from "../../components/ui/MediaLightbox";
 import { useScrollRestore } from "../../hooks/useScrollRestore";
 import { useFeedPagination } from "./useFeedPagination";
 import { FeedToolbar } from "./FeedToolbar";
@@ -24,6 +25,7 @@ import { useNoteEngagementSub } from "./useNoteEngagementSub";
 import { parseQuoteRef } from "./noteParser";
 import { useIsBlocked } from "../../hooks/useIsBlocked";
 import { useUnblock } from "../../hooks/useUnblock";
+import { FRIENDS_FEED_ID } from "../friends/friendsFeedConstants";
 import { BlockedMessage } from "../../components/ui/BlockedMessage";
 import { usePlaybackSpeed, VALID_SPEEDS } from "@/hooks/usePlaybackSpeed";
 import { NoteActionBar } from "./notes/NoteActionBar";
@@ -49,13 +51,22 @@ function InlineImage({ url }: { url: string }) {
     );
   }
   return (
-    <img
-      src={url}
-      alt=""
-      className="max-h-80 rounded-md object-contain"
-      loading="lazy"
-      onError={() => setErrored(true)}
-    />
+    <div className="group/img relative inline-block">
+      <img
+        src={url}
+        alt=""
+        className="max-h-80 rounded-md object-contain"
+        loading="lazy"
+        onError={() => setErrored(true)}
+      />
+      <button
+        onClick={() => downloadMedia(url)}
+        className="absolute right-2 top-2 rounded-full bg-black/50 p-1.5 text-white/70 opacity-0 group-hover/img:opacity-100 hover:bg-black/70 hover:text-white transition-all"
+        title="Download image"
+      >
+        <Download size={14} />
+      </button>
+    </div>
   );
 }
 
@@ -83,8 +94,16 @@ function InlineVideo({ url }: { url: string }) {
           if (rate !== playbackRate) setPlaybackRate(rate);
         }}
       />
-      {/* Speed overlay button */}
-      <div className="absolute right-2 top-2 z-10">
+      {/* Download + Speed overlay buttons */}
+      <div className="absolute right-2 top-2 z-10 flex items-center gap-1">
+        <button
+          onClick={() => downloadMedia(url)}
+          className="flex items-center rounded-md px-1.5 py-0.5 text-[11px] font-medium bg-black/50 text-white/70 opacity-0 group-hover/video:opacity-100 backdrop-blur-sm hover:bg-black/70 hover:text-white transition-all"
+          title="Download video"
+        >
+          <Download size={12} />
+        </button>
+        <div className="relative">
         <button
           onClick={() => setShowSpeedMenu((v) => !v)}
           className={`flex items-center gap-0.5 rounded-md px-1.5 py-0.5 text-[11px] font-medium backdrop-blur-sm transition-colors ${
@@ -114,6 +133,7 @@ function InlineVideo({ url }: { url: string }) {
             ))}
           </div>
         )}
+        </div>
       </div>
     </div>
   );
@@ -334,12 +354,23 @@ export function NotesFeed() {
   const notes = useAppSelector(selectSpaceRootNotes);
   const noteIds = useAppSelector(selectSpaceRootNoteIds);
   const activeChannelId = useAppSelector((s) => s.spaces.activeChannelId);
+  const activeSpaceId = useAppSelector((s) => s.spaces.activeSpaceId);
   const activeSpace = useAppSelector(selectActiveSpace);
   const scrollRef = useScrollRestore(activeChannelId);
   const { meta, refresh, loadMore } = useFeedPagination("notes");
   const { scrollPaddingClass } = usePlaybackBarSpacing();
 
-  useNoteEngagementSub(noteIds, activeSpace?.hostRelay);
+  // For Friends Feed and read-only spaces, replies/reactions live on repliers' own relays,
+  // not a single host relay — use all read relays (undefined).
+  const isFriendsFeed = activeSpaceId === FRIENDS_FEED_ID;
+  const engagementRelays =
+    isFriendsFeed || activeSpace?.mode === "read"
+      ? undefined
+      : activeSpace?.hostRelay
+        ? [activeSpace.hostRelay]
+        : undefined;
+
+  useNoteEngagementSub(noteIds, engagementRelays);
 
   return (
     <div className="flex flex-1 flex-col overflow-hidden">

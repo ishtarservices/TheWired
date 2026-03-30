@@ -13,6 +13,7 @@ import {
   Heart,
   ChevronDown,
   Maximize2,
+  Share2,
 } from "lucide-react";
 import { motion } from "motion/react";
 import { useState, useRef } from "react";
@@ -24,6 +25,7 @@ import { useLibrary } from "../useLibrary";
 import { getTrackImage } from "../trackImage";
 import { ProgressBar } from "./ProgressBar";
 import { ListenTogetherBadge } from "@/features/listenTogether/ListenTogetherBadge";
+import { MusicPostModal } from "../MusicPostModal";
 
 function formatTime(seconds: number): string {
   if (!isFinite(seconds) || seconds < 0) return "0:00";
@@ -64,11 +66,13 @@ export function ExpandedBar() {
   const isFavorited = currentTrack ? isTrackFavorited(currentTrack.addressableId) : false;
 
   const [showVolume, setShowVolume] = useState(false);
+  const [postModalOpen, setPostModalOpen] = useState(false);
   const volumeTimeoutRef = useRef<ReturnType<typeof setTimeout>>(undefined);
 
   if (!currentTrack) return null;
 
   const imageUrl = getTrackImage(currentTrack, albums);
+  const isLocal = currentTrack.visibility === "local";
 
   const handleFavoriteToggle = () => {
     if (!currentTrack) return;
@@ -143,6 +147,15 @@ export function ExpandedBar() {
                 className={isFavorited ? "fill-red-500 text-red-500" : ""}
               />
             </button>
+            {!isLocal && (
+              <button
+                onClick={() => setPostModalOpen(true)}
+                className="shrink-0 rounded p-1 text-soft transition-colors hover:text-heading"
+                title="Share track"
+              >
+                <Share2 size={15} />
+              </button>
+            )}
             {ltActive && <ListenTogetherBadge />}
           </div>
 
@@ -254,6 +267,22 @@ export function ExpandedBar() {
           </div>
         </div>
       </div>
+      {/* Quick Post Modal */}
+      {postModalOpen && currentTrack && (
+        <MusicPostModal
+          open={postModalOpen}
+          onClose={() => setPostModalOpen(false)}
+          target={{
+            addressableId: currentTrack.addressableId,
+            eventId: currentTrack.eventId,
+            pubkey: currentTrack.pubkey,
+            title: currentTrack.title,
+            artist: currentTrack.artist,
+            imageUrl,
+            kind: "track",
+          }}
+        />
+      )}
     </motion.div>
   );
 }

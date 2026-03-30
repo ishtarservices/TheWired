@@ -74,8 +74,16 @@ export function MiniBar() {
     return () => window.removeEventListener("resize", syncToCorner);
   }, [syncToCorner]);
 
+  // Store the pointerId so we can capture lazily once drag threshold is met
+  const pointerIdRef = useRef<number | null>(null);
+  const containerRef = useRef<HTMLDivElement>(null);
+
   const handlePointerDown = useCallback((e: React.PointerEvent) => {
-    e.currentTarget.setPointerCapture(e.pointerId);
+    // Don't initiate drag from child buttons (expand label, play/pause overlay)
+    if ((e.target as HTMLElement).closest("button")) return;
+
+    // Don't capture yet — defer until drag threshold so child clicks work
+    pointerIdRef.current = e.pointerId;
     didDragRef.current = false;
     dragStartRef.current = {
       x: e.clientX,
@@ -96,6 +104,10 @@ export function MiniBar() {
     if (!isDragging && (Math.abs(dx) > 5 || Math.abs(dy) > 5)) {
       setIsDragging(true);
       didDragRef.current = true;
+      // NOW capture pointer so drag continues even outside the element
+      if (pointerIdRef.current != null && containerRef.current) {
+        try { containerRef.current.setPointerCapture(pointerIdRef.current); } catch { /* ok */ }
+      }
     }
 
     if (didDragRef.current) {
@@ -105,8 +117,11 @@ export function MiniBar() {
     }
   }, [isDragging, motionX, motionY]);
 
-  const handlePointerUp = useCallback((e: React.PointerEvent) => {
-    e.currentTarget.releasePointerCapture(e.pointerId);
+  const handlePointerUp = useCallback((_e: React.PointerEvent) => {
+    if (pointerIdRef.current != null && containerRef.current) {
+      try { containerRef.current.releasePointerCapture(pointerIdRef.current); } catch { /* ok */ }
+    }
+    pointerIdRef.current = null;
     dragStartRef.current = null;
 
     if (didDragRef.current) {
@@ -136,6 +151,7 @@ export function MiniBar() {
   return (
     <motion.div
       key="mini"
+      ref={containerRef}
       initial={{ opacity: 0, scale: 0.5 }}
       animate={{ opacity: 1, scale: 1 }}
       exit={{ opacity: 0, scale: 0.5 }}

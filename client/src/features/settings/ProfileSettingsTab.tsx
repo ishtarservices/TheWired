@@ -6,6 +6,7 @@ import { useAppSelector } from "../../store/hooks";
 import { buildProfileEvent } from "../../lib/nostr/eventBuilder";
 import { signAndPublish } from "../../lib/nostr/publish";
 import { useAutoResize } from "../../hooks/useAutoResize";
+import { ProfileDisplaySection } from "./ProfileDisplaySection";
 import type { Kind0Profile } from "../../types/profile";
 
 const FIELDS: { key: keyof Kind0Profile; label: string }[] = [
@@ -61,7 +62,8 @@ export function ProfileSettingsTab() {
   };
 
   return (
-    <div className="mx-auto w-full max-w-lg rounded-xl border border-border bg-panel p-4">
+    <div className="mx-auto w-full max-w-lg space-y-4">
+    <div className="rounded-xl border border-border bg-panel p-4">
       <h3 className="mb-3 text-sm font-semibold text-heading">
         Profile Information
       </h3>
@@ -116,6 +118,9 @@ export function ProfileSettingsTab() {
           {saving ? <Spinner size="sm" /> : "Save Profile"}
         </Button>
       </div>
+    </div>
+
+    <ProfileDisplaySection />
     </div>
   );
 }

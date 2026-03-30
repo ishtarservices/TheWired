@@ -11,6 +11,8 @@ import {
   Settings,
   Radio,
   User,
+  Compass,
+  Users,
 } from "lucide-react";
 import { useLocation } from "react-router-dom";
 import { Button } from "../ui/Button";
@@ -42,7 +44,7 @@ const musicViewLabels: Record<MusicView, string> = {
   search: "Search Results",
   insights: "Insights",
   "project-history": "Project History",
-  "project-proposals": "Proposals",
+  // "project-proposals": "Proposals", // TODO: re-enable later
   "artist-detail": "Artist",
   "album-detail": "Project",
   "playlist-detail": "Playlist",
@@ -94,6 +96,9 @@ export function TopBar({
     if (location.pathname === "/relays") {
       return { icon: <Radio size={18} />, title: "Relays" };
     }
+    if (location.pathname === "/discover") {
+      return { icon: <Compass size={18} />, title: "Discover" };
+    }
     if (profilePubkey) {
       return {
         icon: <User size={18} />,
@@ -106,6 +111,9 @@ export function TopBar({
 
     // Sidebar-mode based
     if (sidebarMode === "spaces") {
+      if (activeSpaceId === "__friends_feed__") {
+        return { icon: <Users size={18} />, title: "Friends Feed" };
+      }
       const space = spaces.find((s) => s.id === activeSpaceId);
       if (!space) {
         return { icon: <LayoutGrid size={18} />, title: "Spaces" };

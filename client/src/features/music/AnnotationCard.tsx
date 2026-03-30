@@ -10,6 +10,64 @@ import { signAndPublish } from "@/lib/nostr/publish";
 import { buildNaddrReference } from "@/lib/nostr/naddrEncode";
 import { copyToClipboard } from "@/lib/clipboard";
 
+const MEDIA_URL_RE = /https?:\/\/\S+\.(?:gif|png|jpg|jpeg|webp|avif|mp4|webm|mov)(?:\?\S*)?/gi;
+const IMAGE_EXTS = /\.(?:gif|png|jpg|jpeg|webp|avif)(?:\?|$)/i;
+
+function AnnotationContent({ content }: { content: string }) {
+  // Split content into text lines and media URLs
+  const lines = content.split("\n");
+  const textLines: string[] = [];
+  const mediaUrls: string[] = [];
+
+  for (const line of lines) {
+    const trimmed = line.trim();
+    if (MEDIA_URL_RE.test(trimmed) && trimmed.startsWith("http")) {
+      // Reset lastIndex since we're reusing the regex
+      MEDIA_URL_RE.lastIndex = 0;
+      mediaUrls.push(trimmed);
+    } else {
+      MEDIA_URL_RE.lastIndex = 0;
+      textLines.push(line);
+    }
+  }
+
+  const text = textLines.join("\n").trim();
+
+  return (
+    <div>
+      {text && (
+        <p className="whitespace-pre-wrap text-sm leading-relaxed text-body">
+          {text}
+        </p>
+      )}
+      {mediaUrls.length > 0 && (
+        <div className="mt-2 flex flex-wrap gap-2">
+          {mediaUrls.map((url) =>
+            IMAGE_EXTS.test(url) ? (
+              <img
+                key={url}
+                src={url}
+                alt=""
+                className="max-h-48 rounded-lg object-contain"
+                loading="lazy"
+              />
+            ) : (
+              <video
+                key={url}
+                src={url}
+                controls
+                playsInline
+                preload="metadata"
+                className="max-h-48 rounded-lg bg-black"
+              />
+            ),
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
 function formatRelativeTime(ts: number): string {
   const diff = Math.floor(Date.now() / 1000) - ts;
   if (diff < 60) return "just now";
@@ -126,9 +184,7 @@ export function AnnotationCard({ annotation, isArtistNote, onDelete, onTogglePin
       )}
 
       {/* Content */}
-      <p className="whitespace-pre-wrap text-sm leading-relaxed text-body">
-        {annotation.content}
-      </p>
+      <AnnotationContent content={annotation.content} />
 
       {/* Private indicator */}
       {annotation.isPrivate && (

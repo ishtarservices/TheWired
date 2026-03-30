@@ -15,4 +15,8 @@ export const config = {
   livekitApiSecret: process.env.LIVEKIT_API_SECRET ?? "secret",
   gifApiKey: process.env.GIF_API_KEY ?? "",
   gifClientKey: process.env.GIF_CLIENT_KEY ?? "thewired_v1",
+  /** Comma-separated hex pubkeys that can approve/reject listing requests and bypass thresholds */
+  adminPubkeys: (process.env.ADMIN_PUBKEYS ?? "").split(",").filter(Boolean),
+  /** Minimum member count for a space to request listing (admin bypass available) */
+  minListingMembers: parseInt(process.env.MIN_LISTING_MEMBERS ?? "5", 10),
 } as const;

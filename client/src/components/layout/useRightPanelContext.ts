@@ -35,6 +35,8 @@ const DM_TABS: PanelTab[] = [{ id: "profile", label: "Profile" }];
 
 const PROFILE_TABS: PanelTab[] = [{ id: "info", label: "Connections" }];
 
+const DISCOVER_TABS: PanelTab[] = [{ id: "preview", label: "Preview" }];
+
 const EMPTY_TABS: PanelTab[] = [];
 
 const TABS_BY_CONTEXT: Record<PanelContext, PanelTab[]> = {
@@ -42,6 +44,7 @@ const TABS_BY_CONTEXT: Record<PanelContext, PanelTab[]> = {
   music: MUSIC_TABS,
   dm: DM_TABS,
   profile: PROFILE_TABS,
+  discover: DISCOVER_TABS,
   none: EMPTY_TABS,
 };
 
@@ -53,6 +56,7 @@ function resolveContext(
 ): PanelContext {
   // Route-level overrides take priority
   if (pathname === "/settings" || pathname === "/relays") return "none";
+  if (pathname === "/discover") return "discover";
   if (pathname.match(/^\/profile\/[0-9a-f]+$/)) return "profile";
   if (pathname.startsWith("/dm")) {
     // Only show DM panel when a conversation is active
