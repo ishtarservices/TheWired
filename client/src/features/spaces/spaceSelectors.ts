@@ -92,16 +92,24 @@ export const selectSpaceRootNoteIds = createSelector(
   (notes) => notes.map((n) => n.id),
 );
 
-/** Memoized: media events for active space (unsorted -- caller sorts) */
-export const selectSpaceMediaEvents = createSelector(
-  [selectActiveSpaceId, selectSpaceFeeds, selectEntities],
-  (activeSpaceId, spaceFeeds, entities) => {
+/** Input selector: raw media event IDs for the active space */
+const selectMediaEventIds = createSelector(
+  [selectActiveSpaceId, selectSpaceFeeds],
+  (activeSpaceId, spaceFeeds) => {
     if (!activeSpaceId) return [];
-    const ids = spaceFeeds[`${activeSpaceId}:media`] ?? [];
-    return ids
-      .map((id) => entities[id])
-      .filter((e): e is NostrEvent => !!e);
+    return spaceFeeds[`${activeSpaceId}:media`] ?? [];
   },
+);
+
+/** Memoized: media events for active space (unsorted -- caller sorts).
+ *  Two-stage selector so it only recomputes when the media ID list changes,
+ *  not on every entity map mutation from unrelated subscriptions. */
+export const selectSpaceMediaEvents = createSelector(
+  [selectMediaEventIds, selectEntities],
+  (ids, entities) =>
+    ids
+      .map((id) => entities[id])
+      .filter((e): e is NostrEvent => !!e),
 );
 
 /** Memoized: articles for active space */

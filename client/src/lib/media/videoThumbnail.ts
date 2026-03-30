@@ -16,10 +16,45 @@ const QUALITY = 0.7;
 const MAX_WIDTH = 320;
 const MAX_HEIGHT = 320;
 
+// ── Concurrency limiter ─────────────────────────────────────────
+// Generating thumbnails creates HTMLVideoElement + downloads video data.
+// Too many concurrent generations saturate browser connections and
+// starve WebSocket relay subs, causing the app to freeze.
+
+const MAX_CONCURRENT = 3;
+let activeCount = 0;
+const queue: Array<{ url: string; resolve: (v: string | null) => void }> = [];
+
+function enqueue(url: string): Promise<string | null> {
+  return new Promise((resolve) => {
+    queue.push({ url, resolve });
+    drainQueue();
+  });
+}
+
+function drainQueue(): void {
+  while (activeCount < MAX_CONCURRENT && queue.length > 0) {
+    const job = queue.shift()!;
+    activeCount++;
+    captureFrame(job.url)
+      .then((dataUrl) => {
+        if (dataUrl) cache.set(job.url, dataUrl);
+        job.resolve(dataUrl);
+      })
+      .catch(() => job.resolve(null))
+      .finally(() => {
+        activeCount--;
+        pending.delete(job.url);
+        drainQueue();
+      });
+  }
+}
+
 /**
  * Generates a thumbnail data URL for a video.
  * Returns null if the video can't be loaded or captured.
  * Results are cached -- calling with the same URL returns the cached result.
+ * Concurrent generations are capped to avoid saturating browser connections.
  */
 export function generateVideoThumbnail(
   videoUrl: string,
@@ -32,17 +67,7 @@ export function generateVideoThumbnail(
   const inflight = pending.get(videoUrl);
   if (inflight) return inflight;
 
-  const promise = captureFrame(videoUrl)
-    .then((dataUrl) => {
-      if (dataUrl) cache.set(videoUrl, dataUrl);
-      pending.delete(videoUrl);
-      return dataUrl;
-    })
-    .catch(() => {
-      pending.delete(videoUrl);
-      return null;
-    });
-
+  const promise = enqueue(videoUrl);
   pending.set(videoUrl, promise);
   return promise;
 }
@@ -62,7 +87,7 @@ function captureFrame(videoUrl: string): Promise<string | null> {
     const video = document.createElement("video");
     video.crossOrigin = "anonymous";
     video.muted = true;
-    video.preload = "auto";
+    video.preload = "metadata";
 
     const timeoutId = setTimeout(() => {
       cleanup();
