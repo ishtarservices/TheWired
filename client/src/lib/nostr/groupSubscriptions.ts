@@ -194,14 +194,15 @@ export function switchSpaceChannel(
     filter = buildSpaceFeedFilter(authors, route.kinds, route.pageSize);
   }
 
-  // Feed-mode spaces: broadcast to all read relays since feed sources'
-  // notes live on their own relays, not the space's host relay.
-  // Community spaces: use the host relay (content is h-tag scoped there).
+  // Chat (h-tag scoped) lives exclusively on the host relay.
+  // Feed channels (notes, media, articles) use all read relays for both
+  // read and community spaces — members publish notes to their own relays,
+  // not the space's host relay.
   const subId = subscriptionManager.subscribe({
     filters: [filter],
-    relayUrls: space.mode === "read" && route.filterMode !== "htag"
-      ? undefined  // all read relays
-      : [space.hostRelay],
+    relayUrls: route.filterMode === "htag"
+      ? [space.hostRelay]
+      : undefined,  // all read relays
   });
 
   store.dispatch(setChannelSubscription({ channelId, subId }));
@@ -288,8 +289,12 @@ export function leaveFriendsFeed(): void {
   }
 }
 
-/** Refresh the Friends Feed (pull to refresh, newer events) */
-export function refreshFriendsFeed(channelType: string): void {
+/**
+ * Refresh the Friends Feed.
+ * @param initial  When true, skip the `since` filter — used for first-load
+ *                 so cross-indexed timestamps don't cause partial fetches.
+ */
+export function refreshFriendsFeed(channelType: string, initial = false): void {
   const state = store.getState();
   const followList = state.identity.followList;
   if (followList.length === 0) return;
@@ -307,7 +312,7 @@ export function refreshFriendsFeed(channelType: string): void {
     kinds: route.kinds,
     limit: route.pageSize,
   };
-  if (meta?.newestAt) {
+  if (!initial && meta?.newestAt) {
     filter.since = meta.newestAt;
   }
 
@@ -392,9 +397,15 @@ export function loadMoreFriendsFeed(channelType: string): void {
 /** Timeout for one-shot pagination subscriptions (ms) */
 const PAGINATION_TIMEOUT_MS = 30_000;
 
+/**
+ * Refresh a space feed channel: fetch newer events (since newestAt).
+ * @param initial  When true, skip the `since` filter — used for first-load
+ *                 so cross-indexed timestamps don't cause partial fetches.
+ */
 export function refreshSpaceFeed(
   space: Space,
   channelType: string,
+  initial = false,
 ): void {
   const route = getSpaceChannelRoute(channelType);
   if (!route || route.filterMode === "htag") return;
@@ -414,13 +425,17 @@ export function refreshSpaceFeed(
     limit: route.pageSize,
   };
 
-  // Only add since if we have a previous newest timestamp
-  if (meta?.newestAt) {
+  // Only add since for incremental refreshes, not initial loads.
+  // Cross-indexed events (e.g. notes with media → media feed) can set
+  // newestAt before the feed's own subscription runs, causing a since
+  // filter that skips older events the feed hasn't actually fetched.
+  if (!initial && meta?.newestAt) {
     filter.since = meta.newestAt;
   }
 
-  // Feed-mode: broadcast to all read relays
-  const relayUrls = space.mode === "read" ? undefined : [space.hostRelay];
+  // Feed channels always use all read relays — members publish notes to
+  // their own relays, not the space's host relay.
+  const relayUrls: string[] | undefined = undefined;
 
   let settled = false;
   const subId = subscriptionManager.subscribe({
@@ -473,13 +488,10 @@ export function loadMoreSpaceFeed(
 
   const previousOldest = meta.oldestAt;
 
-  // Feed-mode: broadcast to all read relays
-  const relayUrls = space.mode === "read" ? undefined : [space.hostRelay];
-
   let settled = false;
   const subId = subscriptionManager.subscribe({
     filters: [filter],
-    relayUrls,
+    relayUrls: undefined, // all read relays — members publish to their own relays
     onEOSE: () => {
       if (settled) return;
       settled = true;

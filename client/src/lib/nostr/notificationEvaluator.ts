@@ -110,7 +110,7 @@ export function evaluateFriendRequestNotification(
 
   store.dispatch(
     addNotification({
-      id: `friend-req-${senderPubkey}-${Date.now()}`,
+      id: `friend-req-${senderPubkey}`,
       type: "friend_request",
       title: "Friend request",
       body,

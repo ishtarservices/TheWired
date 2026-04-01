@@ -7,6 +7,7 @@ export interface DiscoverSpace {
   picture: string | null;
   about: string | null;
   category: string | null;
+  mode: "read" | "read-write";
   memberCount: number;
   activeMembers24h: number;
   messagesLast24h: number;

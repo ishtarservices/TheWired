@@ -8,7 +8,7 @@ export async function fetchChannels(spaceId: string): Promise<SpaceChannel[]> {
 
 export async function createChannel(
   spaceId: string,
-  params: { type: string; label: string; adminOnly?: boolean; slowModeSeconds?: number },
+  params: { type: string; label: string; categoryId?: string; adminOnly?: boolean; slowModeSeconds?: number },
 ): Promise<SpaceChannel> {
   const res = await api<SpaceChannel>(`/spaces/${spaceId}/channels`, {
     method: "POST",
@@ -20,7 +20,7 @@ export async function createChannel(
 export async function updateChannel(
   spaceId: string,
   channelId: string,
-  params: { label?: string; position?: number; adminOnly?: boolean; slowModeSeconds?: number; isDefault?: boolean },
+  params: { label?: string; categoryId?: string | null; position?: number; adminOnly?: boolean; slowModeSeconds?: number; isDefault?: boolean },
 ): Promise<SpaceChannel> {
   const res = await api<SpaceChannel>(`/spaces/${spaceId}/channels/${channelId}`, {
     method: "PATCH",

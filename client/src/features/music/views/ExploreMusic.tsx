@@ -16,8 +16,7 @@ import {
   setExploreLoading,
 } from "@/store/slices/musicSlice";
 import { getGenres, getPopularTags, browseMusic, browseAlbums, resolveMusic } from "@/lib/api/music";
-import { putEvents } from "@/lib/db/eventStore";
-import type { NostrEvent } from "@/types/nostr";
+import { processIncomingEvent } from "@/lib/nostr/eventPipeline";
 import { parseTrackEvent } from "../trackParser";
 import { parseAlbumEvent } from "../albumParser";
 import { store } from "@/store";
@@ -57,8 +56,10 @@ export function ExploreMusic() {
         const parsed = rawEvents.map((evt: any) => parseTrackEvent(evt));
         dispatch(addTracks(parsed));
         dispatch(setExploreResults(parsed.map((t) => t.addressableId)));
-        // Persist raw events to IndexedDB so they survive app restart
-        putEvents(rawEvents as NostrEvent[]).catch(() => {});
+        // Process through pipeline for proper dedup, deletion checks, and IndexedDB persistence
+        for (const evt of rawEvents) {
+          processIncomingEvent(evt, "browse").catch(() => {});
+        }
 
         // Resolve missing parent albums so TrackCard can display album names
         const currentAlbums = store.getState().music.albums;
@@ -79,7 +80,7 @@ export function ExploreMusic() {
                 if (albumEvt) {
                   const albumParsed = parseAlbumEvent(albumEvt);
                   dispatch(addAlbums([albumParsed]));
-                  putEvents([albumEvt as NostrEvent]).catch(() => {});
+                  processIncomingEvent(albumEvt, "browse").catch(() => {});
                 }
               })
               .catch(() => {});
@@ -108,8 +109,10 @@ export function ExploreMusic() {
         const parsed = rawAlbumEvents.map((evt: any) => parseAlbumEvent(evt));
         dispatch(addAlbums(parsed));
         dispatch(setExploreAlbumResults(parsed.map((a) => a.addressableId)));
-        // Persist raw events to IndexedDB so they survive app restart
-        putEvents(rawAlbumEvents as NostrEvent[]).catch(() => {});
+        // Process through pipeline for proper dedup, deletion checks, and IndexedDB persistence
+        for (const evt of rawAlbumEvents) {
+          processIncomingEvent(evt, "browse").catch(() => {});
+        }
       } catch {
         dispatch(setExploreAlbumResults([]));
       } finally {

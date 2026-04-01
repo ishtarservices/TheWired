@@ -9,9 +9,8 @@ import {
 } from "@/store/slices/musicSlice";
 import { useAudioPlayer } from "./useAudioPlayer";
 import { resolveMusic } from "@/lib/api/music";
-import { putEvent } from "@/lib/db/eventStore";
+import { processIncomingEvent } from "@/lib/nostr/eventPipeline";
 import { parseTrackEvent } from "./trackParser";
-import { addTrack } from "@/store/slices/musicSlice";
 
 export function SearchInput() {
   const { query, setQuery, results, isSearching } = useMusicSearch();
@@ -62,9 +61,8 @@ export function SearchInput() {
         const res = await resolveMusic("track", pubkey, slug);
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         const rawEvent = (res.data as any).event;
-        putEvent(rawEvent).catch(() => {});
+        await processIncomingEvent(rawEvent, "search");
         const parsed = parseTrackEvent(rawEvent);
-        dispatch(addTrack(parsed));
         play(parsed.addressableId);
       } catch {
         // fallback: navigate to artist detail

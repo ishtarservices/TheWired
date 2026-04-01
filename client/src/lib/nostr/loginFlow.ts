@@ -27,7 +27,7 @@ import { loadSpaces } from "../db/spaceStore";
 import { loadMusicLibrary } from "../db/musicStore";
 import { getEventsByKind } from "../db/eventStore";
 import { setSpaces, removeSpace, setChannels } from "../../store/slices/spacesSlice";
-import { trackDeletedNote } from "../../store/slices/eventsSlice";
+import { trackDeletedNote, restoreDeletedAddrIds } from "../../store/slices/eventsSlice";
 import { addNotification } from "../../store/slices/notificationSlice";
 import { validateSpaces } from "../api/spaces";
 import { removeSpaceFromStore } from "../db/spaceStore";
@@ -255,6 +255,10 @@ export async function performLogin(
   const cachedDMRelays = await getUserState<string[]>("dm_relay_list");
   if (cachedDMRelays?.length) {
     store.dispatch(setDMRelayList({ relays: cachedDMRelays, createdAt: 0 }));
+    // Pre-connect cached DM relays so gift wrap subscription can reach them
+    for (const url of cachedDMRelays) {
+      relayManager.connect(url);
+    }
   }
 
   // Step 5c: Load cached pinned notes from IndexedDB
@@ -394,9 +398,12 @@ export async function performLogin(
     return deletedAt !== undefined && event.created_at <= deletedAt;
   }
 
-  // Populate Redux deletedNoteIds so re-delivered notes/reposts from relays are rejected
+  // Populate Redux deletion tracking so re-delivered events from relays are rejected
   for (const eventId of deletedEventIds) {
     store.dispatch(trackDeletedNote(eventId));
+  }
+  if (deletedAddrTimestamps.size > 0) {
+    store.dispatch(restoreDeletedAddrIds(Object.fromEntries(deletedAddrTimestamps)));
   }
 
   const liveTrackEvents = trackEvents.filter(

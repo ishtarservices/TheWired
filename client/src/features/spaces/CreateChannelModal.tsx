@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useMemo } from "react";
 import { X } from "lucide-react";
 import { Button } from "../../components/ui/Button";
 import { Modal } from "../../components/ui/Modal";
@@ -34,6 +34,7 @@ export function CreateChannelModal({
   const { createChannel } = useSpaceChannels(spaceId);
   const [name, setName] = useState("");
   const [type, setType] = useState<SpaceChannelType>("chat");
+  const [category, setCategory] = useState("");
   const [adminOnly, setAdminOnly] = useState(false);
   const [slowModeSeconds, setSlowModeSeconds] = useState(0);
   const [temporary, setTemporary] = useState(false);
@@ -41,6 +42,15 @@ export function CreateChannelModal({
   const [creating, setCreating] = useState(false);
 
   const isVoiceOrVideo = type === "voice" || type === "video";
+
+  // Collect existing categories for suggestions
+  const existingCategories = useMemo(() => {
+    const cats = new Set<string>();
+    for (const ch of existingChannels) {
+      if (ch.categoryId) cats.add(ch.categoryId);
+    }
+    return Array.from(cats).sort();
+  }, [existingChannels]);
 
   // Determine which types are disabled (already exist for unique feed types)
   const existingTypes = new Set(existingChannels.map((c) => c.type));
@@ -59,12 +69,14 @@ export function CreateChannelModal({
       await createChannel({
         type,
         label: name.startsWith("#") ? name.trim() : `#${name.trim()}`,
+        ...(category.trim() ? { categoryId: category.trim() } : {}),
         adminOnly,
         slowModeSeconds,
         ...(isVoiceOrVideo && temporary ? { temporary: true } : {}),
       });
       setName("");
       setType("chat");
+      setCategory("");
       setAdminOnly(false);
       setSlowModeSeconds(0);
       setTemporary(false);
@@ -122,6 +134,30 @@ export function CreateChannelModal({
                 </option>
               ))}
             </select>
+          </div>
+
+          <div>
+            <label className="mb-1 block text-xs font-medium text-soft">
+              Category
+            </label>
+            <input
+              type="text"
+              value={category}
+              onChange={(e) => setCategory(e.target.value)}
+              placeholder="e.g. General, Social, Dev"
+              list="channel-categories"
+              className="w-full rounded-xl bg-field border border-border px-3 py-1.5 text-sm text-heading placeholder-muted focus:border-primary focus:outline-none transition-colors"
+            />
+            {existingCategories.length > 0 && (
+              <datalist id="channel-categories">
+                {existingCategories.map((cat) => (
+                  <option key={cat} value={cat} />
+                ))}
+              </datalist>
+            )}
+            <p className="mt-1 text-[11px] text-muted">
+              Group channels under a collapsible section. Leave empty for no category.
+            </p>
           </div>
 
           <div className="flex items-center gap-2">

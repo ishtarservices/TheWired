@@ -169,4 +169,9 @@ export const revisionService = {
       .limit(1);
     return rows[0] ?? null;
   },
+
+  /** Delete all revisions for an addressable event (called when music is deleted) */
+  async deleteRevisions(addressableId: string) {
+    await db.delete(musicRevisions).where(eq(musicRevisions.addressableId, addressableId));
+  },
 };

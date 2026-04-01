@@ -30,6 +30,9 @@ interface EventsExtraState {
   editedMessages: Record<string, string>;
   /** Event IDs that have been deleted via kind:5 — prevents re-delivery from relays */
   deletedNoteIds: Record<string, true>;
+  /** Addressable IDs deleted via kind:5 "a" tags — maps addr to deletion created_at.
+   *  Prevents re-delivered addressable events (music) from external relays. */
+  deletedAddrIds: Record<string, number>;
 }
 
 const initialState = eventsAdapter.getInitialState<EventsExtraState>({
@@ -49,6 +52,7 @@ const initialState = eventsAdapter.getInitialState<EventsExtraState>({
   deletedMessageIds: {},
   editedMessages: {},
   deletedNoteIds: {},
+  deletedAddrIds: {},
 });
 
 /** Max events per feed index to prevent unbounded memory growth */
@@ -271,6 +275,19 @@ export const eventsSlice = createSlice({
     trackDeletedNote(state, action: PayloadAction<string>) {
       state.deletedNoteIds[action.payload] = true;
     },
+    /** Track a deleted addressable ID with its deletion timestamp.
+     *  Events with created_at <= deletedAt are rejected on re-delivery. */
+    trackDeletedAddr(state, action: PayloadAction<{ addr: string; deletedAt: number }>) {
+      const prev = state.deletedAddrIds[action.payload.addr] ?? 0;
+      state.deletedAddrIds[action.payload.addr] = Math.max(prev, action.payload.deletedAt);
+    },
+    /** Bulk restore deleted addressable IDs from persisted deletion events on startup */
+    restoreDeletedAddrIds(state, action: PayloadAction<Record<string, number>>) {
+      for (const [addr, ts] of Object.entries(action.payload)) {
+        const prev = state.deletedAddrIds[addr] ?? 0;
+        state.deletedAddrIds[addr] = Math.max(prev, ts);
+      }
+    },
   },
 });
 
@@ -301,4 +318,6 @@ export const {
   removeRepost,
   indexEditedMessage,
   trackDeletedNote,
+  trackDeletedAddr,
+  restoreDeletedAddrIds,
 } = eventsSlice.actions;

@@ -69,11 +69,14 @@ export function startRelayIngester() {
       // Backfill subscription: fetch ALL music events to cover gaps.
       // Meilisearch deduplicates by primary key (event id), so re-indexing is safe.
       // The counted_events Redis set prevents double-counting.
+      // NOTE: kind:5 deletions are NOT included here — they must only be processed
+      // via the since-based main subscription to avoid re-applying old deletions
+      // that have already been superseded by re-published addressable events.
       ws.send(
         JSON.stringify([
           "REQ",
           "ingester-music-backfill",
-          { kinds: [31683, 33123, 5] },
+          { kinds: [31683, 33123] },
         ]),
       );
     });
@@ -480,6 +483,16 @@ export function startRelayIngester() {
 
   async function processDeletion(event: NostrEvent) {
     const ms = getMeilisearchClient();
+
+    // Track whether this deletion has already been processed (idempotency).
+    // Backfill can re-deliver old kind:5 events — avoid re-processing.
+    const dedupeKey = `ingester:deletion:${event.id}`;
+    const alreadyProcessed = await redis.get(dedupeKey);
+    if (alreadyProcessed) return;
+    // Mark as processed with 7-day expiry (covers typical backfill cycles)
+    await redis.set(dedupeKey, "1", "EX", 604800);
+
+    // Process "a" tags — addressable event deletions (music tracks, albums, etc.)
     for (const tag of event.tags) {
       if (tag[0] !== "a" || !tag[1]) continue;
       const addr = tag[1];
@@ -574,15 +587,31 @@ export function startRelayIngester() {
         }
       }
 
-      // Also remove from general events Meilisearch index
-      for (const eTag of event.tags) {
-        if (eTag[0] === "e" && eTag[1]) {
-          try {
-            await ms.index("events").deleteDocument(eTag[1]);
-          } catch {
-            // doc may not exist
-          }
+      // Clean up revision history and saved version records for this addressable ID
+      try {
+        await revisionService.deleteRevisions(addr);
+      } catch { /* non-fatal */ }
+      try {
+        await db.execute(
+          sql`DELETE FROM app.saved_album_versions WHERE addressable_id = ${addr}`,
+        );
+      } catch { /* non-fatal */ }
+    }
+
+    // Process "e" tags — remove referenced events from general Meilisearch index.
+    // Only delete events authored by the deletion event's pubkey.
+    for (const tag of event.tags) {
+      if (tag[0] !== "e" || !tag[1]) continue;
+      try {
+        // Verify ownership before deleting from search index
+        const rows = (await db.execute(
+          sql`SELECT pubkey FROM relay.events WHERE id = ${tag[1]} LIMIT 1`,
+        )) as unknown as { pubkey: string }[];
+        if (rows.length > 0 && rows[0].pubkey === event.pubkey) {
+          await ms.index("events").deleteDocument(tag[1]);
         }
+      } catch {
+        // doc may not exist
       }
     }
   }

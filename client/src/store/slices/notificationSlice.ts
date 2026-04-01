@@ -176,7 +176,13 @@ export const notificationSlice = createSlice({
     },
 
     addNotification(state, action: PayloadAction<InAppNotification>) {
-      state.notifications.push(action.payload);
+      // Dedup by ID: replace existing notification with same ID instead of adding duplicate
+      const existingIdx = state.notifications.findIndex((n) => n.id === action.payload.id);
+      if (existingIdx >= 0) {
+        state.notifications[existingIdx] = action.payload;
+      } else {
+        state.notifications.push(action.payload);
+      }
       // Cap at 50 notifications in memory
       if (state.notifications.length > 50) {
         state.notifications = state.notifications.slice(-50);

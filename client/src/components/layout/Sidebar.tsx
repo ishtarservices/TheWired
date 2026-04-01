@@ -1,6 +1,6 @@
-import { useCallback } from "react";
+import { useCallback, useState, useMemo } from "react";
 import { cn } from "@/lib/utils";
-import { LayoutGrid, Music2, MessageCircle, Compass } from "lucide-react";
+import { LayoutGrid, Music2, MessageCircle, ChevronRight } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import { useAppSelector, useAppDispatch } from "../../store/hooks";
 import { setSidebarMode } from "../../store/slices/uiSlice";
@@ -33,6 +33,32 @@ export function Sidebar({ expanded }: SidebarProps) {
 
   // Show channels for real spaces (not Friends Feed virtual space)
   const showChannels = activeSpaceId && activeSpaceId !== FRIENDS_FEED_ID;
+
+  // Collapsible sections — persisted to localStorage
+  const [spacesCollapsed, setSpacesCollapsed] = useState(() => {
+    try { return localStorage.getItem("sidebar_spaces_collapsed") === "true"; }
+    catch { return false; }
+  });
+
+  const toggleSpaces = useCallback(() => {
+    setSpacesCollapsed((prev) => {
+      const next = !prev;
+      localStorage.setItem("sidebar_spaces_collapsed", String(next));
+      return next;
+    });
+  }, []);
+
+  // Aggregated space unreads for collapsed badge
+  const spaceUnread = useAppSelector((s) => s.notifications.spaceUnread);
+  const spaceMentions = useAppSelector((s) => s.notifications.spaceMentions);
+  const collapsedSpaceBadge = useMemo(() => {
+    if (!spacesCollapsed) return null;
+    let unread = 0, mentions = 0;
+    for (const v of Object.values(spaceUnread)) unread += v;
+    for (const v of Object.values(spaceMentions)) mentions += v;
+    if (unread === 0 && mentions === 0) return null;
+    return { unread, mentions };
+  }, [spacesCollapsed, spaceUnread, spaceMentions]);
 
   const handleSelectDMContact = useCallback(
     (pubkey: string) => {
@@ -128,29 +154,40 @@ export function Sidebar({ expanded }: SidebarProps) {
             )}
           </button>
 
-          {/* Separator */}
-          <div className="mx-0.5 h-4 w-px bg-border" />
-
-          {/* Discover */}
-          <button
-            onClick={() => navigate("/discover")}
-            className="rounded-lg p-1.5 text-muted hover:text-heading hover:bg-surface transition-colors"
-            title="Discover"
-          >
-            <Compass size={14} />
-          </button>
         </div>
       </div>
 
       <div className="flex-1 overflow-y-auto">
         {sidebarMode === "spaces" && (
           <>
-            {/* Spaces */}
-            <div className="border-b border-border pb-2">
-              <div className="px-5 pt-4 pb-2 text-[10px] font-semibold uppercase tracking-[0.15em] text-muted">
-                Spaces
-              </div>
-              <SpaceList />
+            {/* Spaces — collapsible */}
+            <div className={cn("border-b border-border", !spacesCollapsed && "pb-2")}>
+              <button
+                onClick={toggleSpaces}
+                className="flex w-full items-center gap-1 px-5 pt-4 pb-2 group"
+              >
+                <ChevronRight
+                  size={10}
+                  className={cn(
+                    "text-muted transition-transform duration-150",
+                    !spacesCollapsed && "rotate-90",
+                  )}
+                />
+                <span className="text-[10px] font-semibold uppercase tracking-[0.15em] text-muted group-hover:text-heading transition-colors">
+                  Spaces
+                </span>
+                {collapsedSpaceBadge && (
+                  <span
+                    className={cn(
+                      "ml-auto flex h-4 min-w-4 items-center justify-center rounded-full px-1 text-[10px] font-bold text-white",
+                      collapsedSpaceBadge.mentions > 0 ? "bg-primary" : "bg-surface-hover",
+                    )}
+                  >
+                    {collapsedSpaceBadge.mentions > 0 ? collapsedSpaceBadge.mentions : collapsedSpaceBadge.unread}
+                  </span>
+                )}
+              </button>
+              {!spacesCollapsed && <SpaceList />}
             </div>
 
             {/* Channels for active space */}

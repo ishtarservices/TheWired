@@ -1,7 +1,19 @@
 import { useState, useEffect, useCallback } from "react";
-import { Compass, Search, X, Users, Activity, Star } from "lucide-react";
+import { useNavigate } from "react-router-dom";
+import { Compass, Search, X, Users, Activity, Star, Rss, AlertCircle } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Avatar } from "@/components/ui/Avatar";
+import { Modal } from "@/components/ui/Modal";
+import { Button } from "@/components/ui/Button";
+import { Spinner } from "@/components/ui/Spinner";
+import { useAppSelector, useAppDispatch } from "@/store/hooks";
+import { setSidebarMode } from "@/store/slices/uiSlice";
+import { setChannels, setActiveChannel } from "@/store/slices/spacesSlice";
+import { useSpace } from "@/features/spaces/useSpace";
+import { switchSpaceChannel } from "@/lib/nostr/groupSubscriptions";
+import { joinSpaceApi } from "@/lib/api/spaces";
+import { BOOTSTRAP_RELAYS } from "@/lib/nostr/constants";
+import type { Space, SpaceChannel } from "@/types/space";
 import {
   discoverSpaces,
   discoverFeaturedSpaces,
@@ -102,6 +114,7 @@ function DiscoverSpacesTab({ search }: { search: string }) {
   const [loading, setLoading] = useState(true);
   const [offset, setOffset] = useState(0);
   const [hasMore, setHasMore] = useState(true);
+  const [previewSpace, setPreviewSpace] = useState<DiscoverSpace | null>(null);
 
   // Initial load
   useEffect(() => {
@@ -169,7 +182,7 @@ function DiscoverSpacesTab({ search }: { search: string }) {
           </div>
           <div className="flex gap-3 overflow-x-auto pb-2">
             {featured.map((space) => (
-              <SpaceCard key={space.id} space={space} variant="featured" />
+              <SpaceCard key={space.id} space={space} variant="featured" onClick={() => setPreviewSpace(space)} />
             ))}
           </div>
         </section>
@@ -184,7 +197,7 @@ function DiscoverSpacesTab({ search }: { search: string }) {
           </div>
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             {trending.map((space) => (
-              <SpaceCard key={space.id} space={space} />
+              <SpaceCard key={space.id} space={space} onClick={() => setPreviewSpace(space)} />
             ))}
           </div>
         </section>
@@ -245,7 +258,7 @@ function DiscoverSpacesTab({ search }: { search: string }) {
           <>
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               {browseSpaces.map((space) => (
-                <SpaceCard key={space.id} space={space} />
+                <SpaceCard key={space.id} space={space} onClick={() => setPreviewSpace(space)} />
               ))}
             </div>
             {hasMore && (
@@ -259,6 +272,12 @@ function DiscoverSpacesTab({ search }: { search: string }) {
           </>
         )}
       </section>
+
+      {/* Space Preview Modal */}
+      <SpacePreviewModal
+        space={previewSpace}
+        onClose={() => setPreviewSpace(null)}
+      />
     </div>
   );
 }
@@ -303,11 +322,13 @@ function DiscoverRelaysTab({ search }: { search: string }) {
 
 // ── Space Card ──────────────────────────────────────────────────
 
-function SpaceCard({ space, variant }: { space: DiscoverSpace; variant?: "featured" }) {
+function SpaceCard({ space, variant, onClick }: { space: DiscoverSpace; variant?: "featured"; onClick?: () => void }) {
   const isFeatured = variant === "featured";
+  const isReadOnly = space.mode === "read";
 
   return (
     <div
+      onClick={onClick}
       className={cn(
         "rounded-xl card-glass border border-border p-4 transition-all duration-200 hover:border-primary/30 hover:shadow-lg cursor-pointer",
         isFeatured && "w-64 shrink-0",
@@ -316,7 +337,15 @@ function SpaceCard({ space, variant }: { space: DiscoverSpace; variant?: "featur
       <div className="flex items-start gap-3">
         <Avatar src={space.picture} alt={space.name} size="md" />
         <div className="min-w-0 flex-1">
-          <h3 className="text-sm font-semibold text-heading truncate">{space.name}</h3>
+          <div className="flex items-center gap-1.5">
+            <h3 className="text-sm font-semibold text-heading truncate">{space.name}</h3>
+            {isReadOnly && (
+              <span className="shrink-0 flex items-center gap-0.5 rounded-full bg-primary/10 px-1.5 py-0.5 text-[9px] font-medium text-primary">
+                <Rss size={8} />
+                Feed
+              </span>
+            )}
+          </div>
           {space.about && (
             <p className="text-xs text-soft line-clamp-2 mt-0.5">{space.about}</p>
           )}
@@ -368,6 +397,195 @@ function SpaceCardSkeleton() {
         <div className="h-4 w-16 rounded-full bg-card-hover/30" />
       </div>
     </div>
+  );
+}
+
+// ── Space Preview Modal ────────────────────────────────────────
+
+function SpacePreviewModal({ space, onClose }: { space: DiscoverSpace | null; onClose: () => void }) {
+  const navigate = useNavigate();
+  const dispatch = useAppDispatch();
+  const { joinSpace } = useSpace();
+  const myPubkey = useAppSelector((s) => s.identity.pubkey);
+  const mySpaces = useAppSelector((s) => s.spaces.list);
+  const [joining, setJoining] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const alreadyJoined = space ? mySpaces.some((s) => s.id === space.id) : false;
+
+  const handleJoin = async () => {
+    if (!space || !myPubkey) return;
+
+    setJoining(true);
+    setError(null);
+
+    try {
+      const res = await joinSpaceApi(space.id);
+      const { space: spaceData, channels, feedPubkeys } = res.data;
+
+      // Store channels in Redux BEFORE joinSpace so they're available
+      dispatch(setChannels({ spaceId: space.id, channels }));
+
+      const spaceMode = (spaceData.mode as "read" | "read-write") ?? "read-write";
+
+      // Build the full space object with feed sources included
+      const spaceObj: Space = {
+        id: space.id,
+        name: spaceData.name,
+        about: spaceData.about ?? undefined,
+        picture: spaceData.picture ?? undefined,
+        mode: spaceMode,
+        creatorPubkey: spaceData.creatorPubkey ?? "",
+        adminPubkeys: spaceData.creatorPubkey ? [spaceData.creatorPubkey] : [],
+        memberPubkeys: [myPubkey],
+        feedPubkeys: feedPubkeys ?? [],
+        hostRelay: spaceData.hostRelay || BOOTSTRAP_RELAYS[0],
+        isPrivate: false,
+        createdAt: Math.floor(Date.now() / 1000),
+      };
+
+      // joinSpace adds space to Redux + IndexedDB, sets it active, enters
+      // subscriptions. But it can't find channels (stale closure), so we
+      // manually select the default channel afterward.
+      joinSpace(spaceObj);
+
+      // Manually pick the default channel and create the Nostr subscription
+      // since joinSpace's allChannels closure is stale.
+      if (channels.length > 0) {
+        const visible = spaceMode === "read"
+          ? channels.filter((c: SpaceChannel) => c.type !== "chat")
+          : channels;
+        const sorted = [...visible].sort((a: SpaceChannel, b: SpaceChannel) => a.position - b.position);
+        const best = sorted.find((c: SpaceChannel) => c.isDefault) ?? sorted[0];
+        if (best) {
+          const channelId = `${space.id}:${best.id}`;
+          dispatch(setActiveChannel(channelId));
+          switchSpaceChannel(spaceObj, best.type);
+        }
+      }
+
+      dispatch(setSidebarMode("spaces"));
+      navigate("/");
+      onClose();
+    } catch (err: any) {
+      if (err?.code === "ALREADY_MEMBER") {
+        setError("You're already a member of this space.");
+      } else if (err?.status === 401) {
+        setError("Please sign in to join spaces.");
+      } else {
+        setError(err?.message ?? "Failed to join space. Please try again.");
+      }
+    } finally {
+      setJoining(false);
+    }
+  };
+
+  // Reset error when space changes
+  useEffect(() => {
+    setError(null);
+  }, [space?.id]);
+
+  if (!space) return null;
+
+  const isReadOnly = space.mode === "read";
+
+  return (
+    <Modal open={!!space} onClose={onClose}>
+      <div className="w-full max-w-md rounded-2xl card-glass p-6 shadow-2xl">
+        {/* Header */}
+        <div className="flex items-start gap-4 mb-4">
+          <Avatar src={space.picture} alt={space.name} size="lg" />
+          <div className="min-w-0 flex-1">
+            <div className="flex items-center gap-2">
+              <h2 className="text-lg font-bold text-heading truncate">{space.name}</h2>
+              {isReadOnly && (
+                <span className="shrink-0 flex items-center gap-1 rounded-full bg-primary/10 px-2 py-0.5 text-[10px] font-medium text-primary">
+                  <Rss size={9} />
+                  Feed
+                </span>
+              )}
+            </div>
+            {space.category && (
+              <p className="text-[11px] text-muted capitalize mt-0.5">{space.category.replace(/-/g, " ")}</p>
+            )}
+          </div>
+          <button
+            onClick={onClose}
+            className="rounded-full p-1 text-soft hover:bg-card-hover hover:text-heading transition-colors"
+          >
+            <X size={18} />
+          </button>
+        </div>
+
+        {/* Description */}
+        {space.about && (
+          <p className="text-xs text-soft leading-relaxed mb-4">{space.about}</p>
+        )}
+
+        {/* Stats */}
+        <div className="flex items-center gap-4 mb-4 text-xs text-muted">
+          <span className="flex items-center gap-1.5">
+            <Users size={12} />
+            {space.memberCount} member{space.memberCount !== 1 ? "s" : ""}
+          </span>
+          {space.activeMembers24h > 0 && (
+            <span className="flex items-center gap-1.5">
+              <Activity size={12} className="text-green-400" />
+              {space.activeMembers24h} active now
+            </span>
+          )}
+          {isReadOnly && (
+            <span className="flex items-center gap-1.5 text-primary/70">
+              <Rss size={12} />
+              Read-only feed
+            </span>
+          )}
+        </div>
+
+        {/* Tags */}
+        {space.tags.length > 0 && (
+          <div className="flex flex-wrap gap-1.5 mb-5">
+            {space.tags.map((tag) => (
+              <span
+                key={tag}
+                className="rounded-full bg-card border border-border px-2 py-0.5 text-[10px] text-muted"
+              >
+                {tag}
+              </span>
+            ))}
+          </div>
+        )}
+
+        {/* Error */}
+        {error && (
+          <div className="flex items-start gap-2 rounded-xl bg-red-500/10 border border-red-500/20 px-3 py-2 mb-4">
+            <AlertCircle size={14} className="mt-0.5 shrink-0 text-red-400" />
+            <p className="text-xs text-red-300">{error}</p>
+          </div>
+        )}
+
+        {/* Actions */}
+        <div className="flex justify-end gap-2">
+          <Button variant="ghost" size="md" onClick={onClose}>
+            Cancel
+          </Button>
+          {alreadyJoined ? (
+            <Button variant="secondary" size="md" onClick={() => { dispatch(setSidebarMode("spaces")); navigate("/"); onClose(); }}>
+              Go to Space
+            </Button>
+          ) : (
+            <Button
+              variant="primary"
+              size="md"
+              onClick={handleJoin}
+              disabled={joining || !myPubkey}
+            >
+              {joining ? <Spinner size="sm" /> : "Join Space"}
+            </Button>
+          )}
+        </div>
+      </div>
+    </Modal>
   );
 }
 

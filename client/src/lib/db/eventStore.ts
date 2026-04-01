@@ -44,6 +44,40 @@ export async function deleteEvent(id: string): Promise<void> {
   await db.delete("events", id);
 }
 
+/**
+ * Delete ALL versions of an addressable event from IndexedDB.
+ * Addressable events (kind 30000-39999) can have multiple entries with different
+ * event IDs but the same kind:pubkey:d-tag. This function removes all of them.
+ */
+export async function deleteAddressableEvent(
+  kind: number,
+  pubkey: string,
+  dTag: string,
+): Promise<number> {
+  const db = await getDB();
+  const tx = db.transaction("events", "readwrite");
+  let deleted = 0;
+
+  // Scan by kind index and filter by pubkey + d-tag
+  let cursor = await tx.store.index("by_kind").openCursor(kind);
+  while (cursor) {
+    const event = cursor.value;
+    if (
+      event.pubkey === pubkey &&
+      event.tags.some(
+        (t: string[]) => t[0] === "d" && t[1] === dTag,
+      )
+    ) {
+      await cursor.delete();
+      deleted++;
+    }
+    cursor = await cursor.continue();
+  }
+
+  await tx.done;
+  return deleted;
+}
+
 export async function getEventsByKind(
   kind: number,
   limit = 50,

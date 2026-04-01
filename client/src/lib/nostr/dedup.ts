@@ -34,6 +34,12 @@ export class EventDeduplicator {
     }
   }
 
+  /** Remove from LRU so the event can be retried from another relay.
+   *  Bloom filter can't be cleared, but isDuplicate requires both bloom + LRU. */
+  unmarkSeen(eventId: string): void {
+    this.recentIds.delete(eventId);
+  }
+
   reset(): void {
     this.bloom = new SimpleBloomFilter(BLOOM_CAPACITY, BLOOM_FPR);
     this.count = 0;

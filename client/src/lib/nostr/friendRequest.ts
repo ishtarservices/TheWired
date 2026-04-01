@@ -13,6 +13,7 @@ import {
 } from "@/store/slices/friendRequestSlice";
 import { addKnownFollower } from "@/store/slices/identitySlice";
 import { followUser, unfollowUser } from "./follow";
+import { BOOTSTRAP_RELAYS } from "./constants";
 
 /**
  * Send a friend request to a user via gift-wrapped DM.
@@ -68,7 +69,13 @@ export async function sendFriendRequest(
 
   // Publish to recipient's DM relays (falls back to all write relays)
   const recipientRelays = await getDMRelaysForPublish(recipientPubkey);
-  relayManager.publish(recipientWrap, recipientRelays);
+  const confirmations = await relayManager.publishWithConfirmation(recipientWrap, recipientRelays);
+  const anyAccepted = confirmations.some((r) => r.success);
+
+  // If no relay accepted or we had no specific DM relays, also publish to bootstrap
+  if (!anyAccepted || !recipientRelays) {
+    relayManager.publish(recipientWrap, BOOTSTRAP_RELAYS);
+  }
 
   // Publish self-wrap to our own DM relays (falls back to all write relays)
   const ownRelays = getOwnDMRelays();
@@ -112,7 +119,11 @@ export async function acceptFriendRequestAction(
 
   // Publish to recipient's DM relays (falls back to all write relays)
   const recipientRelays = await getDMRelaysForPublish(requesterPubkey);
-  relayManager.publish(recipientWrap, recipientRelays);
+  const confirmations = await relayManager.publishWithConfirmation(recipientWrap, recipientRelays);
+  const anyAccepted = confirmations.some((r) => r.success);
+  if (!anyAccepted || !recipientRelays) {
+    relayManager.publish(recipientWrap, BOOTSTRAP_RELAYS);
+  }
 
   // Publish self-wrap to our own DM relays (falls back to all write relays)
   const ownRelays = getOwnDMRelays();
@@ -121,9 +132,6 @@ export async function acceptFriendRequestAction(
   // Update local state
   store.dispatch(acceptFriendRequest(requesterPubkey));
   store.dispatch(markOutgoingAccepted(requesterPubkey));
-
-  // Sync knownFollowers: they sent us a request, so they clearly know us.
-  // This ensures useFriends() works immediately without waiting for relay follower queries.
   store.dispatch(addKnownFollower(requesterPubkey));
 
   // Auto-follow: friending implies following
@@ -132,8 +140,7 @@ export async function acceptFriendRequestAction(
     try {
       await followUser(requesterPubkey);
     } catch (err) {
-      console.error("[FriendRequest] Auto-follow failed after accept:", err);
-      // Don't revert the accept — the friendship is valid, follow can be retried
+      console.error("[FriendReq] Auto-follow failed after accept:", err);
     }
   }
 }
@@ -170,7 +177,12 @@ export async function removeFriendAction(pubkey: string): Promise<void> {
 
     // Publish to recipient's DM relays (falls back to all write relays)
     const recipientRelays = await getDMRelaysForPublish(pubkey);
-    relayManager.publish(recipientWrap, recipientRelays);
+    const confirmations = await relayManager.publishWithConfirmation(recipientWrap, recipientRelays);
+    const anyAccepted = confirmations.some((r) => r.success);
+
+    if (!anyAccepted || !recipientRelays) {
+      relayManager.publish(recipientWrap, BOOTSTRAP_RELAYS);
+    }
 
     // Publish self-wrap to our own DM relays (falls back to all write relays)
     const ownRelays = getOwnDMRelays();

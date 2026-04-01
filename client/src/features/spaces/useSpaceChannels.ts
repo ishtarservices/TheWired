@@ -101,7 +101,7 @@ export function useSpaceChannels(spaceId: string | null) {
   // Note: channels.length intentionally excluded to avoid infinite loops
 
   const handleCreateChannel = useCallback(
-    async (params: { type: string; label: string; adminOnly?: boolean; slowModeSeconds?: number }) => {
+    async (params: { type: string; label: string; categoryId?: string; adminOnly?: boolean; slowModeSeconds?: number }) => {
       if (!spaceId) return;
       const channel = await channelsApi.createChannel(spaceId, params);
       dispatch(addChannelToList(channel));
@@ -123,7 +123,7 @@ export function useSpaceChannels(spaceId: string | null) {
   );
 
   const handleUpdateChannel = useCallback(
-    async (channelId: string, params: { label?: string; adminOnly?: boolean; slowModeSeconds?: number; isDefault?: boolean }) => {
+    async (channelId: string, params: { label?: string; categoryId?: string | null; adminOnly?: boolean; slowModeSeconds?: number; isDefault?: boolean }) => {
       if (!spaceId) return;
       const updated = await channelsApi.updateChannel(spaceId, channelId, params);
       // When setting a new home channel, clear isDefault on all others in Redux

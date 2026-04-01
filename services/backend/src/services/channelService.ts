@@ -9,6 +9,7 @@ const UNIQUE_FEED_TYPES = new Set(["notes", "media", "articles", "music"]);
 interface CreateChannelParams {
   type: string;
   label: string;
+  categoryId?: string;
   adminOnly?: boolean;
   slowModeSeconds?: number;
   temporary?: boolean;
@@ -16,6 +17,7 @@ interface CreateChannelParams {
 
 interface UpdateChannelParams {
   label?: string;
+  categoryId?: string | null;
   position?: number;
   adminOnly?: boolean;
   slowModeSeconds?: number;
@@ -74,6 +76,7 @@ export const channelService = {
         spaceId,
         type: params.type,
         label: params.label,
+        categoryId: params.categoryId ?? null,
         position: nextPosition,
         isDefault: isFirst,
         adminOnly: params.adminOnly ?? false,

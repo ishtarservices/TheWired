@@ -1,6 +1,6 @@
 import { createHash } from "crypto";
 import { createReadStream, createWriteStream } from "fs";
-import { mkdir } from "fs/promises";
+import { mkdir, unlink } from "fs/promises";
 import { join, extname } from "path";
 import { Readable } from "stream";
 import { eq, desc, sql } from "drizzle-orm";
@@ -661,6 +661,53 @@ export const musicService = {
       .catch((err) => console.error("[music] Failed to delete daily plays:", (err as Error).message));
     db.execute(sql`DELETE FROM app.music_play_listeners WHERE addressable_id = ${addressableId}`)
       .catch((err) => console.error("[music] Failed to delete listeners:", (err as Error).message));
+
+    // Clean up uploaded files from disk + music_uploads table.
+    // Extract media URLs from the deleted event tags, then remove matching files.
+    const audioUrls = new Set<string>();
+    const coverUrls = new Set<string>();
+    for (const row of deleted) {
+      for (const tag of row.tags) {
+        if (tag[0] === "imeta") {
+          for (let i = 1; i < tag.length; i++) {
+            if (tag[i].startsWith("url ")) audioUrls.add(tag[i].slice(4));
+          }
+        }
+        if ((tag[0] === "image" || tag[0] === "thumb") && tag[1]) {
+          coverUrls.add(tag[1]);
+        }
+      }
+    }
+
+    // Delete audio files tracked in music_uploads (1:1 with tracks)
+    for (const url of audioUrls) {
+      try {
+        const [upload] = await db.select().from(musicUploads)
+          .where(eq(musicUploads.url, url)).limit(1);
+        if (upload) {
+          await unlink(upload.storagePath).catch(() => {});
+          await db.delete(musicUploads).where(eq(musicUploads.id, upload.id));
+        }
+      } catch { /* best-effort: orphaned files can be cleaned up later */ }
+    }
+
+    // Delete cover files if no other events still reference them
+    for (const url of coverUrls) {
+      if (!url.includes("/uploads/covers/")) continue;
+      try {
+        const refs = (await db.execute(
+          sql`SELECT 1 FROM relay.events
+              WHERE tags @> ${JSON.stringify([["image", url]])}::jsonb
+              LIMIT 1`,
+        )) as unknown[];
+        if (refs.length === 0) {
+          const filename = url.split("/uploads/covers/").pop();
+          if (filename && !filename.includes("/")) {
+            await unlink(join(COVER_DIR, filename)).catch(() => {});
+          }
+        }
+      } catch { /* best-effort */ }
+    }
 
     return true;
   },

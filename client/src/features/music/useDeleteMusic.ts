@@ -3,7 +3,7 @@ import { useAppSelector, useAppDispatch } from "@/store/hooks";
 import { removeTrack, removeAlbum } from "@/store/slices/musicSlice";
 import { buildDeletionEvent } from "@/lib/nostr/eventBuilder";
 import { signAndPublish } from "@/lib/nostr/publish";
-import { deleteEvent } from "@/lib/db/eventStore";
+import { deleteEvent, deleteAddressableEvent } from "@/lib/db/eventStore";
 import { removeLocalEventId, getLocalEventIds, saveMusicLibrary } from "@/lib/db/musicStore";
 import { deleteMusic } from "@/lib/api/music";
 import { removeCachedAudio } from "@/lib/db/audioCache";
@@ -42,18 +42,15 @@ export function useDeleteMusic() {
         const isLocal = localIds.has(track.eventId);
 
         if (isLocal) {
-          // Local-only: just remove from IndexedDB
           await deleteEvent(track.eventId);
           await removeLocalEventId(track.eventId);
         } else {
-          // Published: create and publish NIP-09 deletion event
           const unsigned = buildDeletionEvent(pubkey, {
             eventIds: [track.eventId],
             addressableIds: [track.addressableId],
           });
           await signAndPublish(unsigned);
 
-          // Also delete from backend (cleans up relay DB + Meilisearch index)
           try {
             await deleteMusic("track", pubkey, getSlug(track.addressableId));
           } catch {
@@ -61,8 +58,11 @@ export function useDeleteMusic() {
           }
         }
 
-        // Remove from IndexedDB + Redux immediately
-        await deleteEvent(track.eventId).catch(() => {});
+        // Remove ALL versions of this addressable event from IndexedDB + Redux.
+        // Addressable events can have multiple IndexedDB entries (different event IDs
+        // from past updates). Delete by kind:pubkey:d-tag to catch them all.
+        const [, addrPubkey, ...addrDParts] = track.addressableId.split(":");
+        await deleteAddressableEvent(31683, addrPubkey, addrDParts.join(":")).catch(() => {});
         removeCachedAudio(track.addressableId).catch(() => {});
         dispatch(removeTrack(track.addressableId));
         persistLibraryAfterDelete();
@@ -135,14 +135,17 @@ export function useDeleteMusic() {
           }
         }
 
-        // Remove from IndexedDB + Redux
-        for (const eid of eventIds) {
-          await deleteEvent(eid).catch(() => {});
+        // Remove ALL versions of each addressable event from IndexedDB + Redux.
+        // This catches old event versions that deleteEvent(eventId) would miss.
+        for (const addrId of addressableIds) {
+          const [kindStr, addrPubkey, ...dParts] = addrId.split(":");
+          await deleteAddressableEvent(parseInt(kindStr, 10), addrPubkey, dParts.join(":")).catch(() => {});
         }
         if (cascadeTracks) {
           for (const addrId of addressableIds) {
             if (addrId.startsWith("31683:")) {
               dispatch(removeTrack(addrId));
+              removeCachedAudio(addrId).catch(() => {});
             }
           }
         }

@@ -66,13 +66,47 @@ pub async fn handle_remove_user(pool: &PgPool, event: &Event) -> anyhow::Result<
 pub async fn handle_deletion(pool: &PgPool, event: &Event) -> anyhow::Result<Vec<String>> {
     let mut deleted = 0u32;
     for tag in &event.tags {
-        if tag.first().map(|s| s.as_str()) == Some("e") {
+        let tag_name = tag.first().map(|s| s.as_str());
+
+        if tag_name == Some("e") {
             if let Some(target_id) = tag.get(1) {
                 // Verify the target event is authored by the deletion sender
                 if let Ok(Some(target)) = event_store::get_event_by_id(pool, target_id).await {
                     if target.pubkey == event.pubkey {
                         if event_store::delete_event(pool, target_id).await.unwrap_or(false) {
                             deleted += 1;
+                        }
+                    }
+                }
+            }
+        }
+
+        // NIP-09: "a" tags delete addressable events by kind:pubkey:d-tag.
+        // Only delete events created before the deletion event (newer versions
+        // supersede the deletion).
+        if tag_name == Some("a") {
+            if let Some(addr) = tag.get(1) {
+                let parts: Vec<&str> = addr.splitn(3, ':').collect();
+                if parts.len() >= 3 {
+                    let kind_str = parts[0];
+                    let addr_pubkey = parts[1];
+                    let d_tag = parts[2];
+                    // Only honor deletions from the content author
+                    if addr_pubkey == event.pubkey {
+                        if let Ok(kind) = kind_str.parse::<i32>() {
+                            let result = sqlx::query(
+                                "DELETE FROM relay.events WHERE kind = $1 AND pubkey = $2 AND d_tag = $3 AND created_at <= $4",
+                            )
+                            .bind(kind)
+                            .bind(addr_pubkey)
+                            .bind(d_tag)
+                            .bind(event.created_at)
+                            .execute(pool)
+                            .await;
+                            match result {
+                                Ok(r) => deleted += r.rows_affected() as u32,
+                                Err(e) => tracing::error!(addr, error = %e, "Failed to delete addressable event"),
+                            }
                         }
                     }
                 }

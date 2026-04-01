@@ -17,7 +17,7 @@ export const channelsRoutes: FastifyPluginAsync = async (server) => {
   /** POST /:spaceId/channels — Create channel */
   server.post<{
     Params: { spaceId: string };
-    Body: { type: string; label: string; adminOnly?: boolean; slowModeSeconds?: number };
+    Body: { type: string; label: string; categoryId?: string; adminOnly?: boolean; slowModeSeconds?: number };
   }>(
     "/:spaceId/channels",
     async (request, reply) => {
@@ -40,7 +40,7 @@ export const channelsRoutes: FastifyPluginAsync = async (server) => {
   /** PATCH /:spaceId/channels/:channelId — Update channel */
   server.patch<{
     Params: { spaceId: string; channelId: string };
-    Body: { label?: string; position?: number; adminOnly?: boolean; slowModeSeconds?: number; isDefault?: boolean };
+    Body: { label?: string; categoryId?: string | null; position?: number; adminOnly?: boolean; slowModeSeconds?: number; isDefault?: boolean };
   }>(
     "/:spaceId/channels/:channelId",
     async (request, reply) => {

@@ -1,4 +1,4 @@
-import type { NostrEvent } from "../../types/nostr";
+import type { NostrEvent, NostrFilter } from "../../types/nostr";
 import type { RelayMode } from "../../types/relay";
 import type { RelayEventCallback, RelayEOSECallback, RelayOKCallback, RelayStatusCallback, SubscribeOptions, RelayConfig } from "./types";
 import { RelayConnection } from "./relayConnection";
@@ -17,6 +17,16 @@ class RelayManagerImpl {
   private onEOSECallbacks = new Map<string, RelayEOSECallback>();
   private globalOnOK: RelayOKCallback | null = null;
   private globalOnStatusChange: RelayStatusCallback | null = null;
+
+  /** Tracks active subscriptions that targeted specific relay URLs.
+   *  When a relay connects for the first time, pending subs are forwarded to it. */
+  private pendingSubscriptions = new Map<string, {
+    filters: NostrFilter[];
+    intendedUrls: string[];
+  }>();
+
+  /** Per-event-id callbacks for publish confirmation (used by publishWithConfirmation) */
+  private publishOKCallbacks = new Map<string, (relayUrl: string, success: boolean, message: string) => void>();
 
   setGlobalCallbacks(cbs: {
     onOK?: RelayOKCallback;
@@ -47,9 +57,13 @@ class RelayManagerImpl {
       },
       onOK: (eventId, success, message, relayUrl) => {
         this.globalOnOK?.(eventId, success, message, relayUrl);
+        this.publishOKCallbacks.get(eventId)?.(relayUrl, success, message);
       },
       onStatusChange: (relayUrl, status, error) => {
         this.globalOnStatusChange?.(relayUrl, status, error);
+        if (status === "connected") {
+          this.forwardPendingSubscriptions(relayUrl, conn);
+        }
       },
     });
     this.connections.set(url, conn);
@@ -69,6 +83,8 @@ class RelayManagerImpl {
     for (const [url] of this.connections) {
       this.disconnect(url);
     }
+    this.pendingSubscriptions.clear();
+    this.publishOKCallbacks.clear();
   }
 
   /** Publish an event to write relays. Returns the number of relays it was sent to. */
@@ -97,14 +113,21 @@ class RelayManagerImpl {
       this.onEOSECallbacks.set(subId, onEOSE);
     }
 
-    const targetRelays = relayUrls
-      ? relayUrls
-          .map((url) => this.connections.get(url))
-          .filter((c): c is RelayConnection => !!c)
-      : this.getReadRelays();
+    if (relayUrls) {
+      // Track intended URLs so deferred relays get the subscription when they connect
+      this.pendingSubscriptions.set(subId, { filters, intendedUrls: relayUrls });
 
-    for (const conn of targetRelays) {
-      conn.subscribe(subId, filters);
+      for (const url of relayUrls) {
+        const conn = this.connections.get(url);
+        if (conn) {
+          conn.subscribe(subId, filters);
+        }
+      }
+    } else {
+      // No specific URLs: send to all current read relays (unchanged behavior)
+      for (const conn of this.getReadRelays()) {
+        conn.subscribe(subId, filters);
+      }
     }
 
     return subId;
@@ -113,6 +136,7 @@ class RelayManagerImpl {
   closeSubscription(subId: string): void {
     this.onEventCallbacks.delete(subId);
     this.onEOSECallbacks.delete(subId);
+    this.pendingSubscriptions.delete(subId);
     for (const conn of this.connections.values()) {
       if (conn.hasSubscription(subId)) {
         conn.closeSubscription(subId);
@@ -203,6 +227,63 @@ class RelayManagerImpl {
   connectFromConfig(configs: RelayConfig[]): void {
     for (const cfg of configs) {
       this.connect(cfg.url, cfg.mode);
+    }
+  }
+
+  /**
+   * Publish an event and wait for OK responses from relays.
+   * Resolves with relay responses when all relays respond or timeout.
+   */
+  publishWithConfirmation(
+    event: NostrEvent,
+    targets?: string[],
+    timeout = 10_000,
+  ): Promise<{ relayUrl: string; success: boolean; message: string }[]> {
+    const relays = targets
+      ? targets
+          .map((url) => this.connections.get(url))
+          .filter((c): c is RelayConnection => !!c)
+      : this.getWriteRelays();
+
+    if (relays.length === 0) {
+      return Promise.resolve([]);
+    }
+
+    return new Promise((resolve) => {
+      const results: { relayUrl: string; success: boolean; message: string }[] = [];
+      const pending = new Set(relays.map((c) => c.url));
+      let settled = false;
+
+      const finish = () => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(timer);
+        this.publishOKCallbacks.delete(event.id);
+        resolve(results);
+      };
+
+      this.publishOKCallbacks.set(event.id, (relayUrl, success, message) => {
+        if (!pending.has(relayUrl)) return;
+        results.push({ relayUrl, success, message });
+        pending.delete(relayUrl);
+        if (pending.size === 0) finish();
+      });
+
+      for (const conn of relays) {
+        conn.publish(event);
+      }
+
+      const timer = setTimeout(finish, timeout);
+    });
+  }
+
+  /** Forward pending subscriptions to a newly-connected relay */
+  private forwardPendingSubscriptions(relayUrl: string, conn: RelayConnection): void {
+    for (const [subId, pending] of this.pendingSubscriptions) {
+      if (!pending.intendedUrls.includes(relayUrl)) continue;
+      if (conn.hasSubscription(subId)) continue;
+      if (!this.onEventCallbacks.has(subId)) continue;
+      conn.subscribe(subId, pending.filters);
     }
   }
 }

@@ -4,8 +4,8 @@ import { EventDeduplicator } from "./dedup";
 import { isValidEventStructure } from "./validation";
 import { verifyBridge } from "./verifyWorkerBridge";
 import { store } from "../../store";
-import { putEvent, deleteEvent } from "../db/eventStore";
-import { addEvent, indexChatMessage, indexReel, indexLongForm, indexLiveStream, indexNote, indexSpaceFeed, indexMusicTrack, indexMusicAlbum, indexReaction, indexReply, indexRepost, indexRepostByAuthor, indexQuote, removeChatMessage, hideMessage, removeEvent, removeNote, removeRepost, trackDeletedNote, indexEditedMessage } from "../../store/slices/eventsSlice";
+import { putEvent, deleteEvent, deleteAddressableEvent } from "../db/eventStore";
+import { addEvent, indexChatMessage, indexReel, indexLongForm, indexLiveStream, indexNote, indexSpaceFeed, indexMusicTrack, indexMusicAlbum, indexReaction, indexReply, indexRepost, indexRepostByAuthor, indexQuote, removeChatMessage, hideMessage, removeEvent, removeNote, removeRepost, trackDeletedNote, trackDeletedAddr, indexEditedMessage } from "../../store/slices/eventsSlice";
 import { addTrack, indexTrackByArtist, indexTrackByAlbum, indexTrackByArtistName, indexAlbumByArtist, indexAlbumByArtistName, addAlbum, addPlaylist, addAnnotation, removeAnnotation, removeTrack, removeAlbum, removePlaylist } from "../../store/slices/musicSlice";
 import { addDMMessage, editDMMessage, remoteDeleteDMMessage } from "../../store/slices/dmSlice";
 import { parseTrackEvent } from "../../features/music/trackParser";
@@ -20,9 +20,10 @@ import { parseThreadRef, parseQuoteRef } from "../../features/spaces/noteParser"
 import { profileCache } from "./profileCache";
 import { unwrapGiftWrap } from "./giftWrap";
 import { evaluateNotification, evaluateDMNotification, evaluateFriendRequestNotification, evaluateFriendAcceptNotification } from "./notificationEvaluator";
-import { addFriendRequest, markOutgoingAccepted, acceptFriendRequest, addProcessedWrapId, removeFriend } from "../../store/slices/friendRequestSlice";
+import { addFriendRequest, markOutgoingAccepted, acceptFriendRequest, addProcessedWrapId, removeFriend, clearRemovedPubkey } from "../../store/slices/friendRequestSlice";
 import { addKnownFollower } from "../../store/slices/identitySlice";
 import { acceptFriendRequestAction } from "./friendRequest";
+import { followUser } from "./follow";
 import { setIncomingCall, missedCall, endCall } from "../../store/slices/callSlice";
 import { addEmojiSet, setUserEmojis, setSpaceEmojiSets } from "../../store/slices/emojiSlice";
 import { parseEmojiSetEvent, parseUserEmojiListEvent } from "../../features/emoji/emojiSetParser";
@@ -80,9 +81,14 @@ export async function processIncomingEvent(
   // Step 3: Signature verification (Web Worker, async)
   try {
     const valid = await verifyBridge.verify(event);
-    if (!valid) return;
+    if (!valid) {
+      // Unmark so the event can be retried from another relay
+      dedup.unmarkSeen(event.id);
+      return;
+    }
   } catch {
-    // Verification failed or timed out
+    // Verification timeout or worker error — unmark so retry is possible
+    dedup.unmarkSeen(event.id);
     return;
   }
 
@@ -106,6 +112,20 @@ export async function processIncomingEvent(
     store.getState().events.deletedNoteIds[event.id]
   ) {
     return;
+  }
+
+  // Step 3c: Reject re-delivered deleted addressable events (music tracks/albums/etc.)
+  // External relays may not process "a" tag deletions, so they re-deliver events
+  // that our relay has already deleted. Check against persisted deletion timestamps.
+  if (event.kind >= 30000 && event.kind < 40000) {
+    const dTag = event.tags.find((t: string[]) => t[0] === "d")?.[1];
+    if (dTag !== undefined) {
+      const addr = `${event.kind}:${event.pubkey}:${dTag}`;
+      const deletedAt = store.getState().events.deletedAddrIds[addr];
+      if (deletedAt !== undefined && event.created_at <= deletedAt) {
+        return;
+      }
+    }
   }
 
   // Step 4: Dispatch to store
@@ -300,27 +320,30 @@ function indexEvent(event: NostrEvent): void {
           const [kindStr, addrPubkey] = addr.split(":");
           if (addrPubkey !== event.pubkey) continue;
           const kind = parseInt(kindStr, 10);
+          const addrDTag = addr.split(":").slice(2).join(":");
+
+          // Track this deletion so future re-deliveries from external relays are blocked
+          store.dispatch(trackDeletedAddr({ addr, deletedAt: event.created_at }));
+
           if (kind === EVENT_KINDS.MUSIC_TRACK) {
             const track = state.music.tracks[addr];
-            // Only delete if the track was created before the deletion event
             if (track && track.createdAt <= event.created_at) {
-              deleteEvent(track.eventId).catch(() => {});
+              deleteAddressableEvent(kind, addrPubkey, addrDTag).catch(() => {});
               store.dispatch(removeTrack(addr));
             }
           } else if (kind === EVENT_KINDS.MUSIC_ALBUM) {
             const album = state.music.albums[addr];
             if (album && album.createdAt <= event.created_at) {
-              deleteEvent(album.eventId).catch(() => {});
+              deleteAddressableEvent(kind, addrPubkey, addrDTag).catch(() => {});
               store.dispatch(removeAlbum(addr));
             }
           } else if (kind === EVENT_KINDS.MUSIC_PLAYLIST) {
             const playlist = state.music.playlists[addr];
             if (playlist && playlist.createdAt <= event.created_at) {
-              deleteEvent(playlist.eventId).catch(() => {});
+              deleteAddressableEvent(kind, addrPubkey, addrDTag).catch(() => {});
               store.dispatch(removePlaylist(addr));
             }
           } else if (kind === EVENT_KINDS.MUSIC_TRACK_NOTES) {
-            // Find and remove matching annotation
             for (const [targetRef, anns] of Object.entries(state.music.annotations)) {
               const match = anns.find((a) => a.addressableId === addr);
               if (match && match.createdAt <= event.created_at) {
@@ -335,9 +358,14 @@ function indexEvent(event: NostrEvent): void {
         if (tag[0] === "e" && tag[1]) {
           const refEvent = state.events.entities[tag[1]];
           if (!refEvent || refEvent.pubkey === event.pubkey) {
-            deleteEvent(tag[1]).catch(() => {});
+            // Safety: don't let "e" tag deletions cascade to addressable music
+            // events. Those must ONLY be deleted via "a" tags (handled above)
+            // to properly respect the created_at supersedence rule.
+            const isAddressableEvent = refEvent && refEvent.kind >= 30000 && refEvent.kind < 40000;
+            if (!isAddressableEvent) {
+              deleteEvent(tag[1]).catch(() => {});
+            }
             if (refEvent?.kind === EVENT_KINDS.CHAT_MESSAGE) {
-              // Chat message: remove from chat index + hide
               const refHTag = refEvent.tags.find((t) => t[0] === "h")?.[1];
               if (refHTag) {
                 const refChannelTag = refEvent.tags.find((t) => t[0] === "channel")?.[1];
@@ -347,18 +375,24 @@ function indexEvent(event: NostrEvent): void {
               store.dispatch(hideMessage(tag[1]));
               store.dispatch(removeEvent(tag[1]));
             } else if (refEvent?.kind === EVENT_KINDS.SHORT_TEXT) {
-              // Kind:1 note: remove from indexes + track deletion to prevent re-delivery
               store.dispatch(removeNote({ pubkey: event.pubkey, eventId: tag[1] }));
               store.dispatch(removeEvent(tag[1]));
               store.dispatch(trackDeletedNote(tag[1]));
             } else if (refEvent?.kind === EVENT_KINDS.REPOST) {
-              // Kind:6 repost: remove from indexes + track deletion
               store.dispatch(removeRepost({ pubkey: event.pubkey, eventId: tag[1] }));
               store.dispatch(removeEvent(tag[1]));
               store.dispatch(trackDeletedNote(tag[1]));
             } else if (!refEvent) {
-              // Event not in store (may arrive later) — track as deleted preemptively
-              store.dispatch(trackDeletedNote(tag[1]));
+              // Event not in store (may arrive later) — track as deleted
+              // preemptively, but only for ephemeral kinds (notes/reposts).
+              const deletedKinds = event.tags
+                .filter((t) => t[0] === "k" && t[1])
+                .map((t) => parseInt(t[1], 10));
+              const targetsOnlyEphemeral = deletedKinds.length === 0 ||
+                deletedKinds.every((k) => k < 30000 || k >= 40000);
+              if (targetsOnlyEphemeral) {
+                store.dispatch(trackDeletedNote(tag[1]));
+              }
             }
           }
         }
@@ -610,9 +644,8 @@ async function handleGiftWrap(event: NostrEvent): Promise<void> {
     if (!isOwnMessage && !alreadyProcessed && dmState.activeConversation !== partnerPubkey) {
       evaluateDMNotification(dm.sender, dm.content);
     }
-  } catch (err) {
-    // Log for debugging — common for wraps not addressed to us
-    console.debug("[DM] Gift wrap decryption failed:", (err as Error)?.message ?? err);
+  } catch {
+    // Decryption failed — common for wraps not addressed to us
   }
 }
 
@@ -631,8 +664,17 @@ function handleFriendRequestWrap(
   // Dedup check
   if (frState.processedWrapIds.includes(dm.wrapId)) return;
 
-  // Skip if this pubkey was explicitly removed/cancelled — prevents relay resurrection
-  if (frState.removedPubkeys.includes(partnerPubkey)) return;
+  // Skip relay resurrection of OLD self-wraps (our own outgoing requests from before removal).
+  // But if this is an INCOMING request (someone actively sending us a new request),
+  // clear them from removedPubkeys and process it — they want to re-friend.
+  if (frState.removedPubkeys.includes(partnerPubkey)) {
+    if (isOwnMessage) return;
+    store.dispatch(clearRemovedPubkey(partnerPubkey));
+  }
+
+  // NOTE: Do NOT dispatch addProcessedWrapId here — the addFriendRequest reducer
+  // handles ID tracking internally. Dispatching it separately would preempt the
+  // reducer's dedup check and cause it to short-circuit without adding the request.
 
   const direction = isOwnMessage ? "outgoing" : "incoming";
 
@@ -696,8 +738,14 @@ function handleFriendAcceptWrap(
   // Track wrap ID to prevent re-processing (was previously missing)
   store.dispatch(addProcessedWrapId(dm.wrapId));
 
-  // Skip if this pubkey was explicitly removed
-  if (frState.removedPubkeys.includes(partnerPubkey)) return;
+  // For incoming accepts: if they're accepting our request, clear from removed list.
+  // For own self-wraps of old accepts: skip if partner was removed (relay resurrection).
+  if (frState.removedPubkeys.includes(partnerPubkey)) {
+    if (isOwnMessage) {
+      return;
+    }
+    store.dispatch(clearRemovedPubkey(partnerPubkey));
+  }
 
   if (!isOwnMessage) {
     // They accepted our request
@@ -705,6 +753,15 @@ function handleFriendAcceptWrap(
     store.dispatch(acceptFriendRequest(partnerPubkey));
     // They accepted, so they follow us — sync knownFollowers
     store.dispatch(addKnownFollower(partnerPubkey));
+    // Auto-follow: friendship implies mutual following.
+    // acceptFriendRequestAction handles this for the accepting side,
+    // but the sender also needs to follow back when the accept arrives.
+    const currentFollows = store.getState().identity.followList;
+    if (!currentFollows.includes(partnerPubkey)) {
+      followUser(partnerPubkey).catch((err) => {
+        console.error("[FriendReq] Auto-follow on accept receipt failed:", err);
+      });
+    }
     evaluateFriendAcceptNotification(partnerPubkey);
   }
 }

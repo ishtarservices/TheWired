@@ -1,7 +1,7 @@
 import { useState, useCallback, useMemo, useEffect } from "react";
 import { useNavigate, useLocation } from "react-router-dom";
 import { cn } from "@/lib/utils";
-import { Plus, Eye, Users, BellOff, Search, X, Star } from "lucide-react";
+import { Plus, Eye, Users, BellOff, Search, X, Star, Compass } from "lucide-react";
 import { Avatar } from "../../components/ui/Avatar";
 import { useSpace } from "./useSpace";
 import { SpaceActionModal } from "./SpaceActionModal";
@@ -113,6 +113,24 @@ export function SpaceList() {
               <Users size={14} className="text-primary" />
             </div>
             <span className="truncate text-left">Friends Feed</span>
+          </button>
+        )}
+
+        {/* Discover — always visible below Friends Feed (unless filtering) */}
+        {!filter && (
+          <button
+            onClick={() => navigate("/discover")}
+            className={cn(
+              "flex w-full items-center gap-2 rounded-xl px-3 py-2 text-sm transition-all duration-150",
+              location.pathname === "/discover"
+                ? "bg-primary/8 text-heading"
+                : "text-soft hover:bg-surface-hover hover:text-heading",
+            )}
+          >
+            <div className="flex h-7 w-7 items-center justify-center rounded-full bg-primary/10 shrink-0">
+              <Compass size={14} className="text-primary" />
+            </div>
+            <span className="truncate text-left">Discover</span>
           </button>
         )}
 

@@ -12,7 +12,7 @@ import {
   setActiveDetailId,
 } from "@/store/slices/musicSlice";
 import { api } from "@/lib/api/client";
-import { putEvent } from "@/lib/db/eventStore";
+import { processIncomingEvent } from "@/lib/nostr/eventPipeline";
 import { parseTrackEvent } from "../trackParser";
 import { parseAlbumEvent } from "../albumParser";
 import { TrackCard } from "../TrackCard";
@@ -70,8 +70,7 @@ export function SearchResults() {
               const res = await resolveMusic("track", pubkey, slug);
               // eslint-disable-next-line @typescript-eslint/no-explicit-any
               const rawEvent = (res.data as any).event;
-              // Persist to IndexedDB so it survives app restart
-              putEvent(rawEvent).catch(() => {});
+              await processIncomingEvent(rawEvent, "search");
               return parseTrackEvent(rawEvent);
             }),
           );
@@ -93,8 +92,7 @@ export function SearchResults() {
               const res = await resolveMusic("album", pubkey, slug);
               // eslint-disable-next-line @typescript-eslint/no-explicit-any
               const rawEvent = (res.data as any).event;
-              // Persist to IndexedDB so it survives app restart
-              putEvent(rawEvent).catch(() => {});
+              await processIncomingEvent(rawEvent, "search");
               return parseAlbumEvent(rawEvent);
             }),
           );

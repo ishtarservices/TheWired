@@ -40,6 +40,20 @@ export function ChannelList() {
   const [createModalOpen, setCreateModalOpen] = useState(false);
   const [ctxMenu, setCtxMenu] = useState<{ channelId: string; x: number; y: number } | null>(null);
 
+  // Top-level channels collapse (separate from category collapse)
+  const [channelsCollapsed, setChannelsCollapsed] = useState(() => {
+    try { return localStorage.getItem("sidebar_channels_collapsed") === "true"; }
+    catch { return false; }
+  });
+
+  const toggleChannels = useCallback(() => {
+    setChannelsCollapsed((prev) => {
+      const next = !prev;
+      localStorage.setItem("sidebar_channels_collapsed", String(next));
+      return next;
+    });
+  }, []);
+
   // Track collapsed categories in localStorage
   const [collapsedCategories, setCollapsedCategories] = useState<Set<string>>(() => {
     if (!activeSpaceId) return new Set();
@@ -170,9 +184,24 @@ export function ChannelList() {
   return (
     <div className="p-3 space-y-1">
       <div className="mb-1 flex items-center justify-between px-2">
-        <span className="text-[10px] font-semibold uppercase tracking-[0.15em] text-muted">
-          Channels
-        </span>
+        <button
+          onClick={toggleChannels}
+          className="flex items-center gap-1 group"
+        >
+          <ChevronRight
+            size={10}
+            className={cn(
+              "text-muted transition-transform duration-150",
+              !channelsCollapsed && "rotate-90",
+            )}
+          />
+          <span className="text-[10px] font-semibold uppercase tracking-[0.15em] text-muted group-hover:text-heading transition-colors">
+            Channels
+          </span>
+          {channelsCollapsed && (
+            <CollapsedUnreadBadge spaceId={spaceId} channels={visibleChannels} />
+          )}
+        </button>
         {isAdmin && (
           <button
             onClick={() => setCreateModalOpen(true)}
@@ -184,47 +213,49 @@ export function ChannelList() {
         )}
       </div>
 
-      {hasCategories ? (
-        groupedChannels.map((group) => {
-          const isCollapsed = group.categoryId ? collapsedCategories.has(group.categoryId) : false;
+      {!channelsCollapsed && (
+        hasCategories ? (
+          groupedChannels.map((group) => {
+            const isCollapsed = group.categoryId ? collapsedCategories.has(group.categoryId) : false;
 
-          return (
-            <div key={group.categoryId ?? "__ungrouped__"}>
-              {group.categoryId && (
-                <CategoryHeader
-                  categoryId={group.categoryId}
-                  spaceId={spaceId}
-                  channels={group.channels}
-                  isCollapsed={isCollapsed}
-                  onToggle={() => toggleCategory(group.categoryId!)}
-                />
-              )}
-              {!isCollapsed && group.channels.map((ch) => (
-                <ChannelItem
-                  key={ch.id}
-                  ch={ch}
-                  spaceId={spaceId}
-                  activeChannelId={activeChannelId}
-                  isFriendsFeed={isFriendsFeed}
-                  onSelect={handleSelectChannel}
-                  onContextMenu={handleChannelContextMenu}
-                />
-              ))}
-            </div>
-          );
-        })
-      ) : (
-        visibleChannels.map((ch) => (
-          <ChannelItem
-            key={ch.id}
-            ch={ch}
-            spaceId={spaceId}
-            activeChannelId={activeChannelId}
-            isFriendsFeed={isFriendsFeed}
-            onSelect={handleSelectChannel}
-            onContextMenu={handleChannelContextMenu}
-          />
-        ))
+            return (
+              <div key={group.categoryId ?? "__ungrouped__"}>
+                {group.categoryId && (
+                  <CategoryHeader
+                    categoryId={group.categoryId}
+                    spaceId={spaceId}
+                    channels={group.channels}
+                    isCollapsed={isCollapsed}
+                    onToggle={() => toggleCategory(group.categoryId!)}
+                  />
+                )}
+                {!isCollapsed && group.channels.map((ch) => (
+                  <ChannelItem
+                    key={ch.id}
+                    ch={ch}
+                    spaceId={spaceId}
+                    activeChannelId={activeChannelId}
+                    isFriendsFeed={isFriendsFeed}
+                    onSelect={handleSelectChannel}
+                    onContextMenu={handleChannelContextMenu}
+                  />
+                ))}
+              </div>
+            );
+          })
+        ) : (
+          visibleChannels.map((ch) => (
+            <ChannelItem
+              key={ch.id}
+              ch={ch}
+              spaceId={spaceId}
+              activeChannelId={activeChannelId}
+              isFriendsFeed={isFriendsFeed}
+              onSelect={handleSelectChannel}
+              onContextMenu={handleChannelContextMenu}
+            />
+          ))
+        )
       )}
 
       {!isFriendsFeed && (

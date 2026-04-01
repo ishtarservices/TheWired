@@ -1,4 +1,4 @@
-import { eq, desc, asc, and, sql } from "drizzle-orm";
+import { eq, desc, asc, and, sql, inArray } from "drizzle-orm";
 import { db } from "../db/connection.js";
 import { spaces, spaceTags } from "../db/schema/spaces.js";
 import { listingRequests, spaceCategories, relayDirectory } from "../db/schema/discovery.js";
@@ -59,7 +59,7 @@ export const discoveryService = {
       const tags = await db
         .select()
         .from(spaceTags)
-        .where(sql`${spaceTags.spaceId} = ANY(${spaceIds})`);
+        .where(inArray(spaceTags.spaceId, spaceIds));
 
       const tagMap = new Map<string, string[]>();
       for (const t of tags) {
