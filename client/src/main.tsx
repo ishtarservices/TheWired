@@ -12,3 +12,11 @@ ReactDOM.createRoot(document.getElementById("root") as HTMLElement).render(
     </Provider>
   </React.StrictMode>,
 );
+
+// Fade out the HTML splash screen now that React has mounted
+const splash = document.getElementById("splash");
+if (splash) {
+  splash.style.opacity = "0";
+  splash.style.visibility = "hidden";
+  splash.addEventListener("transitionend", () => splash.remove(), { once: true });
+}

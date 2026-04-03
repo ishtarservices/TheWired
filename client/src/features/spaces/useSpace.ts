@@ -33,8 +33,10 @@ import {
 } from "../../store/slices/notificationSlice";
 import { clearFeedMeta } from "../../store/slices/feedSlice";
 import { fetchMembers, getSpace, fetchFeedSources } from "../../lib/api/spaces";
+import { fetchMyOnboardingState, fetchOnboardingPreview } from "../../lib/api/onboarding";
 import { ApiRequestError } from "../../lib/api/client";
 import { updateSpaceFeedSources } from "../../store/slices/spacesSlice";
+import { setOnboardingPending } from "../../store/slices/spaceConfigSlice";
 import { selectActiveSpace, parseChannelIdPart } from "./spaceSelectors";
 import { clearSpaceFeed } from "../../store/slices/eventsSlice";
 import type { Space, SpaceChannel } from "../../types/space";
@@ -234,6 +236,24 @@ export function useSpace() {
       if (space.mode === "read") {
         syncFeedSources(spaceId);
       }
+
+      // Check onboarding state on space entry (non-blocking)
+      fetchMyOnboardingState(spaceId)
+        .then((res) => {
+          if (!res.data || !res.data.completed) {
+            // Not completed — check if space actually has onboarding enabled
+            fetchOnboardingPreview(spaceId)
+              .then((previewRes) => {
+                if (previewRes.data && previewRes.data.requireCompletion && previewRes.data.questions.length > 0) {
+                  dispatch(setOnboardingPending({ spaceId, pending: true }));
+                }
+              })
+              .catch(() => {});
+          } else {
+            dispatch(setOnboardingPending({ spaceId, pending: false }));
+          }
+        })
+        .catch(() => {});
 
       // Background existence check — if the space was deleted, getSpace returns 404
       getSpace(spaceId).catch((err) => {

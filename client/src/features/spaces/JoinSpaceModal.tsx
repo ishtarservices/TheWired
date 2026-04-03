@@ -8,9 +8,11 @@ import { Avatar } from "../../components/ui/Avatar";
 import { getInviteWithPreview, redeemInvite, type InviteWithPreview } from "../../lib/api/invites";
 import { ApiRequestError } from "../../lib/api/client";
 import { useSpace } from "./useSpace";
+import { OnboardingFlow } from "./OnboardingFlow";
 import { BOOTSTRAP_RELAYS } from "../../lib/nostr/constants";
 import { useAppSelector, useAppDispatch } from "../../store/hooks";
 import { setSidebarMode } from "../../store/slices/uiSlice";
+import { setOnboardingPending } from "../../store/slices/spaceConfigSlice";
 
 interface JoinSpaceModalProps {
   open: boolean;
@@ -18,7 +20,7 @@ interface JoinSpaceModalProps {
   initialCode?: string;
 }
 
-type Step = "input" | "preview" | "joining" | "success";
+type Step = "input" | "preview" | "joining" | "success" | "onboarding";
 
 const ERROR_MESSAGES: Record<string, string> = {
   NOT_FOUND: "This invite code is invalid or has been revoked.",
@@ -125,12 +127,19 @@ export function JoinSpaceModal({ open, onClose, initialCode }: JoinSpaceModalPro
       dispatch(setSidebarMode("spaces"));
       navigate("/");
 
-      setStep("success");
-
-      // Close modal after a brief delay (space is already selected by joinSpace)
-      setTimeout(() => {
-        handleClose();
-      }, 1200);
+      // Check if space has onboarding configured
+      if (res.data.onboarding?.hasOnboarding) {
+        if (res.data.onboarding.requireCompletion) {
+          dispatch(setOnboardingPending({ spaceId: invite.spaceId, pending: true }));
+        }
+        setStep("onboarding");
+      } else {
+        setStep("success");
+        // Close modal after a brief delay (space is already selected by joinSpace)
+        setTimeout(() => {
+          handleClose();
+        }, 1200);
+      }
     } catch (err) {
       setStep("preview");
       if (err instanceof ApiRequestError) {
@@ -280,6 +289,21 @@ export function JoinSpaceModal({ open, onClose, initialCode }: JoinSpaceModalPro
           </div>
         )}
       </div>
+
+      {/* Onboarding Flow (renders as its own modal on top) */}
+      {step === "onboarding" && invite && (
+        <OnboardingFlow
+          open
+          onClose={handleClose}
+          spaceId={invite.spaceId}
+          spaceName={invite.space.name}
+          spacePicture={invite.space.picture}
+          onComplete={() => {
+            // Onboarding finished — permissions will be refreshed
+            // by the OnboardingFlow component
+          }}
+        />
+      )}
     </Modal>
   );
 }

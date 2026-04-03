@@ -7,6 +7,7 @@ import { spaceRoles } from "../db/schema/permissions.js";
 import { eq, and, sql } from "drizzle-orm";
 import { nanoid } from "../lib/id.js";
 import { permissionService } from "../services/permissionService.js";
+import { onboardingService } from "../services/onboardingService.js";
 
 export const invitesRoutes: FastifyPluginAsync = async (server) => {
   // Create invite
@@ -158,11 +159,17 @@ export const invitesRoutes: FastifyPluginAsync = async (server) => {
     // Fetch space info to return
     const [space] = await db.select().from(spaces).where(eq(spaces.id, invite.spaceId)).limit(1);
 
+    // Check if space has onboarding enabled
+    const obConfig = await onboardingService.getConfig(invite.spaceId);
+
     return {
       data: {
         spaceId: invite.spaceId,
         space: space
           ? { name: space.name, picture: space.picture, about: space.about, memberCount: space.memberCount, mode: space.mode }
+          : null,
+        onboarding: obConfig?.enabled
+          ? { hasOnboarding: true, requireCompletion: obConfig.requireCompletion }
           : null,
       },
     };

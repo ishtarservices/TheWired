@@ -15,7 +15,6 @@ import { DiscoverPage } from "../features/discover/DiscoverPage";
 import { FriendsFeedPanel } from "../features/friends/FriendsFeedPanel";
 import { JoinSpaceModal } from "../features/spaces/JoinSpaceModal";
 import { FRIENDS_FEED_ID } from "../features/friends/friendsFeedConstants";
-import { Spinner } from "../components/ui/Spinner";
 import { ThemeProvider } from "../contexts/ThemeContext";
 import { tryRestoreSession } from "../lib/nostr/loginFlow";
 
@@ -30,8 +29,17 @@ function AuthGate() {
 
   if (restoring) {
     return (
-      <div className="flex h-screen items-center justify-center bg-background">
-        <Spinner size="lg" />
+      <div className="flex h-screen flex-col items-center justify-center bg-background">
+        <img
+          src="/logo.png"
+          alt="The Wired"
+          width={64}
+          height={64}
+          className="rounded-2xl animate-pulse"
+        />
+        <p className="mt-5 text-sm font-medium text-muted tracking-wide">
+          Loading...
+        </p>
       </div>
     );
   }

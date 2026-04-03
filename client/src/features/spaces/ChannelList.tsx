@@ -153,10 +153,17 @@ export function ChannelList() {
 
   const sortedChannels = [...channels].sort((a, b) => a.position - b.position);
 
+  // Check if onboarding is pending for this space (limits to default channels)
+  const onboardingPending = useAppSelector(
+    (s) => !isFriendsFeed && activeSpace ? s.spaceConfig.onboardingPending[activeSpace.id] ?? false : false,
+  );
+
   // Filter channels: read-only hides chat, VIEW_CHANNEL hides channels with explicit deny overrides.
+  // When onboarding is pending, only show default channels.
   const visibleChannels = sortedChannels.filter((ch) => {
     if (isFriendsFeed) return true;
     if (ch.type === "chat" && activeSpace?.mode === "read") return false;
+    if (onboardingPending && !ch.isDefault && !isAdmin) return false;
     const ov = channelOverrides[ch.id];
     if (ov?.deny.includes("VIEW_CHANNEL") && !isAdmin) return false;
     return true;
@@ -212,6 +219,14 @@ export function ChannelList() {
           </button>
         )}
       </div>
+
+      {!channelsCollapsed && onboardingPending && (
+        <div className="mx-2 mb-1 rounded-lg bg-primary/5 border border-primary/10 px-2.5 py-1.5">
+          <p className="text-[10px] text-primary leading-snug">
+            Complete onboarding to unlock all channels
+          </p>
+        </div>
+      )}
 
       {!channelsCollapsed && (
         hasCategories ? (

@@ -5,6 +5,7 @@ import { spaces } from "../db/schema/spaces.js";
 import { spaceRoles } from "../db/schema/permissions.js";
 import { spaceChannels } from "../db/schema/channels.js";
 import { eq, and, sql, asc } from "drizzle-orm";
+import { onboardingService } from "../services/onboardingService.js";
 
 export const membersRoutes: FastifyPluginAsync = async (server) => {
   server.get<{ Params: { id: string } }>("/:id/members", async (request) => {
@@ -59,6 +60,9 @@ export const membersRoutes: FastifyPluginAsync = async (server) => {
       feedPubkeys = sources.map((s) => s.pubkey);
     }
 
+    // Check if space has onboarding enabled
+    const obConfig = await onboardingService.getConfig(id);
+
     return {
       data: {
         space: {
@@ -73,6 +77,9 @@ export const membersRoutes: FastifyPluginAsync = async (server) => {
         },
         channels,
         feedPubkeys,
+        onboarding: obConfig?.enabled
+          ? { hasOnboarding: true, requireCompletion: obConfig.requireCompletion }
+          : null,
       },
     };
   });

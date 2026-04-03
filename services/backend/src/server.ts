@@ -26,6 +26,7 @@ import { notificationsRoutes } from "./routes/notifications.js";
 import { voiceRoutes } from "./routes/voice.js";
 import { gifRoutes } from "./routes/gif.js";
 import { discoveryRoutes } from "./routes/discovery.js";
+import { onboardingRoutes } from "./routes/onboarding.js";
 import { authContext } from "./middleware/authContext.js";
 import { errorHandler } from "./middleware/errorHandler.js";
 
@@ -73,6 +74,7 @@ export async function createServer() {
   await server.register(voiceRoutes, { prefix: "/voice" });
   await server.register(gifRoutes, { prefix: "/gif" });
   await server.register(discoveryRoutes, { prefix: "/discovery" });
+  await server.register(onboardingRoutes, { prefix: "/spaces" });
 
   return server;
 }

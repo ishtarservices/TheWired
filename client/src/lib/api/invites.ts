@@ -24,9 +24,15 @@ export interface InviteWithPreview extends Invite {
   space: SpacePreview;
 }
 
+export interface OnboardingFlag {
+  hasOnboarding: boolean;
+  requireCompletion: boolean;
+}
+
 export interface RedeemResult {
   spaceId: string;
   space: SpacePreview | null;
+  onboarding: OnboardingFlag | null;
 }
 
 export async function createInvite(params: {

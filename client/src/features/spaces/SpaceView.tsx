@@ -1,4 +1,5 @@
 import { ChannelHeader } from "./ChannelHeader";
+import { OnboardingBanner } from "./OnboardingBanner";
 import { useSpace } from "./useSpace";
 import { TextAnimate } from "@/components/ui/TextAnimate";
 
@@ -28,6 +29,11 @@ export function SpaceView({ children }: SpaceViewProps) {
   return (
     <div className="flex flex-1 flex-col overflow-hidden">
       <ChannelHeader />
+      <OnboardingBanner
+        spaceId={activeSpace.id}
+        spaceName={activeSpace.name}
+        spacePicture={activeSpace.picture}
+      />
       <div className="flex flex-1 overflow-hidden">
         {children}
       </div>

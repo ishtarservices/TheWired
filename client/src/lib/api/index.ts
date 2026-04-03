@@ -15,3 +15,4 @@ export { fetchRoles, createRole, updateRole, deleteRole, reorderRoles, fetchMemb
 export { fetchBans, banMember, unbanMember, fetchMutes, muteMember, unmuteMember, kickMember } from "./moderation";
 export { fetchVoiceToken, voiceKick, voiceMute, fetchVoiceRooms, fetchDMVoiceToken } from "./voice";
 export { getTrendingGifs, searchGifs, getGifAutocomplete, registerGifShare } from "./gif";
+export { fetchOnboardingConfig, updateOnboardingConfig, createQuestion, updateQuestion, deleteQuestion, reorderQuestions, createAnswer, updateAnswer, deleteAnswer, setAnswerMappings, createTodoItem, updateTodoItem, deleteTodoItem, reorderTodoItems, submitOnboarding, fetchMyOnboardingState, completeTodoItem, fetchOnboardingPreview } from "./onboarding";

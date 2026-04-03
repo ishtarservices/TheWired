@@ -14,6 +14,7 @@ interface SpaceConfigState {
   myChannelOverrides: Record<string, MyChannelOverrides>; // spaceId → user's channel overrides
   bans: Record<string, Ban[]>;                           // spaceId → bans
   mutes: Record<string, Mute[]>;                         // spaceId → mutes
+  onboardingPending: Record<string, boolean>;            // spaceId → needs onboarding completion
   loading: Record<string, boolean>;
 }
 
@@ -25,6 +26,7 @@ const initialState: SpaceConfigState = {
   myChannelOverrides: {},
   bans: {},
   mutes: {},
+  onboardingPending: {},
   loading: {},
 };
 
@@ -125,6 +127,15 @@ export const spaceConfigSlice = createSlice({
       state.mutes[action.payload.spaceId] = mutes.filter((m) => m.id !== action.payload.muteId);
     },
 
+    // Onboarding
+    setOnboardingPending(state, action: PayloadAction<{ spaceId: string; pending: boolean }>) {
+      if (action.payload.pending) {
+        state.onboardingPending[action.payload.spaceId] = true;
+      } else {
+        delete state.onboardingPending[action.payload.spaceId];
+      }
+    },
+
     // Loading
     setConfigLoading(state, action: PayloadAction<{ spaceId: string; loading: boolean }>) {
       state.loading[action.payload.spaceId] = action.payload.loading;
@@ -148,5 +159,6 @@ export const {
   setMutes,
   addMute,
   removeMute,
+  setOnboardingPending,
   setConfigLoading,
 } = spaceConfigSlice.actions;

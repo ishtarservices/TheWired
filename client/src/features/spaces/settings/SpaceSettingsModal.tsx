@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { X, Settings, Hash, Shield, Users, Gavel, Bell, Rss } from "lucide-react";
+import { X, Settings, Hash, Shield, Users, Gavel, Bell, Rss, UserPlus } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Modal } from "../../../components/ui/Modal";
 import { GeneralTab } from "./GeneralTab";
@@ -7,11 +7,12 @@ import { ChannelsTab } from "./ChannelsTab";
 import { RolesTab } from "./RolesTab";
 import { MembersTab } from "./MembersTab";
 import { NotificationsTab } from "./NotificationsTab";
+import { OnboardingTab } from "./OnboardingTab";
 import { ModerationTab } from "../moderation/ModerationTab";
 import { usePermissions } from "../usePermissions";
 import { useAppSelector } from "../../../store/hooks";
 
-type TabId = "general" | "channels" | "roles" | "members" | "notifications" | "moderation";
+type TabId = "general" | "channels" | "roles" | "members" | "notifications" | "moderation" | "onboarding";
 
 interface Tab {
   id: TabId;
@@ -26,6 +27,7 @@ const COMMUNITY_TABS: Tab[] = [
   { id: "roles", label: "Roles", icon: Shield },
   { id: "members", label: "Members", icon: Users },
   { id: "notifications", label: "Notifications", icon: Bell },
+  { id: "onboarding", label: "Onboarding", icon: UserPlus, permission: "MANAGE_SPACE" },
   { id: "moderation", label: "Moderation", icon: Gavel, permission: "BAN_MEMBERS" },
 ];
 
@@ -93,6 +95,7 @@ export function SpaceSettingsModal({ open, onClose, spaceId }: SpaceSettingsModa
           {activeTab === "roles" && <RolesTab spaceId={spaceId} />}
           {activeTab === "members" && <MembersTab spaceId={spaceId} />}
           {activeTab === "notifications" && <NotificationsTab spaceId={spaceId} />}
+          {activeTab === "onboarding" && <OnboardingTab spaceId={spaceId} />}
           {activeTab === "moderation" && <ModerationTab spaceId={spaceId} />}
         </div>
       </div>

@@ -114,3 +114,82 @@ export interface SpaceChannelRoute {
   pageSize: number;
   sortOrder: "asc" | "desc";
 }
+
+// ── Onboarding Types ──────────────────────────────────────────────
+
+export interface OnboardingConfig {
+  spaceId: string;
+  enabled: boolean;
+  welcomeMessage: string | null;
+  welcomeImage: string | null;
+  requireCompletion: boolean;
+}
+
+export interface OnboardingQuestion {
+  id: string;
+  spaceId: string;
+  title: string;
+  description: string | null;
+  position: number;
+  required: boolean;
+  multiple: boolean;
+  answers: OnboardingAnswer[];
+}
+
+export interface OnboardingAnswer {
+  id: string;
+  questionId: string;
+  label: string;
+  emoji: string | null;
+  position: number;
+  mappings: AnswerMapping[];
+}
+
+export interface AnswerMapping {
+  id: string;
+  answerId: string;
+  roleId: string | null;
+  channelId: string | null;
+}
+
+export interface OnboardingTodoItem {
+  id: string;
+  spaceId: string;
+  title: string;
+  description: string | null;
+  linkChannelId: string | null;
+  position: number;
+}
+
+export interface MemberOnboardingState {
+  completed: boolean;
+  answers: Array<{ questionId: string; answerIds: string[] }>;
+  todoCompleted: string[];
+}
+
+export interface OnboardingPreview {
+  welcomeMessage: string | null;
+  welcomeImage: string | null;
+  requireCompletion: boolean;
+  questions: Array<{
+    id: string;
+    title: string;
+    description: string | null;
+    required: boolean;
+    multiple: boolean;
+    position: number;
+    answers: Array<{
+      id: string;
+      label: string;
+      emoji: string | null;
+      position: number;
+    }>;
+  }>;
+  todoItems: OnboardingTodoItem[];
+}
+
+export interface OnboardingFullConfig {
+  config: OnboardingConfig;
+  questions: OnboardingQuestion[];
+  todoItems: OnboardingTodoItem[];
+}
