@@ -1,4 +1,6 @@
 import type { FastifyPluginAsync } from "fastify";
+import { z } from "zod";
+import { validate, nonEmptyString, hexId } from "../lib/validation.js";
 import { db } from "../db/connection.js";
 import { spaceMembers, memberRoles, spaceFeedSources } from "../db/schema/members.js";
 import { spaces } from "../db/schema/spaces.js";
@@ -7,9 +9,17 @@ import { spaceChannels } from "../db/schema/channels.js";
 import { eq, and, sql, asc } from "drizzle-orm";
 import { onboardingService } from "../services/onboardingService.js";
 
+const idParams = z.object({ id: nonEmptyString });
+const feedSourcesBody = z.object({
+  pubkeys: z.array(hexId).min(1).max(100),
+});
+const feedSourceDeleteParams = z.object({ id: nonEmptyString, pubkey: hexId });
+
 export const membersRoutes: FastifyPluginAsync = async (server) => {
-  server.get<{ Params: { id: string } }>("/:id/members", async (request) => {
-    const { id } = request.params;
+  server.get<{ Params: { id: string } }>("/:id/members", async (request, reply) => {
+    const params = validate(idParams, request.params, reply);
+    if (!params) return;
+    const { id } = params;
     const members = await db.select().from(spaceMembers).where(eq(spaceMembers.spaceId, id));
     return { data: members };
   });
@@ -19,7 +29,9 @@ export const membersRoutes: FastifyPluginAsync = async (server) => {
     const pubkey = (request as any).pubkey as string | undefined;
     if (!pubkey) return reply.status(401).send({ error: "Authentication required", code: "UNAUTHORIZED" });
 
-    const { id } = request.params;
+    const params = validate(idParams, request.params, reply);
+    if (!params) return;
+    const { id } = params;
 
     // Space must exist and be listed (public discovery join)
     const [space] = await db.select().from(spaces).where(eq(spaces.id, id)).limit(1);
@@ -89,7 +101,9 @@ export const membersRoutes: FastifyPluginAsync = async (server) => {
     const pubkey = (request as any).pubkey as string | undefined;
     if (!pubkey) return reply.status(401).send({ error: "Authentication required", code: "UNAUTHORIZED" });
 
-    const { id } = request.params;
+    const params = validate(idParams, request.params, reply);
+    if (!params) return;
+    const { id } = params;
 
     // Remove membership and any role assignments
     await db
@@ -105,8 +119,10 @@ export const membersRoutes: FastifyPluginAsync = async (server) => {
   // ── Feed Sources ──────────────────────────────────────────────────
 
   /** GET /:id/feed-sources — List curated feed source pubkeys */
-  server.get<{ Params: { id: string } }>("/:id/feed-sources", async (request) => {
-    const { id } = request.params;
+  server.get<{ Params: { id: string } }>("/:id/feed-sources", async (request, reply) => {
+    const params = validate(idParams, request.params, reply);
+    if (!params) return;
+    const { id } = params;
     const rows = await db
       .select()
       .from(spaceFeedSources)
@@ -119,11 +135,11 @@ export const membersRoutes: FastifyPluginAsync = async (server) => {
     const pubkey = (request as any).pubkey as string | undefined;
     if (!pubkey) return reply.status(401).send({ error: "Authentication required", code: "UNAUTHORIZED" });
 
-    const { id } = request.params;
-    const body = request.body as { pubkeys?: string[] };
-    if (!Array.isArray(body?.pubkeys) || body.pubkeys.length === 0) {
-      return reply.status(400).send({ error: "pubkeys array required", code: "BAD_REQUEST" });
-    }
+    const params = validate(idParams, request.params, reply);
+    if (!params) return;
+    const { id } = params;
+    const body = validate(feedSourcesBody, request.body, reply);
+    if (!body) return;
 
     // Verify caller is space creator or admin
     const [space] = await db.select().from(spaces).where(eq(spaces.id, id)).limit(1);
@@ -153,7 +169,9 @@ export const membersRoutes: FastifyPluginAsync = async (server) => {
     const callerPubkey = (request as any).pubkey as string | undefined;
     if (!callerPubkey) return reply.status(401).send({ error: "Authentication required", code: "UNAUTHORIZED" });
 
-    const { id, pubkey: targetPubkey } = request.params;
+    const params = validate(feedSourceDeleteParams, request.params, reply);
+    if (!params) return;
+    const { id, pubkey: targetPubkey } = params;
 
     // Verify caller is space creator
     const [space] = await db.select().from(spaces).where(eq(spaces.id, id)).limit(1);

@@ -11,8 +11,9 @@ pub struct RelayIdentity {
 
 impl RelayIdentity {
     /// Create a relay identity from an optional hex-encoded secret key.
-    /// If None, generates a random keypair and logs the secret key hex.
-    pub fn new(secret_key_hex: Option<String>) -> Self {
+    /// In production (env == "production"), panics if no key is provided.
+    /// In development, generates a random ephemeral key (without logging the secret).
+    pub fn new(secret_key_hex: Option<String>, env: &str) -> Self {
         let secp = Secp256k1::new();
 
         let secret_key = if let Some(hex_str) = secret_key_hex {
@@ -20,6 +21,10 @@ impl RelayIdentity {
                 .expect("RELAY_SECRET_KEY must be valid hex");
             SecretKey::from_slice(&bytes)
                 .expect("RELAY_SECRET_KEY must be a valid 32-byte secret key")
+        } else if env == "production" {
+            panic!(
+                "RELAY_SECRET_KEY is required in production. Generate one with: openssl rand -hex 32"
+            );
         } else {
             use rand::RngCore;
             let mut rng = rand::thread_rng();
@@ -27,10 +32,7 @@ impl RelayIdentity {
             rng.fill_bytes(&mut key_bytes);
             let sk = SecretKey::from_slice(&key_bytes)
                 .expect("random 32 bytes should be a valid secret key");
-            tracing::warn!(
-                "No RELAY_SECRET_KEY set. Generated ephemeral relay key: {}",
-                hex::encode(sk.secret_bytes())
-            );
+            tracing::warn!("No RELAY_SECRET_KEY set. Generated ephemeral relay key (not suitable for production).");
             sk
         };
 

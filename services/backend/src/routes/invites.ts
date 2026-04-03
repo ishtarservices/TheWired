@@ -1,4 +1,6 @@
 import type { FastifyPluginAsync } from "fastify";
+import { z } from "zod";
+import { validate, nonEmptyString } from "../lib/validation.js";
 import { db } from "../db/connection.js";
 import { invites } from "../db/schema/invites.js";
 import { spaces } from "../db/schema/spaces.js";
@@ -9,16 +11,25 @@ import { nanoid } from "../lib/id.js";
 import { permissionService } from "../services/permissionService.js";
 import { onboardingService } from "../services/onboardingService.js";
 
+const createInviteBody = z.object({
+  spaceId: nonEmptyString,
+  maxUses: z.number().int().min(1).optional(),
+  expiresInHours: z.number().min(0).optional(),
+  label: z.string().optional(),
+  autoAssignRole: z.string().optional(),
+});
+
+const codeParams = z.object({ code: nonEmptyString });
+const spaceIdParams = z.object({ spaceId: nonEmptyString });
+const idParams = z.object({ id: nonEmptyString });
+
 export const invitesRoutes: FastifyPluginAsync = async (server) => {
   // Create invite
   server.post("/", async (request, reply) => {
-    const { spaceId, maxUses, expiresInHours, label, autoAssignRole } = request.body as {
-      spaceId: string;
-      maxUses?: number;
-      expiresInHours?: number;
-      label?: string;
-      autoAssignRole?: string;
-    };
+    const body = validate(createInviteBody, request.body, reply);
+    if (!body) return;
+
+    const { spaceId, maxUses, expiresInHours, label, autoAssignRole } = body;
     const pubkey = (request as any).pubkey;
     if (!pubkey) return reply.status(401).send({ error: "Unauthorized", code: "UNAUTHORIZED" });
 
@@ -45,7 +56,9 @@ export const invitesRoutes: FastifyPluginAsync = async (server) => {
 
   // Get invite with preview (public, no auth required)
   server.get<{ Params: { code: string } }>("/:code", async (request, reply) => {
-    const { code } = request.params;
+    const params = validate(codeParams, request.params, reply);
+    if (!params) return;
+    const { code } = params;
 
     const rows = await db
       .select({
@@ -97,7 +110,9 @@ export const invitesRoutes: FastifyPluginAsync = async (server) => {
     const pubkey = (request as any).pubkey;
     if (!pubkey) return reply.status(401).send({ error: "Unauthorized", code: "UNAUTHORIZED" });
 
-    const { code } = request.params;
+    const params = validate(codeParams, request.params, reply);
+    if (!params) return;
+    const { code } = params;
     const [invite] = await db.select().from(invites).where(eq(invites.code, code)).limit(1);
 
     if (!invite || invite.revoked) {
@@ -180,7 +195,9 @@ export const invitesRoutes: FastifyPluginAsync = async (server) => {
     const pubkey = (request as any).pubkey;
     if (!pubkey) return reply.status(401).send({ error: "Unauthorized", code: "UNAUTHORIZED" });
 
-    const { spaceId } = request.params;
+    const params = validate(spaceIdParams, request.params, reply);
+    if (!params) return;
+    const { spaceId } = params;
 
     const perm = await permissionService.check(spaceId, pubkey, "CREATE_INVITES");
     if (!perm.allowed) {
@@ -196,8 +213,10 @@ export const invitesRoutes: FastifyPluginAsync = async (server) => {
   });
 
   // Revoke invite
-  server.delete<{ Params: { id: string } }>("/:id", async (request) => {
-    const { id } = request.params;
+  server.delete<{ Params: { id: string } }>("/:id", async (request, reply) => {
+    const params = validate(idParams, request.params, reply);
+    if (!params) return;
+    const { id } = params;
     await db.update(invites).set({ revoked: true }).where(eq(invites.code, id));
     return { data: { success: true } };
   });

@@ -1,15 +1,44 @@
 import type { FastifyPluginAsync } from "fastify";
+import { z } from "zod";
+import { validate, nonEmptyString, nonNegativeInt } from "../lib/validation.js";
 import { channelService } from "../services/channelService.js";
 import { permissionService } from "../services/permissionService.js";
+
+const spaceIdParams = z.object({ spaceId: nonEmptyString });
+
+const createChannelBody = z.object({
+  type: nonEmptyString,
+  label: nonEmptyString,
+  categoryId: z.string().optional(),
+  adminOnly: z.boolean().optional(),
+  slowModeSeconds: nonNegativeInt.optional(),
+});
+
+const channelParams = z.object({ spaceId: nonEmptyString, channelId: nonEmptyString });
+
+const updateChannelBody = z.object({
+  label: z.string().optional(),
+  categoryId: z.string().nullable().optional(),
+  position: nonNegativeInt.optional(),
+  adminOnly: z.boolean().optional(),
+  slowModeSeconds: z.number().optional(),
+  isDefault: z.boolean().optional(),
+});
+
+const reorderBody = z.object({
+  orderedIds: z.array(z.string()).min(1),
+});
 
 export const channelsRoutes: FastifyPluginAsync = async (server) => {
   /** GET /:spaceId/channels — List channels.
    *  VIEW_CHANNEL filtering is handled client-side via channel overrides. */
   server.get<{ Params: { spaceId: string } }>(
     "/:spaceId/channels",
-    async (request) => {
-      const { spaceId } = request.params;
-      const channels = await channelService.listChannels(spaceId);
+    async (request, reply) => {
+      const params = validate(spaceIdParams, request.params, reply);
+      if (!params) return;
+
+      const channels = await channelService.listChannels(params.spaceId);
       return { data: channels };
     },
   );
@@ -24,12 +53,16 @@ export const channelsRoutes: FastifyPluginAsync = async (server) => {
       const pubkey = (request as any).pubkey as string | undefined;
       if (!pubkey) return reply.status(401).send({ error: "Authentication required", code: "UNAUTHORIZED" });
 
-      const { spaceId } = request.params;
-      const perm = await permissionService.check(spaceId, pubkey, "MANAGE_CHANNELS");
+      const params = validate(spaceIdParams, request.params, reply);
+      if (!params) return;
+      const body = validate(createChannelBody, request.body, reply);
+      if (!body) return;
+
+      const perm = await permissionService.check(params.spaceId, pubkey, "MANAGE_CHANNELS");
       if (!perm.allowed) return reply.status(403).send({ error: "Missing MANAGE_CHANNELS permission", code: "FORBIDDEN" });
 
       try {
-        const channel = await channelService.createChannel(spaceId, request.body);
+        const channel = await channelService.createChannel(params.spaceId, body);
         return { data: channel };
       } catch (err: any) {
         return reply.status(400).send({ error: err.message, code: "BAD_REQUEST" });
@@ -47,11 +80,15 @@ export const channelsRoutes: FastifyPluginAsync = async (server) => {
       const pubkey = (request as any).pubkey as string | undefined;
       if (!pubkey) return reply.status(401).send({ error: "Authentication required", code: "UNAUTHORIZED" });
 
-      const { spaceId, channelId } = request.params;
-      const perm = await permissionService.check(spaceId, pubkey, "MANAGE_CHANNELS");
+      const params = validate(channelParams, request.params, reply);
+      if (!params) return;
+      const body = validate(updateChannelBody, request.body, reply);
+      if (!body) return;
+
+      const perm = await permissionService.check(params.spaceId, pubkey, "MANAGE_CHANNELS");
       if (!perm.allowed) return reply.status(403).send({ error: "Missing MANAGE_CHANNELS permission", code: "FORBIDDEN" });
 
-      const channel = await channelService.updateChannel(channelId, request.body);
+      const channel = await channelService.updateChannel(params.channelId, body);
       if (!channel) return reply.status(404).send({ error: "Channel not found", code: "NOT_FOUND" });
       return { data: channel };
     },
@@ -64,12 +101,14 @@ export const channelsRoutes: FastifyPluginAsync = async (server) => {
       const pubkey = (request as any).pubkey as string | undefined;
       if (!pubkey) return reply.status(401).send({ error: "Authentication required", code: "UNAUTHORIZED" });
 
-      const { spaceId, channelId } = request.params;
-      const perm = await permissionService.check(spaceId, pubkey, "MANAGE_CHANNELS");
+      const params = validate(channelParams, request.params, reply);
+      if (!params) return;
+
+      const perm = await permissionService.check(params.spaceId, pubkey, "MANAGE_CHANNELS");
       if (!perm.allowed) return reply.status(403).send({ error: "Missing MANAGE_CHANNELS permission", code: "FORBIDDEN" });
 
       try {
-        await channelService.deleteChannel(channelId);
+        await channelService.deleteChannel(params.channelId);
         return { data: { success: true } };
       } catch (err: any) {
         return reply.status(400).send({ error: err.message, code: "BAD_REQUEST" });
@@ -87,11 +126,15 @@ export const channelsRoutes: FastifyPluginAsync = async (server) => {
       const pubkey = (request as any).pubkey as string | undefined;
       if (!pubkey) return reply.status(401).send({ error: "Authentication required", code: "UNAUTHORIZED" });
 
-      const { spaceId } = request.params;
-      const perm = await permissionService.check(spaceId, pubkey, "MANAGE_CHANNELS");
+      const params = validate(spaceIdParams, request.params, reply);
+      if (!params) return;
+      const body = validate(reorderBody, request.body, reply);
+      if (!body) return;
+
+      const perm = await permissionService.check(params.spaceId, pubkey, "MANAGE_CHANNELS");
       if (!perm.allowed) return reply.status(403).send({ error: "Missing MANAGE_CHANNELS permission", code: "FORBIDDEN" });
 
-      await channelService.reorderChannels(spaceId, request.body.orderedIds);
+      await channelService.reorderChannels(params.spaceId, body.orderedIds);
       return { data: { success: true } };
     },
   );

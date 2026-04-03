@@ -27,7 +27,7 @@ function timeDecay(createdAt: number): number {
 }
 
 /** Recompute trending feeds every 5 minutes */
-export function startTrendingComputer() {
+export function startTrendingComputer(): { stop: () => void } {
   async function compute() {
     console.log("[trending] Computing trending feeds...");
     const redis = getRedis();
@@ -165,6 +165,13 @@ export function startTrendingComputer() {
   }
 
   // Run every 5 minutes
-  setInterval(compute, 5 * 60 * 1000);
+  const interval = setInterval(compute, 5 * 60 * 1000);
   compute();
+
+  return {
+    stop: () => {
+      clearInterval(interval);
+      console.log("[trending] Stopped");
+    },
+  };
 }

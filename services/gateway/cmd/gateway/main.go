@@ -1,9 +1,14 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"log"
 	"net/http"
+	"os"
+	"os/signal"
+	"syscall"
+	"time"
 
 	"github.com/thewired/gateway/internal/auth"
 	"github.com/thewired/gateway/internal/config"
@@ -16,7 +21,10 @@ import (
 func main() {
 	cfg := config.Load()
 
-	limiter := ratelimit.NewLimiter(cfg.RedisURL)
+	limiter, err := ratelimit.NewLimiter(cfg.RedisURL)
+	if err != nil {
+		log.Fatalf("Failed to initialize rate limiter: %v", err)
+	}
 	router := proxy.NewRouter(cfg.BackendURL)
 
 	mux := http.NewServeMux()
@@ -29,7 +37,7 @@ func main() {
 
 	// Static uploads (no auth, just CORS + logging + proxy)
 	uploadsHandler := gmiddleware.LoggingMiddleware(
-		cors.CORSMiddleware(
+		cors.CORSMiddleware(cfg.AllowedOrigins)(
 			proxy.NewUploadsHandler(cfg.BackendURL),
 		),
 	)
@@ -37,7 +45,7 @@ func main() {
 
 	// API routes (auth + rate limit + proxy)
 	apiHandler := gmiddleware.LoggingMiddleware(
-		cors.CORSMiddleware(
+		cors.CORSMiddleware(cfg.AllowedOrigins)(
 			auth.NIP98Middleware(
 				ratelimit.RateLimitMiddleware(limiter,
 					router.Handler(),
@@ -48,8 +56,32 @@ func main() {
 	mux.Handle("/api/", apiHandler)
 
 	addr := fmt.Sprintf(":%d", cfg.Port)
-	log.Printf("Gateway listening on %s", addr)
-	if err := http.ListenAndServe(addr, mux); err != nil {
-		log.Fatalf("Server error: %v", err)
+	srv := &http.Server{
+		Addr:    addr,
+		Handler: mux,
 	}
+
+	// Start server in a goroutine
+	go func() {
+		log.Printf("Gateway listening on %s", addr)
+		if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+			log.Fatalf("Server error: %v", err)
+		}
+	}()
+
+	// Wait for SIGTERM or SIGINT
+	quit := make(chan os.Signal, 1)
+	signal.Notify(quit, syscall.SIGTERM, syscall.SIGINT)
+	sig := <-quit
+	log.Printf("Received %v, shutting down...", sig)
+
+	// Give in-flight requests 15 seconds to complete
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel()
+
+	if err := srv.Shutdown(ctx); err != nil {
+		log.Fatalf("Server forced to shutdown: %v", err)
+	}
+
+	log.Println("Gateway stopped")
 }

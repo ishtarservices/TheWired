@@ -11,5 +11,7 @@ FROM debian:bookworm-slim
 RUN apt-get update && apt-get install -y ca-certificates && rm -rf /var/lib/apt/lists/*
 COPY --from=builder /app/target/release/thewired-relay /usr/local/bin/
 COPY --from=builder /app/migrations /migrations
+RUN groupadd -r app && useradd -r -g app app
+USER app
 EXPOSE 7777
 CMD ["thewired-relay"]

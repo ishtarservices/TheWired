@@ -1,0 +1,20 @@
+api.thewired.app {
+	reverse_proxy gateway:9080
+}
+
+relay.thewired.app {
+	reverse_proxy relay:7777
+}
+
+thewired.app {
+	# NIP-05 identity verification — must be served from the root domain
+	handle /.well-known/nostr.json {
+		header Access-Control-Allow-Origin "*"
+		reverse_proxy backend:3002
+	}
+
+	# Future: landing page / download page
+	handle {
+		respond "The Wired — Coming Soon" 200
+	}
+}

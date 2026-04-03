@@ -2,7 +2,7 @@ import { discoveryService } from "../services/discoveryService.js";
 
 const INTERVAL_MS = 15 * 60 * 1000; // 15 minutes
 
-export function startDiscoveryScoreComputer(): void {
+export function startDiscoveryScoreComputer(): { stop: () => void } {
   async function compute() {
     try {
       await discoveryService.computeDiscoveryScores();
@@ -14,7 +14,14 @@ export function startDiscoveryScoreComputer(): void {
 
   // Run once at startup, then on interval
   compute();
-  setInterval(compute, INTERVAL_MS);
+  const interval = setInterval(compute, INTERVAL_MS);
 
   console.log("[discoveryScoreComputer] Started (every 15 min)");
+
+  return {
+    stop: () => {
+      clearInterval(interval);
+      console.log("[discoveryScoreComputer] Stopped");
+    },
+  };
 }

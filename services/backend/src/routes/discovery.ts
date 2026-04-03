@@ -1,5 +1,39 @@
+import { z } from "zod";
 import type { FastifyPluginAsync } from "fastify";
 import { discoveryService } from "../services/discoveryService.js";
+import { validate, nonEmptyString, limitParam, offsetParam } from "../lib/validation.js";
+
+const spacesQuerySchema = z.object({
+  category: z.string().optional(),
+  tag: z.string().optional(),
+  sort: z.enum(["trending", "newest", "popular"]).optional(),
+  search: z.string().optional(),
+  limit: limitParam(20, 100),
+  offset: offsetParam,
+});
+
+const listingRequestBodySchema = z.object({
+  spaceId: nonEmptyString,
+  category: z.string().optional(),
+  tags: z.array(z.string()).optional(),
+  reason: z.string().optional(),
+});
+
+const idParamsSchema = z.object({
+  id: nonEmptyString,
+});
+
+const reviewBodySchema = z.object({
+  status: z.enum(["approved", "rejected"]),
+  reviewNote: z.string().optional(),
+});
+
+const relaysQuerySchema = z.object({
+  sort: z.enum(["popular", "fastest", "newest"]).optional(),
+  nip: z.coerce.number().int().optional(),
+  search: z.string().optional(),
+  limit: limitParam(20, 100),
+});
 
 export const discoveryRoutes: FastifyPluginAsync = async (server) => {
   // ── Space discovery ──────────────────────────────────────────────
@@ -13,15 +47,17 @@ export const discoveryRoutes: FastifyPluginAsync = async (server) => {
       limit?: string;
       offset?: string;
     };
-  }>("/spaces", async (request) => {
-    const { category, tag, sort, search, limit, offset } = request.query;
+  }>("/spaces", async (request, reply) => {
+    const query = validate(spacesQuerySchema, request.query, reply);
+    if (!query) return;
+
     const results = await discoveryService.getListedSpaces({
-      category,
-      tag,
-      sort,
-      search,
-      limit: limit ? parseInt(limit, 10) : undefined,
-      offset: offset ? parseInt(offset, 10) : undefined,
+      category: query.category,
+      tag: query.tag,
+      sort: query.sort,
+      search: query.search,
+      limit: query.limit,
+      offset: query.offset,
     });
     return { data: results };
   });
@@ -48,6 +84,9 @@ export const discoveryRoutes: FastifyPluginAsync = async (server) => {
       reason?: string;
     };
   }>("/listing-requests", async (request, reply) => {
+    const body = validate(listingRequestBodySchema, request.body, reply);
+    if (!body) return;
+
     const pubkey = (request as any).pubkey;
     if (!pubkey) {
       return reply.status(401).send({ error: "Authentication required" });
@@ -55,11 +94,11 @@ export const discoveryRoutes: FastifyPluginAsync = async (server) => {
 
     try {
       const result = await discoveryService.submitListingRequest({
-        spaceId: request.body.spaceId,
+        spaceId: body.spaceId,
         requesterPubkey: pubkey,
-        category: request.body.category,
-        tags: request.body.tags,
-        reason: request.body.reason,
+        category: body.category,
+        tags: body.tags,
+        reason: body.reason,
       });
       return { data: result };
     } catch (err: any) {
@@ -84,6 +123,11 @@ export const discoveryRoutes: FastifyPluginAsync = async (server) => {
       reviewNote?: string;
     };
   }>("/listing-requests/:id", async (request, reply) => {
+    const params = validate(idParamsSchema, request.params, reply);
+    if (!params) return;
+    const body = validate(reviewBodySchema, request.body, reply);
+    if (!body) return;
+
     const pubkey = (request as any).pubkey;
     if (!pubkey) {
       return reply.status(401).send({ error: "Authentication required" });
@@ -91,10 +135,10 @@ export const discoveryRoutes: FastifyPluginAsync = async (server) => {
 
     try {
       const result = await discoveryService.reviewListingRequest({
-        requestId: request.params.id,
+        requestId: params.id,
         reviewerPubkey: pubkey,
-        status: request.body.status,
-        reviewNote: request.body.reviewNote,
+        status: body.status,
+        reviewNote: body.reviewNote,
       });
       return { data: result };
     } catch (err: any) {
@@ -111,13 +155,15 @@ export const discoveryRoutes: FastifyPluginAsync = async (server) => {
       search?: string;
       limit?: string;
     };
-  }>("/relays", async (request) => {
-    const { sort, nip, search, limit } = request.query;
+  }>("/relays", async (request, reply) => {
+    const query = validate(relaysQuerySchema, request.query, reply);
+    if (!query) return;
+
     const results = await discoveryService.getRelays({
-      sort,
-      nip: nip ? parseInt(nip, 10) : undefined,
-      search,
-      limit: limit ? parseInt(limit, 10) : undefined,
+      sort: query.sort,
+      nip: query.nip,
+      search: query.search,
+      limit: query.limit,
     });
     return { data: results };
   });

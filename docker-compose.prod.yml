@@ -5,8 +5,6 @@ networks:
 services:
   postgres:
     image: postgres:16-alpine
-    ports:
-      - "${POSTGRES_PORT:-5432}:5432"
     environment:
       POSTGRES_USER: ${POSTGRES_USER:-thewired}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}
@@ -21,11 +19,13 @@ services:
     restart: unless-stopped
     networks:
       - backend
+    deploy:
+      resources:
+        limits:
+          memory: 1g
 
   redis:
     image: redis:7-alpine
-    ports:
-      - "${REDIS_PORT:-6380}:6379"
     command: redis-server --maxmemory 256mb --maxmemory-policy allkeys-lru --appendonly yes
     volumes:
       - redisdata:/data
@@ -37,14 +37,16 @@ services:
     restart: unless-stopped
     networks:
       - backend
+    deploy:
+      resources:
+        limits:
+          memory: 512m
 
   meilisearch:
     image: getmeili/meilisearch:v1.6
-    ports:
-      - "${MEILI_PORT:-7700}:7700"
     environment:
       MEILI_MASTER_KEY: ${MEILI_MASTER_KEY:?Set MEILI_MASTER_KEY in .env}
-      MEILI_ENV: ${MEILI_ENV:-development}
+      MEILI_ENV: production
     volumes:
       - meilidata:/meili_data
     healthcheck:
@@ -55,20 +57,21 @@ services:
     restart: unless-stopped
     networks:
       - backend
+    deploy:
+      resources:
+        limits:
+          memory: 512m
 
   relay:
-    build:
-      context: ./services/relay
-      dockerfile: Dockerfile
-    ports:
-      - "${RELAY_PORT:-7777}:7777"
+    image: ghcr.io/ishtarservices/thewired-relay:latest
     environment:
       DATABASE_URL: postgres://${POSTGRES_USER:-thewired}:${POSTGRES_PASSWORD:?err}@postgres:5432/${POSTGRES_DB:-thewired}
       RELAY_PORT: 7777
       RELAY_NAME: ${RELAY_NAME:-The Wired Relay}
-      RELAY_SECRET_KEY: ${RELAY_SECRET_KEY:-}
-      RUST_ENV: ${RUST_ENV:-development}
-      RUST_LOG: ${RUST_LOG:-info,thewired_relay=debug}
+      RELAY_SECRET_KEY: ${RELAY_SECRET_KEY:?Set RELAY_SECRET_KEY in .env}
+      RUST_ENV: production
+      RUST_LOG: ${RUST_LOG:-info,thewired_relay=info}
+      LOG_FORMAT: json
     depends_on:
       postgres:
         condition: service_healthy
@@ -80,13 +83,13 @@ services:
     restart: unless-stopped
     networks:
       - backend
+    deploy:
+      resources:
+        limits:
+          memory: 512m
 
   backend:
-    build:
-      context: .
-      dockerfile: services/backend/Dockerfile
-    ports:
-      - "${BACKEND_PORT:-3002}:3002"
+    image: ghcr.io/ishtarservices/thewired-backend:latest
     environment:
       DATABASE_URL: postgres://${POSTGRES_USER:-thewired}:${POSTGRES_PASSWORD:?err}@postgres:5432/${POSTGRES_DB:-thewired}
       REDIS_URL: redis://redis:6379
@@ -94,9 +97,10 @@ services:
       MEILISEARCH_KEY: ${MEILI_MASTER_KEY:?err}
       RELAY_URL: ws://relay:7777
       PORT: 3002
-      NODE_ENV: ${NODE_ENV:-development}
-      ALLOWED_ORIGINS: ${ALLOWED_ORIGINS:-}
-      PUBLIC_URL: ${PUBLIC_URL:-http://localhost:9080}
+      NODE_ENV: production
+      LOG_LEVEL: info
+      ALLOWED_ORIGINS: ${ALLOWED_ORIGINS:-https://thewired.app,tauri://localhost}
+      PUBLIC_URL: ${PUBLIC_URL:-https://api.thewired.app}
       ADMIN_PUBKEYS: ${ADMIN_PUBKEYS:-}
       LIVEKIT_URL: ${LIVEKIT_URL:-ws://livekit:7880}
       LIVEKIT_API_KEY: ${LIVEKIT_API_KEY:-devkey}
@@ -104,6 +108,8 @@ services:
       VAPID_PUBLIC_KEY: ${VAPID_PUBLIC_KEY:-}
       VAPID_PRIVATE_KEY: ${VAPID_PRIVATE_KEY:-}
       GIF_API_KEY: ${GIF_API_KEY:-}
+    volumes:
+      - uploads:/app/uploads
     depends_on:
       postgres:
         condition: service_healthy
@@ -121,18 +127,18 @@ services:
     restart: unless-stopped
     networks:
       - backend
+    deploy:
+      resources:
+        limits:
+          memory: 512m
 
   gateway:
-    build:
-      context: ./services/gateway
-      dockerfile: Dockerfile
-    ports:
-      - "${GATEWAY_PORT:-9080}:9080"
+    image: ghcr.io/ishtarservices/thewired-gateway:latest
     environment:
       GATEWAY_PORT: 9080
       BACKEND_URL: http://backend:3002
       REDIS_URL: redis://redis:6379
-      ALLOWED_ORIGINS: ${ALLOWED_ORIGINS:-}
+      ALLOWED_ORIGINS: ${ALLOWED_ORIGINS:-https://thewired.app,tauri://localhost}
     depends_on:
       backend:
         condition: service_started
@@ -147,25 +153,30 @@ services:
     networks:
       - frontend
       - backend
+    deploy:
+      resources:
+        limits:
+          memory: 256m
 
   livekit:
     image: livekit/livekit-server:latest
-    ports:
-      - "${LIVEKIT_PORT:-7880}:7880"
-      - "7881:7881"
-      - "7882:7882/udp"
     environment:
       LIVEKIT_KEYS: "devkey: ${LIVEKIT_API_SECRET:-secret}"
       LIVEKIT_LOG_LEVEL: info
-    command: --dev --bind 0.0.0.0 --node-ip=127.0.0.1
+    command: --bind 0.0.0.0 --node-ip=${LIVEKIT_NODE_IP:-127.0.0.1}
+    ports:
+      # UDP port must be exposed to host for WebRTC
+      - "7882:7882/udp"
     restart: unless-stopped
     networks:
       - backend
+    deploy:
+      resources:
+        limits:
+          memory: 512m
 
   proxy:
-    build:
-      context: ./services/proxy
-      dockerfile: Dockerfile
+    image: ghcr.io/ishtarservices/thewired-proxy:latest
     ports:
       - "80:80"
       - "443:443"
@@ -184,5 +195,6 @@ volumes:
   pgdata:
   meilidata:
   redisdata:
+  uploads:
   caddy_data:
   caddy_config:

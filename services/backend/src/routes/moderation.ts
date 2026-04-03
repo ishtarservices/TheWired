@@ -1,6 +1,34 @@
+import { z } from "zod";
 import type { FastifyPluginAsync } from "fastify";
 import { moderationService } from "../services/moderationService.js";
 import { permissionService } from "../services/permissionService.js";
+import { validate, hexId, nonEmptyString, positiveInt } from "../lib/validation.js";
+
+const spaceIdParamsSchema = z.object({
+  spaceId: nonEmptyString,
+});
+
+const spaceAndPubkeyParamsSchema = z.object({
+  spaceId: nonEmptyString,
+  pubkey: hexId,
+});
+
+const spaceAndMuteIdParamsSchema = z.object({
+  spaceId: nonEmptyString,
+  muteId: nonEmptyString,
+});
+
+const banBodySchema = z.object({
+  pubkey: hexId,
+  reason: z.string().optional(),
+  expiresAt: z.number().optional(),
+});
+
+const muteBodySchema = z.object({
+  pubkey: hexId,
+  durationSeconds: positiveInt(),
+  channelId: z.string().optional(),
+});
 
 export const moderationRoutes: FastifyPluginAsync = async (server) => {
   // ── Bans ───────────────────────────────────────────────────
@@ -9,14 +37,16 @@ export const moderationRoutes: FastifyPluginAsync = async (server) => {
   server.get<{ Params: { spaceId: string } }>(
     "/:spaceId/moderation/bans",
     async (request, reply) => {
+      const params = validate(spaceIdParamsSchema, request.params, reply);
+      if (!params) return;
+
       const pubkey = (request as any).pubkey as string | undefined;
       if (!pubkey) return reply.status(401).send({ error: "Authentication required", code: "UNAUTHORIZED" });
 
-      const { spaceId } = request.params;
-      const perm = await permissionService.check(spaceId, pubkey, "BAN_MEMBERS");
+      const perm = await permissionService.check(params.spaceId, pubkey, "BAN_MEMBERS");
       if (!perm.allowed) return reply.status(403).send({ error: "Missing BAN_MEMBERS permission", code: "FORBIDDEN" });
 
-      const bansList = await moderationService.listBans(spaceId);
+      const bansList = await moderationService.listBans(params.spaceId);
       return { data: bansList };
     },
   );
@@ -28,22 +58,26 @@ export const moderationRoutes: FastifyPluginAsync = async (server) => {
   }>(
     "/:spaceId/moderation/bans",
     async (request, reply) => {
+      const params = validate(spaceIdParamsSchema, request.params, reply);
+      if (!params) return;
+      const body = validate(banBodySchema, request.body, reply);
+      if (!body) return;
+
       const authPubkey = (request as any).pubkey as string | undefined;
       if (!authPubkey) return reply.status(401).send({ error: "Authentication required", code: "UNAUTHORIZED" });
 
-      const { spaceId } = request.params;
-      const perm = await permissionService.check(spaceId, authPubkey, "BAN_MEMBERS");
+      const perm = await permissionService.check(params.spaceId, authPubkey, "BAN_MEMBERS");
       if (!perm.allowed) return reply.status(403).send({ error: "Missing BAN_MEMBERS permission", code: "FORBIDDEN" });
 
       // Hierarchy check: actor must outrank target
-      const hierarchy = await permissionService.checkHierarchy(spaceId, authPubkey, request.body.pubkey);
+      const hierarchy = await permissionService.checkHierarchy(params.spaceId, authPubkey, body.pubkey);
       if (!hierarchy.allowed) return reply.status(403).send({ error: hierarchy.reason, code: "FORBIDDEN" });
 
-      const ban = await moderationService.banMember(spaceId, {
-        pubkey: request.body.pubkey,
-        reason: request.body.reason,
+      const ban = await moderationService.banMember(params.spaceId, {
+        pubkey: body.pubkey,
+        reason: body.reason,
         bannedBy: authPubkey,
-        expiresAt: request.body.expiresAt,
+        expiresAt: body.expiresAt,
       });
       return { data: ban };
     },
@@ -53,14 +87,16 @@ export const moderationRoutes: FastifyPluginAsync = async (server) => {
   server.delete<{ Params: { spaceId: string; pubkey: string } }>(
     "/:spaceId/moderation/bans/:pubkey",
     async (request, reply) => {
+      const params = validate(spaceAndPubkeyParamsSchema, request.params, reply);
+      if (!params) return;
+
       const authPubkey = (request as any).pubkey as string | undefined;
       if (!authPubkey) return reply.status(401).send({ error: "Authentication required", code: "UNAUTHORIZED" });
 
-      const { spaceId, pubkey } = request.params;
-      const perm = await permissionService.check(spaceId, authPubkey, "BAN_MEMBERS");
+      const perm = await permissionService.check(params.spaceId, authPubkey, "BAN_MEMBERS");
       if (!perm.allowed) return reply.status(403).send({ error: "Missing BAN_MEMBERS permission", code: "FORBIDDEN" });
 
-      await moderationService.unbanMember(spaceId, pubkey, authPubkey);
+      await moderationService.unbanMember(params.spaceId, params.pubkey, authPubkey);
       return { data: { success: true } };
     },
   );
@@ -71,14 +107,16 @@ export const moderationRoutes: FastifyPluginAsync = async (server) => {
   server.get<{ Params: { spaceId: string } }>(
     "/:spaceId/moderation/mutes",
     async (request, reply) => {
+      const params = validate(spaceIdParamsSchema, request.params, reply);
+      if (!params) return;
+
       const pubkey = (request as any).pubkey as string | undefined;
       if (!pubkey) return reply.status(401).send({ error: "Authentication required", code: "UNAUTHORIZED" });
 
-      const { spaceId } = request.params;
-      const perm = await permissionService.check(spaceId, pubkey, "MUTE_MEMBERS");
+      const perm = await permissionService.check(params.spaceId, pubkey, "MUTE_MEMBERS");
       if (!perm.allowed) return reply.status(403).send({ error: "Missing MUTE_MEMBERS permission", code: "FORBIDDEN" });
 
-      const mutesList = await moderationService.listMutes(spaceId);
+      const mutesList = await moderationService.listMutes(params.spaceId);
       return { data: mutesList };
     },
   );
@@ -90,22 +128,26 @@ export const moderationRoutes: FastifyPluginAsync = async (server) => {
   }>(
     "/:spaceId/moderation/mutes",
     async (request, reply) => {
+      const params = validate(spaceIdParamsSchema, request.params, reply);
+      if (!params) return;
+      const body = validate(muteBodySchema, request.body, reply);
+      if (!body) return;
+
       const authPubkey = (request as any).pubkey as string | undefined;
       if (!authPubkey) return reply.status(401).send({ error: "Authentication required", code: "UNAUTHORIZED" });
 
-      const { spaceId } = request.params;
-      const perm = await permissionService.check(spaceId, authPubkey, "MUTE_MEMBERS");
+      const perm = await permissionService.check(params.spaceId, authPubkey, "MUTE_MEMBERS");
       if (!perm.allowed) return reply.status(403).send({ error: "Missing MUTE_MEMBERS permission", code: "FORBIDDEN" });
 
       // Hierarchy check: actor must outrank target
-      const hierarchy = await permissionService.checkHierarchy(spaceId, authPubkey, request.body.pubkey);
+      const hierarchy = await permissionService.checkHierarchy(params.spaceId, authPubkey, body.pubkey);
       if (!hierarchy.allowed) return reply.status(403).send({ error: hierarchy.reason, code: "FORBIDDEN" });
 
-      const mute = await moderationService.muteMember(spaceId, {
-        pubkey: request.body.pubkey,
+      const mute = await moderationService.muteMember(params.spaceId, {
+        pubkey: body.pubkey,
         mutedBy: authPubkey,
-        durationSeconds: request.body.durationSeconds,
-        channelId: request.body.channelId,
+        durationSeconds: body.durationSeconds,
+        channelId: body.channelId,
       });
       return { data: mute };
     },
@@ -115,14 +157,16 @@ export const moderationRoutes: FastifyPluginAsync = async (server) => {
   server.delete<{ Params: { spaceId: string; muteId: string } }>(
     "/:spaceId/moderation/mutes/:muteId",
     async (request, reply) => {
+      const params = validate(spaceAndMuteIdParamsSchema, request.params, reply);
+      if (!params) return;
+
       const authPubkey = (request as any).pubkey as string | undefined;
       if (!authPubkey) return reply.status(401).send({ error: "Authentication required", code: "UNAUTHORIZED" });
 
-      const { spaceId, muteId } = request.params;
-      const perm = await permissionService.check(spaceId, authPubkey, "MUTE_MEMBERS");
+      const perm = await permissionService.check(params.spaceId, authPubkey, "MUTE_MEMBERS");
       if (!perm.allowed) return reply.status(403).send({ error: "Missing MUTE_MEMBERS permission", code: "FORBIDDEN" });
 
-      await moderationService.unmuteMember(muteId);
+      await moderationService.unmuteMember(params.muteId);
       return { data: { success: true } };
     },
   );
@@ -133,18 +177,20 @@ export const moderationRoutes: FastifyPluginAsync = async (server) => {
   server.post<{ Params: { spaceId: string; pubkey: string } }>(
     "/:spaceId/moderation/kick/:pubkey",
     async (request, reply) => {
+      const params = validate(spaceAndPubkeyParamsSchema, request.params, reply);
+      if (!params) return;
+
       const authPubkey = (request as any).pubkey as string | undefined;
       if (!authPubkey) return reply.status(401).send({ error: "Authentication required", code: "UNAUTHORIZED" });
 
-      const { spaceId, pubkey } = request.params;
-      const perm = await permissionService.check(spaceId, authPubkey, "MANAGE_MEMBERS");
+      const perm = await permissionService.check(params.spaceId, authPubkey, "MANAGE_MEMBERS");
       if (!perm.allowed) return reply.status(403).send({ error: "Missing MANAGE_MEMBERS permission", code: "FORBIDDEN" });
 
       // Hierarchy check: actor must outrank target
-      const hierarchy = await permissionService.checkHierarchy(spaceId, authPubkey, pubkey);
+      const hierarchy = await permissionService.checkHierarchy(params.spaceId, authPubkey, params.pubkey);
       if (!hierarchy.allowed) return reply.status(403).send({ error: hierarchy.reason, code: "FORBIDDEN" });
 
-      await moderationService.kickMember(spaceId, pubkey, authPubkey);
+      await moderationService.kickMember(params.spaceId, params.pubkey, authPubkey);
       return { data: { success: true } };
     },
   );
@@ -155,18 +201,20 @@ export const moderationRoutes: FastifyPluginAsync = async (server) => {
   server.get<{ Params: { spaceId: string } }>(
     "/:spaceId/moderation/audit-log",
     async (request, reply) => {
+      const params = validate(spaceIdParamsSchema, request.params, reply);
+      if (!params) return;
+
       const pubkey = (request as any).pubkey as string | undefined;
       if (!pubkey) return reply.status(401).send({ error: "Authentication required", code: "UNAUTHORIZED" });
 
-      const { spaceId } = request.params;
       // Require BAN_MEMBERS or MANAGE_MEMBERS to view audit log
-      const perm = await permissionService.check(spaceId, pubkey, "BAN_MEMBERS");
-      const perm2 = await permissionService.check(spaceId, pubkey, "MANAGE_MEMBERS");
+      const perm = await permissionService.check(params.spaceId, pubkey, "BAN_MEMBERS");
+      const perm2 = await permissionService.check(params.spaceId, pubkey, "MANAGE_MEMBERS");
       if (!perm.allowed && !perm2.allowed) {
         return reply.status(403).send({ error: "Missing permission", code: "FORBIDDEN" });
       }
 
-      const entries = await moderationService.listAuditLog(spaceId);
+      const entries = await moderationService.listAuditLog(params.spaceId);
       return { data: entries };
     },
   );

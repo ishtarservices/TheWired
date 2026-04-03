@@ -1,13 +1,27 @@
 import type { FastifyPluginAsync } from "fastify";
+import { z } from "zod";
 import { revisionService } from "../services/revisionService.js";
+import { validate, hexId, nonEmptyString } from "../lib/validation.js";
+
+const listParams = z.object({
+  kind: z.coerce.number().int(),
+  pubkey: hexId,
+  slug: nonEmptyString,
+});
+
+const versionParams = listParams.extend({
+  version: z.coerce.number().int().positive(),
+});
 
 export const revisionRoutes: FastifyPluginAsync = async (server) => {
   // GET /music/revisions/:kind/:pubkey/:slug -- list revisions
   server.get<{ Params: { kind: string; pubkey: string; slug: string } }>(
     "/revisions/:kind/:pubkey/:slug",
-    async (request) => {
-      const { kind, pubkey, slug } = request.params;
-      const addressableId = `${kind}:${pubkey}:${slug}`;
+    async (request, reply) => {
+      const params = validate(listParams, request.params, reply);
+      if (!params) return;
+
+      const addressableId = `${params.kind}:${params.pubkey}:${params.slug}`;
       const revisions = await revisionService.getRevisions(addressableId);
       return {
         data: revisions.map((r) => ({
@@ -25,9 +39,11 @@ export const revisionRoutes: FastifyPluginAsync = async (server) => {
   server.get<{ Params: { kind: string; pubkey: string; slug: string; version: string } }>(
     "/revisions/:kind/:pubkey/:slug/:version",
     async (request, reply) => {
-      const { kind, pubkey, slug, version } = request.params;
-      const addressableId = `${kind}:${pubkey}:${slug}`;
-      const revision = await revisionService.getRevision(addressableId, parseInt(version, 10));
+      const params = validate(versionParams, request.params, reply);
+      if (!params) return;
+
+      const addressableId = `${params.kind}:${params.pubkey}:${params.slug}`;
+      const revision = await revisionService.getRevision(addressableId, params.version);
       if (!revision) {
         return reply.status(404).send({ error: "Revision not found", code: "NOT_FOUND" });
       }

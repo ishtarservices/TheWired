@@ -1,8 +1,56 @@
 import type { FastifyPluginAsync } from "fastify";
+import { z } from "zod";
 import { musicService } from "../services/musicService.js";
 import { db } from "../db/connection.js";
 import { eq, and, sql } from "drizzle-orm";
 import { savedAlbumVersions } from "../db/schema/savedVersions.js";
+import { validate, hexId, nonEmptyString, limitParam, offsetParam } from "../lib/validation.js";
+
+const pubkeySlugParams = z.object({
+  pubkey: hexId,
+  slug: nonEmptyString,
+});
+
+const uploadsQuery = z.object({
+  limit: limitParam(20, 100).optional(),
+  offset: offsetParam.optional(),
+});
+
+const popularTagsQuery = z.object({
+  limit: limitParam(20, 100).optional(),
+});
+
+const browseQuery = z.object({
+  genre: z.string().max(200).optional(),
+  tag: z.string().max(200).optional(),
+  sort: z.enum(["trending", "recent", "plays"]).optional(),
+  limit: limitParam(20, 100),
+  offset: offsetParam,
+});
+
+const browseAlbumsQuery = z.object({
+  genre: z.string().max(200).optional(),
+  tag: z.string().max(200).optional(),
+  sort: z.enum(["trending", "recent", "plays"]).optional(),
+  limit: limitParam(20, 100),
+  offset: offsetParam,
+});
+
+const playBody = z.object({
+  trackId: nonEmptyString,
+});
+
+const saveVersionBody = z.object({
+  addressableId: nonEmptyString,
+  eventId: hexId,
+  createdAt: z.number().int().min(1),
+});
+
+const acknowledgeUpdateBody = z.object({
+  addressableId: nonEmptyString,
+  eventId: hexId,
+  createdAt: z.number().int().min(1),
+});
 
 interface RelayEvent {
   id: string;
@@ -24,7 +72,10 @@ export const musicRoutes: FastifyPluginAsync = async (server) => {
   server.get<{ Params: { pubkey: string; slug: string } }>(
     "/resolve/album/:pubkey/:slug",
     async (request, reply) => {
-      const { pubkey, slug } = request.params;
+      const params = validate(pubkeySlugParams, request.params, reply);
+      if (!params) return;
+
+      const { pubkey, slug } = params;
 
       const rows = (await db.execute(
         sql`SELECT id, pubkey, created_at, kind, tags, content, sig
@@ -71,7 +122,10 @@ export const musicRoutes: FastifyPluginAsync = async (server) => {
   server.get<{ Params: { pubkey: string; slug: string } }>(
     "/resolve/track/:pubkey/:slug",
     async (request, reply) => {
-      const { pubkey, slug } = request.params;
+      const params = validate(pubkeySlugParams, request.params, reply);
+      if (!params) return;
+
+      const { pubkey, slug } = params;
 
       const rows = (await db.execute(
         sql`SELECT id, pubkey, created_at, kind, tags, content, sig
@@ -113,11 +167,10 @@ export const musicRoutes: FastifyPluginAsync = async (server) => {
       return reply.status(401).send({ error: "Authentication required", code: "UNAUTHORIZED" });
     }
 
-    const query = request.query as { limit?: string; offset?: string };
-    const limit = query.limit ? parseInt(query.limit, 10) : undefined;
-    const offset = query.offset ? parseInt(query.offset, 10) : undefined;
+    const query = validate(uploadsQuery, request.query, reply);
+    if (!query) return;
 
-    const rows = await musicService.listUploads(pubkey, { limit, offset });
+    const rows = await musicService.listUploads(pubkey, { limit: query.limit, offset: query.offset });
     return { data: rows };
   });
 
@@ -139,54 +192,40 @@ export const musicRoutes: FastifyPluginAsync = async (server) => {
   });
 
   // GET /music/tags/popular -- Top hashtags
-  server.get("/tags/popular", async (request) => {
-    const { limit } = request.query as { limit?: string };
-    const tags = await musicService.getPopularTags(limit ? parseInt(limit, 10) : 20);
+  server.get("/tags/popular", async (request, reply) => {
+    const query = validate(popularTagsQuery, request.query, reply);
+    if (!query) return;
+
+    const tags = await musicService.getPopularTags(query.limit ?? 20);
     return { data: tags };
   });
 
   // GET /music/browse -- Filtered browse
-  server.get("/browse", async (request) => {
-    const { genre, tag, sort, limit, offset } = request.query as {
-      genre?: string;
-      tag?: string;
-      sort?: string;
-      limit?: string;
-      offset?: string;
-    };
-    const validSorts = ["trending", "recent", "plays"];
-    const parsedSort = sort && validSorts.includes(sort) ? sort as "trending" | "recent" | "plays" : "trending";
-    const parsedLimit = Math.min(Math.max(parseInt(limit ?? "20", 10) || 20, 1), 100);
-    const parsedOffset = Math.max(parseInt(offset ?? "0", 10) || 0, 0);
+  server.get("/browse", async (request, reply) => {
+    const query = validate(browseQuery, request.query, reply);
+    if (!query) return;
+
     const results = await musicService.browse({
-      genre: genre?.slice(0, 200),
-      tag: tag?.slice(0, 200),
-      sort: parsedSort,
-      limit: parsedLimit,
-      offset: parsedOffset,
+      genre: query.genre,
+      tag: query.tag,
+      sort: query.sort ?? "trending",
+      limit: query.limit,
+      offset: query.offset,
     });
     return { data: results };
   });
 
   // GET /music/browse/albums -- Filtered album browse
-  server.get("/browse/albums", async (request) => {
-    const { genre, tag, sort, limit, offset } = request.query as {
-      genre?: string;
-      tag?: string;
-      sort?: string;
-      limit?: string;
-      offset?: string;
-    };
-    const validSorts = ["trending", "recent", "plays"];
-    const parsedSort = sort && validSorts.includes(sort) ? sort as "trending" | "recent" | "plays" : "recent";
-    const parsedLimit = Math.min(Math.max(parseInt(limit ?? "20", 10) || 20, 1), 100);
-    const parsedOffset = Math.max(parseInt(offset ?? "0", 10) || 0, 0);
+  server.get("/browse/albums", async (request, reply) => {
+    const query = validate(browseAlbumsQuery, request.query, reply);
+    if (!query) return;
+
     const results = await musicService.browseAlbums({
-      genre: genre?.slice(0, 200),
-      tag: tag?.slice(0, 200),
-      sort: parsedSort,
-      limit: parsedLimit,
-      offset: parsedOffset,
+      genre: query.genre,
+      tag: query.tag,
+      sort: query.sort ?? "recent",
+      limit: query.limit,
+      offset: query.offset,
     });
     return { data: results };
   });
@@ -208,12 +247,10 @@ export const musicRoutes: FastifyPluginAsync = async (server) => {
       return reply.status(401).send({ error: "Authentication required", code: "UNAUTHORIZED" });
     }
 
-    const { trackId } = request.body as { trackId?: string };
-    if (!trackId) {
-      return reply.status(400).send({ error: "trackId required", code: "BAD_REQUEST" });
-    }
+    const body = validate(playBody, request.body, reply);
+    if (!body) return;
 
-    const recorded = await musicService.recordPlay(trackId, pubkey);
+    const recorded = await musicService.recordPlay(body.trackId, pubkey);
     return { data: { recorded } };
   });
 
@@ -225,7 +262,10 @@ export const musicRoutes: FastifyPluginAsync = async (server) => {
       if (!authPubkey) {
         return reply.status(401).send({ error: "Authentication required", code: "UNAUTHORIZED" });
       }
-      const { pubkey, slug } = request.params;
+      const params = validate(pubkeySlugParams, request.params, reply);
+      if (!params) return;
+
+      const { pubkey, slug } = params;
       if (authPubkey !== pubkey) {
         return reply.status(403).send({ error: "Can only delete your own content", code: "FORBIDDEN" });
       }
@@ -245,7 +285,10 @@ export const musicRoutes: FastifyPluginAsync = async (server) => {
       if (!authPubkey) {
         return reply.status(401).send({ error: "Authentication required", code: "UNAUTHORIZED" });
       }
-      const { pubkey, slug } = request.params;
+      const params = validate(pubkeySlugParams, request.params, reply);
+      if (!params) return;
+
+      const { pubkey, slug } = params;
       if (authPubkey !== pubkey) {
         return reply.status(403).send({ error: "Can only delete your own content", code: "FORBIDDEN" });
       }
@@ -263,11 +306,10 @@ export const musicRoutes: FastifyPluginAsync = async (server) => {
     if (!pubkey) {
       return reply.status(401).send({ error: "Authentication required", code: "UNAUTHORIZED" });
     }
-    const { addressableId, eventId, createdAt } = request.body as {
-      addressableId: string;
-      eventId: string;
-      createdAt: number;
-    };
+    const body = validate(saveVersionBody, request.body, reply);
+    if (!body) return;
+
+    const { addressableId, eventId, createdAt } = body;
 
     await db
       .insert(savedAlbumVersions)
@@ -314,11 +356,10 @@ export const musicRoutes: FastifyPluginAsync = async (server) => {
     if (!pubkey) {
       return reply.status(401).send({ error: "Authentication required", code: "UNAUTHORIZED" });
     }
-    const { addressableId, eventId, createdAt } = request.body as {
-      addressableId: string;
-      eventId: string;
-      createdAt: number;
-    };
+    const body = validate(acknowledgeUpdateBody, request.body, reply);
+    if (!body) return;
+
+    const { addressableId, eventId, createdAt } = body;
 
     await db
       .update(savedAlbumVersions)

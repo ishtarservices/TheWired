@@ -37,9 +37,12 @@ function today(): string {
 }
 
 /** Connects to the relay and indexes events into backend stores */
-export function startRelayIngester() {
+export function startRelayIngester(): { stop: () => void } {
   const redis = getRedis();
   const SINCE_KEY = "ingester:last_seen";
+  let currentWs: WebSocket | null = null;
+  let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
+  let stopped = false;
 
   async function getLastSeen(): Promise<number> {
     const val = await redis.get(SINCE_KEY);
@@ -51,7 +54,9 @@ export function startRelayIngester() {
   }
 
   function connect() {
+    if (stopped) return;
     const ws = new WebSocket(config.relayUrl);
+    currentWs = ws;
 
     ws.addEventListener("open", async () => {
       console.log("[ingester] Connected to relay");
@@ -96,7 +101,9 @@ export function startRelayIngester() {
 
     ws.addEventListener("close", () => {
       console.log("[ingester] Disconnected, reconnecting in 5s...");
-      setTimeout(connect, 5000);
+      if (!stopped) {
+        reconnectTimer = setTimeout(connect, 5000);
+      }
     });
 
     ws.addEventListener("error", () => {
@@ -631,4 +638,15 @@ export function startRelayIngester() {
   }
 
   connect();
+
+  return {
+    stop: () => {
+      stopped = true;
+      if (reconnectTimer) clearTimeout(reconnectTimer);
+      if (currentWs && currentWs.readyState === WebSocket.OPEN) {
+        currentWs.close();
+      }
+      console.log("[ingester] Stopped");
+    },
+  };
 }

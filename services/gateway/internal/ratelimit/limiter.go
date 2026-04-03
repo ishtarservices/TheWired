@@ -26,15 +26,14 @@ var DefaultLimits = Limits{
 	SearchPerMin: 10,
 }
 
-func NewLimiter(redisURL string) *Limiter {
+func NewLimiter(redisURL string) (*Limiter, error) {
 	opts, err := redis.ParseURL(redisURL)
 	if err != nil {
-		// Fallback to default
-		opts = &redis.Options{Addr: "localhost:6380"}
+		return nil, fmt.Errorf("invalid REDIS_URL %q: %w", redisURL, err)
 	}
 	return &Limiter{
 		client: redis.NewClient(opts),
-	}
+	}, nil
 }
 
 // Allow checks if a request is within rate limits
@@ -62,8 +61,7 @@ func (l *Limiter) Allow(ctx context.Context, pubkey string, category string) (bo
 
 	cmds, err := pipe.Exec(ctx)
 	if err != nil {
-		// On Redis error, allow the request
-		return true, nil
+		return false, fmt.Errorf("redis error: %w", err)
 	}
 
 	count := cmds[2].(*redis.IntCmd).Val()

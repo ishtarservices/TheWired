@@ -1,3 +1,4 @@
+import { z } from "zod";
 import type { FastifyPluginAsync } from "fastify";
 import { db } from "../db/connection.js";
 import { spaces, spaceTags } from "../db/schema/spaces.js";
@@ -5,23 +6,53 @@ import { spaceMembers } from "../db/schema/members.js";
 import { eq, inArray } from "drizzle-orm";
 import { roleService } from "../services/roleService.js";
 import { channelService } from "../services/channelService.js";
+import { validate, nonEmptyString, limitParam, offsetParam } from "../lib/validation.js";
+
+const listQuerySchema = z.object({
+  limit: limitParam(50, 100),
+  offset: offsetParam,
+});
+
+const idParamsSchema = z.object({
+  id: nonEmptyString,
+});
+
+const createSpaceBodySchema = z.object({
+  id: nonEmptyString,
+  name: nonEmptyString,
+  hostRelay: nonEmptyString.url(),
+  picture: z.string().optional(),
+  about: z.string().optional(),
+  category: z.string().optional(),
+  language: z.string().optional(),
+  mode: z.enum(["read", "read-write"]).optional(),
+  channels: z.array(z.object({ type: nonEmptyString, label: nonEmptyString })).optional(),
+});
+
+const validateIdsBodySchema = z.object({
+  ids: z.array(z.string()).min(1).max(100),
+});
 
 export const spacesRoutes: FastifyPluginAsync = async (server) => {
-  server.get<{ Querystring: { limit?: string; offset?: string } }>("/", async (request) => {
-    const limit = Math.min(parseInt(request.query.limit ?? "50", 10) || 50, 100);
-    const offset = parseInt(request.query.offset ?? "0", 10) || 0;
+  server.get<{ Querystring: { limit?: string; offset?: string } }>("/", async (request, reply) => {
+    const query = validate(listQuerySchema, request.query, reply);
+    if (!query) return;
 
+    const limit = query.limit as number;
+    const offset = query.offset as number;
     const results = await db.select().from(spaces).limit(limit).offset(offset);
     return { data: results, meta: { limit, offset } };
   });
 
   server.get<{ Params: { id: string } }>("/:id", async (request, reply) => {
-    const { id } = request.params;
-    const [space] = await db.select().from(spaces).where(eq(spaces.id, id)).limit(1);
+    const params = validate(idParamsSchema, request.params, reply);
+    if (!params) return;
+
+    const [space] = await db.select().from(spaces).where(eq(spaces.id, params.id)).limit(1);
     if (!space) {
       return reply.status(404).send({ error: "Space not found", code: "NOT_FOUND" });
     }
-    const tags = await db.select().from(spaceTags).where(eq(spaceTags.spaceId, id));
+    const tags = await db.select().from(spaceTags).where(eq(spaceTags.spaceId, params.id));
     return { data: { ...space, tags: tags.map((t) => t.tag) } };
   });
 
@@ -35,21 +66,8 @@ export const spacesRoutes: FastifyPluginAsync = async (server) => {
     const pubkey = (request as any).pubkey as string | undefined;
     if (!pubkey) return reply.status(401).send({ error: "Authentication required", code: "UNAUTHORIZED" });
 
-    const body = request.body as {
-      id: string;
-      name: string;
-      hostRelay: string;
-      picture?: string;
-      about?: string;
-      category?: string;
-      language?: string;
-      mode?: "read" | "read-write";
-      channels?: Array<{ type: string; label: string }>;
-    };
-
-    if (!body.id || !body.name || !body.hostRelay) {
-      return reply.status(400).send({ error: "Missing required fields: id, name, hostRelay", code: "BAD_REQUEST" });
-    }
+    const body = validate(createSpaceBodySchema, request.body, reply);
+    if (!body) return;
 
     const mode = body.mode === "read" ? "read" : "read-write";
 
@@ -103,10 +121,13 @@ export const spacesRoutes: FastifyPluginAsync = async (server) => {
 
   /** DELETE /:id — Delete a space (admin only). CASCADE FKs handle related records. */
   server.delete<{ Params: { id: string } }>("/:id", async (request, reply) => {
+    const params = validate(idParamsSchema, request.params, reply);
+    if (!params) return;
+
     const pubkey = (request as any).pubkey as string | undefined;
     if (!pubkey) return reply.status(401).send({ error: "Authentication required", code: "UNAUTHORIZED" });
 
-    const { id } = request.params;
+    const id = params.id;
 
     // Verify space exists
     const [space] = await db.select().from(spaces).where(eq(spaces.id, id)).limit(1);
@@ -135,13 +156,10 @@ export const spacesRoutes: FastifyPluginAsync = async (server) => {
 
   /** POST /validate — Check which space IDs still exist (for stale cache cleanup). */
   server.post("/validate", async (request, reply) => {
-    const body = request.body as { ids?: string[] };
-    if (!Array.isArray(body?.ids) || body.ids.length === 0) {
-      return reply.status(400).send({ error: "ids array required", code: "BAD_REQUEST" });
-    }
+    const body = validate(validateIdsBodySchema, request.body, reply);
+    if (!body) return;
 
-    // Cap at 100 to prevent abuse
-    const ids = body.ids.slice(0, 100);
+    const ids = body.ids;
 
     const rows = await db
       .select({ id: spaces.id })

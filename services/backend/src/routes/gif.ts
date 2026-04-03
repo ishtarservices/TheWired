@@ -1,3 +1,4 @@
+import { z } from "zod";
 import type { FastifyInstance } from "fastify";
 import {
   getTrendingGifs,
@@ -5,17 +6,38 @@ import {
   getAutocomplete,
   registerShare,
 } from "../services/gifService.js";
+import { validate, nonEmptyString, limitParam } from "../lib/validation.js";
+
+const trendingQuerySchema = z.object({
+  limit: limitParam(20, 50),
+  pos: z.string().optional(),
+});
+
+const searchQuerySchema = z.object({
+  q: nonEmptyString,
+  limit: limitParam(20, 50),
+  pos: z.string().optional(),
+});
+
+const autocompleteQuerySchema = z.object({
+  q: nonEmptyString,
+});
+
+const registerShareBodySchema = z.object({
+  id: nonEmptyString,
+  searchTerm: z.string().optional(),
+});
 
 export async function gifRoutes(app: FastifyInstance) {
   /** GET /gif/trending -- Fetch trending GIFs */
   app.get<{
     Querystring: { limit?: string; pos?: string };
   }>("/trending", async (request, reply) => {
-    const limit = Math.min(parseInt(request.query.limit ?? "20", 10) || 20, 50);
-    const pos = request.query.pos || undefined;
+    const query = validate(trendingQuerySchema, request.query, reply);
+    if (!query) return;
 
     try {
-      const result = await getTrendingGifs(limit, pos);
+      const result = await getTrendingGifs(query.limit, query.pos);
       return reply.send({ data: result });
     } catch (err) {
       const message = err instanceof Error ? err.message : "GIF fetch failed";
@@ -28,16 +50,11 @@ export async function gifRoutes(app: FastifyInstance) {
   app.get<{
     Querystring: { q: string; limit?: string; pos?: string };
   }>("/search", async (request, reply) => {
-    const { q } = request.query;
-    if (!q || !q.trim()) {
-      return reply.status(400).send({ error: "Missing query parameter 'q'", code: "BAD_REQUEST" });
-    }
-
-    const limit = Math.min(parseInt(request.query.limit ?? "20", 10) || 20, 50);
-    const pos = request.query.pos || undefined;
+    const query = validate(searchQuerySchema, request.query, reply);
+    if (!query) return;
 
     try {
-      const result = await searchGifs(q.trim(), limit, pos);
+      const result = await searchGifs(query.q, query.limit, query.pos);
       return reply.send({ data: result });
     } catch (err) {
       const message = err instanceof Error ? err.message : "GIF search failed";
@@ -50,13 +67,11 @@ export async function gifRoutes(app: FastifyInstance) {
   app.get<{
     Querystring: { q: string };
   }>("/autocomplete", async (request, reply) => {
-    const { q } = request.query;
-    if (!q || !q.trim()) {
-      return reply.status(400).send({ error: "Missing query parameter 'q'", code: "BAD_REQUEST" });
-    }
+    const query = validate(autocompleteQuerySchema, request.query, reply);
+    if (!query) return;
 
     try {
-      const results = await getAutocomplete(q.trim());
+      const results = await getAutocomplete(query.q);
       return reply.send({ data: results });
     } catch (err) {
       const message = err instanceof Error ? err.message : "GIF autocomplete failed";
@@ -69,12 +84,10 @@ export async function gifRoutes(app: FastifyInstance) {
   app.post<{
     Body: { id: string; searchTerm?: string };
   }>("/register-share", async (request, reply) => {
-    const { id, searchTerm } = request.body ?? {};
-    if (!id) {
-      return reply.status(400).send({ error: "Missing 'id' in body", code: "BAD_REQUEST" });
-    }
+    const body = validate(registerShareBodySchema, request.body, reply);
+    if (!body) return;
 
-    await registerShare(id, searchTerm);
+    await registerShare(body.id, body.searchTerm);
     return reply.status(204).send();
   });
 }

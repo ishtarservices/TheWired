@@ -1,4 +1,5 @@
 import type { FastifyPluginAsync } from "fastify";
+import { z } from "zod";
 import { livekitService } from "../services/livekitService.js";
 import { permissionService } from "../services/permissionService.js";
 import { channelService } from "../services/channelService.js";
@@ -6,6 +7,35 @@ import { db } from "../db/connection.js";
 import { spaceMembers } from "../db/schema/members.js";
 import { spaceChannels } from "../db/schema/channels.js";
 import { eq, and } from "drizzle-orm";
+import { config } from "../config.js";
+import { validate, hexId, nonEmptyString } from "../lib/validation.js";
+
+const tokenBody = z.object({
+  spaceId: nonEmptyString,
+  channelId: nonEmptyString,
+});
+
+const kickBody = z.object({
+  spaceId: nonEmptyString,
+  channelId: nonEmptyString,
+  targetPubkey: hexId,
+});
+
+const muteBody = z.object({
+  spaceId: nonEmptyString,
+  channelId: nonEmptyString,
+  targetPubkey: hexId,
+  trackSource: z.enum(["microphone", "camera"]),
+});
+
+const roomsParams = z.object({
+  spaceId: nonEmptyString,
+});
+
+const dmTokenBody = z.object({
+  partnerPubkey: hexId,
+  roomId: nonEmptyString,
+});
 
 export const voiceRoutes: FastifyPluginAsync = async (server) => {
   /**
@@ -21,10 +51,10 @@ export const voiceRoutes: FastifyPluginAsync = async (server) => {
       return reply.status(401).send({ error: "Authentication required", code: "UNAUTHORIZED" });
     }
 
-    const { spaceId, channelId } = request.body;
-    if (!spaceId || !channelId) {
-      return reply.status(400).send({ error: "spaceId and channelId required", code: "BAD_REQUEST" });
-    }
+    const body = validate(tokenBody, request.body, reply);
+    if (!body) return;
+
+    const { spaceId, channelId } = body;
 
     // Check membership
     const membership = await db
@@ -98,7 +128,10 @@ export const voiceRoutes: FastifyPluginAsync = async (server) => {
       return reply.status(401).send({ error: "Authentication required", code: "UNAUTHORIZED" });
     }
 
-    const { spaceId, channelId, targetPubkey } = request.body;
+    const body = validate(kickBody, request.body, reply);
+    if (!body) return;
+
+    const { spaceId, channelId, targetPubkey } = body;
 
     const perm = await permissionService.check(spaceId, pubkey, "MUTE_MEMBERS");
     if (!perm.allowed) {
@@ -131,7 +164,10 @@ export const voiceRoutes: FastifyPluginAsync = async (server) => {
       return reply.status(401).send({ error: "Authentication required", code: "UNAUTHORIZED" });
     }
 
-    const { spaceId, channelId, targetPubkey, trackSource } = request.body;
+    const body = validate(muteBody, request.body, reply);
+    if (!body) return;
+
+    const { spaceId, channelId, targetPubkey, trackSource } = body;
 
     const perm = await permissionService.check(spaceId, pubkey, "MUTE_MEMBERS");
     if (!perm.allowed) {
@@ -170,7 +206,10 @@ export const voiceRoutes: FastifyPluginAsync = async (server) => {
       return reply.status(401).send({ error: "Authentication required", code: "UNAUTHORIZED" });
     }
 
-    const { spaceId } = request.params;
+    const params = validate(roomsParams, request.params, reply);
+    if (!params) return;
+
+    const { spaceId } = params;
 
     // Check membership
     const membership = await db
@@ -220,10 +259,10 @@ export const voiceRoutes: FastifyPluginAsync = async (server) => {
       return reply.status(401).send({ error: "Authentication required", code: "UNAUTHORIZED" });
     }
 
-    const { roomId } = request.body;
-    if (!roomId) {
-      return reply.status(400).send({ error: "roomId required", code: "BAD_REQUEST" });
-    }
+    const body = validate(dmTokenBody, request.body, reply);
+    if (!body) return;
+
+    const { roomId } = body;
 
     const roomName = `dm:${roomId}`;
 
@@ -255,7 +294,12 @@ export const voiceRoutes: FastifyPluginAsync = async (server) => {
    * POST /cleanup-temporary — Clean up temporary channels whose rooms are empty.
    * Called periodically or when a participant leaves.
    */
-  server.post("/cleanup-temporary", async (_request, reply) => {
+  server.post("/cleanup-temporary", async (request, reply) => {
+    const pubkey = (request as any).pubkey as string | undefined;
+    if (!pubkey || !config.adminPubkeys.includes(pubkey)) {
+      return reply.status(403).send({ error: "Admin access required", code: "FORBIDDEN", statusCode: 403 });
+    }
+
     try {
       // Find all temporary voice/video channels
       const tempChannels = await db

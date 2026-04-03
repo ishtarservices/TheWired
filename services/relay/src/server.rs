@@ -28,7 +28,7 @@ pub async fn run(config: Config, pool: PgPool) -> anyhow::Result<()> {
 
     let (broadcast_tx, _) = broadcast::channel::<Event>(4096);
 
-    let relay_identity = RelayIdentity::new(config.relay_secret_key.clone());
+    let relay_identity = RelayIdentity::new(config.relay_secret_key.clone(), &config.rust_env);
 
     let state = Arc::new(AppState {
         pool,

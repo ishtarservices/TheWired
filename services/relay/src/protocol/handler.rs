@@ -208,7 +208,9 @@ async fn handle_req(
         let live_filter: Filter =
             serde_json::from_value(msg.get(2).cloned().unwrap_or_default()).unwrap_or_default();
         let mut subs = subscriptions.lock().await;
-        subs.add(sub_id.clone(), live_filter);
+        if let Err(msg) = subs.add(sub_id.clone(), live_filter) {
+            return vec![format!(r#"["CLOSED","{}","error: {}"]"#, sub_id, msg)];
+        }
     }
 
     let mut responses: Vec<String> = events

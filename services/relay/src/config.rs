@@ -4,6 +4,7 @@ pub struct Config {
     pub relay_name: String,
     pub relay_description: String,
     pub relay_secret_key: Option<String>,
+    pub rust_env: String,
 }
 
 impl Config {
@@ -20,6 +21,7 @@ impl Config {
             relay_description: std::env::var("RELAY_DESCRIPTION")
                 .unwrap_or_else(|_| "Custom NIP-29 relay for The Wired".into()),
             relay_secret_key: std::env::var("RELAY_SECRET_KEY").ok(),
+            rust_env: std::env::var("RUST_ENV").unwrap_or_else(|_| "development".into()),
         }
     }
 }

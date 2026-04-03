@@ -5,7 +5,7 @@ import { config } from "../config.js";
 import { lte } from "drizzle-orm";
 
 /** Refresh stale cached profiles periodically */
-export function startProfileRefresher() {
+export function startProfileRefresher(): { stop: () => void } {
   async function refresh() {
     console.log("[profiles] Refreshing stale profiles...");
 
@@ -126,7 +126,15 @@ export function startProfileRefresher() {
   }
 
   // Run every hour
-  setInterval(refresh, 60 * 60 * 1000);
+  const interval = setInterval(refresh, 60 * 60 * 1000);
   // Delay first run by 30s to let relay connection establish
-  setTimeout(refresh, 30_000);
+  const initialTimeout = setTimeout(refresh, 30_000);
+
+  return {
+    stop: () => {
+      clearInterval(interval);
+      clearTimeout(initialTimeout);
+      console.log("[profiles] Stopped");
+    },
+  };
 }

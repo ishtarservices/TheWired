@@ -1,6 +1,77 @@
 import type { FastifyPluginAsync } from "fastify";
+import { z } from "zod";
+import { validate, nonEmptyString } from "../lib/validation.js";
 import { onboardingService } from "../services/onboardingService.js";
 import { permissionService } from "../services/permissionService.js";
+
+// ── Shared param schemas ──────────────────────────────────────────
+const spaceIdParams = z.object({ spaceId: nonEmptyString });
+const spaceQIdParams = z.object({ spaceId: nonEmptyString, qId: nonEmptyString });
+const spaceAIdParams = z.object({ spaceId: nonEmptyString, aId: nonEmptyString });
+const spaceTIdParams = z.object({ spaceId: nonEmptyString, tId: nonEmptyString });
+const spaceTodoIdParams = z.object({ spaceId: nonEmptyString, todoId: nonEmptyString });
+
+// ── Body schemas ──────────────────────────────────────────────────
+const configBody = z.object({
+  enabled: z.boolean().optional(),
+  welcomeMessage: z.string().nullable().optional(),
+  welcomeImage: z.string().nullable().optional(),
+  requireCompletion: z.boolean().optional(),
+});
+
+const createQuestionBody = z.object({
+  title: nonEmptyString,
+  description: z.string().optional(),
+  required: z.boolean().optional(),
+  multiple: z.boolean().optional(),
+});
+
+const updateQuestionBody = z.object({
+  title: z.string().optional(),
+  description: z.string().nullable().optional(),
+  required: z.boolean().optional(),
+  multiple: z.boolean().optional(),
+});
+
+const createAnswerBody = z.object({
+  label: nonEmptyString,
+  emoji: z.string().optional(),
+});
+
+const updateAnswerBody = z.object({
+  label: z.string().optional(),
+  emoji: z.string().nullable().optional(),
+});
+
+const mappingsBody = z.object({
+  mappings: z.array(z.object({
+    roleId: z.string().nullable().optional(),
+    channelId: z.string().nullable().optional(),
+  })),
+});
+
+const createTodoBody = z.object({
+  title: nonEmptyString,
+  description: z.string().optional(),
+  linkChannelId: z.string().optional(),
+});
+
+const updateTodoBody = z.object({
+  title: z.string().optional(),
+  description: z.string().nullable().optional(),
+  linkChannelId: z.string().nullable().optional(),
+});
+
+const reorderBody = z.object({
+  orderedIds: z.array(z.string()).min(1),
+});
+
+const submitBody = z.object({
+  answers: z.array(z.object({
+    questionId: nonEmptyString,
+    answerIds: z.array(z.string()),
+  })),
+});
 
 export const onboardingRoutes: FastifyPluginAsync = async (server) => {
   // ── Admin Endpoints (require MANAGE_SPACE) ──────────────────────
@@ -12,11 +83,13 @@ export const onboardingRoutes: FastifyPluginAsync = async (server) => {
       const pubkey = (request as any).pubkey as string | undefined;
       if (!pubkey) return reply.status(401).send({ error: "Unauthorized", code: "UNAUTHORIZED" });
 
-      const { spaceId } = request.params;
-      const perm = await permissionService.check(spaceId, pubkey, "MANAGE_SPACE");
+      const params = validate(spaceIdParams, request.params, reply);
+      if (!params) return;
+
+      const perm = await permissionService.check(params.spaceId, pubkey, "MANAGE_SPACE");
       if (!perm.allowed) return reply.status(403).send({ error: "Forbidden", code: "FORBIDDEN" });
 
-      const data = await onboardingService.getFullConfig(spaceId);
+      const data = await onboardingService.getFullConfig(params.spaceId);
       return { data };
     },
   );
@@ -31,11 +104,15 @@ export const onboardingRoutes: FastifyPluginAsync = async (server) => {
       const pubkey = (request as any).pubkey as string | undefined;
       if (!pubkey) return reply.status(401).send({ error: "Unauthorized", code: "UNAUTHORIZED" });
 
-      const { spaceId } = request.params;
-      const perm = await permissionService.check(spaceId, pubkey, "MANAGE_SPACE");
+      const params = validate(spaceIdParams, request.params, reply);
+      if (!params) return;
+      const body = validate(configBody, request.body, reply);
+      if (!body) return;
+
+      const perm = await permissionService.check(params.spaceId, pubkey, "MANAGE_SPACE");
       if (!perm.allowed) return reply.status(403).send({ error: "Forbidden", code: "FORBIDDEN" });
 
-      const config = await onboardingService.upsertConfig(spaceId, request.body);
+      const config = await onboardingService.upsertConfig(params.spaceId, body);
       return { data: config };
     },
   );
@@ -52,11 +129,15 @@ export const onboardingRoutes: FastifyPluginAsync = async (server) => {
       const pubkey = (request as any).pubkey as string | undefined;
       if (!pubkey) return reply.status(401).send({ error: "Unauthorized", code: "UNAUTHORIZED" });
 
-      const { spaceId } = request.params;
-      const perm = await permissionService.check(spaceId, pubkey, "MANAGE_SPACE");
+      const params = validate(spaceIdParams, request.params, reply);
+      if (!params) return;
+      const body = validate(createQuestionBody, request.body, reply);
+      if (!body) return;
+
+      const perm = await permissionService.check(params.spaceId, pubkey, "MANAGE_SPACE");
       if (!perm.allowed) return reply.status(403).send({ error: "Forbidden", code: "FORBIDDEN" });
 
-      const question = await onboardingService.createQuestion(spaceId, request.body);
+      const question = await onboardingService.createQuestion(params.spaceId, body);
       return { data: question };
     },
   );
@@ -71,11 +152,15 @@ export const onboardingRoutes: FastifyPluginAsync = async (server) => {
       const pubkey = (request as any).pubkey as string | undefined;
       if (!pubkey) return reply.status(401).send({ error: "Unauthorized", code: "UNAUTHORIZED" });
 
-      const { spaceId, qId } = request.params;
-      const perm = await permissionService.check(spaceId, pubkey, "MANAGE_SPACE");
+      const params = validate(spaceQIdParams, request.params, reply);
+      if (!params) return;
+      const body = validate(updateQuestionBody, request.body, reply);
+      if (!body) return;
+
+      const perm = await permissionService.check(params.spaceId, pubkey, "MANAGE_SPACE");
       if (!perm.allowed) return reply.status(403).send({ error: "Forbidden", code: "FORBIDDEN" });
 
-      const question = await onboardingService.updateQuestion(qId, request.body);
+      const question = await onboardingService.updateQuestion(params.qId, body);
       return { data: question };
     },
   );
@@ -87,11 +172,13 @@ export const onboardingRoutes: FastifyPluginAsync = async (server) => {
       const pubkey = (request as any).pubkey as string | undefined;
       if (!pubkey) return reply.status(401).send({ error: "Unauthorized", code: "UNAUTHORIZED" });
 
-      const { spaceId, qId } = request.params;
-      const perm = await permissionService.check(spaceId, pubkey, "MANAGE_SPACE");
+      const params = validate(spaceQIdParams, request.params, reply);
+      if (!params) return;
+
+      const perm = await permissionService.check(params.spaceId, pubkey, "MANAGE_SPACE");
       if (!perm.allowed) return reply.status(403).send({ error: "Forbidden", code: "FORBIDDEN" });
 
-      await onboardingService.deleteQuestion(qId);
+      await onboardingService.deleteQuestion(params.qId);
       return { data: { success: true } };
     },
   );
@@ -106,11 +193,15 @@ export const onboardingRoutes: FastifyPluginAsync = async (server) => {
       const pubkey = (request as any).pubkey as string | undefined;
       if (!pubkey) return reply.status(401).send({ error: "Unauthorized", code: "UNAUTHORIZED" });
 
-      const { spaceId } = request.params;
-      const perm = await permissionService.check(spaceId, pubkey, "MANAGE_SPACE");
+      const params = validate(spaceIdParams, request.params, reply);
+      if (!params) return;
+      const body = validate(reorderBody, request.body, reply);
+      if (!body) return;
+
+      const perm = await permissionService.check(params.spaceId, pubkey, "MANAGE_SPACE");
       if (!perm.allowed) return reply.status(403).send({ error: "Forbidden", code: "FORBIDDEN" });
 
-      await onboardingService.reorderQuestions(spaceId, request.body.orderedIds);
+      await onboardingService.reorderQuestions(params.spaceId, body.orderedIds);
       return { data: { success: true } };
     },
   );
@@ -127,11 +218,15 @@ export const onboardingRoutes: FastifyPluginAsync = async (server) => {
       const pubkey = (request as any).pubkey as string | undefined;
       if (!pubkey) return reply.status(401).send({ error: "Unauthorized", code: "UNAUTHORIZED" });
 
-      const { spaceId, qId } = request.params;
-      const perm = await permissionService.check(spaceId, pubkey, "MANAGE_SPACE");
+      const params = validate(spaceQIdParams, request.params, reply);
+      if (!params) return;
+      const body = validate(createAnswerBody, request.body, reply);
+      if (!body) return;
+
+      const perm = await permissionService.check(params.spaceId, pubkey, "MANAGE_SPACE");
       if (!perm.allowed) return reply.status(403).send({ error: "Forbidden", code: "FORBIDDEN" });
 
-      const answer = await onboardingService.addAnswer(qId, request.body);
+      const answer = await onboardingService.addAnswer(params.qId, body);
       return { data: answer };
     },
   );
@@ -146,11 +241,15 @@ export const onboardingRoutes: FastifyPluginAsync = async (server) => {
       const pubkey = (request as any).pubkey as string | undefined;
       if (!pubkey) return reply.status(401).send({ error: "Unauthorized", code: "UNAUTHORIZED" });
 
-      const { spaceId, aId } = request.params;
-      const perm = await permissionService.check(spaceId, pubkey, "MANAGE_SPACE");
+      const params = validate(spaceAIdParams, request.params, reply);
+      if (!params) return;
+      const body = validate(updateAnswerBody, request.body, reply);
+      if (!body) return;
+
+      const perm = await permissionService.check(params.spaceId, pubkey, "MANAGE_SPACE");
       if (!perm.allowed) return reply.status(403).send({ error: "Forbidden", code: "FORBIDDEN" });
 
-      const answer = await onboardingService.updateAnswer(aId, request.body);
+      const answer = await onboardingService.updateAnswer(params.aId, body);
       return { data: answer };
     },
   );
@@ -162,11 +261,13 @@ export const onboardingRoutes: FastifyPluginAsync = async (server) => {
       const pubkey = (request as any).pubkey as string | undefined;
       if (!pubkey) return reply.status(401).send({ error: "Unauthorized", code: "UNAUTHORIZED" });
 
-      const { spaceId, aId } = request.params;
-      const perm = await permissionService.check(spaceId, pubkey, "MANAGE_SPACE");
+      const params = validate(spaceAIdParams, request.params, reply);
+      if (!params) return;
+
+      const perm = await permissionService.check(params.spaceId, pubkey, "MANAGE_SPACE");
       if (!perm.allowed) return reply.status(403).send({ error: "Forbidden", code: "FORBIDDEN" });
 
-      await onboardingService.deleteAnswer(aId);
+      await onboardingService.deleteAnswer(params.aId);
       return { data: { success: true } };
     },
   );
@@ -183,11 +284,15 @@ export const onboardingRoutes: FastifyPluginAsync = async (server) => {
       const pubkey = (request as any).pubkey as string | undefined;
       if (!pubkey) return reply.status(401).send({ error: "Unauthorized", code: "UNAUTHORIZED" });
 
-      const { spaceId, aId } = request.params;
-      const perm = await permissionService.check(spaceId, pubkey, "MANAGE_SPACE");
+      const params = validate(spaceAIdParams, request.params, reply);
+      if (!params) return;
+      const body = validate(mappingsBody, request.body, reply);
+      if (!body) return;
+
+      const perm = await permissionService.check(params.spaceId, pubkey, "MANAGE_SPACE");
       if (!perm.allowed) return reply.status(403).send({ error: "Forbidden", code: "FORBIDDEN" });
 
-      const mappings = await onboardingService.setAnswerMappings(aId, request.body.mappings);
+      const mappings = await onboardingService.setAnswerMappings(params.aId, body.mappings);
       return { data: mappings };
     },
   );
@@ -204,11 +309,15 @@ export const onboardingRoutes: FastifyPluginAsync = async (server) => {
       const pubkey = (request as any).pubkey as string | undefined;
       if (!pubkey) return reply.status(401).send({ error: "Unauthorized", code: "UNAUTHORIZED" });
 
-      const { spaceId } = request.params;
-      const perm = await permissionService.check(spaceId, pubkey, "MANAGE_SPACE");
+      const params = validate(spaceIdParams, request.params, reply);
+      if (!params) return;
+      const body = validate(createTodoBody, request.body, reply);
+      if (!body) return;
+
+      const perm = await permissionService.check(params.spaceId, pubkey, "MANAGE_SPACE");
       if (!perm.allowed) return reply.status(403).send({ error: "Forbidden", code: "FORBIDDEN" });
 
-      const item = await onboardingService.createTodoItem(spaceId, request.body);
+      const item = await onboardingService.createTodoItem(params.spaceId, body);
       return { data: item };
     },
   );
@@ -223,11 +332,15 @@ export const onboardingRoutes: FastifyPluginAsync = async (server) => {
       const pubkey = (request as any).pubkey as string | undefined;
       if (!pubkey) return reply.status(401).send({ error: "Unauthorized", code: "UNAUTHORIZED" });
 
-      const { spaceId, tId } = request.params;
-      const perm = await permissionService.check(spaceId, pubkey, "MANAGE_SPACE");
+      const params = validate(spaceTIdParams, request.params, reply);
+      if (!params) return;
+      const body = validate(updateTodoBody, request.body, reply);
+      if (!body) return;
+
+      const perm = await permissionService.check(params.spaceId, pubkey, "MANAGE_SPACE");
       if (!perm.allowed) return reply.status(403).send({ error: "Forbidden", code: "FORBIDDEN" });
 
-      const item = await onboardingService.updateTodoItem(tId, request.body);
+      const item = await onboardingService.updateTodoItem(params.tId, body);
       return { data: item };
     },
   );
@@ -239,11 +352,13 @@ export const onboardingRoutes: FastifyPluginAsync = async (server) => {
       const pubkey = (request as any).pubkey as string | undefined;
       if (!pubkey) return reply.status(401).send({ error: "Unauthorized", code: "UNAUTHORIZED" });
 
-      const { spaceId, tId } = request.params;
-      const perm = await permissionService.check(spaceId, pubkey, "MANAGE_SPACE");
+      const params = validate(spaceTIdParams, request.params, reply);
+      if (!params) return;
+
+      const perm = await permissionService.check(params.spaceId, pubkey, "MANAGE_SPACE");
       if (!perm.allowed) return reply.status(403).send({ error: "Forbidden", code: "FORBIDDEN" });
 
-      await onboardingService.deleteTodoItem(tId);
+      await onboardingService.deleteTodoItem(params.tId);
       return { data: { success: true } };
     },
   );
@@ -258,11 +373,15 @@ export const onboardingRoutes: FastifyPluginAsync = async (server) => {
       const pubkey = (request as any).pubkey as string | undefined;
       if (!pubkey) return reply.status(401).send({ error: "Unauthorized", code: "UNAUTHORIZED" });
 
-      const { spaceId } = request.params;
-      const perm = await permissionService.check(spaceId, pubkey, "MANAGE_SPACE");
+      const params = validate(spaceIdParams, request.params, reply);
+      if (!params) return;
+      const body = validate(reorderBody, request.body, reply);
+      if (!body) return;
+
+      const perm = await permissionService.check(params.spaceId, pubkey, "MANAGE_SPACE");
       if (!perm.allowed) return reply.status(403).send({ error: "Forbidden", code: "FORBIDDEN" });
 
-      await onboardingService.reorderTodoItems(spaceId, request.body.orderedIds);
+      await onboardingService.reorderTodoItems(params.spaceId, body.orderedIds);
       return { data: { success: true } };
     },
   );
@@ -279,10 +398,13 @@ export const onboardingRoutes: FastifyPluginAsync = async (server) => {
       const pubkey = (request as any).pubkey as string | undefined;
       if (!pubkey) return reply.status(401).send({ error: "Unauthorized", code: "UNAUTHORIZED" });
 
-      const { spaceId } = request.params;
+      const params = validate(spaceIdParams, request.params, reply);
+      if (!params) return;
+      const body = validate(submitBody, request.body, reply);
+      if (!body) return;
 
       try {
-        const result = await onboardingService.submitAnswers(spaceId, pubkey, request.body.answers);
+        const result = await onboardingService.submitAnswers(params.spaceId, pubkey, body.answers);
         return { data: result };
       } catch (err: any) {
         return reply.status(400).send({ error: err.message, code: "BAD_REQUEST" });
@@ -297,8 +419,10 @@ export const onboardingRoutes: FastifyPluginAsync = async (server) => {
       const pubkey = (request as any).pubkey as string | undefined;
       if (!pubkey) return reply.status(401).send({ error: "Unauthorized", code: "UNAUTHORIZED" });
 
-      const { spaceId } = request.params;
-      const state = await onboardingService.getMemberState(spaceId, pubkey);
+      const params = validate(spaceIdParams, request.params, reply);
+      if (!params) return;
+
+      const state = await onboardingService.getMemberState(params.spaceId, pubkey);
       return {
         data: state
           ? {
@@ -318,8 +442,10 @@ export const onboardingRoutes: FastifyPluginAsync = async (server) => {
       const pubkey = (request as any).pubkey as string | undefined;
       if (!pubkey) return reply.status(401).send({ error: "Unauthorized", code: "UNAUTHORIZED" });
 
-      const { spaceId, todoId } = request.params;
-      await onboardingService.completeTodoItem(spaceId, pubkey, todoId);
+      const params = validate(spaceTodoIdParams, request.params, reply);
+      if (!params) return;
+
+      await onboardingService.completeTodoItem(params.spaceId, pubkey, params.todoId);
       return { data: { success: true } };
     },
   );
@@ -329,9 +455,11 @@ export const onboardingRoutes: FastifyPluginAsync = async (server) => {
   /** GET /:spaceId/onboarding/preview — Public preview (no auth) */
   server.get<{ Params: { spaceId: string } }>(
     "/:spaceId/onboarding/preview",
-    async (request) => {
-      const { spaceId } = request.params;
-      const preview = await onboardingService.getOnboardingPreview(spaceId);
+    async (request, reply) => {
+      const params = validate(spaceIdParams, request.params, reply);
+      if (!params) return;
+
+      const preview = await onboardingService.getOnboardingPreview(params.spaceId);
       return { data: preview };
     },
   );

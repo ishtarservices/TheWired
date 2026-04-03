@@ -1,6 +1,7 @@
 package ratelimit
 
 import (
+	"log"
 	"net/http"
 	"strings"
 )
@@ -25,8 +26,10 @@ func RateLimitMiddleware(limiter *Limiter, next http.Handler) http.Handler {
 
 		allowed, err := limiter.Allow(r.Context(), pubkey, category)
 		if err != nil {
-			// Log but allow on error
-			next.ServeHTTP(w, r)
+			log.Printf("Rate limiter error: %v", err)
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusServiceUnavailable)
+			w.Write([]byte(`{"error":"service temporarily unavailable","code":"SERVICE_UNAVAILABLE"}`))
 			return
 		}
 

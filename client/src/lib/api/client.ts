@@ -1,6 +1,6 @@
 import { buildNip98Header } from "./nip98";
 
-const DEFAULT_BASE_URL = "http://localhost:9080/api";
+const DEFAULT_BASE_URL = import.meta.env.VITE_API_URL ?? "http://localhost:9080/api";
 
 let baseUrl = DEFAULT_BASE_URL;
 

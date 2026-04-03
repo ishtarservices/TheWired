@@ -1,13 +1,30 @@
 import type { FastifyPluginAsync } from "fastify";
+import { z } from "zod";
 import { proposalService } from "../services/proposalService.js";
+import { validate, hexId, nonEmptyString } from "../lib/validation.js";
+
+const listParams = z.object({
+  pubkey: hexId,
+  slug: nonEmptyString,
+});
+
+const resolveParams = z.object({
+  id: nonEmptyString,
+});
+
+const resolveBody = z.object({
+  status: z.enum(["accepted", "rejected"]),
+});
 
 export const proposalRoutes: FastifyPluginAsync = async (server) => {
   // GET /music/proposals/:pubkey/:slug -- list proposals for a project
   server.get<{ Params: { pubkey: string; slug: string } }>(
     "/proposals/:pubkey/:slug",
-    async (request) => {
-      const { pubkey, slug } = request.params;
-      const targetAlbum = `33123:${pubkey}:${slug}`;
+    async (request, reply) => {
+      const params = validate(listParams, request.params, reply);
+      if (!params) return;
+
+      const targetAlbum = `33123:${params.pubkey}:${params.slug}`;
       const proposals = await proposalService.getProposalsForAlbum(targetAlbum);
       return { data: proposals };
     },
@@ -31,11 +48,12 @@ export const proposalRoutes: FastifyPluginAsync = async (server) => {
       if (!pubkey) {
         return reply.status(401).send({ error: "Authentication required", code: "UNAUTHORIZED" });
       }
-      const { status } = request.body as { status: "accepted" | "rejected" };
-      if (!["accepted", "rejected"].includes(status)) {
-        return reply.status(400).send({ error: "Invalid status", code: "BAD_REQUEST" });
-      }
-      const result = await proposalService.resolveProposal(request.params.id, status, pubkey);
+      const params = validate(resolveParams, request.params, reply);
+      if (!params) return;
+      const body = validate(resolveBody, request.body, reply);
+      if (!body) return;
+
+      const result = await proposalService.resolveProposal(params.id, body.status, pubkey);
       if (result === null) {
         return reply.status(404).send({ error: "Proposal not found", code: "NOT_FOUND" });
       }

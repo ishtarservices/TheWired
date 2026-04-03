@@ -10,6 +10,9 @@ use crate::nostr::event::Event;
 use crate::protocol::handler;
 use crate::server::AppState;
 
+/// Maximum incoming WebSocket message size (128 KiB)
+const MAX_MESSAGE_SIZE: usize = 128 * 1024;
+
 /// Per-client WebSocket connection handler
 pub async fn handle_connection(
     socket: WebSocket,
@@ -40,6 +43,14 @@ pub async fn handle_connection(
             ws_msg = receiver.next() => {
                 match ws_msg {
                     Some(Ok(Message::Text(text))) => {
+                        if text.len() > MAX_MESSAGE_SIZE {
+                            let notice = format!(
+                                r#"["NOTICE","message too large: {} bytes (max {})"]"#,
+                                text.len(), MAX_MESSAGE_SIZE
+                            );
+                            let _ = sender.send(Message::Text(notice.into())).await;
+                            continue;
+                        }
                         events_received += 1;
                         let responses = handler::handle_message(
                             &text,

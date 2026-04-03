@@ -1,0 +1,9 @@
+client/
+reference/
+.git
+.env
+.env.*
+*.md
+node_modules/
+services/relay/
+services/gateway/

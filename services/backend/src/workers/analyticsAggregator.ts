@@ -19,7 +19,7 @@ interface MemberRow {
 }
 
 /** Daily analytics rollup */
-export function startAnalyticsAggregator() {
+export function startAnalyticsAggregator(): { stop: () => void } {
   async function aggregate() {
     console.log("[analytics] Running daily aggregation...");
 
@@ -124,7 +124,15 @@ export function startAnalyticsAggregator() {
   }
 
   // Run every 24 hours
-  setInterval(aggregate, 24 * 60 * 60 * 1000);
+  const interval = setInterval(aggregate, 24 * 60 * 60 * 1000);
   // Delay first run by 60s to let other services start
-  setTimeout(aggregate, 60_000);
+  const initialTimeout = setTimeout(aggregate, 60_000);
+
+  return {
+    stop: () => {
+      clearInterval(interval);
+      clearTimeout(initialTimeout);
+      console.log("[analytics] Stopped");
+    },
+  };
 }

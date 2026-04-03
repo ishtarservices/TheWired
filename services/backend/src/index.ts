@@ -33,12 +33,37 @@ async function main() {
   });
 
   // Start background workers
-  startRelayIngester();
-  startTrendingComputer();
-  startProfileRefresher();
-  startNotificationDispatcher();
-  startAnalyticsAggregator();
-  startDiscoveryScoreComputer();
+  const workers = [
+    startRelayIngester(),
+    startTrendingComputer(),
+    startProfileRefresher(),
+    startNotificationDispatcher(),
+    startAnalyticsAggregator(),
+    startDiscoveryScoreComputer(),
+  ];
+
+  // Graceful shutdown
+  const shutdown = async (signal: string) => {
+    console.log(`[shutdown] ${signal} received, shutting down...`);
+
+    // Stop all workers
+    for (const worker of workers) {
+      worker.stop();
+    }
+
+    // Close Fastify server (drains in-flight requests)
+    try {
+      await server.close();
+      console.log("[shutdown] Server closed");
+    } catch (err) {
+      console.error("[shutdown] Error closing server:", err);
+    }
+
+    process.exit(0);
+  };
+
+  process.on("SIGTERM", () => shutdown("SIGTERM"));
+  process.on("SIGINT", () => shutdown("SIGINT"));
 }
 
 main().catch((err) => {

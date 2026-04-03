@@ -1,4 +1,7 @@
 export const config = {
+  nodeEnv: process.env.NODE_ENV ?? "development",
+  isProduction: (process.env.NODE_ENV ?? "development") === "production",
+  allowedOrigins: (process.env.ALLOWED_ORIGINS ?? "").split(",").filter(Boolean),
   port: parseInt(process.env.PORT ?? "3002", 10),
   databaseUrl: process.env.DATABASE_URL ?? "postgres://thewired:thewired@localhost:5432/thewired",
   redisUrl: process.env.REDIS_URL ?? "redis://localhost:6380",

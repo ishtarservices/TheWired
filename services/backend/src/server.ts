@@ -1,6 +1,7 @@
 import { join } from "path";
 import Fastify from "fastify";
 import cors from "@fastify/cors";
+import helmet from "@fastify/helmet";
 import multipart from "@fastify/multipart";
 import fastifyStatic from "@fastify/static";
 import { config } from "./config.js";
@@ -27,6 +28,7 @@ import { voiceRoutes } from "./routes/voice.js";
 import { gifRoutes } from "./routes/gif.js";
 import { discoveryRoutes } from "./routes/discovery.js";
 import { onboardingRoutes } from "./routes/onboarding.js";
+import { nip05Routes, nip05ApiRoutes } from "./routes/nip05.js";
 import { authContext } from "./middleware/authContext.js";
 import { errorHandler } from "./middleware/errorHandler.js";
 
@@ -37,7 +39,13 @@ export async function createServer() {
     },
   });
 
-  await server.register(cors, { origin: true });
+  await server.register(cors, {
+    origin: config.allowedOrigins.length > 0 ? config.allowedOrigins : true,
+  });
+  await server.register(helmet, {
+    contentSecurityPolicy: false,
+    crossOriginResourcePolicy: { policy: "cross-origin" },
+  });
   await server.register(multipart, { limits: { fileSize: 100 * 1024 * 1024 } });
 
   // Static file serving for uploads (cover art, audio files)
@@ -75,6 +83,8 @@ export async function createServer() {
   await server.register(gifRoutes, { prefix: "/gif" });
   await server.register(discoveryRoutes, { prefix: "/discovery" });
   await server.register(onboardingRoutes, { prefix: "/spaces" });
+  await server.register(nip05Routes);
+  await server.register(nip05ApiRoutes, { prefix: "/nip05" });
 
   return server;
 }

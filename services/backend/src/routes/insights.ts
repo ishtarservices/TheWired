@@ -1,12 +1,19 @@
 import type { FastifyPluginAsync } from "fastify";
+import { z } from "zod";
+import { validate, nonEmptyString } from "../lib/validation.js";
 import { musicService } from "../services/musicService.js";
+
+const wildcardParams = z.object({ "*": nonEmptyString });
 
 export const insightsRoutes: FastifyPluginAsync = async (server) => {
   // GET /music/insights/* -- insights for a track/album by addressable ID
   server.get<{ Params: { "*": string } }>(
     "/insights/*",
-    async (request) => {
-      const addressableId = request.params["*"];
+    async (request, reply) => {
+      const params = validate(wildcardParams, request.params, reply);
+      if (!params) return;
+
+      const addressableId = params["*"];
       const insights = await musicService.getInsights(addressableId);
       return { data: insights };
     },

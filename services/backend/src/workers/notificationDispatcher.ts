@@ -17,7 +17,7 @@ function ensureVapidConfig() {
 }
 
 /** Dispatch queued push notifications */
-export function startNotificationDispatcher() {
+export function startNotificationDispatcher(): { stop: () => void } {
   async function dispatch() {
     if (!ensureVapidConfig()) {
       // VAPID keys not configured, skip silently
@@ -98,7 +98,15 @@ export function startNotificationDispatcher() {
   }
 
   // Run every 30 seconds
-  setInterval(dispatch, 30 * 1000);
+  const interval = setInterval(dispatch, 30 * 1000);
   // Delay first run by 5s
-  setTimeout(dispatch, 5000);
+  const initialTimeout = setTimeout(dispatch, 5000);
+
+  return {
+    stop: () => {
+      clearInterval(interval);
+      clearTimeout(initialTimeout);
+      console.log("[notifications] Stopped");
+    },
+  };
 }

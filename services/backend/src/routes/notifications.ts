@@ -1,7 +1,18 @@
 import type { FastifyPluginAsync } from "fastify";
+import { z } from "zod";
 import { db } from "../db/connection.js";
 import { notificationPreferences } from "../db/schema/notifications.js";
 import { eq } from "drizzle-orm";
+import { validate } from "../lib/validation.js";
+
+const preferencesBody = z.object({
+  enabled: z.boolean().optional(),
+  mentions: z.boolean().optional(),
+  dms: z.boolean().optional(),
+  newFollowers: z.boolean().optional(),
+  chatMessages: z.boolean().optional(),
+  mutedSpaces: z.array(z.string()).optional(),
+});
 
 export const notificationsRoutes: FastifyPluginAsync = async (server) => {
   /** GET /notifications/preferences */
@@ -42,18 +53,12 @@ export const notificationsRoutes: FastifyPluginAsync = async (server) => {
   });
 
   /** PUT /notifications/preferences */
-  server.put("/preferences", async (request) => {
+  server.put("/preferences", async (request, reply) => {
     const pubkey = (request as any).pubkey;
     if (!pubkey) return { error: "Unauthorized", code: "UNAUTHORIZED", statusCode: 401 };
 
-    const body = request.body as {
-      enabled?: boolean;
-      mentions?: boolean;
-      dms?: boolean;
-      newFollowers?: boolean;
-      chatMessages?: boolean;
-      mutedSpaces?: string[];
-    };
+    const body = validate(preferencesBody, request.body, reply);
+    if (!body) return;
 
     await db
       .insert(notificationPreferences)
