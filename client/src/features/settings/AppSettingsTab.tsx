@@ -214,14 +214,14 @@ function UpdateSection() {
         {status === "ready" && (
           <div className="flex items-center gap-3">
             <span className="text-sm text-green-400">
-              Update installed — restart to apply.
+              Update installed — close and reopen to apply.
             </span>
             <button
               onClick={relaunch}
               className="flex items-center gap-2 rounded-md bg-primary px-3 py-1.5 text-sm font-medium text-white transition-colors hover:bg-primary/80"
             >
               <RotateCcw size={14} />
-              Restart Now
+              Close App
             </button>
           </div>
         )}

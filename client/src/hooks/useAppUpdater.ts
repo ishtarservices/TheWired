@@ -93,13 +93,9 @@ export function useAppUpdater(checkOnMount = true) {
     }
   }, []);
 
-  const relaunch = useCallback(async () => {
-    try {
-      const { exit } = await import("@tauri-apps/api/process" as string);
-      await (exit as (code?: number) => Promise<void>)(0);
-    } catch {
-      // process API not available — prompt user to restart manually
-    }
+  const relaunch = useCallback(() => {
+    // Update is applied on next app launch — close the window to prompt restart
+    window.close();
   }, []);
 
   useEffect(() => {
