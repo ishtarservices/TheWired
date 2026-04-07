@@ -75,10 +75,10 @@ jobs:
         shell: bash
         run: |
           TAG="v$(jq -r .version client/src-tauri/tauri.conf.json)"
-          BUNDLE="client/src-tauri/${{ matrix.bundle_path }}"
-          echo "Looking for .sig files in $BUNDLE"
-          find "$BUNDLE" -name "*.sig" -type f 2>/dev/null
-          find "$BUNDLE" -name "*.sig" -type f -print0 2>/dev/null | while IFS= read -r -d '' sig; do
+          echo "Current directory: $(pwd)"
+          echo "Searching entire src-tauri/target for .sig files..."
+          find client/src-tauri/target -name "*.sig" -type f 2>/dev/null || echo "No .sig files found"
+          find client/src-tauri/target -name "*.sig" -type f -print0 2>/dev/null | while IFS= read -r -d '' sig; do
             echo "Uploading: $sig"
             gh release upload "$TAG" "$sig" --clobber || true
           done
