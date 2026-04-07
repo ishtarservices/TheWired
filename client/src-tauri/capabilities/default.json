@@ -8,6 +8,7 @@
   "permissions": [
     "core:default",
     "opener:default",
+    "updater:default",
     "fs:allow-read-file",
     {
       "identifier": "http:default",
