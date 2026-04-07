@@ -77,9 +77,9 @@ jobs:
           TAG="v$(jq -r .version client/src-tauri/tauri.conf.json)"
           BUNDLE="client/src-tauri/${{ matrix.bundle_path }}"
           echo "Looking for .sig files in $BUNDLE"
-          find "$BUNDLE" -name "*.sig" -type f 2>/dev/null || true
-          for sig in $(find "$BUNDLE" -name "*.sig" -type f 2>/dev/null); do
-            echo "Uploading $sig"
+          find "$BUNDLE" -name "*.sig" -type f 2>/dev/null
+          find "$BUNDLE" -name "*.sig" -type f -print0 2>/dev/null | while IFS= read -r -d '' sig; do
+            echo "Uploading: $sig"
             gh release upload "$TAG" "$sig" --clobber || true
           done
 
