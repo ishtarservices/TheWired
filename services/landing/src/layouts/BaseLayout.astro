@@ -1,0 +1,58 @@
+---
+interface Props {
+  title?: string;
+  description?: string;
+}
+
+const {
+  title = "The Wired — Decentralized Media Platform",
+  description = "A decentralized media platform built on Nostr where you own your data, your identity, and your community. Download for macOS, Windows, and Linux.",
+} = Astro.props;
+---
+
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="description" content={description} />
+
+    <!-- Open Graph -->
+    <meta property="og:title" content={title} />
+    <meta property="og:description" content={description} />
+    <meta property="og:type" content="website" />
+    <meta property="og:url" content="https://thewired.app" />
+    <meta property="og:image" content="https://thewired.app/og-image.png" />
+
+    <!-- Twitter Card -->
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:title" content={title} />
+    <meta name="twitter:description" content={description} />
+    <meta name="twitter:image" content="https://thewired.app/og-image.png" />
+
+    <!-- Preload font -->
+    <link
+      rel="preload"
+      href="/fonts/SpaceGrotesk-Variable.woff2"
+      as="font"
+      type="font/woff2"
+      crossorigin
+    />
+
+    <link rel="icon" type="image/png" href="/logo.png" />
+    <link rel="canonical" href="https://thewired.app" />
+
+    <title>{title}</title>
+  </head>
+  <body class="bg-background text-body overflow-x-hidden noise-overlay">
+    <slot />
+  </body>
+</html>
+
+<style is:global>
+  @import "../styles/global.css";
+
+  html {
+    scroll-behavior: smooth;
+  }
+</style>

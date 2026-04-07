@@ -175,6 +175,21 @@ services:
         limits:
           memory: 512m
 
+  landing:
+    image: ghcr.io/ishtarservices/thewired-landing:latest
+    healthcheck:
+      test: ["CMD", "wget", "--spider", "-q", "http://localhost:8080"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+    restart: unless-stopped
+    networks:
+      - frontend
+    deploy:
+      resources:
+        limits:
+          memory: 64m
+
   proxy:
     image: ghcr.io/ishtarservices/thewired-proxy:latest
     ports:
@@ -185,6 +200,8 @@ services:
       - caddy_config:/config
     depends_on:
       gateway:
+        condition: service_healthy
+      landing:
         condition: service_healthy
     restart: unless-stopped
     networks:

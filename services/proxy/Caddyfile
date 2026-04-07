@@ -13,8 +13,8 @@ thewired.app {
 		reverse_proxy backend:3002
 	}
 
-	# Future: landing page / download page
+	# Landing page
 	handle {
-		respond "The Wired — Coming Soon" 200
+		reverse_proxy landing:8080
 	}
 }

@@ -1,0 +1,81 @@
+---
+const features = [
+  {
+    title: "Community Spaces",
+    description: "Create and join group spaces with channels, roles, and member management. Build your community, set your own rules.",
+    icon: `<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>`,
+    accent: "hsl(185 100% 55%)",
+  },
+  {
+    title: "Real-time Chat",
+    description: "Instant messaging with reactions, threading, and channels. Conversations that feel fast and natural — across a decentralized network.",
+    icon: `<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>`,
+    accent: "hsl(310 100% 65%)",
+  },
+  {
+    title: "Built-in Media",
+    description: "Watch and share video content natively in the app. A seamless media experience without leaving the platform.",
+    icon: `<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><polygon points="5,3 19,12 5,21 5,3"/></svg>`,
+    accent: "hsl(265 100% 70%)",
+  },
+  {
+    title: "Music Library",
+    description: "Upload tracks, create albums, and share music right inside the app. Discover what your community is listening to.",
+    icon: `<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M9 18V5l12-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/></svg>`,
+    accent: "hsl(185 100% 55%)",
+  },
+  {
+    title: "Voice & Video",
+    description: "Jump into voice and video calls with your community. Real-time conversations, face to face.",
+    icon: `<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><polygon points="23,7 16,12 23,17 23,7"/><rect x="1" y="5" width="15" height="14" rx="2" ry="2"/></svg>`,
+    accent: "hsl(310 100% 65%)",
+  },
+  {
+    title: "Cross-platform",
+    description: "A native desktop app for macOS, Windows, and Linux. Lightweight, fast, and feels right at home on every platform.",
+    icon: `<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><rect x="2" y="3" width="20" height="14" rx="2" ry="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/></svg>`,
+    accent: "hsl(265 100% 70%)",
+  },
+];
+---
+
+<section id="features" class="relative py-32 overflow-hidden">
+  <!-- Background -->
+  <div class="absolute inset-0 bg-cyber-void opacity-40" />
+  <div class="absolute inset-0 bg-grid-cyber opacity-30" />
+
+  <div class="relative mx-auto max-w-7xl px-6">
+    <!-- Section header -->
+    <div class="text-center mb-16 space-y-4">
+      <div class="inline-flex items-center gap-2 px-3 py-1 rounded-full text-[10px] font-medium tracking-[0.2em] uppercase mb-4"
+        style="background: hsl(310 100% 65% / 0.06); border: 1px solid hsl(310 100% 65% / 0.1); color: hsl(310 100% 65% / 0.6);">
+        Capabilities
+      </div>
+      <h2 class="text-3xl sm:text-4xl lg:text-5xl font-bold tracking-tight">
+        <span class="text-heading">Everything </span>
+        <span class="text-gradient-accent">You Need</span>
+      </h2>
+      <p class="text-soft text-lg max-w-2xl mx-auto">
+        A complete platform for communication, media, and community — all decentralized.
+      </p>
+    </div>
+
+    <!-- Feature grid — cyber cards -->
+    <div class="grid sm:grid-cols-2 lg:grid-cols-3 gap-5">
+      {features.map((feature) => (
+        <div class="card-cyber rounded-xl p-7 space-y-4 hover-lift hud-corners group transition-all duration-300">
+          <div class="w-12 h-12 rounded-lg flex items-center justify-center transition-all duration-300 group-hover:scale-110"
+            style={`background: ${feature.accent.replace(')', ' / 0.08)')}; color: ${feature.accent};`}>
+            <Fragment set:html={feature.icon} />
+          </div>
+          <h3 class="text-heading font-semibold text-lg">{feature.title}</h3>
+          <p class="text-muted text-sm leading-relaxed">{feature.description}</p>
+          <!-- Bottom accent line on hover -->
+          <div class="h-px w-0 group-hover:w-full transition-all duration-500 rounded-full"
+            style={`background: linear-gradient(90deg, ${feature.accent}, transparent);`}
+          />
+        </div>
+      ))}
+    </div>
+  </div>
+</section>

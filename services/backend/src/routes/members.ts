@@ -38,29 +38,30 @@ export const membersRoutes: FastifyPluginAsync = async (server) => {
     if (!space) return reply.status(404).send({ error: "Space not found", code: "NOT_FOUND" });
     if (!space.listed) return reply.status(403).send({ error: "Space is not publicly listed", code: "FORBIDDEN" });
 
-    // Check if already a member
+    // Check if already a member — if so, skip insert but still return space data
     const [existing] = await db
       .select()
       .from(spaceMembers)
       .where(and(eq(spaceMembers.spaceId, id), eq(spaceMembers.pubkey, pubkey)))
       .limit(1);
-    if (existing) return reply.status(409).send({ error: "Already a member", code: "ALREADY_MEMBER" });
 
-    // Insert member
-    await db.insert(spaceMembers).values({ spaceId: id, pubkey });
+    if (!existing) {
+      // Insert member
+      await db.insert(spaceMembers).values({ spaceId: id, pubkey });
 
-    // Assign default role
-    const [defaultRole] = await db
-      .select({ id: spaceRoles.id })
-      .from(spaceRoles)
-      .where(and(eq(spaceRoles.spaceId, id), eq(spaceRoles.isDefault, true)))
-      .limit(1);
-    if (defaultRole) {
-      await db.insert(memberRoles).values({ spaceId: id, pubkey, roleId: defaultRole.id }).onConflictDoNothing();
+      // Assign default role
+      const [defaultRole] = await db
+        .select({ id: spaceRoles.id })
+        .from(spaceRoles)
+        .where(and(eq(spaceRoles.spaceId, id), eq(spaceRoles.isDefault, true)))
+        .limit(1);
+      if (defaultRole) {
+        await db.insert(memberRoles).values({ spaceId: id, pubkey, roleId: defaultRole.id }).onConflictDoNothing();
+      }
+
+      // Increment member count
+      await db.update(spaces).set({ memberCount: sql`${spaces.memberCount} + 1` }).where(eq(spaces.id, id));
     }
-
-    // Increment member count
-    await db.update(spaces).set({ memberCount: sql`${spaces.memberCount} + 1` }).where(eq(spaces.id, id));
 
     // Return space info + channels + feed sources for client to hydrate
     const channels = await db.select().from(spaceChannels).where(eq(spaceChannels.spaceId, id)).orderBy(asc(spaceChannels.position));
@@ -85,7 +86,7 @@ export const membersRoutes: FastifyPluginAsync = async (server) => {
           mode: space.mode,
           hostRelay: space.hostRelay,
           creatorPubkey: space.creatorPubkey,
-          memberCount: (space.memberCount ?? 0) + 1,
+          memberCount: existing ? (space.memberCount ?? 0) : (space.memberCount ?? 0) + 1,
         },
         channels,
         feedPubkeys,

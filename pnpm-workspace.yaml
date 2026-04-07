@@ -2,3 +2,4 @@ packages:
   - "client"
   - "packages/*"
   - "services/backend"
+  - "services/landing"

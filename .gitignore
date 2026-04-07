@@ -76,3 +76,6 @@ coverage/
 *.orig
 
 PRODUCTION.md
+
+# Seed scripts (local demo data tooling)
+scripts/

@@ -162,6 +162,15 @@ services:
     networks:
       - backend
 
+  landing:
+    build:
+      context: .
+      dockerfile: services/landing/Dockerfile
+    ports:
+      - "${LANDING_PORT:-8080}:8080"
+    networks:
+      - frontend
+
   proxy:
     build:
       context: ./services/proxy
@@ -175,6 +184,8 @@ services:
     depends_on:
       gateway:
         condition: service_healthy
+      landing:
+        condition: service_started
     restart: unless-stopped
     networks:
       - frontend

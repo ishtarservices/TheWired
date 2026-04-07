@@ -1,0 +1,36 @@
+---
+import ShowcaseSlider from './ShowcaseSlider.tsx';
+---
+
+<section id="showcase" class="relative py-32 overflow-hidden">
+  <!-- Subtle background accent -->
+  <div class="absolute inset-0 bg-cyber-void opacity-50" />
+
+  <div class="relative mx-auto max-w-7xl px-6">
+    <!-- Section header -->
+    <div class="text-center mb-16 space-y-4">
+      <div class="inline-flex items-center gap-2 px-3 py-1 rounded-full text-[10px] font-medium tracking-[0.2em] uppercase mb-4"
+        style="background: hsl(185 100% 55% / 0.06); border: 1px solid hsl(185 100% 55% / 0.1); color: hsl(185 100% 55% / 0.6);">
+        Interface Preview
+      </div>
+      <h2 class="text-3xl sm:text-4xl lg:text-5xl font-bold tracking-tight">
+        <span class="text-heading">See It </span>
+        <span class="text-gradient-neon">In Action</span>
+      </h2>
+      <p class="text-soft text-lg max-w-2xl mx-auto">
+        Explore the features that make The Wired a new kind of social media platform.
+      </p>
+    </div>
+
+    <!-- Slider — cyber frame -->
+    <div class="relative">
+      <!-- Outer glow frame -->
+      <div class="absolute -inset-[1px] rounded-2xl animate-neon-breathe"
+        style="background: linear-gradient(135deg, hsl(185 100% 55% / 0.1), transparent 30%, transparent 70%, hsl(310 100% 65% / 0.08)); border-radius: 1rem;"
+      />
+      <div class="relative card-cyber rounded-2xl p-2 sm:p-3">
+        <ShowcaseSlider client:visible />
+      </div>
+    </div>
+  </div>
+</section>

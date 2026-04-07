@@ -1,0 +1,9 @@
+:8080 {
+	root * /srv
+	file_server
+	encode gzip
+
+	header Cache-Control "public, max-age=3600"
+	header /fonts/* Cache-Control "public, max-age=31536000, immutable"
+	header /_astro/* Cache-Control "public, max-age=31536000, immutable"
+}

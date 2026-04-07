@@ -1,0 +1,126 @@
+---
+---
+
+<nav
+  id="navbar"
+  class="fixed top-0 left-0 right-0 z-[var(--z-sticky)] transition-all duration-300"
+>
+  <div class="mx-auto max-w-7xl px-6 py-4 flex items-center justify-between">
+    <!-- Logo -->
+    <a href="/" class="flex items-center gap-3 group">
+      <div class="relative">
+        <img
+          src="/logo.png"
+          alt="The Wired"
+          class="w-9 h-9 rounded-lg transition-transform group-hover:scale-110"
+        />
+        <div class="absolute inset-0 rounded-lg opacity-0 group-hover:opacity-100 transition-opacity"
+          style="box-shadow: 0 0 12px hsl(185 100% 55% / 0.3);"
+        />
+      </div>
+      <span class="text-heading font-bold text-lg tracking-tight">
+        <span class="text-gradient-neon">The Wired</span>
+      </span>
+    </a>
+
+    <!-- Nav links (desktop) -->
+    <div class="hidden md:flex items-center gap-1">
+      <a href="#showcase" class="px-4 py-2 text-soft hover:text-primary transition-colors text-sm font-medium rounded-lg hover:bg-primary-dim">
+        Showcase
+      </a>
+      <a href="#about" class="px-4 py-2 text-soft hover:text-primary transition-colors text-sm font-medium rounded-lg hover:bg-primary-dim">
+        About
+      </a>
+      <a href="#features" class="px-4 py-2 text-soft hover:text-primary transition-colors text-sm font-medium rounded-lg hover:bg-primary-dim">
+        Features
+      </a>
+      <a
+        href="https://github.com/IshtarServices/TheWired"
+        target="_blank"
+        rel="noopener noreferrer"
+        class="px-4 py-2 text-soft hover:text-primary transition-colors text-sm font-medium rounded-lg hover:bg-primary-dim inline-flex items-center gap-1.5"
+      >
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><path d="M12 0c-6.626 0-12 5.373-12 12 0 5.302 3.438 9.8 8.207 11.387.599.111.793-.261.793-.577v-2.234c-3.338.726-4.033-1.416-4.033-1.416-.546-1.387-1.333-1.756-1.333-1.756-1.089-.745.083-.729.083-.729 1.205.084 1.839 1.237 1.839 1.237 1.07 1.834 2.807 1.304 3.492.997.107-.775.418-1.305.762-1.604-2.665-.305-5.467-1.334-5.467-5.931 0-1.311.469-2.381 1.236-3.221-.124-.303-.535-1.524.117-3.176 0 0 1.008-.322 3.301 1.23.957-.266 1.983-.399 3.003-.404 1.02.005 2.047.138 3.006.404 2.291-1.552 3.297-1.23 3.297-1.23.653 1.653.242 2.874.118 3.176.77.84 1.235 1.911 1.235 3.221 0 4.609-2.807 5.624-5.479 5.921.43.372.823 1.102.823 2.222v3.293c0 .319.192.694.801.576 4.765-1.589 8.199-6.086 8.199-11.386 0-6.627-5.373-12-12-12z"/></svg>
+        GitHub
+      </a>
+
+      <div class="w-px h-6 bg-border mx-2" />
+
+      <a
+        href="#download"
+        class="relative inline-flex items-center gap-2 px-5 py-2 rounded-lg text-sm font-semibold transition-all press-effect overflow-hidden group/btn"
+        style="background: linear-gradient(135deg, hsl(185 100% 55%), hsl(265 100% 70%)); color: hsl(230 20% 5%);"
+      >
+        <span class="relative z-10">Download</span>
+        <div class="absolute inset-0 opacity-0 group-hover/btn:opacity-100 transition-opacity"
+          style="background: linear-gradient(135deg, hsl(185 80% 65%), hsl(310 100% 65%));"
+        />
+      </a>
+    </div>
+
+    <!-- Mobile menu button -->
+    <button
+      id="mobile-menu-btn"
+      class="md:hidden p-2 text-soft hover:text-primary transition-colors"
+      aria-label="Open menu"
+    >
+      <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
+        <line x1="3" y1="6" x2="21" y2="6" />
+        <line x1="3" y1="12" x2="21" y2="12" />
+        <line x1="3" y1="18" x2="21" y2="18" />
+      </svg>
+    </button>
+  </div>
+
+  <!-- Mobile menu -->
+  <div
+    id="mobile-menu"
+    class="hidden md:hidden glass-panel mx-4 mb-4 rounded-xl p-4 space-y-1"
+  >
+    <a href="#showcase" class="block text-soft hover:text-primary hover:bg-primary-dim transition-colors text-sm font-medium py-2.5 px-3 rounded-lg">
+      Showcase
+    </a>
+    <a href="#about" class="block text-soft hover:text-primary hover:bg-primary-dim transition-colors text-sm font-medium py-2.5 px-3 rounded-lg">
+      About
+    </a>
+    <a href="#features" class="block text-soft hover:text-primary hover:bg-primary-dim transition-colors text-sm font-medium py-2.5 px-3 rounded-lg">
+      Features
+    </a>
+    <a href="https://github.com/IshtarServices/TheWired" target="_blank" rel="noopener noreferrer" class="block text-soft hover:text-primary hover:bg-primary-dim transition-colors text-sm font-medium py-2.5 px-3 rounded-lg inline-flex items-center gap-1.5">
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><path d="M12 0c-6.626 0-12 5.373-12 12 0 5.302 3.438 9.8 8.207 11.387.599.111.793-.261.793-.577v-2.234c-3.338.726-4.033-1.416-4.033-1.416-.546-1.387-1.333-1.756-1.333-1.756-1.089-.745.083-.729.083-.729 1.205.084 1.839 1.237 1.839 1.237 1.07 1.834 2.807 1.304 3.492.997.107-.775.418-1.305.762-1.604-2.665-.305-5.467-1.334-5.467-5.931 0-1.311.469-2.381 1.236-3.221-.124-.303-.535-1.524.117-3.176 0 0 1.008-.322 3.301 1.23.957-.266 1.983-.399 3.003-.404 1.02.005 2.047.138 3.006.404 2.291-1.552 3.297-1.23 3.297-1.23.653 1.653.242 2.874.118 3.176.77.84 1.235 1.911 1.235 3.221 0 4.609-2.807 5.624-5.479 5.921.43.372.823 1.102.823 2.222v3.293c0 .319.192.694.801.576 4.765-1.589 8.199-6.086 8.199-11.386 0-6.627-5.373-12-12-12z"/></svg>
+      GitHub
+    </a>
+    <div class="pt-2">
+      <a
+        href="#download"
+        class="block text-center px-5 py-2.5 rounded-lg text-sm font-semibold"
+        style="background: linear-gradient(135deg, hsl(185 100% 55%), hsl(265 100% 70%)); color: hsl(230 20% 5%);"
+      >
+        Download
+      </a>
+    </div>
+  </div>
+</nav>
+
+<script>
+  const navbar = document.getElementById('navbar');
+  window.addEventListener('scroll', () => {
+    if (window.scrollY > 50) {
+      navbar?.classList.add('glass-panel');
+    } else {
+      navbar?.classList.remove('glass-panel');
+    }
+  });
+
+  const btn = document.getElementById('mobile-menu-btn');
+  const menu = document.getElementById('mobile-menu');
+  btn?.addEventListener('click', () => {
+    menu?.classList.toggle('hidden');
+  });
+
+  menu?.querySelectorAll('a').forEach(link => {
+    link.addEventListener('click', () => {
+      menu?.classList.add('hidden');
+    });
+  });
+</script>

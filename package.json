@@ -5,6 +5,7 @@
     "dev:client": "pnpm --filter @thewired/client dev",
     "dev:backend": "pnpm --filter @thewired/backend dev",
     "dev:gateway": "cd services/gateway && go run cmd/gateway/main.go",
+    "dev:landing": "pnpm --filter @thewired/landing dev",
     "dev:relay": "cd services/relay && cargo run",
     "dev:tauri": "cd client && pnpm tauri dev",
     "dev:tauri:2": "cd client && WIRED_INSTANCE=1 TAURI_CONFIG='{\"build\":{\"devUrl\":\"http://localhost:1422\",\"beforeDevCommand\":\"pnpm dev\"}}' pnpm tauri dev",
@@ -12,7 +13,10 @@
     "dev:infra": "docker compose up postgres redis meilisearch livekit -d",
     "dev:services": "docker compose up -d",
     "build": "pnpm -r build",
-    "typecheck": "pnpm -r typecheck"
+    "typecheck": "pnpm -r typecheck",
+    "seed:demo": "tsx --env-file=services/backend/.env scripts/seed-demo.ts",
+    "seed:reset": "tsx --env-file=services/backend/.env scripts/seed-demo.ts --reset",
+    "seed:clean": "tsx --env-file=services/backend/.env scripts/seed-demo.ts --clean"
   },
   "pnpm": {
     "onlyBuiltDependencies": [
@@ -20,7 +24,12 @@
     ]
   },
   "devDependencies": {
-    "concurrently": "^9.1.0"
+    "@noble/curves": "^1.9.7",
+    "@noble/hashes": "^1.8.0",
+    "concurrently": "^9.1.0",
+    "nostr-tools": "^2.23.1",
+    "postgres": "^3.4.5",
+    "tsx": "^4.19.2"
   },
   "packageManager": "pnpm@10.29.3"
 }

@@ -1,0 +1,85 @@
+---
+import DownloadButton from './DownloadButton.tsx';
+---
+
+<section id="download" class="relative py-32 overflow-hidden">
+  <!-- Background -->
+  <div class="absolute inset-0 bg-cyber-void" />
+  <div class="absolute inset-0 bg-grid-cyber opacity-20" />
+
+  <!-- Large glow orbs -->
+  <div class="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[600px] h-[600px] rounded-full blur-[200px] opacity-30"
+    style="background: radial-gradient(circle, hsl(185 100% 55% / 0.15), hsl(265 100% 70% / 0.08), transparent);"
+  />
+
+  <div class="relative mx-auto max-w-6xl px-6">
+    <div class="flex flex-col lg:flex-row items-center gap-8 lg:gap-12">
+
+      <!-- Character — left side, prominently visible -->
+      <div class="hidden lg:flex flex-shrink-0 items-end justify-center relative w-[280px]">
+        <!-- Glow behind character -->
+        <div class="absolute bottom-0 left-1/2 -translate-x-1/2 w-[200px] h-[200px] rounded-full blur-[80px]"
+          style="background: radial-gradient(circle, hsl(185 100% 55% / 0.12), transparent);"
+        />
+        <img
+          src="/characters/accent-guy.png"
+          alt=""
+          class="relative w-full h-auto animate-float-slow"
+          style="filter: drop-shadow(0 0 25px hsl(185 100% 55% / 0.2)) drop-shadow(0 0 50px hsl(265 100% 70% / 0.1));"
+          loading="lazy"
+        />
+      </div>
+
+      <!-- CTA card — center/right -->
+      <div class="flex-1 relative">
+        <!-- Outer glow border -->
+        <div class="absolute -inset-[1px] rounded-2xl"
+          style="background: linear-gradient(135deg, hsl(185 100% 55% / 0.15), transparent 40%, transparent 60%, hsl(310 100% 65% / 0.1)); border-radius: 1rem;"
+        />
+
+        <div class="relative card-cyber rounded-2xl p-10 sm:p-14 text-center space-y-8">
+          <!-- HUD corners -->
+          <div class="absolute top-2 left-2 w-4 h-4 border-t-2 border-l-2 rounded-tl-sm" style="border-color: hsl(185 100% 55% / 0.3);" />
+          <div class="absolute top-2 right-2 w-4 h-4 border-t-2 border-r-2 rounded-tr-sm" style="border-color: hsl(185 100% 55% / 0.3);" />
+          <div class="absolute bottom-2 left-2 w-4 h-4 border-b-2 border-l-2 rounded-bl-sm" style="border-color: hsl(310 100% 65% / 0.2);" />
+          <div class="absolute bottom-2 right-2 w-4 h-4 border-b-2 border-r-2 rounded-br-sm" style="border-color: hsl(310 100% 65% / 0.2);" />
+
+          <div class="inline-flex items-center gap-2 px-3 py-1 rounded-full text-[10px] font-medium tracking-[0.2em] uppercase"
+            style="background: hsl(185 100% 55% / 0.06); border: 1px solid hsl(185 100% 55% / 0.15); color: hsl(185 100% 55% / 0.7);">
+            <span class="w-1.5 h-1.5 rounded-full animate-pulse-glow" style="background: hsl(142 71% 50%);"></span>
+            Ready to Deploy
+          </div>
+
+          <h2 class="text-3xl sm:text-4xl font-bold tracking-tight">
+            <span class="text-heading">Ready to </span>
+            <span class="text-primary">Enter?</span>
+          </h2>
+          <p class="text-soft text-lg max-w-xl mx-auto leading-relaxed">
+            Download The Wired for your platform. Free, open source, and always will be.
+          </p>
+
+          <DownloadButton client:load />
+
+          <p class="text-faint text-sm font-mono">
+            v0.1.0 &middot; macOS 13+ &middot; Windows 10+ &middot; Linux
+          </p>
+        </div>
+      </div>
+
+      <!-- Character — right side, accent -->
+      <div class="hidden xl:flex flex-shrink-0 items-end justify-center relative w-[200px]">
+        <div class="absolute bottom-0 left-1/2 -translate-x-1/2 w-[150px] h-[150px] rounded-full blur-[60px]"
+          style="background: radial-gradient(circle, hsl(265 100% 70% / 0.1), transparent);"
+        />
+        <img
+          src="/characters/hero-girl-alt.png"
+          alt=""
+          class="relative w-full h-auto animate-float-slow"
+          style="animation-delay: -3s; filter: drop-shadow(0 0 20px hsl(265 100% 70% / 0.15));"
+          loading="lazy"
+        />
+      </div>
+
+    </div>
+  </div>
+</section>
