@@ -55,32 +55,32 @@ export function getDownloadLinks(detectedOs: Platform['os']): DownloadLink[] {
     {
       os: 'macos',
       label: 'macOS (Apple Silicon)',
-      fileName: `TheWired_${VERSION}_aarch64.dmg`,
-      url: `${base}/TheWired_${VERSION}_aarch64.dmg`,
+      fileName: `The.Wired_${VERSION}_aarch64.dmg`,
+      url: `${base}/The.Wired_${VERSION}_aarch64.dmg`,
     },
     {
       os: 'macos-intel',
       label: 'macOS (Intel)',
-      fileName: `TheWired_${VERSION}_x64.dmg`,
-      url: `${base}/TheWired_${VERSION}_x64.dmg`,
+      fileName: `The.Wired_${VERSION}_x64.dmg`,
+      url: `${base}/The.Wired_${VERSION}_x64.dmg`,
     },
     {
       os: 'windows',
       label: 'Windows',
-      fileName: `TheWired_${VERSION}_x64-setup.exe`,
-      url: `${base}/TheWired_${VERSION}_x64-setup.exe`,
+      fileName: `The.Wired_${VERSION}_x64-setup.exe`,
+      url: `${base}/The.Wired_${VERSION}_x64-setup.exe`,
     },
     {
       os: 'linux',
       label: 'Linux (.AppImage)',
-      fileName: `TheWired_${VERSION}_amd64.AppImage`,
-      url: `${base}/TheWired_${VERSION}_amd64.AppImage`,
+      fileName: `The.Wired_${VERSION}_amd64.AppImage`,
+      url: `${base}/The.Wired_${VERSION}_amd64.AppImage`,
     },
     {
       os: 'linux-deb',
       label: 'Linux (.deb)',
-      fileName: `TheWired_${VERSION}_amd64.deb`,
-      url: `${base}/TheWired_${VERSION}_amd64.deb`,
+      fileName: `The.Wired_${VERSION}_amd64.deb`,
+      url: `${base}/The.Wired_${VERSION}_amd64.deb`,
     },
   ];
 

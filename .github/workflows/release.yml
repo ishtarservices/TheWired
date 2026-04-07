@@ -9,7 +9,7 @@ permissions:
   contents: write
 
 jobs:
-  release:
+  build:
     strategy:
       fail-fast: false
       matrix:
@@ -17,12 +17,15 @@ jobs:
           - platform: macos-latest
             args: "--target aarch64-apple-darwin"
             rust_targets: "aarch64-apple-darwin"
+            bundle_path: "target/aarch64-apple-darwin/release/bundle"
           - platform: macos-latest
             args: "--target x86_64-apple-darwin"
             rust_targets: "x86_64-apple-darwin"
+            bundle_path: "target/x86_64-apple-darwin/release/bundle"
           - platform: windows-latest
             args: ""
             rust_targets: ""
+            bundle_path: "target/release/bundle"
 
     runs-on: ${{ matrix.platform }}
 
@@ -50,6 +53,7 @@ jobs:
         run: pnpm install
 
       - name: Build and release
+        id: tauri
         uses: tauri-apps/tauri-action@v0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -62,4 +66,82 @@ jobs:
           releaseBody: "See the assets below to download and install this version."
           releaseDraft: true
           prerelease: false
+          includeUpdaterJson: false
           args: ${{ matrix.args }}
+
+      - name: Upload .sig files to release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        shell: bash
+        run: |
+          TAG="v$(jq -r .version client/src-tauri/tauri.conf.json)"
+          BUNDLE="client/src-tauri/${{ matrix.bundle_path }}"
+          echo "Looking for .sig files in $BUNDLE"
+          find "$BUNDLE" -name "*.sig" -type f 2>/dev/null || true
+          for sig in $(find "$BUNDLE" -name "*.sig" -type f 2>/dev/null); do
+            echo "Uploading $sig"
+            gh release upload "$TAG" "$sig" --clobber || true
+          done
+
+  updater-json:
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Generate and upload latest.json
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          VERSION=$(jq -r .version client/src-tauri/tauri.conf.json)
+          TAG="v${VERSION}"
+          RELEASE_URL="https://github.com/${{ github.repository }}/releases/download/${TAG}"
+
+          mkdir -p sigs
+          gh release download "$TAG" --pattern "*.sig" --dir sigs || true
+          echo "Downloaded sig files:"
+          ls -la sigs/
+
+          read_sig() {
+            for f in sigs/*"$1"*; do
+              if [ -f "$f" ]; then
+                cat "$f"
+                return
+              fi
+            done
+            echo ""
+          }
+
+          MAC_AARCH64_SIG=$(read_sig "aarch64.app.tar.gz.sig")
+          MAC_X64_SIG=$(read_sig "x64.app.tar.gz.sig")
+          # Windows updater uses nsis.zip
+          WIN_SIG=$(read_sig "x64-setup.nsis.zip.sig")
+
+          DATE=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+
+          # Build latest.json
+          jq -n \
+            --arg version "$VERSION" \
+            --arg notes "See the assets below to download and install this version." \
+            --arg date "$DATE" \
+            --arg mac_arm_sig "$MAC_AARCH64_SIG" \
+            --arg mac_arm_url "${RELEASE_URL}/The.Wired_aarch64.app.tar.gz" \
+            --arg mac_x64_sig "$MAC_X64_SIG" \
+            --arg mac_x64_url "${RELEASE_URL}/The.Wired_x64.app.tar.gz" \
+            --arg win_sig "$WIN_SIG" \
+            --arg win_url "${RELEASE_URL}/The.Wired_${VERSION}_x64-setup.nsis.zip" \
+            '{
+              version: $version,
+              notes: $notes,
+              pub_date: $date,
+              platforms: {
+                "darwin-aarch64": { signature: $mac_arm_sig, url: $mac_arm_url },
+                "darwin-x86_64": { signature: $mac_x64_sig, url: $mac_x64_url },
+                "windows-x86_64": { signature: $win_sig, url: $win_url }
+              }
+            }' > latest.json
+
+          echo "Generated latest.json:"
+          cat latest.json
+
+          gh release upload "$TAG" latest.json --clobber
