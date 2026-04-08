@@ -11,6 +11,9 @@ export async function runMigrations() {
   const sql = postgres(config.databaseUrl);
 
   try {
+    // Ensure the app schema exists before anything else
+    await sql`CREATE SCHEMA IF NOT EXISTS app`;
+
     // Create the tracking table inline (not as a migration file)
     await sql`
       CREATE TABLE IF NOT EXISTS app.schema_migrations (
