@@ -38,7 +38,7 @@ export function detectPlatform(): Platform {
 }
 
 const REPO = 'IshtarServices/TheWired';
-const VERSION = '0.1.0';
+export const VERSION = '0.1.0';
 
 export type DownloadLink = {
   os: string;
