@@ -187,7 +187,7 @@ jobs:
 
           MAC_AARCH64_SIG=$(read_sig "aarch64.app.tar.gz.sig")
           MAC_X64_SIG=$(read_sig "x64.app.tar.gz.sig")
-          WIN_SIG=$(read_sig "nsis.zip.sig")
+          WIN_SIG=$(read_sig "x64-setup.exe.sig")
 
           # Build download URLs from actual asset names on the release
           # (GitHub replaces spaces with dots in asset names)
@@ -204,7 +204,7 @@ jobs:
 
           MAC_ARM_URL=$(get_asset_url "_aarch64\.app\.tar\.gz$")
           MAC_X64_URL=$(get_asset_url "_x64\.app\.tar\.gz$")
-          WIN_URL=$(get_asset_url "nsis\.zip$")
+          WIN_URL=$(get_asset_url "x64-setup\.exe$")
 
           DATE=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
 
