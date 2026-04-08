@@ -17,6 +17,7 @@ COPY --from=builder /app/packages/shared-types/package.json ./packages/shared-ty
 COPY --from=builder /app/services/backend/package.json ./services/backend/
 RUN pnpm install --frozen-lockfile --prod
 COPY --from=builder /app/services/backend/dist ./services/backend/dist
+COPY --from=builder /app/services/backend/src/db/migrations ./services/backend/dist/db/migrations
 WORKDIR /app/services/backend
 USER node
 EXPOSE 3002

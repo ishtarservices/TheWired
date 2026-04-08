@@ -13,7 +13,40 @@ permissions:
   packages: write
 
 jobs:
+  changes:
+    runs-on: ubuntu-latest
+    outputs:
+      backend: ${{ steps.filter.outputs.backend }}
+      gateway: ${{ steps.filter.outputs.gateway }}
+      relay: ${{ steps.filter.outputs.relay }}
+      landing: ${{ steps.filter.outputs.landing }}
+      proxy: ${{ steps.filter.outputs.proxy }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dorny/paths-filter@v3
+        id: filter
+        with:
+          filters: |
+            backend:
+              - 'services/backend/**'
+              - 'packages/shared-types/**'
+              - 'pnpm-lock.yaml'
+              - 'tsconfig.base.json'
+            gateway:
+              - 'services/gateway/**'
+            relay:
+              - 'services/relay/**'
+            landing:
+              - 'services/landing/**'
+              - 'pnpm-lock.yaml'
+              - 'tsconfig.base.json'
+            proxy:
+              - 'services/proxy/**'
+
   backend:
+    needs: changes
+    if: needs.changes.outputs.backend == 'true' || github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -35,7 +68,6 @@ jobs:
           tags: |
             type=sha,prefix=
             type=ref,event=branch
-            type=semver,pattern={{version}}
             type=raw,value=latest,enable={{is_default_branch}}
 
       - uses: docker/build-push-action@v6
@@ -48,6 +80,8 @@ jobs:
           labels: ${{ steps.meta.outputs.labels }}
 
   gateway:
+    needs: changes
+    if: needs.changes.outputs.gateway == 'true' || github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -69,7 +103,6 @@ jobs:
           tags: |
             type=sha,prefix=
             type=ref,event=branch
-            type=semver,pattern={{version}}
             type=raw,value=latest,enable={{is_default_branch}}
 
       - uses: docker/build-push-action@v6
@@ -82,6 +115,8 @@ jobs:
           labels: ${{ steps.meta.outputs.labels }}
 
   relay:
+    needs: changes
+    if: needs.changes.outputs.relay == 'true' || github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -103,7 +138,6 @@ jobs:
           tags: |
             type=sha,prefix=
             type=ref,event=branch
-            type=semver,pattern={{version}}
             type=raw,value=latest,enable={{is_default_branch}}
 
       - uses: docker/build-push-action@v6
@@ -116,6 +150,8 @@ jobs:
           labels: ${{ steps.meta.outputs.labels }}
 
   landing:
+    needs: changes
+    if: needs.changes.outputs.landing == 'true' || github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -137,7 +173,6 @@ jobs:
           tags: |
             type=sha,prefix=
             type=ref,event=branch
-            type=semver,pattern={{version}}
             type=raw,value=latest,enable={{is_default_branch}}
 
       - uses: docker/build-push-action@v6
@@ -150,6 +185,8 @@ jobs:
           labels: ${{ steps.meta.outputs.labels }}
 
   proxy:
+    needs: changes
+    if: needs.changes.outputs.proxy == 'true' || github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -171,7 +208,6 @@ jobs:
           tags: |
             type=sha,prefix=
             type=ref,event=branch
-            type=semver,pattern={{version}}
             type=raw,value=latest,enable={{is_default_branch}}
 
       - uses: docker/build-push-action@v6
