@@ -38,6 +38,26 @@ export class TauriSigner implements NostrSigner {
     return invoke<string>("keystore_nip44_decrypt", { senderPubkey, ciphertext });
   }
 
+  /** List all stored account pubkeys */
+  static async listAccounts(): Promise<string[]> {
+    return invoke<string[]>("keystore_list_accounts");
+  }
+
+  /** Switch the active keystore account */
+  static async switchAccount(pubkey: string): Promise<void> {
+    await invoke("keystore_switch_account", { pubkey });
+  }
+
+  /** Generate a brand-new keypair (always creates new, never reuses). Returns pubkey. */
+  static async generateKey(): Promise<string> {
+    return invoke<string>("keystore_generate_key");
+  }
+
+  /** Clear the active pubkey in the keystore (on logout) */
+  static async clearActive(): Promise<void> {
+    await invoke("keystore_clear_active");
+  }
+
   /**
    * Import an nsec (bech32) or hex secret key into the Tauri keystore.
    * Returns the resulting hex pubkey.

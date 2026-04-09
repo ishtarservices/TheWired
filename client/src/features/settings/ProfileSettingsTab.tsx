@@ -7,6 +7,7 @@ import { buildProfileEvent } from "../../lib/nostr/eventBuilder";
 import { signAndPublish } from "../../lib/nostr/publish";
 import { useAutoResize } from "../../hooks/useAutoResize";
 import { ProfileDisplaySection } from "./ProfileDisplaySection";
+import { registerNip05 } from "../../lib/api/nip05";
 import type { Kind0Profile } from "../../types/profile";
 
 const FIELDS: { key: keyof Kind0Profile; label: string }[] = [
@@ -51,6 +52,24 @@ export function ProfileSettingsTab() {
     setSuccess(false);
 
     try {
+      // Register NIP-05 on backend if it's a @thewired.app identifier
+      const nip05Val = form.nip05?.trim() ?? "";
+      const nip05Match = nip05Val.match(/^(.+)@thewired\.app$/i);
+      if (nip05Match?.[1]) {
+        try {
+          await registerNip05(nip05Match[1]);
+        } catch (e: unknown) {
+          const code = (e as { code?: string }).code ?? "";
+          if (code !== "ALREADY_REGISTERED") {
+            setError(code === "USERNAME_TAKEN"
+              ? "That NIP-05 username is already taken."
+              : `NIP-05 registration failed: ${e instanceof Error ? e.message : String(e)}`);
+            setSaving(false);
+            return;
+          }
+        }
+      }
+
       const unsigned = buildProfileEvent(pubkey, form);
       await signAndPublish(unsigned);
       setSuccess(true);

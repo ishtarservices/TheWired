@@ -23,13 +23,14 @@ import { parseRelayList } from "./nip65";
 import { parseDMRelayList, clearDMRelayCache } from "./dmRelayList";
 import { EVENT_KINDS } from "../../types/nostr";
 import { saveUserState, getUserState } from "../db/userStateStore";
-import { loadSpaces } from "../db/spaceStore";
+import { loadSpaces, saveSpaces } from "../db/spaceStore";
 import { loadMusicLibrary } from "../db/musicStore";
 import { getEventsByKind } from "../db/eventStore";
-import { setSpaces, removeSpace, setChannels } from "../../store/slices/spacesSlice";
+import { setSpaces, removeSpace, setChannels, setActiveSpace } from "../../store/slices/spacesSlice";
 import { trackDeletedNote, restoreDeletedAddrIds } from "../../store/slices/eventsSlice";
 import { addNotification } from "../../store/slices/notificationSlice";
-import { validateSpaces } from "../api/spaces";
+import { validateSpaces, fetchMySpaces } from "../api/spaces";
+import { saveChannels } from "../db/channelStore";
 import { removeSpaceFromStore } from "../db/spaceStore";
 import {
   addTracks,
@@ -57,20 +58,62 @@ import { BOOTSTRAP_RELAYS, APP_RELAY } from "./constants";
 import { signAndPublish } from "./publish";
 import { buildDMRelayListEvent } from "./eventBuilder";
 import { profileCache } from "./profileCache";
-import { loadDMState, startDMPersistence } from "../../features/dm/dmPersistence";
-import { loadDMReadState, startDMReadStateSync } from "../../features/dm/dmReadState";
-import { loadFollowerState, startFollowerPersistence } from "./followerPersistence";
-import { loadFriendRequestState, startFriendRequestPersistence } from "./friendRequestPersistence";
-import { loadNotificationState, startNotificationPersistence } from "../../features/notifications/notificationPersistence";
-import { startBackgroundChatSubs, closeBgChatSub } from "./groupSubscriptions";
+import { loadDMState, startDMPersistence, cancelPendingSave as cancelDMSave, flushPendingSave as flushDMSave } from "../../features/dm/dmPersistence";
+import { loadDMReadState, startDMReadStateSync, cancelPendingSave as cancelDMReadStateSave, flushPendingSave as flushDMReadStateSave } from "../../features/dm/dmReadState";
+import { loadFollowerState, startFollowerPersistence, cancelPendingSave as cancelFollowerSave, flushPendingSave as flushFollowerSave } from "./followerPersistence";
+import { loadFriendRequestState, startFriendRequestPersistence, cancelPendingSave as cancelFriendRequestSave, flushPendingSave as flushFriendRequestSave } from "./friendRequestPersistence";
+import { loadNotificationState, startNotificationPersistence, cancelPendingSave as cancelNotificationSave, flushPendingSave as flushNotificationSave } from "../../features/notifications/notificationPersistence";
+import { resetEventPipelineCaches } from "./eventPipeline";
+import { verifyBridge } from "./verifyWorkerBridge";
+import { startBackgroundChatSubs, closeBgChatSub, stopAllBgChatSubs } from "./groupSubscriptions";
 import { loadChannels } from "../db/channelStore";
-import { initLastChannelCache } from "../db/lastChannelCache";
-import { setKnownFollowers, addKnownFollower } from "../../store/slices/identitySlice";
+import { initLastChannelCache, clearLastChannelCache } from "../db/lastChannelCache";
+import { clearAllSubscriptions } from "../db/subscriptionStore";
+import { clearAllUserState } from "../db/userStateStore";
+import { resetAll } from "../../store";
+import {
+  setKnownFollowers,
+  addKnownFollower,
+  setAccounts,
+  setSwitchingAccount,
+  type AccountEntry,
+} from "../../store/slices/identitySlice";
+import { setActivePubkey, clearAccountState, migrateUnprefixedState } from "../db/userStateStore";
+import { TauriSigner } from "./tauriSigner";
+import {
+  restoreOnboardingState,
+  setShowProfileWizard,
+} from "../../features/onboarding/onboardingSlice";
+import { loadOnboardingState } from "../../features/onboarding/onboardingPersistence";
 
 let currentSigner: NostrSigner | null = null;
 
+/** Persistence listener cleanup functions — captured so we can stop them on logout */
+let cleanupDMPersistence: (() => void) | null = null;
+let cleanupDMReadState: (() => void) | null = null;
+let cleanupFollowerPersistence: (() => void) | null = null;
+let cleanupFriendRequestPersistence: (() => void) | null = null;
+let cleanupNotificationPersistence: (() => void) | null = null;
+let cleanupActiveSpacePersistence: (() => void) | null = null;
+
 export function getSigner(): NostrSigner | null {
   return currentSigner;
+}
+
+/** Multi-account session format */
+interface MultiAccountSession {
+  accounts: AccountEntry[];
+  activePubkey: string;
+}
+
+/** Legacy session format (pre-multi-account) */
+interface LegacySession {
+  pubkey: string;
+  signerType: SignerType;
+}
+
+function isMultiAccountSession(s: unknown): s is MultiAccountSession {
+  return !!s && typeof s === "object" && "accounts" in s && Array.isArray((s as MultiAccountSession).accounts);
 }
 
 /** Mute tag name → MuteEntry type */
@@ -224,19 +267,35 @@ export async function performLogin(
     );
   }
 
+  // For Tauri with a known pubkey (session restore / account switch), set the
+  // Rust-side ACTIVE_PUBKEY BEFORE creating the signer. Without this, the Rust
+  // keystore's get_active_secret_key sees ACTIVE_PUBKEY=None on fresh app start
+  // and may fall through to generating a brand-new keypair instead of loading
+  // the stored one.
+  if (signerType === "tauri" && knownPubkey) {
+    try {
+      await TauriSigner.switchAccount(knownPubkey);
+    } catch {
+      // Key may not exist yet (first login / import) — getPublicKey will handle it
+    }
+  }
+
   currentSigner = await createSigner(signerType);
-  // Always verify the signer's actual key — on Tauri, the macOS keychain may
-  // fail to read the stored key (unsigned dev builds, biometric issues) causing
-  // the keystore to silently generate a new keypair. Using a stale cached pubkey
-  // while the signer operates with a different key causes ghost members, broken
-  // NIP-98 auth, and invisible messages.
   const signerPubkey = await currentSigner.getPublicKey();
   if (knownPubkey && knownPubkey !== signerPubkey) {
-    console.warn(
-      `[LoginFlow] Signer key mismatch — cached=${knownPubkey.slice(0, 12)}… actual=${signerPubkey.slice(0, 12)}… — using signer's current key`,
+    // The signer returned a different key than the session expected. This means
+    // the stored key was lost (keychain wiped, unsigned dev build, etc.). Do NOT
+    // silently continue with the wrong key — that creates phantom accounts and
+    // triggers the onboarding wizard.
+    console.error(
+      `[LoginFlow] Signer key mismatch — session=${knownPubkey.slice(0, 12)}… signer=${signerPubkey.slice(0, 12)}… — aborting login`,
     );
+    throw new Error("Stored key not found in keystore. The key may have been removed from the OS keychain.");
   }
   const pubkey = signerPubkey;
+
+  // Set active pubkey for per-account IndexedDB key prefixing
+  setActivePubkey(pubkey);
 
   // Step 4: Dispatch login to Redux
   const storeSignerType: SignerType =
@@ -328,7 +387,49 @@ export async function performLogin(
 
   // Step 7b: Load spaces + last-channel cache from IndexedDB
   await initLastChannelCache();
-  const savedSpaces = await loadSpaces();
+  let savedSpaces = await loadSpaces();
+
+  // If local cache is empty, recover from backend (covers logout/reimport,
+  // cache wipe, phantom account bug, or first multi-device login)
+  if (savedSpaces.length === 0) {
+    try {
+      const res = await fetchMySpaces();
+      if (res.data.length > 0) {
+        savedSpaces = res.data.map((entry) => ({
+          id: entry.space.id,
+          hostRelay: entry.space.hostRelay,
+          name: entry.space.name,
+          picture: entry.space.picture ?? undefined,
+          about: entry.space.about ?? undefined,
+          isPrivate: false,
+          adminPubkeys: [],
+          memberPubkeys: [],
+          feedPubkeys: entry.feedPubkeys,
+          mode: entry.space.mode as "read" | "read-write",
+          creatorPubkey: entry.space.creatorPubkey ?? "",
+          createdAt: 0,
+        }));
+
+        // Persist recovered spaces + channels to IndexedDB for next startup
+        await saveSpaces(savedSpaces);
+        for (const entry of res.data) {
+          if (entry.channels.length > 0) {
+            await saveChannels(entry.space.id, entry.channels);
+          }
+        }
+
+        // Hydrate channels into Redux
+        for (const entry of res.data) {
+          if (entry.channels.length > 0) {
+            store.dispatch(setChannels({ spaceId: entry.space.id, channels: entry.channels }));
+          }
+        }
+      }
+    } catch {
+      // Backend unreachable — spaces will appear empty until next login
+    }
+  }
+
   if (savedSpaces.length > 0) {
     store.dispatch(setSpaces(savedSpaces));
 
@@ -350,6 +451,14 @@ export async function performLogin(
         }
       }),
     );
+
+    // Restore active space from IndexedDB (or default to first space)
+    const lastActiveSpace = await getUserState<string>("active_space");
+    if (lastActiveSpace && savedSpaces.some((s) => s.id === lastActiveSpace)) {
+      store.dispatch(setActiveSpace(lastActiveSpace));
+    } else {
+      store.dispatch(setActiveSpace(savedSpaces[0].id));
+    }
 
     // NOTE: Background chat subs are started AFTER notification state is
     // restored (step 7f-c below) to ensure lastReadTimestamps are available.
@@ -543,28 +652,42 @@ export async function performLogin(
   // This populates processedWrapIds so relay echoes are deduped and
   // messages keep their original display timestamps.
   await loadDMState();
-  startDMPersistence();
+  cleanupDMPersistence = startDMPersistence();
 
   // Step 7f-a: Fetch relay-synced DM read state (NIP-78).
   // This populates lastReadTimestamps so re-fetched DMs after a cache clear
   // are correctly marked as already-read.
   loadDMReadState();
-  startDMReadStateSync();
+  cleanupDMReadState = startDMReadStateSync();
 
   // Step 7f-b: Load persisted friend requests from IndexedDB
   await loadFriendRequestState();
-  startFriendRequestPersistence();
+  cleanupFriendRequestPersistence = startFriendRequestPersistence();
 
   // Step 7f-c: Load persisted notification state (unread counts, preferences, mutes).
   // MUST complete before background chat subs so lastReadTimestamps are available
   // for the notification evaluator to skip already-read messages.
   await loadNotificationState();
-  startNotificationPersistence();
+  cleanupNotificationPersistence = startNotificationPersistence();
 
   // Step 7f-d: NOW start background chat subs — notification state is restored,
   // so re-fetched messages will be correctly filtered by lastReadTimestamps.
   if (savedSpaces.length > 0) {
     startBackgroundChatSubs(savedSpaces);
+  }
+
+  // Persist active space changes to IndexedDB for restore on next login/switch
+  {
+    let lastSpaceId = store.getState().spaces.activeSpaceId;
+    cleanupActiveSpacePersistence = store.subscribe(() => {
+      const current = store.getState().spaces.activeSpaceId;
+      if (current !== lastSpaceId) {
+        lastSpaceId = current;
+        if (current) {
+          saveUserState("active_space", current).catch(() => {});
+        }
+      }
+    });
   }
 
   // Step 7g: Subscribe for gift-wrapped DMs (kind:1059) addressed to us.
@@ -600,7 +723,7 @@ export async function performLogin(
   // Use all connected read relays (not just bootstrap) so user-configured relays are included.
   // Buffer follower pubkeys until EOSE, then MERGE with cached set (never shrink).
   await loadFollowerState();
-  startFollowerPersistence();
+  cleanupFollowerPersistence = startFollowerPersistence();
 
   const followerBuffer: string[] = [];
   let followerEoseCount = 0;
@@ -646,24 +769,67 @@ export async function performLogin(
     },
   });
 
-  // Step 8: Persist session for restore
-  await saveUserState("session", {
-    pubkey,
-    signerType: storeSignerType,
-  });
+  // Step 8: Persist multi-account session
+  const existingSession = await getUserState<MultiAccountSession>("session");
+  const accounts: AccountEntry[] = existingSession?.accounts ?? [];
+  const existingIdx = accounts.findIndex((a) => a.pubkey === pubkey);
+  const entry: AccountEntry = { pubkey, signerType: storeSignerType, addedAt: Date.now() };
+  if (existingIdx >= 0) {
+    accounts[existingIdx] = entry;
+  } else {
+    accounts.push(entry);
+  }
+  await saveUserState("session", { accounts, activePubkey: pubkey } satisfies MultiAccountSession);
+  store.dispatch(setAccounts(accounts));
+
+  // Step 9: Check onboarding state and trigger wizard for new users
+  const onboardingState = await loadOnboardingState();
+  store.dispatch(restoreOnboardingState(onboardingState));
+  if (!onboardingState?.profileWizardCompleted) {
+    store.dispatch(setShowProfileWizard(true));
+  }
 }
 
 /** Try to restore a previous session from IndexedDB */
 export async function tryRestoreSession(): Promise<boolean> {
-  const session = await getUserState<{
-    pubkey: string;
-    signerType: SignerType;
-  }>("session");
-  if (!session?.pubkey || !session.signerType) return false;
+  const raw = await getUserState<MultiAccountSession | LegacySession>("session");
+  if (!raw) return false;
 
-  // Map stored signer type back to signer factory type
+  let pubkey: string;
+  let signerType: SignerType;
+
+  if (isMultiAccountSession(raw)) {
+    // Multi-account format
+    const active = raw.accounts.find((a) => a.pubkey === raw.activePubkey) ?? raw.accounts[0];
+    if (!active) return false;
+    pubkey = active.pubkey;
+    signerType = active.signerType;
+    // Sync accounts list to Redux
+    store.dispatch(setAccounts(raw.accounts));
+  } else {
+    // Legacy format — migrate
+    const legacy = raw as LegacySession;
+    if (!legacy.pubkey || !legacy.signerType) return false;
+    pubkey = legacy.pubkey;
+    signerType = legacy.signerType;
+
+    // Migrate session format
+    const accounts: AccountEntry[] = [
+      { pubkey, signerType, addedAt: Date.now() },
+    ];
+    await saveUserState("session", { accounts, activePubkey: pubkey } satisfies MultiAccountSession);
+    store.dispatch(setAccounts(accounts));
+
+    // Migrate un-prefixed IndexedDB keys to per-account
+    setActivePubkey(pubkey);
+    await migrateUnprefixedState(pubkey);
+  }
+
+  // Set active pubkey for IndexedDB key prefixing
+  setActivePubkey(pubkey);
+
   const factoryType: "nip07" | "tauri" =
-    session.signerType === "nip07" ? "nip07" : "tauri";
+    signerType === "nip07" ? "nip07" : "tauri";
 
   // Verify the signer is still available
   if (factoryType === "nip07") {
@@ -671,28 +837,198 @@ export async function tryRestoreSession(): Promise<boolean> {
       return false;
     }
   } else {
-    if (
-      typeof window === "undefined" ||
-      !("__TAURI_INTERNALS__" in window)
-    ) {
+    if (typeof window === "undefined" || !("__TAURI_INTERNALS__" in window)) {
       return false;
     }
   }
 
   try {
-    // Pass saved pubkey so we skip the keychain read on restore
-    await performLogin(factoryType, session.pubkey);
+    await performLogin(factoryType, pubkey);
     return true;
   } catch {
     return false;
   }
 }
 
-/** Logout */
-export function performLogout(): void {
+/** Switch to a different stored account */
+export async function switchAccount(targetPubkey: string): Promise<void> {
+  const session = await getUserState<MultiAccountSession>("session");
+  if (!session) throw new Error("No session found");
+  const account = session.accounts.find((a) => a.pubkey === targetPubkey);
+  if (!account) throw new Error("Account not found");
+
+  // Prevent login screen flash during switch
+  store.dispatch(setSwitchingAccount(true));
+
+  try {
+    // 1. Run cleanup (cancels timers, unsubs listeners, clears caches, disconnects relays)
+    performCleanup();
+
+    // 2. Switch keystore if Tauri account
+    if (account.signerType === "tauri_keystore") {
+      await TauriSigner.switchAccount(targetPubkey);
+    }
+
+    // 3. Set new activePubkey BEFORE resetAll so any IndexedDB reads during
+    //    reset use the correct account prefix (not null/stale)
+    setActivePubkey(targetPubkey);
+
+    // 4. Reset Redux store AFTER activePubkey is set
+    store.dispatch(resetAll());
+
+    // 5. Update session
+    session.activePubkey = targetPubkey;
+    await saveUserState("session", session);
+
+    // 6. Login as the new account
+    const factoryType: "nip07" | "tauri" =
+      account.signerType === "nip07" ? "nip07" : "tauri";
+    await performLogin(factoryType, targetPubkey);
+  } finally {
+    store.dispatch(setSwitchingAccount(false));
+  }
+}
+
+/** Remove a specific account. If it's the last one, full logout. */
+export async function removeAccount(pubkeyToRemove: string): Promise<void> {
+  const session = await getUserState<MultiAccountSession>("session");
+  if (!session) return;
+
+  const remaining = session.accounts.filter((a) => a.pubkey !== pubkeyToRemove);
+
+  // Clear the removed account's IndexedDB data
+  await clearAccountState(pubkeyToRemove);
+
+  // Delete the keystore key if Tauri
+  const account = session.accounts.find((a) => a.pubkey === pubkeyToRemove);
+  if (account?.signerType === "tauri_keystore") {
+    try {
+      const { invoke } = await import("@tauri-apps/api/core");
+      await invoke("keystore_delete_key", { pubkey: pubkeyToRemove });
+    } catch {
+      // Key may already be deleted
+    }
+  }
+
+  if (remaining.length === 0) {
+    // Last account — full logout
+    await performLogout();
+    return;
+  }
+
+  // Switch to another account
+  session.accounts = remaining;
+  if (session.activePubkey === pubkeyToRemove) {
+    session.activePubkey = remaining[0].pubkey;
+  }
+  await saveUserState("session", session);
+
+  // If we removed the active account, switch
+  if (store.getState().identity.pubkey === pubkeyToRemove) {
+    await switchAccount(remaining[0].pubkey);
+  } else {
+    // Just update the accounts list
+    store.dispatch(setAccounts(remaining));
+  }
+}
+
+/** Internal cleanup: everything performLogout does except clearing session.
+ *  Does NOT reset Redux or set activePubkey — caller controls ordering. */
+export function performCleanup(): void {
+  // 1. FLUSH pending saves while activePubkey still points to the old account.
+  //    This persists read state, DM state, etc. so they survive the switch.
+  flushDMSave();
+  flushDMReadStateSave();
+  flushFollowerSave();
+  flushFriendRequestSave();
+  flushNotificationSave();
+
+  // 2. Unsubscribe persistence listeners
+  cleanupDMPersistence?.();
+  cleanupDMPersistence = null;
+  cleanupDMReadState?.();
+  cleanupDMReadState = null;
+  cleanupFollowerPersistence?.();
+  cleanupFollowerPersistence = null;
+  cleanupFriendRequestPersistence?.();
+  cleanupFriendRequestPersistence = null;
+  cleanupNotificationPersistence?.();
+  cleanupNotificationPersistence = null;
+
+  cleanupActiveSpacePersistence?.();
+  cleanupActiveSpacePersistence = null;
+
+  // 3. Close subscriptions and background chat subs
+  subscriptionManager.closeAll();
+  stopAllBgChatSubs();
+
+  // 4. Clear module-level caches (signer, profile, DM relay, channel, dedup, authorSet)
   currentSigner = null;
   profileCache.clear();
   clearDMRelayCache();
+  clearLastChannelCache();
+  resetEventPipelineCaches();
+  verifyBridge.drainPending();
+
+  // 5. Clear subscription state (EOSE timestamps are account-specific)
+  clearAllSubscriptions().catch(() => {});
+
+  // 6. Disconnect relays
   relayManager.disconnectAll();
-  saveUserState("session", null);
+}
+
+/** Full logout: stop listeners, close subscriptions, clear caches, reset store */
+export async function performLogout(): Promise<void> {
+  // 1. Cancel pending debounce timers FIRST to prevent stale writes
+  cancelDMSave();
+  cancelDMReadStateSave();
+  cancelFollowerSave();
+  cancelFriendRequestSave();
+  cancelNotificationSave();
+
+  // 2. Stop persistence listeners
+  cleanupDMPersistence?.();
+  cleanupDMPersistence = null;
+  cleanupDMReadState?.();
+  cleanupDMReadState = null;
+  cleanupFollowerPersistence?.();
+  cleanupFollowerPersistence = null;
+  cleanupFriendRequestPersistence?.();
+  cleanupFriendRequestPersistence = null;
+  cleanupNotificationPersistence?.();
+  cleanupNotificationPersistence = null;
+  cleanupActiveSpacePersistence?.();
+  cleanupActiveSpacePersistence = null;
+
+  // 3. Close all relay subscriptions and background chat subs
+  subscriptionManager.closeAll();
+  stopAllBgChatSubs();
+
+  // 4. Clear signer and module-level caches
+  currentSigner = null;
+  profileCache.clear();
+  clearDMRelayCache();
+  clearLastChannelCache();
+  resetEventPipelineCaches();
+  verifyBridge.drainPending();
+  setActivePubkey(null);
+
+  // 5. Disconnect relays
+  relayManager.disconnectAll();
+
+  // 6. Clear keystore active pubkey (so next login generates fresh)
+  try {
+    await TauriSigner.clearActive();
+  } catch {
+    // Not in Tauri environment, or keystore unavailable
+  }
+
+  // 7. Clear IndexedDB — AWAIT so data is gone before next login
+  await Promise.all([
+    clearAllUserState().catch(() => {}),
+    clearAllSubscriptions().catch(() => {}),
+  ]);
+
+  // 8. Reset entire Redux store (all 17+ slices → initialState)
+  store.dispatch(resetAll());
 }

@@ -20,7 +20,7 @@ export function LoginScreen() {
   };
 
   return (
-    <div className="relative flex h-screen items-center justify-center overflow-hidden bg-grid">
+    <div className="relative flex h-full items-center justify-center overflow-hidden bg-grid">
       {/* Ambient glow */}
       <div className="pointer-events-none absolute inset-0 bg-ambient opacity-60" />
 

@@ -3,9 +3,10 @@ import { Copy, Eye, EyeOff, AlertTriangle, Trash2, LogOut, Shield, Key } from "l
 import { Button } from "@/components/ui/Button";
 import { Spinner } from "@/components/ui/Spinner";
 import { useAppSelector } from "@/store/hooks";
-import { performLogin, performLogout } from "@/lib/nostr/loginFlow";
-import { logout } from "@/store/slices/identitySlice";
-import { store } from "@/store";
+import { performLogin, performCleanup, removeAccount } from "@/lib/nostr/loginFlow";
+import { resetAll } from "@/store";
+import { setSwitchingAccount } from "@/store/slices/identitySlice";
+import { useAppDispatch } from "@/store/hooks";
 
 const AUTO_HIDE_MS = 30_000;
 
@@ -199,6 +200,7 @@ function SecretKeySection() {
 /** Section 3: Import Key (Tauri only) */
 function ImportKeySection() {
   const signerType = useAppSelector((s) => s.identity.signerType);
+  const dispatch = useAppDispatch();
   const [input, setInput] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -209,18 +211,20 @@ function ImportKeySection() {
     if (!input.trim()) return;
     setLoading(true);
     setError(null);
+    dispatch(setSwitchingAccount(true));
     try {
       const { TauriSigner } = await import("@/lib/nostr/tauriSigner");
       const pubkey = await TauriSigner.importKey(input.trim());
       setInput("");
-      // Re-login with the imported key
-      performLogout();
-      store.dispatch(logout());
+      // Clean up current state and re-login (preserves session/other accounts)
+      performCleanup();
+      dispatch(resetAll());
       await performLogin("tauri", pubkey);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to import key");
     } finally {
       setLoading(false);
+      dispatch(setSwitchingAccount(false));
     }
   };
 
@@ -251,29 +255,34 @@ function ImportKeySection() {
 /** Section 4: Danger Zone */
 function DangerZoneSection() {
   const signerType = useAppSelector((s) => s.identity.signerType);
+  const pubkey = useAppSelector((s) => s.identity.pubkey);
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [deleting, setDeleting] = useState(false);
 
-  const handleLogout = () => {
-    performLogout();
-    store.dispatch(logout());
+  const handleLogout = async () => {
+    if (!pubkey) return;
+    // removeAccount switches to another account if one exists,
+    // or does a full logout if this is the last account
+    await removeAccount(pubkey);
   };
 
   const handleDeleteKey = async () => {
+    if (!pubkey) return;
     if (!confirmDelete) {
       setConfirmDelete(true);
       return;
     }
     setDeleting(true);
     try {
+      // removeAccount already handles keystore deletion for tauri accounts,
+      // but we delete explicitly here since the user chose "Delete Key"
       const { invoke } = await import("@tauri-apps/api/core");
-      await invoke("keystore_delete_key");
-      performLogout();
-      store.dispatch(logout());
+      await invoke("keystore_delete_key", { pubkey });
     } catch {
       // Key may already be deleted
-      performLogout();
-      store.dispatch(logout());
+    }
+    try {
+      await removeAccount(pubkey);
     } finally {
       setDeleting(false);
       setConfirmDelete(false);

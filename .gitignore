@@ -22,6 +22,7 @@ services/gateway/gateway
 .env.*
 !.env.example
 !.env.production.example
+!client/.env.production
 
 # OS files
 .DS_Store

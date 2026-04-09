@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useMemo } from "react";
 import { nip19 } from "nostr-tools";
 import { useAppSelector } from "@/store/hooks";
 import { profileCache } from "@/lib/nostr/profileCache";
@@ -42,7 +42,7 @@ interface UseMessageSearchOpts {
   partnerPubkey?: string | null;
 }
 
-const HISTORY_KEY = "wired:search-history";
+const HISTORY_KEY_BASE = "wired:search-history";
 const MAX_HISTORY = 10;
 const RESULTS_LIMIT = 50;
 
@@ -330,6 +330,12 @@ export function useMessageSearch(opts: UseMessageSearchOpts) {
   const [resultCount, setResultCount] = useState(0);
   const [isSearching, setIsSearching] = useState(false);
 
+  const pubkey = useAppSelector((s) => s.identity.pubkey);
+  const historyKey = useMemo(
+    () => pubkey ? `${pubkey}:${HISTORY_KEY_BASE}` : HISTORY_KEY_BASE,
+    [pubkey],
+  );
+
   const chatMessages = useAppSelector((s) => s.events.chatMessages);
   const entities = useAppSelector((s) => s.events.entities);
   const spaceFeeds = useAppSelector((s) => s.events.spaceFeeds);
@@ -397,7 +403,7 @@ export function useMessageSearch(opts: UseMessageSearchOpts) {
 
   const [history, setHistory] = useState<string[]>(() => {
     try {
-      return JSON.parse(localStorage.getItem(HISTORY_KEY) ?? "[]");
+      return JSON.parse(localStorage.getItem(historyKey) ?? "[]");
     } catch {
       return [];
     }
@@ -411,23 +417,23 @@ export function useMessageSearch(opts: UseMessageSearchOpts) {
         0,
         MAX_HISTORY,
       );
-      localStorage.setItem(HISTORY_KEY, JSON.stringify(next));
+      localStorage.setItem(historyKey, JSON.stringify(next));
       return next;
     });
-  }, []);
+  }, [historyKey]);
 
   const removeFromHistory = useCallback((q: string) => {
     setHistory((prev) => {
       const next = prev.filter((h) => h !== q);
-      localStorage.setItem(HISTORY_KEY, JSON.stringify(next));
+      localStorage.setItem(historyKey, JSON.stringify(next));
       return next;
     });
-  }, []);
+  }, [historyKey]);
 
   const clearHistory = useCallback(() => {
     setHistory([]);
-    localStorage.removeItem(HISTORY_KEY);
-  }, []);
+    localStorage.removeItem(historyKey);
+  }, [historyKey]);
 
   return {
     query,

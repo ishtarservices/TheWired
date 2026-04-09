@@ -27,3 +27,8 @@ export function removeLastChannel(spaceId: string): void {
   delete cache[spaceId];
   saveUserState(STORE_KEY, cache);
 }
+
+/** Clear in-memory cache (on logout) */
+export function clearLastChannelCache(): void {
+  cache = {};
+}

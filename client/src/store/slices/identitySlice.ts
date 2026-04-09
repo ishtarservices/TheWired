@@ -4,6 +4,12 @@ import type { RelayListEntry } from "../../types/relay";
 
 export type SignerType = "nip07" | "tauri_keystore" | null;
 
+export interface AccountEntry {
+  pubkey: string;
+  signerType: SignerType;
+  addedAt: number;
+}
+
 interface MuteEntry {
   type: "pubkey" | "tag" | "word" | "event";
   value: string;
@@ -25,6 +31,10 @@ interface IdentityState {
   relayListCreatedAt: number;
   dmRelayList: string[];
   dmRelayListCreatedAt: number;
+  /** All stored accounts (for multi-account switching) */
+  accounts: AccountEntry[];
+  /** True while switching accounts — prevents flash of login screen */
+  switchingAccount: boolean;
 }
 
 const initialState: IdentityState = {
@@ -43,6 +53,8 @@ const initialState: IdentityState = {
   relayListCreatedAt: 0,
   dmRelayList: [],
   dmRelayListCreatedAt: 0,
+  accounts: [],
+  switchingAccount: false,
 };
 
 export const identitySlice = createSlice({
@@ -115,6 +127,12 @@ export const identitySlice = createSlice({
         state.knownFollowers.push(action.payload);
       }
     },
+    setAccounts(state, action: PayloadAction<AccountEntry[]>) {
+      state.accounts = action.payload;
+    },
+    setSwitchingAccount(state, action: PayloadAction<boolean>) {
+      state.switchingAccount = action.payload;
+    },
   },
 });
 
@@ -129,4 +147,6 @@ export const {
   setPinnedNotes,
   setKnownFollowers,
   addKnownFollower,
+  setAccounts,
+  setSwitchingAccount,
 } = identitySlice.actions;

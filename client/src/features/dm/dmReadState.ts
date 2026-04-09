@@ -93,6 +93,23 @@ async function publishReadState(): Promise<void> {
   await signAndPublish(unsigned, getRelayUrls());
 }
 
+/** Cancel any pending debounced publish without publishing */
+export function cancelPendingSave(): void {
+  if (publishTimer) {
+    clearTimeout(publishTimer);
+    publishTimer = null;
+  }
+}
+
+/** Flush any pending read state publish immediately (fire-and-forget) */
+export function flushPendingSave(): void {
+  if (publishTimer) {
+    clearTimeout(publishTimer);
+    publishTimer = null;
+    publishReadState().catch(() => {});
+  }
+}
+
 function schedulePublishReadState(): void {
   if (publishTimer) clearTimeout(publishTimer);
   publishTimer = setTimeout(() => {

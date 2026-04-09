@@ -34,19 +34,22 @@ export function Sidebar({ expanded }: SidebarProps) {
   // Show channels for real spaces (not Friends Feed virtual space)
   const showChannels = activeSpaceId && activeSpaceId !== FRIENDS_FEED_ID;
 
-  // Collapsible sections — persisted to localStorage
+  // Collapsible sections — persisted to localStorage (per-account)
+  const pubkey = useAppSelector((s) => s.identity.pubkey);
+  const spacesCollapseKey = pubkey ? `${pubkey}:sidebar_spaces_collapsed` : "sidebar_spaces_collapsed";
+
   const [spacesCollapsed, setSpacesCollapsed] = useState(() => {
-    try { return localStorage.getItem("sidebar_spaces_collapsed") === "true"; }
+    try { return localStorage.getItem(spacesCollapseKey) === "true"; }
     catch { return false; }
   });
 
   const toggleSpaces = useCallback(() => {
     setSpacesCollapsed((prev) => {
       const next = !prev;
-      localStorage.setItem("sidebar_spaces_collapsed", String(next));
+      localStorage.setItem(spacesCollapseKey, String(next));
       return next;
     });
-  }, []);
+  }, [spacesCollapseKey]);
 
   // Aggregated space unreads for collapsed badge
   const spaceUnread = useAppSelector((s) => s.notifications.spaceUnread);
@@ -104,6 +107,7 @@ export function Sidebar({ expanded }: SidebarProps) {
         </span>
         <div className="flex items-center gap-1">
           <button
+            data-tour="sidebar-spaces"
             onClick={() => {
               dispatch(setSidebarMode("spaces"));
               navigate("/");
@@ -119,6 +123,7 @@ export function Sidebar({ expanded }: SidebarProps) {
             <LayoutGrid size={14} />
           </button>
           <button
+            data-tour="sidebar-music"
             onClick={() => {
               dispatch(setSidebarMode("music"));
               navigate("/");
@@ -134,6 +139,7 @@ export function Sidebar({ expanded }: SidebarProps) {
             <Music2 size={14} />
           </button>
           <button
+            data-tour="sidebar-messages"
             onClick={() => {
               dispatch(setSidebarMode("messages"));
               navigate("/dm");

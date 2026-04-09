@@ -29,3 +29,9 @@ export async function clearSubscriptionState(subId: string): Promise<void> {
   const db = await getDB();
   await db.delete("subscriptions", subId);
 }
+
+/** Clear all subscription state (on logout) */
+export async function clearAllSubscriptions(): Promise<void> {
+  const db = await getDB();
+  await db.clear("subscriptions");
+}

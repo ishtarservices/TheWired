@@ -2,8 +2,9 @@ import { z } from "zod";
 import type { FastifyPluginAsync } from "fastify";
 import { db } from "../db/connection.js";
 import { spaces, spaceTags } from "../db/schema/spaces.js";
-import { spaceMembers } from "../db/schema/members.js";
-import { eq, inArray } from "drizzle-orm";
+import { spaceMembers, spaceFeedSources } from "../db/schema/members.js";
+import { spaceChannels } from "../db/schema/channels.js";
+import { eq, inArray, asc } from "drizzle-orm";
 import { roleService } from "../services/roleService.js";
 import { channelService } from "../services/channelService.js";
 import { validate, nonEmptyString, limitParam, offsetParam } from "../lib/validation.js";
@@ -42,6 +43,57 @@ export const spacesRoutes: FastifyPluginAsync = async (server) => {
     const offset = query.offset as number;
     const results = await db.select().from(spaces).limit(limit).offset(offset);
     return { data: results, meta: { limit, offset } };
+  });
+
+  /** GET /my-spaces — Return all spaces the authenticated user is a member of,
+   *  including channels and feed sources. Used as a recovery path when the
+   *  client's IndexedDB cache is empty (logout/reimport, cache wipe, etc.). */
+  server.get("/my-spaces", async (request, reply) => {
+    const pubkey = (request as any).pubkey as string | undefined;
+    if (!pubkey) return reply.status(401).send({ error: "Authentication required", code: "UNAUTHORIZED" });
+
+    // Find all spaces this pubkey belongs to
+    const memberships = await db.select({ spaceId: spaceMembers.spaceId })
+      .from(spaceMembers)
+      .where(eq(spaceMembers.pubkey, pubkey));
+
+    if (memberships.length === 0) return { data: [] };
+
+    const spaceIds = memberships.map((m) => m.spaceId);
+    const spaceRows = await db.select().from(spaces).where(inArray(spaces.id, spaceIds));
+
+    // Batch-load channels and feed sources for all spaces
+    const channelRows = await db.select().from(spaceChannels)
+      .where(inArray(spaceChannels.spaceId, spaceIds))
+      .orderBy(asc(spaceChannels.position));
+    const feedRows = await db.select().from(spaceFeedSources)
+      .where(inArray(spaceFeedSources.spaceId, spaceIds));
+
+    const channelsBySpace: Record<string, typeof channelRows> = {};
+    for (const ch of channelRows) {
+      (channelsBySpace[ch.spaceId] ??= []).push(ch);
+    }
+    const feedsBySpace: Record<string, string[]> = {};
+    for (const f of feedRows) {
+      (feedsBySpace[f.spaceId] ??= []).push(f.pubkey);
+    }
+
+    const result = spaceRows.map((s) => ({
+      space: {
+        id: s.id,
+        name: s.name,
+        picture: s.picture,
+        about: s.about,
+        mode: s.mode,
+        hostRelay: s.hostRelay,
+        creatorPubkey: s.creatorPubkey,
+        memberCount: s.memberCount ?? 0,
+      },
+      channels: channelsBySpace[s.id] ?? [],
+      feedPubkeys: feedsBySpace[s.id] ?? [],
+    }));
+
+    return { data: result };
   });
 
   server.get<{ Params: { id: string } }>("/:id", async (request, reply) => {

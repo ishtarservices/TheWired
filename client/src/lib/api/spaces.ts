@@ -84,6 +84,34 @@ export async function deleteSpaceApi(id: string) {
   return api<{ deleted: boolean }>(`/spaces/${encodeURIComponent(id)}`, { method: "DELETE" });
 }
 
+/** Fetch all spaces the current user is a member of (recovery when cache is empty) */
+export async function fetchMySpaces() {
+  return api<Array<{
+    space: {
+      id: string;
+      name: string;
+      picture: string | null;
+      about: string | null;
+      mode: "read" | "read-write";
+      hostRelay: string;
+      creatorPubkey: string | null;
+      memberCount: number;
+    };
+    channels: Array<{
+      id: string;
+      spaceId: string;
+      type: "chat" | "notes" | "media" | "articles" | "music" | "voice" | "video";
+      label: string;
+      position: number;
+      isDefault: boolean;
+      adminOnly: boolean;
+      slowModeSeconds: number;
+      temporary: boolean;
+    }>;
+    feedPubkeys: string[];
+  }>>("/spaces/my-spaces");
+}
+
 /** Check which space IDs still exist on the backend (for stale cache cleanup) */
 export async function validateSpaces(ids: string[]) {
   return api<{ existing: string[]; deleted: string[] }>("/spaces/validate", {

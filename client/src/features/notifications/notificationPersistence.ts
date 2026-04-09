@@ -19,24 +19,15 @@ interface PersistedUnreadState {
   spaceNotifSettings: Record<string, SpaceNotifSettings>;
 }
 
-// ── Preferences (localStorage for instant sync access) ──────────
+// ── Preferences (IndexedDB via userStateStore for per-account isolation) ──────
 
-export function loadPreferences(): NotificationPreferences | null {
-  try {
-    const raw = localStorage.getItem(PREFS_KEY);
-    if (!raw) return null;
-    return JSON.parse(raw) as NotificationPreferences;
-  } catch {
-    return null;
-  }
+export async function loadPreferences(): Promise<NotificationPreferences | null> {
+  const prefs = await getUserState<NotificationPreferences>(PREFS_KEY);
+  return prefs ?? null;
 }
 
-export function savePreferences(prefs: NotificationPreferences): void {
-  try {
-    localStorage.setItem(PREFS_KEY, JSON.stringify(prefs));
-  } catch {
-    // Storage full or blocked — ignore
-  }
+export async function savePreferences(prefs: NotificationPreferences): Promise<void> {
+  await saveUserState(PREFS_KEY, prefs).catch(() => {});
 }
 
 // ── Unread state (IndexedDB via userStateStore) ─────────────────
@@ -44,7 +35,7 @@ export function savePreferences(prefs: NotificationPreferences): void {
 export async function loadNotificationState(): Promise<void> {
   const [persisted, prefs] = await Promise.all([
     getUserState<PersistedUnreadState>(STATE_KEY),
-    Promise.resolve(loadPreferences()),
+    loadPreferences(),
   ]);
 
   const payload: Partial<PersistedUnreadState & { preferences: NotificationPreferences }> = {};
@@ -71,6 +62,14 @@ export async function loadNotificationState(): Promise<void> {
   }
 }
 
+/** Cancel any pending debounced save (used during account switch) */
+export function cancelPendingSave(): void {
+  if (debounceTimer) {
+    clearTimeout(debounceTimer);
+    debounceTimer = null;
+  }
+}
+
 /** Debounced save of unread state to IndexedDB */
 export function scheduleSaveNotificationState(): void {
   if (debounceTimer) clearTimeout(debounceTimer);
@@ -91,8 +90,8 @@ export function scheduleSaveNotificationState(): void {
   }, DEBOUNCE_MS);
 }
 
-/** Immediately flush any pending debounced save (used on app close) */
-function flushNotificationState(): void {
+/** Immediately flush any pending debounced save (used on app close / account switch) */
+export function flushPendingSave(): void {
   if (debounceTimer) {
     clearTimeout(debounceTimer);
     debounceTimer = null;
@@ -129,7 +128,7 @@ export function startNotificationPersistence(): () => void {
   });
 
   // Flush pending save on app close to prevent debounce loss
-  const handleBeforeUnload = () => flushNotificationState();
+  const handleBeforeUnload = () => flushPendingSave();
   window.addEventListener("beforeunload", handleBeforeUnload);
 
   return () => {

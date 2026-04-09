@@ -15,6 +15,24 @@ export async function loadFollowerState(): Promise<void> {
   }
 }
 
+/** Cancel any pending debounced save without flushing */
+export function cancelPendingSave(): void {
+  if (debounceTimer) {
+    clearTimeout(debounceTimer);
+    debounceTimer = null;
+  }
+}
+
+/** Immediately flush any pending debounced save */
+export function flushPendingSave(): void {
+  if (debounceTimer) {
+    clearTimeout(debounceTimer);
+    debounceTimer = null;
+  }
+  const followers = store.getState().identity.knownFollowers;
+  saveUserState(STATE_KEY, followers).catch(() => {});
+}
+
 /** Debounced save of known followers to IndexedDB */
 function scheduleSave(): void {
   if (debounceTimer) clearTimeout(debounceTimer);

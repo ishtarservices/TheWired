@@ -1,8 +1,15 @@
 import { useState, useEffect } from "react";
+import { useNavigate } from "react-router-dom";
 import { useAppDispatch } from "../../store/hooks";
 import { setSidebarExpanded } from "../../store/slices/uiSlice";
+import { setShowAppTour } from "../onboarding/onboardingSlice";
+import { persistOnboardingFlag } from "../onboarding/onboardingPersistence";
+import { useIdentity } from "../identity/useIdentity";
+import { useProfile } from "../profile/useProfile";
+import { AddAccountModal } from "../identity/AddAccountModal";
+import { Avatar } from "../../components/ui/Avatar";
 import { useAppUpdater } from "../../hooks/useAppUpdater";
-import { RefreshCw, Download, RotateCcw, Check, AlertCircle } from "lucide-react";
+import { RefreshCw, Download, RotateCcw, Check, AlertCircle, Map, Plus, Trash2, Users } from "lucide-react";
 
 const isTauri =
   typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
@@ -69,6 +76,7 @@ function Toggle({ label, description, checked, onChange }: ToggleProps) {
 
 export function AppSettingsTab() {
   const dispatch = useAppDispatch();
+  const navigate = useNavigate();
   const [settings, setSettings] = useState<AppSettings>(loadSettings);
 
   useEffect(() => {
@@ -116,6 +124,28 @@ export function AppSettingsTab() {
         </div>
       </div>
 
+      {/* Accounts */}
+      {isTauri && <AccountsSection />}
+
+      {/* Onboarding */}
+      <div className="rounded-lg border border-border bg-panel p-4">
+        <h3 className="mb-1 text-sm font-semibold text-heading">Onboarding</h3>
+        <p className="mb-3 text-xs text-muted">
+          Re-run the guided walkthrough of The Wired.
+        </p>
+        <button
+          onClick={() => {
+            persistOnboardingFlag("appTourCompleted", false);
+            dispatch(setShowAppTour(true));
+            navigate("/");
+          }}
+          className="flex items-center gap-2 rounded-xl bg-primary/10 border border-primary/20 px-4 py-2 text-sm font-medium text-primary transition-colors hover:bg-primary/20 hover:border-primary/40"
+        >
+          <Map size={14} />
+          Restart App Tour
+        </button>
+      </div>
+
       {/* Updates (Tauri only) */}
       {isTauri && <UpdateSection />}
 
@@ -131,6 +161,99 @@ export function AppSettingsTab() {
 }
 
 declare const __APP_VERSION__: string;
+
+function AccountsSection() {
+  const { pubkey, accounts, switchTo, removeAccount } = useIdentity();
+  const [addOpen, setAddOpen] = useState(false);
+
+  return (
+    <div className="rounded-lg border border-border bg-panel p-4">
+      <div className="flex items-center gap-2 mb-3">
+        <Users size={14} className="text-primary" />
+        <h3 className="text-sm font-semibold text-heading">Accounts</h3>
+      </div>
+
+      <div className="space-y-2 mb-3">
+        {accounts.map((account) => (
+          <AccountRow
+            key={account.pubkey}
+            accountPubkey={account.pubkey}
+            signerType={account.signerType}
+            isActive={account.pubkey === pubkey}
+            onSwitch={() => switchTo(account.pubkey)}
+            onRemove={() => removeAccount(account.pubkey)}
+          />
+        ))}
+      </div>
+
+      <button
+        onClick={() => setAddOpen(true)}
+        className="flex items-center gap-2 rounded-xl bg-primary/10 border border-primary/20 px-4 py-2 text-sm font-medium text-primary transition-colors hover:bg-primary/20 hover:border-primary/40"
+      >
+        <Plus size={14} />
+        Add Account
+      </button>
+
+      <AddAccountModal open={addOpen} onClose={() => setAddOpen(false)} />
+    </div>
+  );
+}
+
+function AccountRow({
+  accountPubkey,
+  signerType,
+  isActive,
+  onSwitch,
+  onRemove,
+}: {
+  accountPubkey: string;
+  signerType: string | null;
+  isActive: boolean;
+  onSwitch: () => void;
+  onRemove: () => void;
+}) {
+  const { profile } = useProfile(accountPubkey);
+  const displayName =
+    profile?.display_name || profile?.name || accountPubkey.slice(0, 12) + "...";
+
+  return (
+    <div className="flex items-center gap-2 rounded-lg border border-border bg-card px-3 py-2">
+      <Avatar
+        src={profile?.picture}
+        alt={displayName}
+        size="sm"
+      />
+      <div className="flex-1 min-w-0">
+        <div className="text-sm font-medium text-heading truncate">
+          {displayName}
+        </div>
+        <div className="text-[10px] text-muted">
+          {signerType === "nip07" ? "Extension" : "Keystore"}
+          {isActive && (
+            <span className="ml-1.5 text-primary font-medium">Active</span>
+          )}
+        </div>
+      </div>
+      {!isActive && (
+        <div className="flex items-center gap-1">
+          <button
+            onClick={onSwitch}
+            className="rounded-md px-2 py-1 text-xs text-primary hover:bg-primary/10 transition-colors"
+          >
+            Switch
+          </button>
+          <button
+            onClick={onRemove}
+            className="rounded-md p-1 text-muted hover:text-red-400 hover:bg-red-500/10 transition-colors"
+            title="Remove account"
+          >
+            <Trash2 size={12} />
+          </button>
+        </div>
+      )}
+    </div>
+  );
+}
 
 function UpdateSection() {
   const {

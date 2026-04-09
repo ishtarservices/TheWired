@@ -37,7 +37,7 @@ export function DiscoverPage() {
   const [searchQuery, setSearchQuery] = useState("");
 
   return (
-    <div className="flex flex-1 flex-col overflow-hidden">
+    <div data-tour="discover-page" className="flex flex-1 flex-col overflow-hidden">
       {/* Header */}
       <div className="border-b border-border px-6 pt-6 pb-0">
         <div className="flex items-center gap-3 mb-4">

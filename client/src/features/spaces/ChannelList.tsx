@@ -40,41 +40,46 @@ export function ChannelList() {
   const [createModalOpen, setCreateModalOpen] = useState(false);
   const [ctxMenu, setCtxMenu] = useState<{ channelId: string; x: number; y: number } | null>(null);
 
+  // Per-account localStorage key prefix
+  const keyPrefix = currentPubkey ? `${currentPubkey}:` : "";
+
   // Top-level channels collapse (separate from category collapse)
+  const channelsCollapseKey = `${keyPrefix}sidebar_channels_collapsed`;
   const [channelsCollapsed, setChannelsCollapsed] = useState(() => {
-    try { return localStorage.getItem("sidebar_channels_collapsed") === "true"; }
+    try { return localStorage.getItem(channelsCollapseKey) === "true"; }
     catch { return false; }
   });
 
   const toggleChannels = useCallback(() => {
     setChannelsCollapsed((prev) => {
       const next = !prev;
-      localStorage.setItem("sidebar_channels_collapsed", String(next));
+      localStorage.setItem(channelsCollapseKey, String(next));
       return next;
     });
-  }, []);
+  }, [channelsCollapseKey]);
 
-  // Track collapsed categories in localStorage
+  // Track collapsed categories in localStorage (per-account + per-space)
+  const categoryKey = activeSpaceId ? `${keyPrefix}collapsed_categories:${activeSpaceId}` : null;
   const [collapsedCategories, setCollapsedCategories] = useState<Set<string>>(() => {
-    if (!activeSpaceId) return new Set();
+    if (!categoryKey) return new Set();
     try {
-      const stored = localStorage.getItem(`collapsed_categories:${activeSpaceId}`);
+      const stored = localStorage.getItem(categoryKey);
       return stored ? new Set(JSON.parse(stored)) : new Set();
     } catch {
       return new Set();
     }
   });
 
-  // Reset collapsed state when switching spaces
+  // Reset collapsed state when switching spaces or accounts
   useEffect(() => {
-    if (!activeSpaceId) return;
+    if (!categoryKey) return;
     try {
-      const stored = localStorage.getItem(`collapsed_categories:${activeSpaceId}`);
+      const stored = localStorage.getItem(categoryKey);
       setCollapsedCategories(stored ? new Set(JSON.parse(stored)) : new Set());
     } catch {
       setCollapsedCategories(new Set());
     }
-  }, [activeSpaceId]);
+  }, [categoryKey]);
 
   const toggleCategory = useCallback((categoryId: string) => {
     setCollapsedCategories((prev) => {
@@ -84,12 +89,12 @@ export function ChannelList() {
       } else {
         next.add(categoryId);
       }
-      if (activeSpaceId) {
-        localStorage.setItem(`collapsed_categories:${activeSpaceId}`, JSON.stringify([...next]));
+      if (categoryKey) {
+        localStorage.setItem(categoryKey, JSON.stringify([...next]));
       }
       return next;
     });
-  }, [activeSpaceId]);
+  }, [categoryKey]);
 
   // Use Friends Feed channels for virtual space
   const isFriendsFeed = activeSpaceId === FRIENDS_FEED_ID;

@@ -27,7 +27,7 @@ export function SettingsPage() {
   const { scrollPaddingClass } = usePlaybackBarSpacing();
 
   return (
-    <div className={`flex flex-1 flex-col overflow-y-auto p-4 ${scrollPaddingClass}`}>
+    <div data-tour="settings-content" className={`flex flex-1 flex-col overflow-y-auto p-4 ${scrollPaddingClass}`}>
       <div className="mb-4 flex items-center gap-2">
         <button
           onClick={() => navigate("/")}

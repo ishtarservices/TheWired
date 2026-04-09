@@ -17,19 +17,22 @@ import { JoinSpaceModal } from "../features/spaces/JoinSpaceModal";
 import { FRIENDS_FEED_ID } from "../features/friends/friendsFeedConstants";
 import { ThemeProvider } from "../contexts/ThemeContext";
 import { tryRestoreSession } from "../lib/nostr/loginFlow";
+import { ProfileWizard } from "../features/onboarding/ProfileWizard";
+import { AppTour } from "../features/onboarding/AppTour";
 
 /** Restores session + guards all routes behind login */
 function AuthGate() {
   const isLoggedIn = useAppSelector((s) => !!s.identity.pubkey);
+  const switchingAccount = useAppSelector((s) => s.identity.switchingAccount);
   const [restoring, setRestoring] = useState(true);
 
   useEffect(() => {
     tryRestoreSession().finally(() => setRestoring(false));
   }, []);
 
-  if (restoring) {
+  if (restoring || switchingAccount) {
     return (
-      <div className="flex h-screen flex-col items-center justify-center bg-background">
+      <div className="flex h-full flex-col items-center justify-center bg-background">
         <img
           src="/logo.png"
           alt="The Wired"
@@ -38,7 +41,7 @@ function AuthGate() {
           className="rounded-2xl animate-pulse"
         />
         <p className="mt-5 text-sm font-medium text-muted tracking-wide">
-          Loading...
+          {switchingAccount ? "Switching account..." : "Loading..."}
         </p>
       </div>
     );
@@ -48,7 +51,25 @@ function AuthGate() {
     return <LoginScreen />;
   }
 
-  return <Outlet />;
+  return (
+    <>
+      <Outlet />
+      <OnboardingOverlays />
+    </>
+  );
+}
+
+/** Renders profile wizard and app tour overlays when active */
+function OnboardingOverlays() {
+  const showProfileWizard = useAppSelector((s) => s.onboarding.showProfileWizard);
+  const showAppTour = useAppSelector((s) => s.onboarding.showAppTour);
+
+  return (
+    <>
+      {showProfileWizard && <ProfileWizard />}
+      {showAppTour && <AppTour />}
+    </>
+  );
 }
 
 function MainContent() {

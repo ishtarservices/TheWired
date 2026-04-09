@@ -25,6 +25,10 @@ pub fn run() {
             keystore::keystore_get_secret_key,
             keystore::keystore_delete_key,
             keystore::keystore_import_key,
+            keystore::keystore_list_accounts,
+            keystore::keystore_switch_account,
+            keystore::keystore_generate_key,
+            keystore::keystore_clear_active,
             keystore::keystore_nip44_encrypt,
             keystore::keystore_nip44_decrypt,
         ])

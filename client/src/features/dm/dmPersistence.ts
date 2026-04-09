@@ -66,8 +66,16 @@ function scheduleSaveDMState(): void {
   }, DEBOUNCE_MS);
 }
 
-/** Immediately flush any pending debounced save (used on app close) */
-function flushDMState(): void {
+/** Cancel any pending debounced save without flushing (used during account switch) */
+export function cancelPendingSave(): void {
+  if (debounceTimer) {
+    clearTimeout(debounceTimer);
+    debounceTimer = null;
+  }
+}
+
+/** Immediately flush any pending debounced save (used on app close / account switch) */
+export function flushPendingSave(): void {
   if (debounceTimer) {
     clearTimeout(debounceTimer);
     debounceTimer = null;
@@ -88,7 +96,7 @@ export function startDMPersistence(): () => void {
   });
 
   // Flush pending save on app close to prevent debounce loss
-  const handleBeforeUnload = () => flushDMState();
+  const handleBeforeUnload = () => flushPendingSave();
   window.addEventListener("beforeunload", handleBeforeUnload);
 
   return () => {

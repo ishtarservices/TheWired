@@ -35,6 +35,12 @@ const dedup = new EventDeduplicator();
 // Cached Set for space author lookups (O(1) instead of O(n) per check)
 const authorSetCache = new Map<string, { set: Set<string>; fingerprint: string }>();
 
+/** Clear all module-level caches (used during account switch) */
+export function resetEventPipelineCaches(): void {
+  dedup.clear();
+  authorSetCache.clear();
+}
+
 /** Get or create a cached Set from a pubkey array (keyed by cacheKey) */
 function getCachedSet(cacheKey: string, pubkeys: string[]): Set<string> {
   // Cheap fingerprint: length + first + last pubkey

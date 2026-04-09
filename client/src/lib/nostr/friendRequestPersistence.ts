@@ -32,6 +32,29 @@ export async function loadFriendRequestState(): Promise<void> {
   );
 }
 
+/** Cancel any pending debounced save without flushing */
+export function cancelPendingSave(): void {
+  if (debounceTimer) {
+    clearTimeout(debounceTimer);
+    debounceTimer = null;
+  }
+}
+
+/** Immediately flush any pending debounced save */
+export function flushPendingSave(): void {
+  if (debounceTimer) {
+    clearTimeout(debounceTimer);
+    debounceTimer = null;
+  }
+  const state = store.getState().friendRequests;
+  const persisted: PersistedFriendRequestState = {
+    requests: state.requests,
+    processedWrapIds: state.processedWrapIds.slice(-MAX_PERSISTED_WRAP_IDS),
+    removedPubkeys: state.removedPubkeys,
+  };
+  saveUserState(STATE_KEY, persisted).catch(() => {});
+}
+
 /** Debounced save of friend request state to IndexedDB */
 function scheduleSave(): void {
   if (debounceTimer) clearTimeout(debounceTimer);

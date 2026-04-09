@@ -65,6 +65,15 @@ class VerifyWorkerBridge {
     });
   }
 
+  /** Reject all in-flight verifications (used during account switch).
+   *  The worker itself is stateless so it can be reused. */
+  drainPending(): void {
+    for (const [, p] of this.pending) {
+      p.reject(new Error("Account switched"));
+    }
+    this.pending.clear();
+  }
+
   terminate(): void {
     this.worker?.terminate();
     this.worker = null;
