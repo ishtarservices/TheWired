@@ -79,16 +79,20 @@ export const feedService = {
       .orderBy(desc(trendingSnapshots.score))
       .limit(200);
 
+    // Batch fetch all pubkeys in one query instead of N individual queries
+    const trendingIds = trending.map((t) => t.eventId);
+    const pubkeyRows = trendingIds.length > 0
+      ? ((await db.execute(
+          sql`SELECT id, pubkey FROM relay.events WHERE id IN (${sql.join(trendingIds.map((id) => sql`${id}`), sql`, `)})`,
+        )) as unknown as { id: string; pubkey: string }[])
+      : [];
+    const pubkeyMap = new Map(pubkeyRows.map((r) => [r.id, r.pubkey]));
+
     // Score and filter
     const scored: { eventId: string; score: number }[] = [];
     for (const item of trending) {
-      // Get event author from relay.events
-      const eventRows = (await db.execute(
-        sql`SELECT pubkey FROM relay.events WHERE id = ${item.eventId} LIMIT 1`,
-      )) as unknown as { pubkey: string }[];
-      if (eventRows.length === 0) continue;
-
-      const author = eventRows[0].pubkey;
+      const author = pubkeyMap.get(item.eventId);
+      if (!author) continue;
 
       // Filter muted
       if (muted.has(author)) continue;

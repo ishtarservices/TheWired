@@ -22,6 +22,7 @@ import {
 import { persistOnboardingFlag } from "./onboardingPersistence";
 import type { Kind0Profile } from "../../types/profile";
 import { checkNip05Username, registerNip05 } from "../../lib/api/nip05";
+import { sanitizeNip05Username, sanitizeNip05Input } from "../../lib/nip05Utils";
 
 type Step = "welcome" | "basic" | "media" | "advanced" | "complete";
 
@@ -170,12 +171,15 @@ export function ProfileWizard() {
       const next = { ...prev, [field]: value };
       // Auto-sync NIP-05 with username if user hasn't manually edited it
       if (field === "name" && !nip05Touched) {
-        next.nip05 = value ? `${value}@thewired.app` : "";
+        const sanitized = sanitizeNip05Username(value);
+        next.nip05 = sanitized ? `${sanitized}@thewired.app` : "";
         scheduleNip05Check(next.nip05 ?? "");
       }
       if (field === "nip05") {
+        const sanitized = sanitizeNip05Input(value);
+        next.nip05 = sanitized;
         setNip05Touched(true);
-        scheduleNip05Check(value);
+        scheduleNip05Check(sanitized);
       }
       return next;
     });

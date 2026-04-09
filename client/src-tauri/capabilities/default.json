@@ -9,6 +9,7 @@
     "core:default",
     "opener:default",
     "updater:default",
+    "process:default",
     "fs:allow-read-file",
     {
       "identifier": "http:default",

@@ -9,6 +9,7 @@ import { useAutoResize } from "../../hooks/useAutoResize";
 import { ProfileDisplaySection } from "./ProfileDisplaySection";
 import { registerNip05 } from "../../lib/api/nip05";
 import type { Kind0Profile } from "../../types/profile";
+import { sanitizeNip05Input } from "../../lib/nip05Utils";
 
 const FIELDS: { key: keyof Kind0Profile; label: string }[] = [
   { key: "name", label: "Username" },
@@ -41,7 +42,10 @@ export function ProfileSettingsTab() {
   const [success, setSuccess] = useState(false);
 
   const updateField = (field: keyof Kind0Profile, value: string) => {
-    setForm((prev) => ({ ...prev, [field]: value }));
+    setForm((prev) => ({
+      ...prev,
+      [field]: field === "nip05" ? sanitizeNip05Input(value) : value,
+    }));
     setSuccess(false);
   };
 

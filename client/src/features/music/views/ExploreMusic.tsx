@@ -43,13 +43,12 @@ export function ExploreMusic() {
 
   const loadBrowseTracks = useCallback(
     async (genre: string | null, tag: string | null, sort: "trending" | "recent" | "plays") => {
-      const effectiveSort = (!genre && !tag && sort === "trending") ? "recent" : sort;
       dispatch(setExploreLoading(true));
       try {
         const res = await browseMusic({
           genre: genre ?? undefined,
           tag: tag ?? undefined,
-          sort: effectiveSort,
+          sort,
           limit: 24,
         });
         const rawEvents = res.data.tracks;

@@ -15,6 +15,7 @@ import {
   Users,
 } from "lucide-react";
 import { useLocation } from "react-router-dom";
+import { cn } from "@/lib/utils";
 import { Button } from "../ui/Button";
 import { SearchInput } from "../../features/music/SearchInput";
 import { UserSearchInput } from "../../features/search/UserSearchInput";
@@ -25,6 +26,12 @@ import { useNavigationHistory } from "../../hooks/useNavigationHistory";
 import { useProfile } from "../../features/profile/useProfile";
 import { useRightPanelContext } from "./useRightPanelContext";
 import type { MusicView } from "../../types/music";
+
+/** macOS with overlay titlebar needs top padding for traffic lights */
+const isTauriMacOS =
+  typeof window !== "undefined" &&
+  "__TAURI_INTERNALS__" in window &&
+  /Mac/.test(navigator.platform);
 
 interface TopBarProps {
   sidebarExpanded: boolean;
@@ -180,7 +187,10 @@ export function TopBar({
   return (
     <div
       data-tauri-drag-region
-      className="relative z-10 flex h-12 items-center border-b border-border glass"
+      className={cn(
+        "relative z-10 flex items-center border-b border-border glass",
+        isTauriMacOS ? "h-[78px] pt-[30px]" : "h-12",
+      )}
     >
       {/* Left section: sidebar toggle + nav buttons + location title */}
       <div className="flex items-center gap-1 pl-2">

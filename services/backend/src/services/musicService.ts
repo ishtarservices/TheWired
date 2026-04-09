@@ -351,13 +351,15 @@ export const musicService = {
         scored.sort((a, b) => b.plays - a.plays);
         eventIds = scored.slice(offset, offset + limit).map((s) => s.eventId);
       }
-    } else if (params.sort === "trending" && params.genre) {
+    } else if (params.sort === "trending") {
       // Use Redis trending sorted sets
-      const key = `trending:music:tracks:genre:${escapeMsFilter(params.genre).toLowerCase()}`;
+      const key = params.genre
+        ? `trending:music:tracks:genre:${escapeMsFilter(params.genre).toLowerCase()}`
+        : "trending:music:tracks";
       eventIds = await redis.zrevrange(key, offset, offset + limit - 1);
       total = eventIds.length;
     } else {
-      // Meilisearch filtered search — "recent" or "trending" fallback
+      // Meilisearch filtered search — "recent" sort
       const filters: string[] = [];
       if (params.genre) filters.push(`genre = "${escapeMsFilter(params.genre)}"`);
       if (params.tag) filters.push(`hashtags = "${escapeMsFilter(params.tag)}"`);
@@ -409,23 +411,34 @@ export const musicService = {
     offset?: number;
   }) {
     const { getMeilisearchClient } = await import("../lib/meilisearch.js");
+    const { getRedis } = await import("../lib/redis.js");
     const ms = getMeilisearchClient();
+    const redis = getRedis();
     const limit = params.limit ?? 20;
     const offset = params.offset ?? 0;
 
-    const filters: string[] = [];
-    if (params.genre) filters.push(`genre = "${escapeMsFilter(params.genre)}"`);
-    if (params.tag) filters.push(`hashtags = "${escapeMsFilter(params.tag)}"`);
+    let eventIds: string[] = [];
+    let total = 0;
 
-    const results = await ms.index("albums").search("", {
-      filter: filters.length > 0 ? filters.join(" AND ") : undefined,
-      sort: ["created_at:desc"],
-      limit,
-      offset,
-    });
+    if (params.sort === "trending") {
+      // Use Redis trending sorted set for albums
+      eventIds = await redis.zrevrange("trending:music:albums", offset, offset + limit - 1);
+      total = eventIds.length;
+    } else {
+      const filters: string[] = [];
+      if (params.genre) filters.push(`genre = "${escapeMsFilter(params.genre)}"`);
+      if (params.tag) filters.push(`hashtags = "${escapeMsFilter(params.tag)}"`);
 
-    const eventIds = results.hits.map((h: Record<string, unknown>) => h.id as string);
-    const total = results.estimatedTotalHits ?? 0;
+      const results = await ms.index("albums").search("", {
+        filter: filters.length > 0 ? filters.join(" AND ") : undefined,
+        sort: ["created_at:desc"],
+        limit,
+        offset,
+      });
+
+      eventIds = results.hits.map((h: Record<string, unknown>) => h.id as string);
+      total = results.estimatedTotalHits ?? 0;
+    }
 
     if (eventIds.length === 0) {
       return { albums: [], total: 0 };

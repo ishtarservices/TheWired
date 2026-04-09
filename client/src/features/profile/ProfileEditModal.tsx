@@ -9,6 +9,7 @@ import { buildProfileEvent } from "../../lib/nostr/eventBuilder";
 import { signAndPublish } from "../../lib/nostr/publish";
 import { useAutoResize } from "../../hooks/useAutoResize";
 import type { Kind0Profile } from "../../types/profile";
+import { sanitizeNip05Input } from "../../lib/nip05Utils";
 
 interface ProfileEditModalProps {
   onClose: () => void;
@@ -51,7 +52,10 @@ export function ProfileEditModal({ onClose }: ProfileEditModalProps) {
   };
 
   const updateField = (field: keyof Kind0Profile, value: string) => {
-    setForm((prev) => ({ ...prev, [field]: value }));
+    setForm((prev) => ({
+      ...prev,
+      [field]: field === "nip05" ? sanitizeNip05Input(value) : value,
+    }));
   };
 
   return (

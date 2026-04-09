@@ -2,6 +2,10 @@ import { useMemo, useEffect } from "react";
 import { useAppSelector, useAppDispatch } from "@/store/hooks";
 import { usePlaybackBarSpacing } from "@/hooks/usePlaybackBarSpacing";
 import {
+  addTracks,
+  addAlbums,
+  setTrendingTrackIds,
+  setTrendingAlbumIds,
   setExploreGenres,
   setExplorePopularTags,
   setActiveGenre,
@@ -9,7 +13,10 @@ import {
   setMusicView,
 } from "@/store/slices/musicSlice";
 import { selectLibraryTracks, selectLibraryAlbums } from "../musicSelectors";
-import { getGenres, getPopularTags } from "@/lib/api/music";
+import { getGenres, getPopularTags, browseMusic, browseAlbums as browseAlbumsApi } from "@/lib/api/music";
+import { processIncomingEvent } from "@/lib/nostr/eventPipeline";
+import { parseTrackEvent } from "../trackParser";
+import { parseAlbumEvent } from "../albumParser";
 import { TrackCard } from "../TrackCard";
 import { AlbumCard } from "../AlbumCard";
 import { GenreCard } from "../GenreCard";
@@ -31,7 +38,7 @@ export function MusicHome() {
   const libraryTracks = useAppSelector(libraryTracksSelector);
   const libraryAlbums = useAppSelector(libraryAlbumsSelector);
 
-  // Load genres and tags once
+  // Load genres, tags, and trending data once
   useEffect(() => {
     if (exploreGenres.length === 0) {
       getGenres()
@@ -42,6 +49,34 @@ export function MusicHome() {
       getPopularTags()
         .then((res) => dispatch(setExplorePopularTags(res.data)))
         .catch((err) => console.debug("[music] Failed to load tags:", err));
+    }
+
+    // Fetch trending tracks
+    if (trendingTrackIds.length === 0) {
+      browseMusic({ sort: "trending", limit: 12 })
+        .then((res) => {
+          const parsed = res.data.tracks.map((evt: any) => parseTrackEvent(evt));
+          dispatch(addTracks(parsed));
+          dispatch(setTrendingTrackIds(parsed.map((t) => t.addressableId)));
+          for (const evt of res.data.tracks) {
+            processIncomingEvent(evt, "browse").catch(() => {});
+          }
+        })
+        .catch((err) => console.debug("[music] Failed to load trending tracks:", err));
+    }
+
+    // Fetch trending albums
+    if (trendingAlbumIds.length === 0) {
+      browseAlbumsApi({ sort: "trending", limit: 8 })
+        .then((res) => {
+          const parsed = res.data.albums.map((evt: any) => parseAlbumEvent(evt));
+          dispatch(addAlbums(parsed));
+          dispatch(setTrendingAlbumIds(parsed.map((a) => a.addressableId)));
+          for (const evt of res.data.albums) {
+            processIncomingEvent(evt, "browse").catch(() => {});
+          }
+        })
+        .catch((err) => console.debug("[music] Failed to load trending albums:", err));
     }
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 

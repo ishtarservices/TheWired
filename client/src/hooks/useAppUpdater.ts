@@ -49,7 +49,7 @@ export function useAppUpdater(checkOnMount = true) {
       setState((s) => ({
         ...s,
         status: "error",
-        error: err instanceof Error ? err.message : "Update check failed",
+        error: err instanceof Error ? err.message : String(err),
       }));
     }
   }, []);
@@ -93,9 +93,15 @@ export function useAppUpdater(checkOnMount = true) {
     }
   }, []);
 
-  const relaunch = useCallback(() => {
-    // Update is applied on next app launch — close the window to prompt restart
-    window.close();
+  const relaunch = useCallback(async () => {
+    try {
+      const { relaunch: tauriRelaunch } = await import("@tauri-apps/plugin-process");
+      await tauriRelaunch();
+    } catch {
+      // Fallback: exit the app
+      const { exit } = await import("@tauri-apps/plugin-process");
+      await exit(0);
+    }
   }, []);
 
   useEffect(() => {
