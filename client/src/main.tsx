@@ -19,4 +19,6 @@ if (splash) {
   splash.style.opacity = "0";
   splash.style.visibility = "hidden";
   splash.addEventListener("transitionend", () => splash.remove(), { once: true });
+  // Fallback: remove after 600ms in case transitionend doesn't fire (CSP edge cases)
+  setTimeout(() => splash.remove(), 600);
 }

@@ -22,7 +22,7 @@ export function Layout() {
   return (
     <UserPopoverProvider>
       <ThemeBackground />
-      <div className="flex h-full flex-col overflow-hidden bg-background">
+      <div className="flex h-screen flex-col overflow-hidden bg-background">
         <TopBar
           sidebarExpanded={sidebarExpanded}
           onToggleSidebar={() => setSidebarExpanded((v) => !v)}

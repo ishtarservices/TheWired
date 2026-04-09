@@ -240,6 +240,13 @@ export function TopBar({
         </div>
       </div>
 
+      {/* Logo in titlebar overlay zone */}
+      {isTauriMacOS && (
+        <div className="absolute top-0 left-0 right-0 h-[30px] flex items-center justify-center pointer-events-none">
+          <img src="/logo.png" alt="" className="h-4 w-4 rounded opacity-50" draggable={false} />
+        </div>
+      )}
+
       {/* Right section: search, notifications, theme, panel toggle */}
       <div className="ml-auto flex items-center gap-3 pr-3">
         {sidebarMode === "music" ? <SearchInput /> : <UserSearchInput />}

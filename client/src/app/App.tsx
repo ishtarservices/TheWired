@@ -32,7 +32,7 @@ function AuthGate() {
 
   if (restoring || switchingAccount) {
     return (
-      <div className="flex h-full flex-col items-center justify-center bg-background">
+      <div className="flex h-screen flex-col items-center justify-center bg-background">
         <img
           src="/logo.png"
           alt="The Wired"
