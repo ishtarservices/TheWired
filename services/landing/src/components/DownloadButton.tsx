@@ -1,5 +1,5 @@
 import { useState, useEffect, type JSX } from 'react';
-import { detectPlatform, getDownloadLinks, VERSION, type Platform } from '../lib/platforms';
+import { detectPlatform, fetchLatestRelease, RELEASES_URL, type Platform, type ReleaseInfo } from '../lib/platforms';
 
 const osIcons: Record<string, (size: number) => JSX.Element> = {
   macos: (size) => (
@@ -36,12 +36,33 @@ const downloadCards: CardDef[] = [
 
 export default function DownloadButton() {
   const [platform, setPlatform] = useState<Platform | null>(null);
+  const [release, setRelease] = useState<ReleaseInfo | null>(null);
+  const [error, setError] = useState(false);
 
   useEffect(() => {
-    setPlatform(detectPlatform());
+    const detected = detectPlatform();
+    setPlatform(detected);
+
+    fetchLatestRelease(detected.os)
+      .then(setRelease)
+      .catch(() => setError(true));
   }, []);
 
-  if (!platform) {
+  if (error) {
+    return (
+      <div className="flex justify-center">
+        <a
+          href={RELEASES_URL}
+          className="inline-flex items-center gap-2 px-6 py-3 rounded-lg text-sm font-semibold transition-all hover-glow-cyan"
+          style={{ border: '0.5px solid #221A2C', background: '#130F18', color: '#E4DDE8' }}
+        >
+          Download from GitHub Releases
+        </a>
+      </div>
+    );
+  }
+
+  if (!platform || !release) {
     return (
       <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3">
         {downloadCards.map((_, i) => (
@@ -55,12 +76,10 @@ export default function DownloadButton() {
     );
   }
 
-  const links = getDownloadLinks(platform.os);
-
   return (
     <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3">
       {downloadCards.map((card) => {
-        const link = links.find((l) => l.os === card.os);
+        const link = release.links.find((l) => l.os === card.os);
         if (!link) return null;
 
         const isPrimary = link.primary;
@@ -97,7 +116,7 @@ export default function DownloadButton() {
             </div>
             <div className="relative z-10 font-semibold text-sm">{card.label}</div>
             <div className="relative z-10 text-[11px] font-mono opacity-70">{card.sublabel}</div>
-            <div className="relative z-10 text-[10px] font-mono opacity-50">v{VERSION}</div>
+            <div className="relative z-10 text-[10px] font-mono opacity-50">v{release.version}</div>
             {isPrimary && (
               <div
                 className="absolute inset-0 rounded-lg opacity-0 group-hover:opacity-100 transition-opacity"

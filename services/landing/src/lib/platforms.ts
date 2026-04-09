@@ -38,7 +38,8 @@ export function detectPlatform(): Platform {
 }
 
 const REPO = 'IshtarServices/TheWired';
-export const VERSION = '0.1.0';
+
+export const RELEASES_URL = `https://github.com/${REPO}/releases/latest`;
 
 export type DownloadLink = {
   os: string;
@@ -48,45 +49,39 @@ export type DownloadLink = {
   primary?: boolean;
 };
 
-export function getDownloadLinks(detectedOs: Platform['os']): DownloadLink[] {
-  const base = `https://github.com/${REPO}/releases/download/v${VERSION}`;
+export type ReleaseInfo = {
+  version: string;
+  links: DownloadLink[];
+};
 
-  const allLinks: DownloadLink[] = [
-    {
-      os: 'macos',
-      label: 'macOS (Apple Silicon)',
-      fileName: `The.Wired_${VERSION}_aarch64.dmg`,
-      url: `${base}/The.Wired_${VERSION}_aarch64.dmg`,
-    },
-    {
-      os: 'macos-intel',
-      label: 'macOS (Intel)',
-      fileName: `The.Wired_${VERSION}_x64.dmg`,
-      url: `${base}/The.Wired_${VERSION}_x64.dmg`,
-    },
-    {
-      os: 'windows',
-      label: 'Windows',
-      fileName: `The.Wired_${VERSION}_x64-setup.exe`,
-      url: `${base}/The.Wired_${VERSION}_x64-setup.exe`,
-    },
-    {
-      os: 'linux',
-      label: 'Linux (.AppImage)',
-      fileName: `The.Wired_${VERSION}_amd64.AppImage`,
-      url: `${base}/The.Wired_${VERSION}_amd64.AppImage`,
-    },
-    {
-      os: 'linux-deb',
-      label: 'Linux (.deb)',
-      fileName: `The.Wired_${VERSION}_amd64.deb`,
-      url: `${base}/The.Wired_${VERSION}_amd64.deb`,
-    },
-  ];
+const ASSET_MATCHERS: { os: string; label: string; pattern: RegExp }[] = [
+  { os: 'macos', label: 'macOS (Apple Silicon)', pattern: /aarch64\.dmg$/ },
+  { os: 'macos-intel', label: 'macOS (Intel)', pattern: /_x64\.dmg$/ },
+  { os: 'windows', label: 'Windows', pattern: /x64-setup\.exe$/ },
+  { os: 'linux', label: 'Linux (.AppImage)', pattern: /\.AppImage$/ },
+  { os: 'linux-deb', label: 'Linux (.deb)', pattern: /\.deb$/ },
+];
 
-  // Mark the detected OS as primary
-  return allLinks.map((link) => ({
-    ...link,
-    primary: link.os === detectedOs || (detectedOs === 'linux' && link.os === 'linux'),
-  }));
+export async function fetchLatestRelease(detectedOs: Platform['os']): Promise<ReleaseInfo> {
+  const res = await fetch(`https://api.github.com/repos/${REPO}/releases/latest`);
+  if (!res.ok) throw new Error(`GitHub API error: ${res.status}`);
+
+  const release = await res.json();
+  const version = (release.tag_name as string).replace(/^v/, '');
+  const assets: { name: string; browser_download_url: string }[] = release.assets;
+
+  const links: DownloadLink[] = [];
+  for (const { os, label, pattern } of ASSET_MATCHERS) {
+    const asset = assets.find((a: { name: string }) => pattern.test(a.name));
+    if (!asset) continue;
+    links.push({
+      os,
+      label,
+      fileName: asset.name,
+      url: asset.browser_download_url,
+      primary: os === detectedOs || (detectedOs === 'linux' && os === 'linux'),
+    });
+  }
+
+  return { version, links };
 }
