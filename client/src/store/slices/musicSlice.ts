@@ -136,7 +136,7 @@ const initialState: MusicState = {
     activeTag: null,
     browseResults: [],
     browseAlbumResults: [],
-    browseSort: "trending",
+    browseSort: "recent",
     browseTab: "tracks",
     isLoading: false,
   },
