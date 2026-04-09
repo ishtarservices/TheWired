@@ -60,6 +60,10 @@ jobs:
             args: ""
             rust_targets: ""
             arch_suffix: "x64"
+          - platform: ubuntu-22.04
+            args: ""
+            rust_targets: ""
+            arch_suffix: "amd64"
 
     runs-on: ${{ matrix.platform }}
 
@@ -82,6 +86,12 @@ jobs:
         uses: swatinem/rust-cache@v2
         with:
           workspaces: client/src-tauri -> target
+
+      - name: Install Linux system dependencies
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf
 
       - name: Install dependencies
         run: pnpm install
@@ -152,6 +162,26 @@ jobs:
             gh release upload "$TAG" "$f" --clobber || true
           done
 
+      - name: Upload Linux artifacts
+        if: runner.os == 'Linux'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          TAG="${{ needs.create-release.outputs.tag }}"
+          BUNDLE_DIR="client/src-tauri/target/release/bundle"
+
+          echo "=== Bundle contents ==="
+          find "$BUNDLE_DIR" -type f 2>/dev/null
+
+          echo "=== Uploading ==="
+          find "$BUNDLE_DIR" -type f \( \
+            -name "*.AppImage" -o -name "*.deb" -o \
+            -name "*.AppImage.tar.gz" -o -name "*.sig" \
+          \) -print0 | while IFS= read -r -d '' f; do
+            echo "Uploading: $(basename "$f")"
+            gh release upload "$TAG" "$f" --clobber || true
+          done
+
   updater-json:
     needs: [create-release, build]
     runs-on: ubuntu-latest
@@ -188,6 +218,7 @@ jobs:
           MAC_AARCH64_SIG=$(read_sig "aarch64.app.tar.gz.sig")
           MAC_X64_SIG=$(read_sig "x64.app.tar.gz.sig")
           WIN_SIG=$(read_sig "x64-setup.exe.sig")
+          LINUX_SIG=$(read_sig "AppImage.tar.gz.sig")
 
           # Build download URLs from actual asset names on the release
           # (GitHub replaces spaces with dots in asset names)
@@ -205,6 +236,7 @@ jobs:
           MAC_ARM_URL=$(get_asset_url "_aarch64\.app\.tar\.gz$")
           MAC_X64_URL=$(get_asset_url "_x64\.app\.tar\.gz$")
           WIN_URL=$(get_asset_url "x64-setup\.exe$")
+          LINUX_URL=$(get_asset_url "\.AppImage\.tar\.gz$")
 
           DATE=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
 
@@ -218,6 +250,8 @@ jobs:
             --arg mac_x64_url "$MAC_X64_URL" \
             --arg win_sig "$WIN_SIG" \
             --arg win_url "$WIN_URL" \
+            --arg linux_sig "$LINUX_SIG" \
+            --arg linux_url "$LINUX_URL" \
             '{
               version: $version,
               notes: $notes,
@@ -225,7 +259,8 @@ jobs:
               platforms: {
                 "darwin-aarch64": { signature: $mac_arm_sig, url: $mac_arm_url },
                 "darwin-x86_64": { signature: $mac_x64_sig, url: $mac_x64_url },
-                "windows-x86_64": { signature: $win_sig, url: $win_url }
+                "windows-x86_64": { signature: $win_sig, url: $win_url },
+                "linux-x86_64": { signature: $linux_sig, url: $linux_url }
               }
             }' > latest.json
 
@@ -237,6 +272,7 @@ jobs:
           [ -z "$MAC_AARCH64_SIG" ] && MISSING="$MISSING darwin-aarch64"
           [ -z "$MAC_X64_SIG" ] && MISSING="$MISSING darwin-x86_64"
           [ -z "$WIN_SIG" ] && MISSING="$MISSING windows-x86_64"
+          [ -z "$LINUX_SIG" ] && MISSING="$MISSING linux-x86_64"
           if [ -n "$MISSING" ]; then
             echo "::warning::Missing signatures for:$MISSING"
           fi

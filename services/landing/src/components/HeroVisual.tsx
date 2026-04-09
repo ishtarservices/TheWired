@@ -84,7 +84,7 @@ export default function HeroVisual() {
         transition={{ duration: 0.6, delay: 1.2 }}
       >
         <div className="flex flex-col gap-1 items-end">
-          <span>v0.1.0</span>
+          <span>STABLE</span>
           <span style={{ color: '#221A2C' }}>&#9472;&#9472;&#9472;</span>
           <span>DECRYPT</span>
           <span>E2E.ON</span>

@@ -64,11 +64,11 @@ export default function DownloadButton() {
 
   if (!platform || !release) {
     return (
-      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3">
+      <div className="flex flex-wrap justify-center gap-3">
         {downloadCards.map((_, i) => (
           <div
             key={i}
-            className="h-36 rounded-lg animate-pulse"
+            className="h-36 w-[150px] rounded-lg animate-pulse"
             style={{ background: '#1E1824' }}
           />
         ))}
@@ -77,7 +77,7 @@ export default function DownloadButton() {
   }
 
   return (
-    <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3">
+    <div className="flex flex-wrap justify-center gap-3">
       {downloadCards.map((card) => {
         const link = release.links.find((l) => l.os === card.os);
         if (!link) return null;
@@ -91,7 +91,7 @@ export default function DownloadButton() {
             href={link.url}
             className={`
               group relative flex flex-col items-center gap-2.5 p-5 rounded-lg
-              transition-all press-effect text-center
+              transition-all press-effect text-center w-[150px]
               ${isPrimary ? '' : 'hover-glow-cyan'}
             `}
             style={isPrimary ? {
