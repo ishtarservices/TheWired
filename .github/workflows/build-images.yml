@@ -28,10 +28,17 @@ jobs:
       proxy: ${{ steps.filter.outputs.proxy }}
     steps:
       - uses: actions/checkout@v4
+        with:
+          # workflow_run checks out the default branch; ensure we have the
+          # triggering commit so paths-filter can diff correctly
+          ref: ${{ github.event.workflow_run.head_sha || github.sha }}
+          fetch-depth: 2
 
       - uses: dorny/paths-filter@v3
         id: filter
         with:
+          # Compare against the previous commit on this branch
+          base: HEAD~1
           filters: |
             backend:
               - 'services/backend/**'
