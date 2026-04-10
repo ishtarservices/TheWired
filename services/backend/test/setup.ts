@@ -90,19 +90,9 @@ beforeAll(async () => {
   const postgres = (await import("postgres")).default;
   dbClient = postgres(process.env.DATABASE_URL!);
 
-  // Create the app schema if it doesn't exist
-  await dbClient`CREATE SCHEMA IF NOT EXISTS app`;
-  await dbClient`CREATE SCHEMA IF NOT EXISTS relay`;
-
-  // Run Drizzle migrations
-  const { db } = await import("../src/db/connection.js");
-  const { migrate } = await import("drizzle-orm/postgres-js/migrator");
-  try {
-    await migrate(db, { migrationsFolder: "./src/db/migrations" });
-  } catch (e) {
-    // Migrations may already be applied
-    console.warn("Migration warning (may be expected):", (e as Error).message);
-  }
+  // Run the app's own migration runner (creates schemas + applies raw SQL files)
+  const { runMigrations } = await import("../src/db/migrate.js");
+  await runMigrations();
 });
 
 beforeEach(async () => {
