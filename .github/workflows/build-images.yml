@@ -1,7 +1,10 @@
 name: Build & Push Docker Images
 
 on:
-  push:
+  # Only build images after tests pass
+  workflow_run:
+    workflows: [Tests]
+    types: [completed]
     branches: [main]
   workflow_dispatch:
 
@@ -14,6 +17,8 @@ permissions:
 
 jobs:
   changes:
+    # Skip image builds if tests failed (workflow_run fires on both success and failure)
+    if: github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success'
     runs-on: ubuntu-latest
     outputs:
       backend: ${{ steps.filter.outputs.backend }}
