@@ -10,6 +10,11 @@ import (
 // NIP98Middleware extracts and verifies the NIP-98 auth header
 func NIP98Middleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// Always strip X-Auth-Pubkey from inbound requests — it is an
+		// internal header injected by this middleware after verification.
+		// Without this, an unauthenticated client could forge it.
+		r.Header.Del("X-Auth-Pubkey")
+
 		authHeader := r.Header.Get("Authorization")
 
 		// Allow unauthenticated requests (pubkey will be empty)
@@ -37,9 +42,13 @@ func NIP98Middleware(next http.Handler) http.Handler {
 			return
 		}
 
-		// Build expected URL from request
+		// Build expected URL from request.
+		// Behind a TLS-terminating reverse proxy (Caddy, nginx, etc.)
+		// the direct connection is plain HTTP, so check X-Forwarded-Proto first.
 		scheme := "http"
-		if r.TLS != nil {
+		if proto := r.Header.Get("X-Forwarded-Proto"); proto != "" {
+			scheme = proto
+		} else if r.TLS != nil {
 			scheme = "https"
 		}
 		expectedURL := scheme + "://" + r.Host + r.URL.Path

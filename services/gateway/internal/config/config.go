@@ -13,6 +13,7 @@ type Config struct {
 	RelayURL       string
 	LogLevel       string
 	AllowedOrigins []string
+	TrustedProxies []string // CIDRs allowed to set X-Forwarded-* headers
 }
 
 func Load() *Config {
@@ -25,6 +26,13 @@ func Load() *Config {
 		}
 	}
 
+	var proxies []string
+	for _, p := range strings.Split(getEnv("TRUSTED_PROXIES", "172.16.0.0/12,10.0.0.0/8,192.168.0.0/16,127.0.0.0/8"), ",") {
+		if trimmed := strings.TrimSpace(p); trimmed != "" {
+			proxies = append(proxies, trimmed)
+		}
+	}
+
 	return &Config{
 		Port:           port,
 		BackendURL:     getEnv("BACKEND_URL", "http://localhost:3002"),
@@ -32,6 +40,7 @@ func Load() *Config {
 		RelayURL:       getEnv("RELAY_URL", "ws://localhost:7777"),
 		LogLevel:       getEnv("LOG_LEVEL", "info"),
 		AllowedOrigins: origins,
+		TrustedProxies: proxies,
 	}
 }
 

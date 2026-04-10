@@ -35,20 +35,24 @@ func main() {
 		w.Write([]byte(`{"status":"ok","service":"gateway"}`))
 	})
 
-	// Static uploads (no auth, just CORS + logging + proxy)
-	uploadsHandler := gmiddleware.LoggingMiddleware(
-		cors.CORSMiddleware(cfg.AllowedOrigins)(
-			proxy.NewUploadsHandler(cfg.BackendURL),
+	// Static uploads (no auth, just trusted-proxy + CORS + logging + proxy)
+	uploadsHandler := proxy.TrustedProxyMiddleware(cfg.TrustedProxies,
+		gmiddleware.LoggingMiddleware(
+			cors.CORSMiddleware(cfg.AllowedOrigins)(
+				proxy.NewUploadsHandler(cfg.BackendURL),
+			),
 		),
 	)
 	mux.Handle("/uploads/", uploadsHandler)
 
-	// API routes (auth + rate limit + proxy)
-	apiHandler := gmiddleware.LoggingMiddleware(
-		cors.CORSMiddleware(cfg.AllowedOrigins)(
-			auth.NIP98Middleware(
-				ratelimit.RateLimitMiddleware(limiter,
-					router.Handler(),
+	// API routes: trusted-proxy (strip spoofed headers) -> logging -> CORS -> auth -> rate limit -> proxy
+	apiHandler := proxy.TrustedProxyMiddleware(cfg.TrustedProxies,
+		gmiddleware.LoggingMiddleware(
+			cors.CORSMiddleware(cfg.AllowedOrigins)(
+				auth.NIP98Middleware(
+					ratelimit.RateLimitMiddleware(limiter,
+						router.Handler(),
+					),
 				),
 			),
 		),

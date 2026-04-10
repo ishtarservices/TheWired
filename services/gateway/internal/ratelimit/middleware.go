@@ -11,8 +11,18 @@ func RateLimitMiddleware(limiter *Limiter, next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		pubkey := r.Header.Get("X-Auth-Pubkey")
 		if pubkey == "" {
-			// No auth = use IP-based limiting
-			pubkey = "anon:" + r.RemoteAddr
+			// No auth = use real client IP for limiting.
+			// Behind a reverse proxy, RemoteAddr is the proxy's IP;
+			// use X-Forwarded-For (first entry) to get the real client IP.
+			ip := r.RemoteAddr
+			if xff := r.Header.Get("X-Forwarded-For"); xff != "" {
+				if first, _, ok := strings.Cut(xff, ","); ok {
+					ip = strings.TrimSpace(first)
+				} else {
+					ip = strings.TrimSpace(xff)
+				}
+			}
+			pubkey = "anon:" + ip
 		}
 
 		// Determine category
