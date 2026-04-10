@@ -2,7 +2,9 @@ import type { UnsignedEvent } from "../../types/nostr";
 import type { Kind0Profile } from "../../types/profile";
 import type { RelayListEntry } from "../../types/relay";
 
-/** Build an unsigned kind:0 metadata event */
+/** Build an unsigned kind:0 metadata event.
+ *  Throws if the resulting profile content would be empty — publishing an
+ *  empty kind:0 permanently wipes the user's profile on all relays. */
 export function buildProfileEvent(
   pubkey: string,
   profile: Kind0Profile,
@@ -12,6 +14,10 @@ export function buildProfileEvent(
     if (value !== undefined && value !== "") {
       content[key] = value;
     }
+  }
+
+  if (Object.keys(content).length === 0) {
+    throw new Error("Refusing to build kind:0 with empty profile — this would wipe the user's metadata on all relays");
   }
 
   return {
@@ -319,11 +325,17 @@ export function buildChatEditEvent(
   };
 }
 
-/** Build an unsigned kind:3 follow list event (NIP-02) */
+/** Build an unsigned kind:3 follow list event (NIP-02).
+ *  Throws if the follow list is empty — publishing an empty kind:3
+ *  permanently wipes the user's contact list on all relays. */
 export function buildFollowListEvent(
   pubkey: string,
   follows: string[],
 ): UnsignedEvent {
+  if (follows.length === 0) {
+    throw new Error("Refusing to build kind:3 with empty follow list — this would wipe the user's contacts on all relays");
+  }
+
   return {
     pubkey,
     created_at: Math.floor(Date.now() / 1000),

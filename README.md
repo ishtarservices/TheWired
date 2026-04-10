@@ -115,6 +115,121 @@ Then start the client separately with `pnpm dev:client`.
 | `cd client && pnpm tauri dev` | Full Tauri desktop app with hot reload |
 | `cd client && pnpm tauri build` | Production desktop app bundle |
 
+## Testing
+
+The project has a comprehensive test suite covering all four services.
+
+### Quick Start
+
+```bash
+# Run all tests that need no infrastructure
+pnpm test:client                         # 229 Vitest tests (no deps)
+pnpm test:gateway                        # 49 Go tests (no deps)
+pnpm test:relay                          # 33 Rust tests (no deps)
+
+# Run everything (backend needs PostgreSQL)
+pnpm test:all
+```
+
+### Per-Service Details
+
+#### Client (Vitest + React Testing Library + MSW)
+
+```bash
+pnpm test:client            # Run all client unit tests
+pnpm test:client:watch      # Watch mode
+pnpm test:client:coverage   # With V8 coverage report
+```
+
+No setup required -- uses `jsdom`, `fake-indexeddb`, and MSW mocks. Covers:
+- Nostr protocol (event builders, dedup, filters, validation, relay list parsing)
+- Redux slices (spaces, events, identity, DMs, notifications)
+- IndexedDB stores (events, profiles, spaces, user state)
+- API client (HTTP, auth headers, retry logic)
+
+#### Client E2E (Playwright)
+
+```bash
+pnpm test:e2e               # Run Playwright tests (headless)
+pnpm test:e2e:headed        # Run with visible browser
+
+# First time: install Playwright browsers
+npx playwright install chromium
+```
+
+**Requires**: Full stack running (`pnpm dev:infra`, `pnpm dev:relay`, `pnpm dev:backend`, `pnpm dev:gateway`, `pnpm dev:client`).
+
+#### Backend (Vitest + Fastify inject)
+
+```bash
+pnpm test:backend           # Run backend tests
+```
+
+**Requires**: PostgreSQL running on port 5432. Start with `pnpm dev:infra`.
+
+Uses Fastify's built-in `server.inject()` for zero-network HTTP testing. Redis and Meilisearch are mocked by default (via `ioredis-mock` and `vi.mock`).
+
+To use a different test database:
+```bash
+TEST_DATABASE_URL=postgres://user:pass@host:5432/thewired_test pnpm test:backend
+```
+
+#### Gateway (Go stdlib)
+
+```bash
+pnpm test:gateway           # or: cd services/gateway && go test ./...
+```
+
+No setup required -- uses Go stdlib `testing` + `net/http/httptest`. Covers NIP-98 auth verification, rate limiter logic, proxy routing, trusted proxy detection.
+
+#### Relay (Rust)
+
+```bash
+pnpm test:relay             # or: cd services/relay && cargo test
+```
+
+No setup required -- inline `#[cfg(test)]` modules with unit tests. Covers event serialization, schnorr signature verification, and filter matching.
+
+### Test Scripts Reference
+
+| Command | Description |
+|---------|-------------|
+| `pnpm test:client` | Client unit tests (Vitest) |
+| `pnpm test:client:watch` | Client tests in watch mode |
+| `pnpm test:client:coverage` | Client tests with coverage |
+| `pnpm test:backend` | Backend route + service tests (needs PostgreSQL) |
+| `pnpm test:gateway` | Gateway Go tests |
+| `pnpm test:relay` | Relay Rust tests |
+| `pnpm test:all` | Run client + backend + gateway + relay tests |
+| `pnpm test:e2e` | Playwright E2E tests (needs full stack) |
+
+### Test Users
+
+10 dedicated test keypairs are used across the test suite. Each has a specific role (admin, member, invited user, banned user, moderator, etc.) for realistic multi-user scenarios.
+
+**Setup:** Copy `.env.test.example` to `.env.test` and fill in your nsec keys:
+
+```bash
+cp .env.test.example .env.test
+# Edit .env.test with your test nsec keys
+```
+
+If `.env.test` is missing, the test suite auto-generates deterministic keys from user names, so tests always work without it. The `.env.test` file is gitignored.
+
+### CI/CD
+
+Tests run automatically on push and pull request via GitHub Actions (`.github/workflows/test.yml`):
+
+| Job | What runs | Infrastructure |
+|-----|-----------|----------------|
+| **Client** | `pnpm test:client` (229 Vitest tests) | None |
+| **Gateway** | `go test ./...` (49 Go tests) | None |
+| **Relay** | `cargo test` (33 Rust tests) | None |
+| **Backend** | `pnpm test:backend` (Fastify inject) | PostgreSQL (service container) |
+| **Typecheck** | `pnpm typecheck` | None |
+
+All jobs run in parallel. Backend tests get a fresh PostgreSQL 16 container per run.
+
 ## Project Structure
 
 ```

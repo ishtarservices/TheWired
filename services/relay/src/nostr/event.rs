@@ -34,3 +34,91 @@ impl Event {
         .unwrap_or_default()
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn make_event() -> Event {
+        Event {
+            id: "abc123".to_string(),
+            pubkey: "pubkey123".to_string(),
+            created_at: 1000000,
+            kind: 1,
+            tags: vec![
+                vec!["h".to_string(), "group1".to_string()],
+                vec!["p".to_string(), "target_pk".to_string()],
+            ],
+            content: "hello world".to_string(),
+            sig: "sig123".to_string(),
+        }
+    }
+
+    #[test]
+    fn test_get_tag_value_found() {
+        let event = make_event();
+        assert_eq!(event.get_tag_value("h"), Some("group1".to_string()));
+        assert_eq!(event.get_tag_value("p"), Some("target_pk".to_string()));
+    }
+
+    #[test]
+    fn test_get_tag_value_missing() {
+        let event = make_event();
+        assert_eq!(event.get_tag_value("e"), None);
+        assert_eq!(event.get_tag_value("d"), None);
+    }
+
+    #[test]
+    fn test_get_tag_value_empty_tags() {
+        let event = Event {
+            tags: vec![],
+            ..make_event()
+        };
+        assert_eq!(event.get_tag_value("h"), None);
+    }
+
+    #[test]
+    fn test_serialize_for_id_format() {
+        let event = Event {
+            id: "test".to_string(),
+            pubkey: "pk".to_string(),
+            created_at: 12345,
+            kind: 1,
+            tags: vec![vec!["p".to_string(), "abc".to_string()]],
+            content: "hello".to_string(),
+            sig: "sig".to_string(),
+        };
+        let serialized = event.serialize_for_id();
+        // NIP-01: [0, pubkey, created_at, kind, tags, content]
+        let parsed: serde_json::Value = serde_json::from_str(&serialized).unwrap();
+        let arr = parsed.as_array().unwrap();
+        assert_eq!(arr[0], 0);
+        assert_eq!(arr[1], "pk");
+        assert_eq!(arr[2], 12345);
+        assert_eq!(arr[3], 1);
+        assert_eq!(arr[4], serde_json::json!([["p", "abc"]]));
+        assert_eq!(arr[5], "hello");
+    }
+
+    #[test]
+    fn test_serialize_for_id_empty_tags() {
+        let event = Event {
+            tags: vec![],
+            ..make_event()
+        };
+        let serialized = event.serialize_for_id();
+        let parsed: serde_json::Value = serde_json::from_str(&serialized).unwrap();
+        assert_eq!(parsed[4], serde_json::json!([]));
+    }
+
+    #[test]
+    fn test_serialize_for_id_unicode_content() {
+        let event = Event {
+            content: "hello 🌍 世界".to_string(),
+            ..make_event()
+        };
+        let serialized = event.serialize_for_id();
+        let parsed: serde_json::Value = serde_json::from_str(&serialized).unwrap();
+        assert_eq!(parsed[5], "hello 🌍 世界");
+    }
+}

@@ -320,7 +320,16 @@ export async function performLogin(
     }
   }
 
-  // Step 5c: Load cached pinned notes from IndexedDB
+  // Step 5c: Load cached follow list from IndexedDB
+  // CRITICAL: without this, followList starts as [] after login/reset, and any
+  // follow action (manual or auto-follow from friend accept) would publish a
+  // kind:3 containing only the new follow — nuking the real contact list.
+  const cachedFollowList = await getUserState<string[]>("follow_list");
+  if (cachedFollowList?.length) {
+    store.dispatch(setFollowList({ follows: cachedFollowList, createdAt: 0 }));
+  }
+
+  // Step 5d: Load cached pinned notes from IndexedDB
   const cachedPinnedNotes = await getUserState<string[]>("pinned_notes");
   if (cachedPinnedNotes?.length) {
     store.dispatch(setPinnedNotes({ noteIds: cachedPinnedNotes, createdAt: 0 }));

@@ -107,6 +107,7 @@ export function ProfileWizard() {
   const dispatch = useAppDispatch();
   const pubkey = useAppSelector((s) => s.identity.pubkey);
   const existingProfile = useAppSelector((s) => s.identity.profile);
+  const profileCreatedAt = useAppSelector((s) => s.identity.profileCreatedAt);
   const loginMethod = useAppSelector((s) => s.onboarding.loginMethod);
 
   // For import/nip07, skip to tour offer if profile already exists
@@ -126,6 +127,25 @@ export function ProfileWizard() {
     lud16: existingProfile?.lud16 ?? "",
     website: existingProfile?.website ?? "",
   });
+
+  // Sync form with profile data arriving from relays (covers the race where
+  // the wizard mounts before relay data loads, preventing empty-profile publish)
+  const [formSyncedAt, setFormSyncedAt] = useState(0);
+  useEffect(() => {
+    if (existingProfile && profileCreatedAt > formSyncedAt) {
+      setForm((prev) => ({
+        name: existingProfile.name ?? prev.name ?? "",
+        display_name: existingProfile.display_name ?? prev.display_name ?? "",
+        about: existingProfile.about ?? prev.about ?? "",
+        picture: existingProfile.picture ?? prev.picture ?? "",
+        banner: existingProfile.banner ?? prev.banner ?? "",
+        nip05: existingProfile.nip05 ?? prev.nip05 ?? "",
+        lud16: existingProfile.lud16 ?? prev.lud16 ?? "",
+        website: existingProfile.website ?? prev.website ?? "",
+      }));
+      setFormSyncedAt(profileCreatedAt);
+    }
+  }, [existingProfile, profileCreatedAt]); // eslint-disable-line react-hooks/exhaustive-deps
   // Track whether user has manually edited NIP-05
   const [nip05Touched, setNip05Touched] = useState(!!existingProfile?.nip05);
   const [saving, setSaving] = useState(false);
@@ -248,12 +268,15 @@ export function ProfileWizard() {
     if (idx > 0) setStep(STEPS[idx - 1]);
   };
 
-  // Auto-save when reaching complete step (if not already saved)
+  // Auto-save when reaching complete step (if not already saved).
+  // Skip auto-publish if the form is entirely empty — this prevents wiping
+  // an existing profile when relay data hasn't arrived yet.
+  const formHasContent = !!(form.name || form.display_name || form.about || form.picture || form.banner);
   useEffect(() => {
-    if (step === "complete" && !saved && !saving) {
+    if (step === "complete" && !saved && !saving && formHasContent) {
       handleSaveProfile();
     }
-  }, [step]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [step, formHasContent]); // eslint-disable-line react-hooks/exhaustive-deps
 
   if (!pubkey) return null;
 

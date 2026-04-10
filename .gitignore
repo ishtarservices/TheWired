@@ -21,6 +21,7 @@ services/gateway/gateway
 .env
 .env.*
 !.env.example
+!.env.test.example
 !.env.production.example
 !client/.env.production
 
