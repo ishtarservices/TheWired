@@ -18,7 +18,7 @@ export const profilesRoutes: FastifyPluginAsync = async (server) => {
 
     const profile = await profileCacheService.getProfile(params.pubkey);
     if (!profile) {
-      return { error: "Profile not found", code: "NOT_FOUND", statusCode: 404 };
+      return reply.status(404).send({ error: "Profile not found", code: "NOT_FOUND", statusCode: 404 });
     }
     return { data: profile };
   });
