@@ -34,27 +34,20 @@ jobs:
           ref: ${{ github.event.workflow_run.head_sha || github.sha }}
           fetch-depth: 2
 
-      - uses: dorny/paths-filter@v3
+      - name: Detect changed paths
         id: filter
-        with:
-          # Compare against the previous commit on this branch
-          base: HEAD~1
-          filters: |
-            backend:
-              - 'services/backend/**'
-              - 'packages/shared-types/**'
-              - 'pnpm-lock.yaml'
-              - 'tsconfig.base.json'
-            gateway:
-              - 'services/gateway/**'
-            relay:
-              - 'services/relay/**'
-            landing:
-              - 'services/landing/**'
-              - 'pnpm-lock.yaml'
-              - 'tsconfig.base.json'
-            proxy:
-              - 'services/proxy/**'
+        run: |
+          CHANGED=$(git diff --name-only HEAD~1 HEAD)
+          echo "Changed files:"
+          echo "$CHANGED"
+
+          check() { echo "$CHANGED" | grep -qE "$1" && echo true || echo false; }
+
+          echo "backend=$(check '^(services/backend/|packages/shared-types/|pnpm-lock\.yaml$|tsconfig\.base\.json$)')" >> "$GITHUB_OUTPUT"
+          echo "gateway=$(check '^services/gateway/')" >> "$GITHUB_OUTPUT"
+          echo "relay=$(check '^services/relay/')" >> "$GITHUB_OUTPUT"
+          echo "landing=$(check '^(services/landing/|pnpm-lock\.yaml$|tsconfig\.base\.json$)')" >> "$GITHUB_OUTPUT"
+          echo "proxy=$(check '^services/proxy/')" >> "$GITHUB_OUTPUT"
 
   backend:
     needs: changes
