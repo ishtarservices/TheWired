@@ -15,7 +15,6 @@ import { useAutoResize } from "../../hooks/useAutoResize";
 import { buildProfileEvent } from "../../lib/nostr/eventBuilder";
 import { signAndPublish } from "../../lib/nostr/publish";
 import {
-  setShowProfileWizard,
   setProfileWizardCompleted,
   setShowAppTour,
 } from "./onboardingSlice";
@@ -238,7 +237,11 @@ export function ProfileWizard() {
       const unsigned = buildProfileEvent(pubkey, form);
       await signAndPublish(unsigned);
       setSaved(true);
-      dispatch(setProfileWizardCompleted(true));
+      // Don't dispatch setProfileWizardCompleted here — that reducer hides
+      // the wizard immediately, preventing the user from seeing the tour
+      // prompt on the CompleteStep.  Persist the flag so a refresh won't
+      // re-show the wizard, and dispatch completion when the user actually
+      // leaves (handleClose / handleStartTour).
       persistOnboardingFlag("profileWizardCompleted", true);
     } catch (e) {
       setError(e instanceof Error ? e.message : "Failed to save profile");
@@ -248,13 +251,14 @@ export function ProfileWizard() {
   };
 
   const handleClose = useCallback(() => {
+    // setProfileWizardCompleted sets both the flag AND hides the wizard
     dispatch(setProfileWizardCompleted(true));
     persistOnboardingFlag("profileWizardCompleted", true);
-    dispatch(setShowProfileWizard(false));
   }, [dispatch]);
 
   const handleStartTour = useCallback(() => {
-    dispatch(setShowProfileWizard(false));
+    dispatch(setProfileWizardCompleted(true));
+    persistOnboardingFlag("profileWizardCompleted", true);
     dispatch(setShowAppTour(true));
   }, [dispatch]);
 

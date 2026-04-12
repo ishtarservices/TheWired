@@ -20,10 +20,14 @@ export const selectChatMessages = createSelector(
   (activeChannelId, activeSpaceId, events): ChatMessageView[] => {
     if (!activeSpaceId) return [];
 
-    // Prefer channel-scoped messages; fall back to space-level for legacy messages
+    // Merge channel-scoped and space-level messages.
+    // Events can land under either key depending on whether channels were loaded
+    // when the event arrived (bg sub races channel loading on join).
     const channelMessages = activeChannelId ? events.chatMessages[activeChannelId] : undefined;
     const spaceMessages = events.chatMessages[activeSpaceId];
-    const messageIds = channelMessages ?? spaceMessages ?? [];
+    const messageIds = channelMessages && spaceMessages
+      ? [...new Set([...channelMessages, ...spaceMessages])]
+      : channelMessages ?? spaceMessages ?? [];
     return messageIds
       .filter((id) => !events.deletedMessageIds[id])
       .map((id) => {

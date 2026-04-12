@@ -109,7 +109,9 @@ export function useSpace() {
         const backendPubkeys = res.data.map((m) => m.pubkey);
         if (backendPubkeys.length === 0) return;
 
-        const space = spaces.find((s) => s.id === spaceId);
+        // Read from store directly — the `spaces` closure may be stale when
+        // called right after addSpace() in joinSpace().
+        const space = store.getState().spaces.list.find((s) => s.id === spaceId);
         if (!space) return;
 
         // Merge: union of local + backend members (local may have members
@@ -119,6 +121,18 @@ export function useSpace() {
           const updated: Space = { ...space, memberPubkeys: merged };
           dispatch(updateSpace(updated));
           updateSpaceInStore(updated);
+
+          // Re-subscribe the active channel with updated member list so feed
+          // content from all members is fetched (not just the joining user).
+          const state = store.getState();
+          if (state.spaces.activeSpaceId === spaceId && state.spaces.activeChannelId) {
+            const spaceChannels = state.spaces.channels[spaceId];
+            const channelIdPart = parseChannelIdPart(state.spaces.activeChannelId);
+            const channel = spaceChannels?.find((c) => c.id === channelIdPart);
+            if (channel) {
+              switchSpaceChannel(updated, channel.type);
+            }
+          }
         }
       } catch (err) {
         // Space deleted on backend — clean up locally
@@ -138,7 +152,7 @@ export function useSpace() {
         // Backend unavailable — keep local members
       }
     },
-    [dispatch, spaces],
+    [dispatch],
   );
 
   /** Fetch feed sources from backend and merge into Redux + IndexedDB.
@@ -148,7 +162,8 @@ export function useSpace() {
       try {
         const res = await fetchFeedSources(spaceId);
         const pubkeys = res.data;
-        const space = spaces.find((s) => s.id === spaceId);
+        // Read from store directly — the `spaces` closure may be stale
+        const space = store.getState().spaces.list.find((s) => s.id === spaceId);
         if (!space) return;
 
         // Update if different
@@ -175,7 +190,7 @@ export function useSpace() {
         // Backend unavailable — keep local feed sources
       }
     },
-    [dispatch, spaces],
+    [dispatch],
   );
 
   const selectSpace = useCallback(
