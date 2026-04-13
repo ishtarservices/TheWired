@@ -1,10 +1,9 @@
-import { join } from "path";
 import Fastify from "fastify";
 import cors from "@fastify/cors";
 import helmet from "@fastify/helmet";
 import multipart from "@fastify/multipart";
-import fastifyStatic from "@fastify/static";
 import { config } from "./config.js";
+import { blossomRoutes } from "./routes/blossom.js";
 import { healthRoutes } from "./routes/health.js";
 import { spacesRoutes } from "./routes/spaces.js";
 import { invitesRoutes } from "./routes/invites.js";
@@ -46,14 +45,7 @@ export async function createServer() {
     contentSecurityPolicy: false,
     crossOriginResourcePolicy: { policy: "cross-origin" },
   });
-  await server.register(multipart, { limits: { fileSize: 100 * 1024 * 1024 } });
-
-  // Static file serving for uploads (cover art, audio files)
-  await server.register(fastifyStatic, {
-    root: join(process.cwd(), "uploads"),
-    prefix: "/uploads/",
-    decorateReply: false,
-  });
+  await server.register(multipart, { limits: { fileSize: config.maxBlobSize } });
 
   // Global hooks
   server.addHook("onRequest", authContext);
@@ -85,6 +77,10 @@ export async function createServer() {
   await server.register(onboardingRoutes, { prefix: "/spaces" });
   await server.register(nip05Routes);
   await server.register(nip05ApiRoutes, { prefix: "/nip05" });
+
+  // Blossom routes (root-level: GET /<sha256>, PUT /upload, DELETE /<sha256>, GET /list/<pubkey>)
+  // Registered last so /:filename catch-all doesn't shadow named routes
+  await server.register(blossomRoutes);
 
   return server;
 }

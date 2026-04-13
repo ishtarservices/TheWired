@@ -8,8 +8,8 @@ import { putEvent, deleteEvent, deleteAddressableEvent } from "../db/eventStore"
 import { addEvent, indexChatMessage, indexReel, indexLongForm, indexLiveStream, indexNote, indexSpaceFeed, indexMusicTrack, indexMusicAlbum, indexReaction, indexReply, indexRepost, indexRepostByAuthor, indexQuote, removeChatMessage, hideMessage, removeEvent, removeNote, removeRepost, trackDeletedNote, trackDeletedAddr, indexEditedMessage } from "../../store/slices/eventsSlice";
 import { addTrack, indexTrackByArtist, indexTrackByAlbum, indexTrackByArtistName, indexAlbumByArtist, indexAlbumByArtistName, addAlbum, addPlaylist, addAnnotation, removeAnnotation, removeTrack, removeAlbum, removePlaylist } from "../../store/slices/musicSlice";
 import { addDMMessage, editDMMessage, remoteDeleteDMMessage } from "../../store/slices/dmSlice";
-import { parseTrackEvent } from "../../features/music/trackParser";
-import { parseAlbumEvent } from "../../features/music/albumParser";
+import { parseTrackEvent, parsePrivateTrackEvent } from "../../features/music/trackParser";
+import { parseAlbumEvent, parsePrivateAlbumEvent } from "../../features/music/albumParser";
 import { parsePlaylistEvent } from "../../features/music/playlistParser";
 import { parseAnnotationEvent } from "../../features/music/annotationParser";
 import { incrementEventCount } from "../../store/slices/relaysSlice";
@@ -19,7 +19,7 @@ import { hasMediaUrls, hasEmbedUrls } from "../media/mediaUrlParser";
 import { parseThreadRef, parseQuoteRef } from "../../features/spaces/noteParser";
 import { profileCache } from "./profileCache";
 import { unwrapGiftWrap } from "./giftWrap";
-import { evaluateNotification, evaluateDMNotification, evaluateFriendRequestNotification, evaluateFriendAcceptNotification } from "./notificationEvaluator";
+import { evaluateNotification, evaluateDMNotification, evaluateFriendRequestNotification, evaluateFriendAcceptNotification, evaluateCollaboratorNotification } from "./notificationEvaluator";
 import { addFriendRequest, markOutgoingAccepted, acceptFriendRequest, addProcessedWrapId, removeFriend, clearRemovedPubkey } from "../../store/slices/friendRequestSlice";
 import { addKnownFollower } from "../../store/slices/identitySlice";
 import { acceptFriendRequestAction } from "./friendRequest";
@@ -149,14 +149,14 @@ export async function processIncomingEvent(
     putEvent(event).catch(() => {/* best-effort persistence */});
   }
 
-  // Step 5: Index by kind
-  indexEvent(event);
+  // Step 5: Index by kind (may await NIP-44 decryption for private music events)
+  await indexEvent(event);
 
   // Step 6: Evaluate for notifications (unread badges, toasts)
   evaluateNotification(event);
 }
 
-function indexEvent(event: NostrEvent): void {
+async function indexEvent(event: NostrEvent): Promise<void> {
   const hTag = event.tags.find((t) => t[0] === "h")?.[1];
 
   switch (event.kind) {
@@ -256,48 +256,192 @@ function indexEvent(event: NostrEvent): void {
     }
     case EVENT_KINDS.MUSIC_TRACK: {
       const contextId = hTag ?? "global";
+      const dTag = event.tags.find((t) => t[0] === "d")?.[1] ?? "";
+      const trackAddrId = `31683:${event.pubkey}:${dTag}`;
+      console.debug("[music:pipeline] MUSIC_TRACK received", {
+        addrId: trackAddrId,
+        eventId: event.id.slice(0, 12),
+        author: event.pubkey.slice(0, 8) + "...",
+        contextId,
+        pTags: event.tags.filter((t) => t[0] === "p").map((t) => ({ pk: t[1]?.slice(0, 8), role: t[3] })),
+        visibility: event.tags.find((t) => t[0] === "visibility")?.[1] ?? "public",
+        hasContent: !!event.content,
+        contentLength: event.content?.length ?? 0,
+      });
+
       store.dispatch(indexMusicTrack({ contextId, eventId: event.id }));
-      const track = parseTrackEvent(event);
-      store.dispatch(addTrack(track));
-      // Index by artist pubkeys
-      if (track.artistPubkeys.length > 0) {
-        for (const pk of track.artistPubkeys) {
-          store.dispatch(indexTrackByArtist({ pubkey: pk, addressableId: track.addressableId }));
+
+      // Helper to dispatch track into Redux + artist/collaborator indices
+      const dispatchTrack = (track: import("../../types/music").MusicTrack) => {
+        console.debug("[music:pipeline] Dispatching track to Redux", {
+          addrId: track.addressableId,
+          title: track.title,
+          visibility: track.visibility,
+          collaborators: track.collaborators.map((c) => c.slice(0, 8) + "..."),
+          artistPubkeys: track.artistPubkeys.map((c) => c.slice(0, 8) + "..."),
+          featuredArtists: track.featuredArtists.map((c) => c.slice(0, 8) + "..."),
+        });
+        store.dispatch(addTrack(track));
+        if (track.artistPubkeys.length > 0) {
+          for (const pk of track.artistPubkeys) {
+            store.dispatch(indexTrackByArtist({ pubkey: pk, addressableId: track.addressableId }));
+          }
+        } else if (track.artist && track.artist !== event.pubkey) {
+          store.dispatch(indexTrackByArtistName({ normalizedName: track.artist.toLowerCase().trim(), addressableId: track.addressableId }));
+        } else {
+          store.dispatch(indexTrackByArtist({ pubkey: event.pubkey, addressableId: track.addressableId }));
         }
-      } else if (track.artist && track.artist !== event.pubkey) {
-        // Text-only artist (no npub linked) — index by normalized name
-        store.dispatch(indexTrackByArtistName({ normalizedName: track.artist.toLowerCase().trim(), addressableId: track.addressableId }));
+        for (const fp of track.featuredArtists) {
+          store.dispatch(indexTrackByArtist({ pubkey: fp, addressableId: track.addressableId }));
+        }
+        // Index by collaborator pubkeys so they can discover via selectMyCollaborations
+        for (const cp of track.collaborators) {
+          store.dispatch(indexTrackByArtist({ pubkey: cp, addressableId: track.addressableId }));
+        }
+        if (track.albumRef) {
+          store.dispatch(indexTrackByAlbum({ albumAddrId: track.albumRef, trackAddrId: track.addressableId }));
+        }
+      };
+
+      const isPrivate = event.tags.some(
+        (t) => t[0] === "visibility" && (t[1] === "private" || t[1] === "unlisted"),
+      );
+
+      if (isPrivate && event.content) {
+        // Private track with encrypted content — attempt async decryption
+        const myPubkey = store.getState().identity.pubkey;
+        console.debug("[music:pipeline] Private track detected, attempting decrypt", {
+          addrId: trackAddrId,
+          myPubkey: myPubkey?.slice(0, 8) + "...",
+          isOwner: myPubkey === event.pubkey,
+        });
+        if (myPubkey) {
+          // Await the decrypt so the track is in Redux before signAndPublish returns
+          try {
+            const track = await parsePrivateTrackEvent(event, myPubkey);
+            if (track) {
+              console.debug("[music:pipeline] Private track decrypted successfully", {
+                addrId: track.addressableId,
+                title: track.title,
+              });
+              dispatchTrack(track);
+              // Notify collaborator if this is not our own event
+              if (event.pubkey !== myPubkey && track.collaborators.includes(myPubkey)) {
+                evaluateCollaboratorNotification(event, track.title, track.addressableId);
+              }
+            } else {
+              console.debug("[music:pipeline] Private track decrypt returned null — not authorized");
+            }
+          } catch (err) {
+            console.warn("[music:pipeline] Private track decrypt threw error", {
+              addrId: trackAddrId,
+              error: err instanceof Error ? err.message : String(err),
+            });
+          }
+        } else {
+          console.debug("[music:pipeline] No identity pubkey set, skipping private track");
+        }
       } else {
-        // Legacy fallback: uploader is the artist
-        store.dispatch(indexTrackByArtist({ pubkey: event.pubkey, addressableId: track.addressableId }));
-      }
-      // Also index by each featured artist
-      for (const fp of track.featuredArtists) {
-        store.dispatch(indexTrackByArtist({ pubkey: fp, addressableId: track.addressableId }));
-      }
-      if (track.albumRef) {
-        store.dispatch(indexTrackByAlbum({ albumAddrId: track.albumRef, trackAddrId: track.addressableId }));
+        // Public, space, or legacy private (no encrypted content)
+        const track = parseTrackEvent(event);
+        dispatchTrack(track);
+        // Notify if we're tagged as collaborator/featured on someone else's track
+        const myPubkey = store.getState().identity.pubkey;
+        if (myPubkey && event.pubkey !== myPubkey) {
+          const isTagged = track.collaborators.includes(myPubkey) ||
+            track.featuredArtists.includes(myPubkey);
+          if (isTagged) {
+            evaluateCollaboratorNotification(event, track.title, track.addressableId);
+          }
+        }
       }
       break;
     }
     case EVENT_KINDS.MUSIC_ALBUM: {
       const contextId = hTag ?? "global";
+      const albumDTag = event.tags.find((t) => t[0] === "d")?.[1] ?? "";
+      const albumAddrId = `33123:${event.pubkey}:${albumDTag}`;
+      console.debug("[music:pipeline] MUSIC_ALBUM received", {
+        addrId: albumAddrId,
+        eventId: event.id.slice(0, 12),
+        author: event.pubkey.slice(0, 8) + "...",
+        visibility: event.tags.find((t) => t[0] === "visibility")?.[1] ?? "public",
+        hasContent: !!event.content,
+      });
+
       store.dispatch(indexMusicAlbum({ contextId, eventId: event.id }));
-      const album = parseAlbumEvent(event);
-      store.dispatch(addAlbum(album));
-      // Index by artist pubkeys
-      if (album.artistPubkeys.length > 0) {
-        for (const pk of album.artistPubkeys) {
-          store.dispatch(indexAlbumByArtist({ pubkey: pk, addressableId: album.addressableId }));
+
+      const dispatchAlbum = (album: import("../../types/music").MusicAlbum) => {
+        console.debug("[music:pipeline] Dispatching album to Redux", {
+          addrId: album.addressableId,
+          title: album.title,
+          visibility: album.visibility,
+          collaborators: album.collaborators.map((c) => c.slice(0, 8) + "..."),
+        });
+        store.dispatch(addAlbum(album));
+        if (album.artistPubkeys.length > 0) {
+          for (const pk of album.artistPubkeys) {
+            store.dispatch(indexAlbumByArtist({ pubkey: pk, addressableId: album.addressableId }));
+          }
+        } else if (album.artist && album.artist !== event.pubkey) {
+          store.dispatch(indexAlbumByArtistName({ normalizedName: album.artist.toLowerCase().trim(), addressableId: album.addressableId }));
+        } else {
+          store.dispatch(indexAlbumByArtist({ pubkey: event.pubkey, addressableId: album.addressableId }));
         }
-      } else if (album.artist && album.artist !== event.pubkey) {
-        store.dispatch(indexAlbumByArtistName({ normalizedName: album.artist.toLowerCase().trim(), addressableId: album.addressableId }));
+        for (const fp of album.featuredArtists) {
+          store.dispatch(indexAlbumByArtist({ pubkey: fp, addressableId: album.addressableId }));
+        }
+        // Index by collaborator pubkeys
+        for (const cp of album.collaborators) {
+          store.dispatch(indexAlbumByArtist({ pubkey: cp, addressableId: album.addressableId }));
+        }
+      };
+
+      const isPrivateAlbum = event.tags.some(
+        (t) => t[0] === "visibility" && (t[1] === "private" || t[1] === "unlisted"),
+      );
+
+      if (isPrivateAlbum && event.content) {
+        const myPubkey = store.getState().identity.pubkey;
+        console.debug("[music:pipeline] Private album detected, attempting decrypt", {
+          addrId: albumAddrId,
+          myPubkey: myPubkey?.slice(0, 8) + "...",
+          isOwner: myPubkey === event.pubkey,
+        });
+        if (myPubkey) {
+          try {
+            const album = await parsePrivateAlbumEvent(event, myPubkey);
+            if (album) {
+              console.debug("[music:pipeline] Private album decrypted successfully", {
+                addrId: album.addressableId,
+                title: album.title,
+              });
+              dispatchAlbum(album);
+              if (event.pubkey !== myPubkey && album.collaborators.includes(myPubkey)) {
+                evaluateCollaboratorNotification(event, album.title, album.addressableId);
+              }
+            } else {
+              console.debug("[music:pipeline] Private album decrypt returned null — not authorized");
+            }
+          } catch (err) {
+            console.warn("[music:pipeline] Private album decrypt threw error", {
+              addrId: albumAddrId,
+              error: err instanceof Error ? err.message : String(err),
+            });
+          }
+        }
       } else {
-        store.dispatch(indexAlbumByArtist({ pubkey: event.pubkey, addressableId: album.addressableId }));
-      }
-      // Also index by each featured artist
-      for (const fp of album.featuredArtists) {
-        store.dispatch(indexAlbumByArtist({ pubkey: fp, addressableId: album.addressableId }));
+        const album = parseAlbumEvent(event);
+        dispatchAlbum(album);
+        // Notify if we're tagged as collaborator/featured on someone else's album
+        const myPubkey = store.getState().identity.pubkey;
+        if (myPubkey && event.pubkey !== myPubkey) {
+          const isTagged = album.collaborators.includes(myPubkey) ||
+            album.featuredArtists.includes(myPubkey);
+          if (isTagged) {
+            evaluateCollaboratorNotification(event, album.title, album.addressableId);
+          }
+        }
       }
       break;
     }
@@ -461,6 +605,15 @@ function indexEvent(event: NostrEvent): void {
 function indexEventIntoSpaceFeeds(event: NostrEvent): void {
   // Early return: skip if event kind doesn't match any non-htag channel route
   if (!spaceFeedKinds.has(event.kind)) return;
+
+  // Skip private/unlisted music events from space feeds — they should only appear
+  // via direct access (library, collaborator views), not in shared space channels
+  if (event.kind === EVENT_KINDS.MUSIC_TRACK || event.kind === EVENT_KINDS.MUSIC_ALBUM) {
+    const hasPrivateTag = event.tags.some(
+      (t) => t[0] === "visibility" && (t[1] === "private" || t[1] === "unlisted"),
+    );
+    if (hasPrivateTag) return;
+  }
 
   const state = store.getState();
 

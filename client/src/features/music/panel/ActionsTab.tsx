@@ -105,6 +105,7 @@ function SectionDivider() {
 
 interface ActionsTabProps {
   isOwner: boolean;
+  isCollaborator?: boolean;
   isLocal: boolean;
   saved: boolean;
   favorited: boolean;
@@ -146,6 +147,7 @@ interface ActionsTabProps {
 
 export function ActionsTab({
   isOwner,
+  isCollaborator = false,
   isLocal,
   saved,
   favorited,
@@ -313,13 +315,13 @@ export function ActionsTab({
         </>
       )}
 
-      {/* ── Manage (owner) ── */}
-      {isOwner && (
+      {/* ── Manage (owner or collaborator) ─��� */}
+      {(isOwner || isCollaborator) && (
         <>
           <SectionDivider />
           <SectionLabel>Manage</SectionLabel>
           <ActionButton icon={<Pencil size={14} />} label="Edit Track" onClick={onEditTrack} />
-          <ActionButton icon={<FolderInput size={14} />} label="Move" onClick={onMove} />
+          {isOwner && <ActionButton icon={<FolderInput size={14} />} label="Move" onClick={onMove} />}
           <ActionButton icon={<BarChart3 size={14} />} label="Insights" onClick={onInsights} />
           {!isLocal && (
             <ActionButton

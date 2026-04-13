@@ -1,6 +1,7 @@
 import { useEffect, useState, useRef } from "react";
 import { relayManager } from "../../lib/nostr/relayManager";
 import { buildFollowersFilter } from "../../lib/nostr/filterBuilder";
+import { PROFILE_RELAYS } from "../../lib/nostr/constants";
 
 export function useFollowData(pubkey: string, fetchFollowers = false) {
   const [following, setFollowing] = useState<string[]>([]);
@@ -21,6 +22,7 @@ export function useFollowData(pubkey: string, fetchFollowers = false) {
 
     const followingSub = relayManager.subscribe({
       filters: [{ kinds: [3], authors: [pubkey], limit: 1 }],
+      relayUrls: PROFILE_RELAYS,
       onEvent: (event) => {
         if (cancelled) return;
         if (event.created_at <= followingTimestamp.current) return;
@@ -63,6 +65,7 @@ export function useFollowData(pubkey: string, fetchFollowers = false) {
 
     const followersSub = relayManager.subscribe({
       filters: [buildFollowersFilter(pubkey)],
+      relayUrls: PROFILE_RELAYS,
       onEvent: (event) => {
         if (cancelled || seen.has(event.pubkey)) return;
         seen.add(event.pubkey);

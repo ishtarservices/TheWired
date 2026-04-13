@@ -9,6 +9,8 @@ import type { MusicAnnotation } from "@/types/music";
  * Events flow through processIncomingEvent → dedup → verify → Redux dispatch.
  * Returns visible annotations (private filtered to author-only).
  */
+const EMPTY_ANNOTATIONS: MusicAnnotation[] = [];
+
 export function useAnnotations(
   targetRef: string,
   opts?: { spaceId?: string },
@@ -17,7 +19,7 @@ export function useAnnotations(
 
   const pubkey = useAppSelector((s) => s.identity.pubkey);
   const allAnnotations = useAppSelector(
-    (s) => s.music.annotations[targetRef] ?? [],
+    (s) => s.music.annotations[targetRef] ?? EMPTY_ANNOTATIONS,
   );
 
   useEffect(() => {

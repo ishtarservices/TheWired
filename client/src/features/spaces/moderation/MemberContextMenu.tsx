@@ -21,6 +21,8 @@ interface MemberContextMenuProps {
   anchorRef?: RefObject<HTMLElement | null>;
 }
 
+const EMPTY_MEMBERS: never[] = [];
+
 export function MemberContextMenu({
   open,
   onClose,
@@ -30,14 +32,15 @@ export function MemberContextMenu({
 }: MemberContextMenuProps) {
   const navigate = useNavigate();
   const { can } = usePermissions(spaceId);
-  const { banMember, muteMember, kickMember } = useModeration(spaceId);
+  const hasModerationPerms = can("BAN_MEMBERS") || can("MUTE_MEMBERS") || can("MANAGE_MEMBERS");
+  const { banMember, muteMember, kickMember } = useModeration(spaceId, hasModerationPerms);
   const [showMuteDurations, setShowMuteDurations] = useState(false);
   const [confirmAction, setConfirmAction] = useState<"kick" | "ban" | null>(null);
   const [banReason, setBanReason] = useState("");
 
   // Role hierarchy: hide moderation options if target outranks or equals actor
   const currentPubkey = useAppSelector((s) => s.identity.pubkey);
-  const members = useAppSelector((s) => s.spaceConfig.members[spaceId] ?? []);
+  const members = useAppSelector((s) => s.spaceConfig.members[spaceId] ?? EMPTY_MEMBERS);
 
   const canModerate = useMemo(() => {
     if (!currentPubkey || currentPubkey === pubkey) return false;

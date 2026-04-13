@@ -2,7 +2,7 @@ import { Music2 } from "lucide-react";
 import { useAppSelector } from "@/store/hooks";
 import { getTrackImage } from "./trackImage";
 import { AnnotationsPanel } from "./AnnotationsPanel";
-import { useProfile } from "../profile/useProfile";
+import { useResolvedArtist } from "./useResolvedArtist";
 
 export function NowPlayingDetail() {
   const currentTrackId = useAppSelector(
@@ -14,8 +14,9 @@ export function NowPlayingDetail() {
   const track = currentTrackId ? tracks[currentTrackId] : null;
   const album = track?.albumRef ? albums[track.albumRef] : null;
   const imageUrl = track ? getTrackImage(track, albums) : null;
-  const { profile: artistProfile } = useProfile(
-    track?.pubkey ?? null,
+  const artistName = useResolvedArtist(
+    track?.artist ?? "",
+    track?.artistPubkeys,
   );
 
   if (!track) {
@@ -25,9 +26,6 @@ export function NowPlayingDetail() {
       </div>
     );
   }
-
-  const artistName =
-    artistProfile?.display_name || artistProfile?.name || track.artist;
 
   const minutes = track.duration
     ? Math.floor(track.duration / 60)

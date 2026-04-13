@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect, useCallback } from "react";
+import { useState, useRef, useEffect, useCallback, useMemo } from "react";
 import {
   X, Upload, Trash2, GripVertical, ArrowUp, ArrowDown,
   Wand2, Music, ListOrdered, ChevronDown, ChevronUp, Disc3, Image,
@@ -6,12 +6,13 @@ import {
 import { Modal } from "@/components/ui/Modal";
 import { useAppSelector } from "@/store/hooks";
 import { uploadAudio, uploadCoverArt } from "@/lib/api/music";
-import { buildAlbumEvent, buildTrackEvent } from "./musicEventBuilder";
+import { buildAlbumEvent, buildTrackEvent, buildPrivateAlbumEvent, buildPrivateTrackEvent } from "./musicEventBuilder";
 import { signAndPublish, signAndSaveLocally } from "@/lib/nostr/publish";
 import { FeaturedArtistsInput } from "./FeaturedArtistsInput";
 import { HashtagInput } from "./HashtagInput";
 import { GenrePicker } from "./GenrePicker";
 import { VisibilityPicker } from "./VisibilityPicker";
+import { useProfile } from "@/features/profile/useProfile";
 import {
   parseTrackFiles,
   sortTracksByNumber,
@@ -22,7 +23,13 @@ import {
   cleanupTrackCovers,
 } from "./trackFileParser";
 import type { ParsedTrackInfo } from "./trackFileParser";
-import type { MusicAlbum, MusicVisibility, ProjectType } from "@/types/music";
+import { useResolvedArtist } from "./useResolvedArtist";
+import type { MusicAlbum, MusicTrack, MusicVisibility, ProjectType } from "@/types/music";
+
+function ExistingTrackArtist({ track }: { track: MusicTrack }) {
+  const resolved = useResolvedArtist(track.artist, track.artistPubkeys);
+  return <>{resolved}</>;
+}
 
 interface CreateAlbumModalProps {
   open: boolean;
@@ -34,10 +41,11 @@ type UploadPhase = "idle" | "parsing" | "ready" | "uploading";
 
 export function CreateAlbumModal({ open, onClose, album }: CreateAlbumModalProps) {
   const pubkey = useAppSelector((s) => s.identity.pubkey);
-  const userTracks = useAppSelector((s) => {
+  const allTracks = useAppSelector((s) => s.music.tracks);
+  const userTracks = useMemo(() => {
     if (!pubkey) return [];
-    return Object.values(s.music.tracks).filter((t) => t.pubkey === pubkey);
-  });
+    return Object.values(allTracks).filter((t) => t.pubkey === pubkey);
+  }, [allTracks, pubkey]);
   const [title, setTitle] = useState("");
   const [artist, setArtist] = useState("");
   const [genre, setGenre] = useState("");
@@ -49,6 +57,7 @@ export function CreateAlbumModal({ open, onClose, album }: CreateAlbumModalProps
   const [visibility, setVisibility] = useState<MusicVisibility>("public");
   const [spaceId, setSpaceId] = useState("");
   const [projectType, setProjectType] = useState<ProjectType>("album");
+  const [collaborators, setCollaborators] = useState<string[]>([]);
   const [coverFile, setCoverFile] = useState<File | null>(null);
   const [coverPreview, setCoverPreview] = useState<string | null>(null);
 
@@ -62,6 +71,7 @@ export function CreateAlbumModal({ open, onClose, album }: CreateAlbumModalProps
   const [submitting, setSubmitting] = useState(false);
   const [uploadProgress, setUploadProgress] = useState({ current: 0, total: 0 });
   const [error, setError] = useState<string | null>(null);
+  const { profile: myProfile } = useProfile(pubkey);
   const coverInputRef = useRef<HTMLInputElement>(null);
   const trackInputRef = useRef<HTMLInputElement>(null);
   const isEditing = !!album;
@@ -70,7 +80,7 @@ export function CreateAlbumModal({ open, onClose, album }: CreateAlbumModalProps
   useEffect(() => {
     if (album) {
       setTitle(album.title);
-      setArtist(album.artist);
+      setArtist(/^[0-9a-f]{64}$/i.test(album.artist) ? "" : album.artist);
       setGenre(album.genre ?? "");
       setHashtags(album.hashtags ?? []);
       setProjectType(album.projectType);
@@ -94,6 +104,7 @@ export function CreateAlbumModal({ open, onClose, album }: CreateAlbumModalProps
       setIAmArtist(true);
       setArtistPubkeys([]);
       setFeaturedArtists([]);
+      setCollaborators([]);
       setVisibility("public");
       setSpaceId("");
     }
@@ -237,6 +248,7 @@ export function CreateAlbumModal({ open, onClose, album }: CreateAlbumModalProps
 
       const albumAddrId = `33123:${pubkey}:${slug}`;
       const resolvedArtistPubkeys = iAmArtist ? [pubkey] : artistPubkeys;
+      const resolvedArtist = artist || myProfile?.display_name || myProfile?.name || pubkey;
 
       // Upload new tracks sequentially with progress
       const newTrackAddrIds: string[] = [];
@@ -252,7 +264,7 @@ export function CreateAlbumModal({ open, onClose, album }: CreateAlbumModalProps
           try {
             const result = await uploadAudio(track.file, {
               title: track.title,
-              artist: track.artist || artist || pubkey,
+              artist: track.artist || resolvedArtist,
             });
 
             // Upload per-track cover art from embedded metadata
@@ -274,9 +286,9 @@ export function CreateAlbumModal({ open, onClose, album }: CreateAlbumModalProps
               .replace(/[^a-z0-9]+/g, "-")
               .replace(/^-|-$/g, "");
 
-            const trackUnsigned = buildTrackEvent(pubkey, {
+            const trackParams = {
               title: track.title,
-              artist: track.artist || artist || pubkey,
+              artist: track.artist || resolvedArtist,
               slug: trackSlug,
               duration: result.duration ?? track.duration ?? undefined,
               genre: track.genre || genre || undefined,
@@ -289,7 +301,11 @@ export function CreateAlbumModal({ open, onClose, album }: CreateAlbumModalProps
               artistPubkeys: resolvedArtistPubkeys.length > 0 ? resolvedArtistPubkeys : undefined,
               visibility,
               spaceId: visibility === "space" ? spaceId : undefined,
-            });
+            };
+
+            const trackUnsigned = visibility === "private"
+              ? await buildPrivateTrackEvent(pubkey, { ...trackParams, collaborators })
+              : buildTrackEvent(pubkey, trackParams);
 
             if (visibility === "local") {
               await signAndSaveLocally(trackUnsigned);
@@ -311,9 +327,9 @@ export function CreateAlbumModal({ open, onClose, album }: CreateAlbumModalProps
       // Combine existing selected tracks with newly created ones
       const allTrackRefs = [...selectedTrackRefs, ...newTrackAddrIds];
 
-      const unsigned = buildAlbumEvent(pubkey, {
+      const albumParams = {
         title,
-        artist: artist || pubkey,
+        artist: resolvedArtist,
         slug,
         genre: genre || undefined,
         imageUrl,
@@ -324,7 +340,11 @@ export function CreateAlbumModal({ open, onClose, album }: CreateAlbumModalProps
         projectType,
         visibility,
         spaceId: visibility === "space" ? spaceId : undefined,
-      });
+      };
+
+      const unsigned = visibility === "private"
+        ? await buildPrivateAlbumEvent(pubkey, { ...albumParams, collaborators })
+        : buildAlbumEvent(pubkey, albumParams);
 
       if (visibility === "local") {
         await signAndSaveLocally(unsigned);
@@ -705,7 +725,7 @@ export function CreateAlbumModal({ open, onClose, album }: CreateAlbumModalProps
                       className="h-4 w-4 rounded border-2 border-border bg-field checked:bg-primary checked:border-primary accent-purple-400"
                     />
                     <span className="truncate">{track.title}</span>
-                    <span className="ml-auto text-xs text-muted">{track.artist}</span>
+                    <span className="ml-auto text-xs text-muted"><ExistingTrackArtist track={track} /></span>
                   </label>
                 ))}
               </div>
@@ -719,6 +739,16 @@ export function CreateAlbumModal({ open, onClose, album }: CreateAlbumModalProps
             spaceId={spaceId}
             onSpaceIdChange={setSpaceId}
           />
+
+          {/* Collaborators (for private visibility) */}
+          {visibility === "private" && (
+            <FeaturedArtistsInput
+              value={collaborators}
+              onChange={setCollaborators}
+              label="Private Collaborators (can view this project)"
+              placeholder="Paste collaborator npub or hex pubkey..."
+            />
+          )}
 
           {/* Upload progress bar */}
           {submitting && uploadProgress.total > 0 && (

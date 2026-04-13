@@ -4,7 +4,8 @@ import type { MusicPlaylist, MusicVisibility } from "@/types/music";
 /** Determine visibility from event tags */
 function parseVisibility(event: NostrEvent): MusicVisibility {
   if (event.tags.some((t) => t[0] === "h")) return "space";
-  if (event.tags.some((t) => t[0] === "visibility" && t[1] === "unlisted")) return "unlisted";
+  const vis = event.tags.find((t) => t[0] === "visibility")?.[1];
+  if (vis === "private" || vis === "unlisted") return "private"; // backward compat
   return "public";
 }
 

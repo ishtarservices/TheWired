@@ -46,7 +46,7 @@ export function useFeedPagination(channelType: string) {
   // events even when the feed has no items of its own yet.
   const feedEventCount = useAppSelector((s) => {
     if (!contextId) return 0;
-    return (s.events.spaceFeeds[contextId] ?? []).length;
+    return s.events.spaceFeeds[contextId]?.length ?? 0;
   });
 
   useEffect(() => {

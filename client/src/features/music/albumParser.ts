@@ -4,7 +4,8 @@ import type { MusicAlbum, MusicVisibility, ProjectType } from "@/types/music";
 /** Determine visibility from event tags */
 function parseVisibility(event: NostrEvent): MusicVisibility {
   if (event.tags.some((t) => t[0] === "h")) return "space";
-  if (event.tags.some((t) => t[0] === "visibility" && t[1] === "unlisted")) return "unlisted";
+  const vis = event.tags.find((t) => t[0] === "visibility")?.[1];
+  if (vis === "private" || vis === "unlisted") return "private"; // backward compat
   return "public";
 }
 
@@ -45,6 +46,10 @@ export function parseAlbumEvent(event: NostrEvent): MusicAlbum {
     ? pTags.filter((t) => t[3] === "featured").map((t) => t[1])
     : pTags.filter((t) => t[1] !== event.pubkey).map((t) => t[1]);
 
+  const collaborators = hasRoledPTags
+    ? pTags.filter((t) => t[3] === "collaborator").map((t) => t[1])
+    : [];
+
   const visibility = parseVisibility(event);
   const sharingDisabled = event.tags.some((t) => t[0] === "sharing" && t[1] === "disabled");
   const revisionSummary = event.tags.find((t) => t[0] === "revision_summary")?.[1];
@@ -57,6 +62,7 @@ export function parseAlbumEvent(event: NostrEvent): MusicAlbum {
     artist,
     artistPubkeys,
     featuredArtists,
+    collaborators,
     projectType,
     imageUrl,
     blurhash,
@@ -70,4 +76,99 @@ export function parseAlbumEvent(event: NostrEvent): MusicAlbum {
     sharingDisabled: sharingDisabled || undefined,
     revisionSummary,
   };
+}
+
+/**
+ * Attempt to parse a private (NIP-44 encrypted) album event.
+ * Returns the decrypted MusicAlbum if the viewer is the owner or a tagged collaborator.
+ * Returns null if decryption fails (not authorized).
+ */
+export async function parsePrivateAlbumEvent(
+  event: NostrEvent,
+  viewerPubkey: string,
+): Promise<MusicAlbum | null> {
+  const dTag = event.tags.find((t) => t[0] === "d")?.[1] ?? "";
+  const addrId = `33123:${event.pubkey}:${dTag}`;
+  const visibility = parseVisibility(event);
+
+  console.debug("[music:parse] parsePrivateAlbumEvent called", {
+    addrId,
+    visibility,
+    viewerPubkey: viewerPubkey.slice(0, 8) + "...",
+    isOwner: event.pubkey === viewerPubkey,
+    hasContent: !!event.content,
+  });
+
+  if (visibility !== "private") return parseAlbumEvent(event);
+  if (!event.content) return parseAlbumEvent(event);
+
+  try {
+    const { nip44Decrypt } = await import("@/lib/nostr/nip44");
+    let plaintext: string;
+
+    if (event.pubkey === viewerPubkey) {
+      console.debug("[music:parse] Decrypting album as owner...");
+      plaintext = await nip44Decrypt(viewerPubkey, event.content);
+      console.debug("[music:parse] Owner album decryption OK");
+    } else {
+      const myTag = event.tags.find(
+        (t) => t[0] === "encrypted_content" && t[2] === viewerPubkey,
+      );
+      if (!myTag) {
+        console.debug("[music:parse] No encrypted_content tag for viewer — not a collaborator");
+        return null;
+      }
+      console.debug("[music:parse] Decrypting album as collaborator...");
+      plaintext = await nip44Decrypt(event.pubkey, myTag[1]);
+      console.debug("[music:parse] Collaborator album decryption OK");
+    }
+
+    const meta = JSON.parse(plaintext) as Record<string, unknown>;
+    const dTag = event.tags.find((t) => t[0] === "d")?.[1] ?? "";
+
+    const pTags = event.tags.filter((t) => t[0] === "p" && t[1]);
+    const hasRoledPTags = pTags.some((t) => t[3]);
+    const artistPubkeys = hasRoledPTags
+      ? pTags.filter((t) => t[3] === "artist").map((t) => t[1])
+      : [];
+    const featuredArtists = hasRoledPTags
+      ? pTags.filter((t) => t[3] === "featured").map((t) => t[1])
+      : pTags.filter((t) => t[1] !== event.pubkey).map((t) => t[1]);
+    const collaboratorsDecrypted = hasRoledPTags
+      ? pTags.filter((t) => t[3] === "collaborator").map((t) => t[1])
+      : [];
+
+    // Track refs from cleartext a-tags (still present for relay routing)
+    const trackRefs = event.tags
+      .filter((t) => t[0] === "a" && t[1]?.startsWith("31683:"))
+      .map((t) => t[1]);
+
+    return {
+      addressableId: `33123:${event.pubkey}:${dTag}`,
+      eventId: event.id,
+      pubkey: event.pubkey,
+      title: (meta.title as string) ?? "Untitled Album",
+      artist: (meta.artist as string) ?? event.pubkey,
+      artistPubkeys,
+      featuredArtists,
+      collaborators: collaboratorsDecrypted,
+      projectType: ((meta.projectType as string) ?? "album") as ProjectType,
+      imageUrl: meta.imageUrl as string | undefined,
+      genre: meta.genre as string | undefined,
+      hashtags: (meta.hashtags as string[]) ?? [],
+      trackRefs,
+      trackCount: trackRefs.length,
+      createdAt: event.created_at,
+      visibility: "private",
+      revisionSummary: meta.revisionSummary as string | undefined,
+    };
+  } catch (err) {
+    console.warn("[music:parse] Private album decryption failed", {
+      addrId,
+      viewerPubkey: viewerPubkey.slice(0, 8) + "...",
+      isOwner: event.pubkey === viewerPubkey,
+      error: err instanceof Error ? err.message : String(err),
+    });
+    return null;
+  }
 }

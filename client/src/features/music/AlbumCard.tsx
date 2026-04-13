@@ -7,6 +7,7 @@ import { CreateAlbumModal } from "./CreateAlbumModal";
 import { AlbumActionPanel } from "./AlbumActionPanel";
 import { useAudioPlayer } from "./useAudioPlayer";
 import { UpdateAvailableBadge } from "./UpdateAvailableBadge";
+import { useResolvedArtist } from "./useResolvedArtist";
 
 interface AlbumCardProps {
   album: MusicAlbum;
@@ -16,6 +17,7 @@ interface AlbumCardProps {
 export const AlbumCard = memo(function AlbumCard({ album, onNavigate }: AlbumCardProps) {
   const dispatch = useAppDispatch();
   const pubkey = useAppSelector((s) => s.identity.pubkey);
+  const resolvedArtist = useResolvedArtist(album.artist, album.artistPubkeys);
   const isOwner = pubkey === album.pubkey;
   const isLocal = album.visibility === "local";
   const hasUpdate = useAppSelector(
@@ -113,7 +115,7 @@ export const AlbumCard = memo(function AlbumCard({ album, onNavigate }: AlbumCar
         <div className="p-2">
           <p className="truncate text-sm font-medium text-heading">{album.title}</p>
           <div className="flex items-center gap-1.5">
-            <p className="truncate text-xs text-soft">{album.artist}</p>
+            <p className="truncate text-xs text-soft">{resolvedArtist}</p>
             {album.projectType !== "album" && (
               <span className="shrink-0 rounded bg-card-hover/50 px-1.5 py-0.5 text-[10px] uppercase tracking-wider text-muted">
                 {album.projectType}

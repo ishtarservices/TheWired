@@ -2,6 +2,7 @@ import { useEffect, useState, useMemo, useRef } from "react";
 import { useAppSelector } from "@/store/hooks";
 import { relayManager } from "@/lib/nostr/relayManager";
 import { subscriptionManager } from "@/lib/nostr/subscriptionManager";
+import { PROFILE_RELAYS } from "@/lib/nostr/constants";
 import { eventsSelectors } from "@/store/slices/eventsSlice";
 import { EVENT_KINDS } from "@/types/nostr";
 import type { NostrEvent } from "@/types/nostr";
@@ -43,6 +44,7 @@ export function usePinnedNotes(pubkey: string) {
       filters: [
         { kinds: [EVENT_KINDS.PINNED_NOTES], authors: [pubkey], limit: 1 },
       ],
+      relayUrls: PROFILE_RELAYS,
       onEvent: (event: NostrEvent) => {
         if (event.pubkey !== pubkey || event.kind !== EVENT_KINDS.PINNED_NOTES) return;
         // Only accept newer replaceable events
@@ -89,6 +91,7 @@ export function usePinnedNotes(pubkey: string) {
 
     const subId = subscriptionManager.subscribe({
       filters: [{ ids: missingIds }],
+      relayUrls: PROFILE_RELAYS,
     });
 
     return () => {

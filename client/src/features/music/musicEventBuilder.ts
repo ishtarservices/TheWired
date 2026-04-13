@@ -1,6 +1,7 @@
 import type { UnsignedEvent } from "@/types/nostr";
 import { EVENT_KINDS } from "@/types/nostr";
 import type { MusicVisibility, ProjectType, ProposalChange } from "@/types/music";
+import { nip44Encrypt } from "@/lib/nostr/nip44";
 
 interface TrackEventParams {
   title: string;
@@ -55,8 +56,8 @@ interface PlaylistEventParams {
 
 /** Append visibility-related tags */
 function addVisibilityTags(tags: string[][], visibility?: MusicVisibility, spaceId?: string) {
-  if (visibility === "unlisted") {
-    tags.push(["visibility", "unlisted"]);
+  if (visibility === "private") {
+    tags.push(["visibility", "private"]);
   } else if (visibility === "space" && spaceId) {
     tags.push(["h", spaceId]);
   }
@@ -184,6 +185,152 @@ export function buildAlbumEvent(
     kind: EVENT_KINDS.MUSIC_ALBUM,
     tags,
     content: "",
+  };
+}
+
+/** Build a private (NIP-44 encrypted) track event. Metadata goes into encrypted content. */
+export async function buildPrivateTrackEvent(
+  pubkey: string,
+  params: TrackEventParams & { collaborators?: string[] },
+): Promise<UnsignedEvent> {
+  console.debug("[music:build] Building private track event", {
+    slug: params.slug,
+    title: params.title,
+    collaborators: params.collaborators ?? [],
+    artistPubkeys: params.artistPubkeys ?? [],
+    featuredArtists: params.featuredArtists ?? [],
+  });
+
+  // All metadata that should be encrypted
+  const metadata: Record<string, unknown> = {
+    title: params.title,
+    artist: params.artist,
+    slug: params.slug,
+    duration: params.duration,
+    genre: params.genre,
+    audioUrl: params.audioUrl,
+    audioHash: params.audioHash,
+    audioSize: params.audioSize,
+    audioMime: params.audioMime,
+    imageUrl: params.imageUrl,
+    hashtags: params.hashtags,
+    albumRef: params.albumRef,
+    license: params.license,
+    revisionSummary: params.revisionSummary,
+  };
+
+  const plaintext = JSON.stringify(metadata);
+  console.debug("[music:build] Encrypting track content to self (NIP-44)...");
+  const encryptedContent = await nip44Encrypt(pubkey, plaintext);
+  console.debug("[music:build] Self-encryption OK, ciphertext length:", encryptedContent.length);
+
+  const tags: string[][] = [
+    ["d", params.slug],
+    ["visibility", "private"],
+  ];
+
+  // Artist identity p-tags (still cleartext so relay can route)
+  if (params.artistPubkeys) {
+    for (const pk of params.artistPubkeys) {
+      tags.push(["p", pk, "", "artist"]);
+    }
+  }
+  if (params.featuredArtists) {
+    for (const pk of params.featuredArtists) {
+      tags.push(["p", pk, "", "featured"]);
+    }
+  }
+
+  // Collaborator p-tags + per-collaborator encrypted copies
+  if (params.collaborators) {
+    for (const collab of params.collaborators) {
+      tags.push(["p", collab, "", "collaborator"]);
+      console.debug("[music:build] Encrypting track content for collaborator:", collab.slice(0, 8) + "...");
+      const collabEncrypted = await nip44Encrypt(collab, plaintext);
+      console.debug("[music:build] Collaborator encryption OK, ciphertext length:", collabEncrypted.length);
+      tags.push(["encrypted_content", collabEncrypted, collab]);
+    }
+  }
+
+  console.debug("[music:build] Private track event built:", {
+    slug: params.slug,
+    tagCount: tags.length,
+    pTags: tags.filter((t) => t[0] === "p").map((t) => ({ pubkey: t[1].slice(0, 8), role: t[3] })),
+    encryptedContentTags: tags.filter((t) => t[0] === "encrypted_content").length,
+  });
+
+  return {
+    pubkey,
+    created_at: Math.floor(Date.now() / 1000),
+    kind: EVENT_KINDS.MUSIC_TRACK,
+    tags,
+    content: encryptedContent,
+  };
+}
+
+/** Build a private (NIP-44 encrypted) album event. Metadata goes into encrypted content. */
+export async function buildPrivateAlbumEvent(
+  pubkey: string,
+  params: AlbumEventParams & { collaborators?: string[] },
+): Promise<UnsignedEvent> {
+  console.debug("[music:build] Building private album event", {
+    slug: params.slug,
+    title: params.title,
+    collaborators: params.collaborators ?? [],
+  });
+
+  const metadata: Record<string, unknown> = {
+    title: params.title,
+    artist: params.artist,
+    slug: params.slug,
+    genre: params.genre,
+    imageUrl: params.imageUrl,
+    projectType: params.projectType,
+    trackRefs: params.trackRefs,
+    hashtags: params.hashtags,
+    revisionSummary: params.revisionSummary,
+  };
+
+  const plaintext = JSON.stringify(metadata);
+  const encryptedContent = await nip44Encrypt(pubkey, plaintext);
+
+  const tags: string[][] = [
+    ["d", params.slug],
+    ["visibility", "private"],
+  ];
+
+  if (params.artistPubkeys) {
+    for (const pk of params.artistPubkeys) {
+      tags.push(["p", pk, "", "artist"]);
+    }
+  }
+  if (params.featuredArtists) {
+    for (const pk of params.featuredArtists) {
+      tags.push(["p", pk, "", "featured"]);
+    }
+  }
+
+  // Track refs still in cleartext a-tags so relay can serve album→track resolution
+  if (params.trackRefs) {
+    for (const ref of params.trackRefs) {
+      tags.push(["a", ref]);
+    }
+  }
+
+  if (params.collaborators) {
+    for (const collab of params.collaborators) {
+      tags.push(["p", collab, "", "collaborator"]);
+      const collabEncrypted = await nip44Encrypt(collab, plaintext);
+      tags.push(["encrypted_content", collabEncrypted, collab]);
+    }
+  }
+
+  return {
+    pubkey,
+    created_at: Math.floor(Date.now() / 1000),
+    kind: EVENT_KINDS.MUSIC_ALBUM,
+    tags,
+    content: encryptedContent,
   };
 }
 

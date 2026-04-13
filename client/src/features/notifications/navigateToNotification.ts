@@ -94,7 +94,19 @@ export function navigateToNotification(
     }
 
     case "invite": {
-      // Future: open JoinSpaceModal with pre-filled code
+      // Collaboration invite: contextId is an addressable ID like "31683:pubkey:slug"
+      const ctx = notification.contextId;
+      if (ctx?.startsWith("31683:") || ctx?.startsWith("33123:")) {
+        const parts = ctx.split(":");
+        const kind = parts[0];
+        const ownerPubkey = parts[1];
+        const slug = parts.slice(2).join(":");
+        if (kind === "33123") {
+          navigate(`/music/album/${ownerPubkey}/${slug}`);
+        } else {
+          navigate(`/music/track/${ownerPubkey}/${slug}`);
+        }
+      }
       break;
     }
   }

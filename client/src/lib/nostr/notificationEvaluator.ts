@@ -159,6 +159,64 @@ export function evaluateFriendAcceptNotification(
   }
 }
 
+/**
+ * Evaluate a music collaboration event for notification.
+ * Called when a track/album where we are tagged (collaborator/featured) is received.
+ * Works for both private (encrypted) and public collaborations.
+ */
+export function evaluateCollaboratorNotification(
+  event: NostrEvent,
+  contentTitle: string,
+  addressableId: string,
+): void {
+  const state = store.getState();
+  const myPubkey = state.identity.pubkey;
+  if (!myPubkey || event.pubkey === myPubkey) return;
+
+  const prefs = state.notifications.preferences;
+  if (!prefs.enabled) return;
+  if (prefs.dnd && (!prefs.dndUntil || prefs.dndUntil > Date.now())) return;
+
+  if (state.identity.muteList.some((m) => m.type === "pubkey" && m.value === event.pubkey)) {
+    return;
+  }
+
+  // Include event version (created_at) so re-publishes with updated collaborator
+  // lists generate new notifications. Same-version re-deliveries are deduped.
+  const notifId = `collab-${addressableId}-v${event.created_at}`;
+
+  const senderName = getDisplayName(event.pubkey);
+  const isAlbum = addressableId.startsWith("33123:");
+  const kind = isAlbum ? "project" : "track";
+
+  console.debug("[music:notif] Sending collaborator notification", {
+    notifId,
+    addressableId,
+    contentTitle,
+    sender: event.pubkey.slice(0, 8) + "...",
+    senderName,
+  });
+
+  store.dispatch(
+    addNotification({
+      id: notifId,
+      type: "invite",
+      title: "New collaboration",
+      body: `${senderName} added you to "${contentTitle}" ${kind}`,
+      actorPubkey: event.pubkey,
+      contextId: addressableId,
+      timestamp: Date.now(),
+    }),
+  );
+
+  if (prefs.browserNotifications) {
+    showBrowserNotification(
+      "New collaboration",
+      `${senderName} added you to "${contentTitle}"`,
+    );
+  }
+}
+
 // ── Private helpers ─────────────────────────────────────────────
 
 function evaluateChatMessage(

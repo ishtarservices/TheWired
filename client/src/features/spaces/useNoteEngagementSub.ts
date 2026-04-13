@@ -25,36 +25,19 @@ export function useNoteEngagementSub(noteEventIds: string[], relayUrls: string[]
     prevIdsRef.current = idsKey;
 
     const ids = idsKey.split(",");
-    const subIds: string[] = [];
 
-    // Reactions (kind:7)
-    subIds.push(
-      subscriptionManager.subscribe({
-        filters: [{ kinds: [7], "#e": ids }],
-        relayUrls,
-      }),
-    );
-
-    // Reposts (kind:6)
-    subIds.push(
-      subscriptionManager.subscribe({
-        filters: [{ kinds: [6], "#e": ids }],
-        relayUrls,
-      }),
-    );
-
-    // Replies (kind:1 referencing these notes)
-    subIds.push(
-      subscriptionManager.subscribe({
-        filters: [{ kinds: [1], "#e": ids }],
-        relayUrls,
-      }),
-    );
+    // Single sub with multiple filters — same events, fewer REQ messages per relay.
+    const subId = subscriptionManager.subscribe({
+      filters: [
+        { kinds: [7], "#e": ids },
+        { kinds: [6], "#e": ids },
+        { kinds: [1], "#e": ids },
+      ],
+      relayUrls,
+    });
 
     return () => {
-      for (const id of subIds) {
-        subscriptionManager.close(id);
-      }
+      subscriptionManager.close(subId);
       prevIdsRef.current = "";
     };
   }, [idsKey, relayUrls]);

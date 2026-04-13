@@ -19,6 +19,7 @@ import { openRightPanelToTab, toggleRightPanel } from "@/store/slices/uiSlice";
 import { useLibrary } from "./useLibrary";
 import { getTrackImage } from "./trackImage";
 import { MusicPostModal } from "./MusicPostModal";
+import { useResolvedArtist } from "./useResolvedArtist";
 
 function formatTime(seconds: number): string {
   if (!isFinite(seconds) || seconds < 0) return "0:00";
@@ -57,6 +58,11 @@ export function PlaybackBar() {
   const isSaved = currentTrack ? isTrackSaved(currentTrack.addressableId) : false;
   const [postModalOpen, setPostModalOpen] = useState(false);
 
+  const resolvedArtist = useResolvedArtist(
+    currentTrack?.artist ?? "",
+    currentTrack?.artistPubkeys,
+  );
+
   if (!currentTrack) return null;
 
   const imageUrl = getTrackImage(currentTrack, albums);
@@ -90,7 +96,7 @@ export function PlaybackBar() {
           <p className="truncate text-sm font-medium text-heading">
             {currentTrack.title}
           </p>
-          <p className="truncate text-xs text-soft">{currentTrack.artist}</p>
+          <p className="truncate text-xs text-soft">{resolvedArtist}</p>
         </div>
         <button
           onClick={handleSaveToggle}

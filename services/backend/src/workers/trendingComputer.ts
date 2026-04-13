@@ -50,6 +50,8 @@ export function startTrendingComputer(): { stop: () => void } {
           WHERE created_at >= ${sinceTs}
             AND kind IN (1, 22, 30023, 34236, 31683, 33123)
             AND NOT (tags @> '[["visibility","unlisted"]]'::jsonb)
+            AND NOT (tags @> '[["visibility","private"]]'::jsonb)
+            AND h_tag IS NULL
           ORDER BY created_at DESC
           LIMIT 2000`,
     )) as unknown as EventRow[];

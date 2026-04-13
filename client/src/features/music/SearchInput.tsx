@@ -11,6 +11,12 @@ import { useAudioPlayer } from "./useAudioPlayer";
 import { resolveMusic } from "@/lib/api/music";
 import { processIncomingEvent } from "@/lib/nostr/eventPipeline";
 import { parseTrackEvent } from "./trackParser";
+import { useResolvedArtist } from "./useResolvedArtist";
+
+function ResolvedHitArtist({ artist }: { artist: string }) {
+  const resolved = useResolvedArtist(artist);
+  return <>{resolved}</>;
+}
 
 export function SearchInput() {
   const { query, setQuery, results, isSearching } = useMusicSearch();
@@ -177,7 +183,7 @@ export function SearchInput() {
                         {hit.title || "Untitled"}
                       </p>
                       <p className="truncate text-xs text-muted">
-                        {hit.artist}
+                        <ResolvedHitArtist artist={hit.artist} />
                         {hit.genre && <> &middot; {hit.genre}</>}
                       </p>
                     </div>
@@ -219,7 +225,7 @@ export function SearchInput() {
                         {hit.title || "Untitled"}
                       </p>
                       <p className="truncate text-xs text-muted">
-                        {hit.artist}
+                        <ResolvedHitArtist artist={hit.artist} />
                       </p>
                     </div>
                   </button>

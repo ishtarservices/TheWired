@@ -59,7 +59,7 @@ A music track event represents a single audio recording. The `content` field MAY
 | `blurhash` | Blurhash of the cover art for placeholder rendering. |
 | `zap` | Zap split per [NIP-57](57.md). Format: `["zap", "<pubkey>", "<relay-hint>", "<weight>"]`. |
 | `h` | Group/space identifier for scoping the track to a [NIP-29](29.md) group. |
-| `visibility` | If set to `"unlisted"`, clients SHOULD NOT surface this track in public discovery feeds. Absence implies public visibility. |
+| `visibility` | If set to `"private"`, the event contains NIP-44 encrypted metadata accessible only to the owner and tagged collaborators. Clients MUST NOT surface private tracks in public discovery feeds. Legacy events may use `"unlisted"` which clients SHOULD treat as `"private"`. Absence implies public visibility. |
 | `sharing` | If set to `"disabled"`, clients SHOULD NOT offer share/repost functionality. |
 
 ### Example

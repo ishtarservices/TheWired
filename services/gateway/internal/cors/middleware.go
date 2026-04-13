@@ -37,3 +37,21 @@ func CORSMiddleware(allowedOrigins []string) func(http.Handler) http.Handler {
 		})
 	}
 }
+
+// BlossomCORSMiddleware adds BUD-01 required CORS headers: Access-Control-Allow-Origin: *
+// with expanded allowed headers for Blossom upload endpoints.
+func BlossomCORSMiddleware(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Access-Control-Allow-Origin", "*")
+		w.Header().Set("Access-Control-Allow-Methods", "GET, HEAD, PUT, DELETE, OPTIONS")
+		w.Header().Set("Access-Control-Allow-Headers", "Authorization, Content-Type, X-SHA-256, X-Content-Type, X-Content-Length, *")
+		w.Header().Set("Access-Control-Max-Age", "86400")
+
+		if r.Method == "OPTIONS" {
+			w.WriteHeader(http.StatusNoContent)
+			return
+		}
+
+		next.ServeHTTP(w, r)
+	})
+}

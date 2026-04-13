@@ -4,6 +4,7 @@ import { useAudioPlayer } from "@/features/music/useAudioPlayer";
 import { useAppSelector } from "@/store/hooks";
 import { useProfile } from "@/features/profile/useProfile";
 import { getTrackImage } from "@/features/music/trackImage";
+import { useResolvedArtist } from "@/features/music/useResolvedArtist";
 import { ReactionOverlay } from "./ReactionOverlay";
 
 /**
@@ -16,6 +17,10 @@ export function CallNowPlaying() {
   const { currentTrack, player, togglePlay, next, prev } = useAudioPlayer();
   const albums = useAppSelector((s) => s.music.albums);
   const { profile: djProfile } = useProfile(djPubkey ?? "");
+  const resolvedArtist = useResolvedArtist(
+    currentTrack?.artist ?? "",
+    currentTrack?.artistPubkeys,
+  );
 
   if (!active || !currentTrack) return null;
 
@@ -58,7 +63,7 @@ export function CallNowPlaying() {
             {currentTrack.title}
           </p>
           <p className="truncate text-[10px] text-soft">
-            {currentTrack.artist}
+            {resolvedArtist}
           </p>
           <div className="flex items-center gap-1.5 mt-0.5">
             <span className="flex items-center gap-0.5 text-[9px] text-primary">

@@ -79,7 +79,7 @@ func TestMiddleware_AnonymousUsesIP(t *testing.T) {
 	// We can't call Allow without Redis, but we can verify the middleware
 	// responds with 503 (service unavailable) when Redis is down, which
 	// confirms it attempted rate limiting with the IP-based key.
-	limiter, err := NewLimiter("redis://localhost:1") // port 1 = won't connect
+	limiter, err := NewLimiter("redis://localhost:1", DefaultLimits) // port 1 = won't connect
 	if err != nil {
 		t.Fatalf("unexpected parse error: %v", err)
 	}
@@ -104,7 +104,7 @@ func TestMiddleware_AnonymousUsesIP(t *testing.T) {
 func TestMiddleware_XForwardedForUsedForAnonymous(t *testing.T) {
 	// With Redis down, we still confirm the middleware runs and hits Redis
 	// (getting 503), which means the XFF parsing path executed.
-	limiter, err := NewLimiter("redis://localhost:1")
+	limiter, err := NewLimiter("redis://localhost:1", DefaultLimits)
 	if err != nil {
 		t.Fatalf("unexpected parse error: %v", err)
 	}
@@ -127,7 +127,7 @@ func TestMiddleware_XForwardedForUsedForAnonymous(t *testing.T) {
 }
 
 func TestMiddleware_AuthenticatedUsesPubkey(t *testing.T) {
-	limiter, err := NewLimiter("redis://localhost:1")
+	limiter, err := NewLimiter("redis://localhost:1", DefaultLimits)
 	if err != nil {
 		t.Fatalf("unexpected parse error: %v", err)
 	}
@@ -144,7 +144,6 @@ func TestMiddleware_AuthenticatedUsesPubkey(t *testing.T) {
 	handler.ServeHTTP(rr, req)
 
 	// Redis down -> 503, but confirms pubkey path was taken
-	// (if it wasn't, pubkey would be "anon:..." key).
 	if rr.Code != http.StatusServiceUnavailable {
 		t.Errorf("expected 503 when Redis is down, got %d", rr.Code)
 	}

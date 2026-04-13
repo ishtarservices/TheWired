@@ -13,6 +13,11 @@ export async function nip44Encrypt(
   plaintext: string,
 ): Promise<string> {
   const signerType = store.getState().identity.signerType;
+  console.debug("[nip44] encrypt called", {
+    recipientPubkey: recipientPubkey.slice(0, 8) + "...",
+    plaintextLength: plaintext.length,
+    signerType,
+  });
 
   if (signerType === "nip07") {
     if (!window.nostr?.nip44) {
@@ -20,13 +25,17 @@ export async function nip44Encrypt(
         "NIP-44 encryption not supported by your browser extension. Please update your Nostr signer.",
       );
     }
-    return signingQueue.enqueue(() => window.nostr!.nip44!.encrypt(recipientPubkey, plaintext));
+    const result = await signingQueue.enqueue(() => window.nostr!.nip44!.encrypt(recipientPubkey, plaintext));
+    console.debug("[nip44] encrypt OK, ciphertext length:", result.length);
+    return result;
   }
 
   if (signerType === "tauri_keystore") {
     const { TauriSigner } = await import("./tauriSigner");
     const signer = new TauriSigner();
-    return signingQueue.enqueue(() => signer.nip44Encrypt(recipientPubkey, plaintext));
+    const result = await signingQueue.enqueue(() => signer.nip44Encrypt(recipientPubkey, plaintext));
+    console.debug("[nip44] encrypt OK (tauri), ciphertext length:", result.length);
+    return result;
   }
 
   throw new Error("No signer available for NIP-44 encryption");
@@ -37,6 +46,11 @@ export async function nip44Decrypt(
   ciphertext: string,
 ): Promise<string> {
   const signerType = store.getState().identity.signerType;
+  console.debug("[nip44] decrypt called", {
+    senderPubkey: senderPubkey.slice(0, 8) + "...",
+    ciphertextLength: ciphertext.length,
+    signerType,
+  });
 
   if (signerType === "nip07") {
     if (!window.nostr?.nip44) {
@@ -44,13 +58,17 @@ export async function nip44Decrypt(
         "NIP-44 decryption not supported by your browser extension. Please update your Nostr signer.",
       );
     }
-    return signingQueue.enqueue(() => window.nostr!.nip44!.decrypt(senderPubkey, ciphertext));
+    const result = await signingQueue.enqueue(() => window.nostr!.nip44!.decrypt(senderPubkey, ciphertext));
+    console.debug("[nip44] decrypt OK, plaintext length:", result.length);
+    return result;
   }
 
   if (signerType === "tauri_keystore") {
     const { TauriSigner } = await import("./tauriSigner");
     const signer = new TauriSigner();
-    return signingQueue.enqueue(() => signer.nip44Decrypt(senderPubkey, ciphertext));
+    const result = await signingQueue.enqueue(() => signer.nip44Decrypt(senderPubkey, ciphertext));
+    console.debug("[nip44] decrypt OK (tauri), plaintext length:", result.length);
+    return result;
   }
 
   throw new Error("No signer available for NIP-44 decryption");

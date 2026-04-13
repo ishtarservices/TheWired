@@ -2,6 +2,7 @@ import { useEffect, useState, useMemo } from "react";
 import { useAppSelector } from "@/store/hooks";
 import { relayManager } from "@/lib/nostr/relayManager";
 import { EVENT_KINDS } from "@/types/nostr";
+import { PROFILE_RELAYS } from "@/lib/nostr/constants";
 
 interface MutualFollowState {
   iFollow: boolean;
@@ -32,13 +33,13 @@ export function useMutualFollow(pubkey: string): MutualFollowState {
     setLoading(true);
 
     let eoseCount = 0;
-    const readRelays = relayManager.getReadRelays();
-    const totalRelays = readRelays.length || 1;
+    const totalRelays = PROFILE_RELAYS.length;
 
     const subId = relayManager.subscribe({
       filters: [
         { kinds: [EVENT_KINDS.FOLLOW_LIST], authors: [pubkey], limit: 1 },
       ],
+      relayUrls: PROFILE_RELAYS,
       onEvent: (event) => {
         if (event.pubkey !== pubkey) return;
         const followsPubkeys = event.tags

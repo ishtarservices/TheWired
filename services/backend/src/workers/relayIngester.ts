@@ -32,6 +32,12 @@ function getTagValue(event: NostrEvent, name: string): string | undefined {
   return tag?.[1];
 }
 
+/** Check if a music event has non-public visibility (private, unlisted, or space-scoped) */
+function isNonPublicEvent(event: NostrEvent): boolean {
+  const vis = getTagValue(event, "visibility");
+  return vis === "unlisted" || vis === "private" || !!getTagValue(event, "h");
+}
+
 function today(): string {
   return new Date().toISOString().split("T")[0];
 }
@@ -346,8 +352,8 @@ export function startRelayIngester(): { stop: () => void } {
   }
 
   async function indexMusicTrack(event: NostrEvent) {
-    // Skip unlisted tracks from search indexing
-    if (getTagValue(event, "visibility") === "unlisted") return;
+    // Skip non-public tracks from search indexing and counting
+    if (isNonPublicEvent(event)) return;
 
     const ms = getMeilisearchClient();
     const title = getTagValue(event, "title");
@@ -409,8 +415,8 @@ export function startRelayIngester(): { stop: () => void } {
   }
 
   async function indexMusicAlbum(event: NostrEvent) {
-    // Skip unlisted albums from search indexing
-    if (getTagValue(event, "visibility") === "unlisted") return;
+    // Skip non-public albums from search indexing and counting
+    if (isNonPublicEvent(event)) return;
 
     const ms = getMeilisearchClient();
     const title = getTagValue(event, "title");

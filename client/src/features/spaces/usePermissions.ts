@@ -3,13 +3,16 @@ import { useAppSelector, useAppDispatch } from "../../store/hooks";
 import { setMyPermissions, setMyChannelOverrides } from "../../store/slices/spaceConfigSlice";
 import * as rolesApi from "../../lib/api/roles";
 
+const EMPTY_PERMS: string[] = [];
+const EMPTY_OVERRIDES: Record<string, { allow: string[]; deny: string[] }> = {};
+
 export function usePermissions(spaceId: string | null) {
   const dispatch = useAppDispatch();
   const permissions = useAppSelector(
-    (s) => (spaceId ? s.spaceConfig.myPermissions[spaceId] : undefined) ?? [],
+    (s) => (spaceId ? s.spaceConfig.myPermissions[spaceId] : undefined) ?? EMPTY_PERMS,
   );
   const channelOverrides = useAppSelector(
-    (s) => (spaceId ? s.spaceConfig.myChannelOverrides[spaceId] : undefined) ?? {},
+    (s) => (spaceId ? s.spaceConfig.myChannelOverrides[spaceId] : undefined) ?? EMPTY_OVERRIDES,
   );
   const isLoading = useAppSelector(
     (s) => (spaceId ? s.spaceConfig.loading[spaceId] : false) ?? false,

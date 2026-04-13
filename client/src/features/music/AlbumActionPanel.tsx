@@ -28,6 +28,7 @@ import type { UnsignedEvent } from "@/types/nostr";
 import type { Space, SpaceChannel } from "@/types/space";
 
 import { NotesTab } from "./panel/NotesTab";
+import { useResolvedArtist } from "./useResolvedArtist";
 import { HistoryTab } from "./panel/HistoryTab";
 import { RecipientPickerModal } from "@/components/sharing/RecipientPickerModal";
 import { SpacePickerModal } from "@/components/sharing/SpacePickerModal";
@@ -103,6 +104,10 @@ export function AlbumActionPanel({ album, open, onClose, onEdit }: AlbumActionPa
   const dispatch = useAppDispatch();
   const pubkey = useAppSelector((s) => s.identity.pubkey);
   const isOwner = pubkey === album.pubkey;
+  const isCollaborator = !!pubkey && (
+    album.featuredArtists.includes(pubkey) || album.collaborators.includes(pubkey)
+  );
+  const canManage = isOwner || isCollaborator;
   const isLocal = album.visibility === "local";
   const originalEvent = useAppSelector((s) => s.events.entities[album.eventId]);
 
@@ -119,6 +124,7 @@ export function AlbumActionPanel({ album, open, onClose, onEdit }: AlbumActionPa
   const { deleteAlbum, deleting } = useDeleteMusic();
   const { addItem: addShowcaseItem, removeItem: removeShowcaseItem, isInShowcase } = useProfileShowcase(pubkey ?? null);
 
+  const resolvedArtist = useResolvedArtist(album.artist, album.artistPubkeys);
   const saved = isAlbumSaved(album.addressableId);
   const favorited = isAlbumFavorited(album.addressableId);
   const albumInShowcase = isInShowcase(album.addressableId);
@@ -255,7 +261,7 @@ export function AlbumActionPanel({ album, open, onClose, onEdit }: AlbumActionPa
   const tabs: { id: TabId; label: string; badge?: number; show: boolean }[] = [
     { id: "actions", label: "Actions", show: true },
     { id: "notes", label: "Notes", badge: annotationCount > 0 ? annotationCount : undefined, show: true },
-    { id: "history", label: "History", show: isOwner },
+    { id: "history", label: "History", show: canManage },
   ];
   const visibleTabs = tabs.filter((t) => t.show);
 
@@ -295,7 +301,7 @@ export function AlbumActionPanel({ album, open, onClose, onEdit }: AlbumActionPa
               <div className="min-w-0 flex-1">
                 <p className="truncate text-sm font-medium text-heading">{album.title}</p>
                 <p className="truncate text-xs text-soft">
-                  {album.artist}
+                  {resolvedArtist}
                   {album.projectType !== "album" && (
                     <span className="ml-1.5 rounded bg-card-hover/50 px-1 py-0.5 text-[9px] uppercase tracking-wider text-muted">
                       {album.projectType}
@@ -426,8 +432,8 @@ export function AlbumActionPanel({ album, open, onClose, onEdit }: AlbumActionPa
                     </>
                   )}
 
-                  {/* ── Manage (owner) ── */}
-                  {isOwner && (
+                  {/* ── Manage (owner or collaborator) ── */}
+                  {canManage && (
                     <>
                       <SectionDivider />
                       <SectionLabel>Manage</SectionLabel>
@@ -478,7 +484,7 @@ export function AlbumActionPanel({ album, open, onClose, onEdit }: AlbumActionPa
                 />
               )}
 
-              {activeTab === "history" && isOwner && (
+              {activeTab === "history" && canManage && (
                 <HistoryTab addressableId={album.addressableId} />
               )}
             </div>
@@ -518,7 +524,7 @@ export function AlbumActionPanel({ album, open, onClose, onEdit }: AlbumActionPa
             eventId: album.eventId,
             pubkey: album.pubkey,
             title: album.title,
-            artist: album.artist,
+            artist: resolvedArtist,
             imageUrl: album.imageUrl,
             kind: "album",
           }}

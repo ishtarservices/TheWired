@@ -6,6 +6,8 @@ import { selectIsInVoice, selectConnectedRoom, selectVoiceLocalState, selectVoic
 import { useVoiceChannel } from "./useVoiceChannel";
 import { Mic, MicOff, PhoneOff, Headphones, Video } from "lucide-react";
 
+const EMPTY_CHANNELS: never[] = [];
+
 /**
  * Floating status bar shown when the user is in a voice/video channel but viewing
  * a different channel. Click the label to navigate back to the connected channel.
@@ -20,7 +22,7 @@ export function VoiceStatusBar() {
   const activeSpaceId = useAppSelector((s) => s.spaces.activeSpaceId);
   const activeChannelId = useAppSelector((s) => s.spaces.activeChannelId);
   const channels = useAppSelector(
-    (s) => (connectedRoom ? s.spaces.channels[connectedRoom.spaceId] : undefined) ?? [],
+    (s) => (connectedRoom ? s.spaces.channels[connectedRoom.spaceId] : undefined) ?? EMPTY_CHANNELS,
   );
   const { leave, toggleMute } = useVoiceChannel();
 

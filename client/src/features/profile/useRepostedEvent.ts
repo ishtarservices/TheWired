@@ -2,6 +2,7 @@ import { useEffect, useMemo } from "react";
 import { useAppSelector } from "../../store/hooks";
 import { eventsSelectors } from "../../store/slices/eventsSlice";
 import { subscriptionManager } from "../../lib/nostr/subscriptionManager";
+import { PROFILE_RELAYS } from "../../lib/nostr/constants";
 import { processIncomingEvent } from "../../lib/nostr/eventPipeline";
 import { isValidEventStructure } from "../../lib/nostr/validation";
 import type { NostrEvent } from "../../types/nostr";
@@ -45,6 +46,7 @@ export function useRepostedEvent(repostEvent: NostrEvent): NostrEvent | null {
 
     const subId = subscriptionManager.subscribe({
       filters: [{ ids: [targetId] }],
+      relayUrls: PROFILE_RELAYS,
     });
 
     return () => {

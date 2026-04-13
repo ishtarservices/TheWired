@@ -4,8 +4,20 @@ import { Modal } from "@/components/ui/Modal";
 import { useAppSelector } from "@/store/hooks";
 import { selectLibraryTracks, selectLibraryAlbums } from "@/features/music/musicSelectors";
 import { getTrackImage } from "@/features/music/trackImage";
+import { useResolvedArtist } from "@/features/music/useResolvedArtist";
 import { useProfileShowcase } from "./useProfileShowcase";
 import { MAX_SHOWCASE_ITEMS } from "./profileShowcase";
+import type { MusicTrack, MusicAlbum } from "@/types/music";
+
+function ShowcaseTrackArtist({ track }: { track: MusicTrack }) {
+  const resolved = useResolvedArtist(track.artist, track.artistPubkeys);
+  return <>{resolved}</>;
+}
+
+function ShowcaseAlbumArtist({ album }: { album: MusicAlbum }) {
+  const resolved = useResolvedArtist(album.artist, album.artistPubkeys);
+  return <>{resolved}</>;
+}
 
 interface ShowcasePickerModalProps {
   open: boolean;
@@ -164,7 +176,7 @@ export function ShowcasePickerModal({ open, onClose }: ShowcasePickerModalProps)
                       )}
                       <div className="min-w-0 flex-1 text-left">
                         <p className="truncate text-sm text-heading">{track.title}</p>
-                        <p className="truncate text-xs text-soft">{track.artist}</p>
+                        <p className="truncate text-xs text-soft"><ShowcaseTrackArtist track={track} /></p>
                       </div>
                       {isToggling ? (
                         <div className="h-4 w-4 shrink-0 animate-spin rounded-full border-2 border-primary border-t-transparent" />
@@ -210,7 +222,7 @@ export function ShowcasePickerModal({ open, onClose }: ShowcasePickerModalProps)
                       <div className="min-w-0 flex-1 text-left">
                         <p className="truncate text-sm text-heading">{album.title}</p>
                         <p className="truncate text-xs text-soft">
-                          {album.artist} · {album.trackCount} track{album.trackCount !== 1 ? "s" : ""}
+                          <ShowcaseAlbumArtist album={album} /> · {album.trackCount} track{album.trackCount !== 1 ? "s" : ""}
                         </p>
                       </div>
                       {isToggling ? (

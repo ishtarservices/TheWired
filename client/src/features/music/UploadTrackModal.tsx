@@ -1,9 +1,9 @@
-import { useState, useRef } from "react";
+import { useState, useRef, useMemo } from "react";
 import { X, Upload, Music } from "lucide-react";
 import { Modal } from "@/components/ui/Modal";
 import { useAppSelector } from "@/store/hooks";
 import { uploadAudio, uploadCoverArt } from "@/lib/api/music";
-import { buildTrackEvent } from "./musicEventBuilder";
+import { buildTrackEvent, buildPrivateTrackEvent } from "./musicEventBuilder";
 import { signAndPublish, signAndSaveLocally } from "@/lib/nostr/publish";
 import { FeaturedArtistsInput } from "./FeaturedArtistsInput";
 import { HashtagInput } from "./HashtagInput";
@@ -11,6 +11,7 @@ import { GenrePicker } from "./GenrePicker";
 import { VisibilityPicker } from "./VisibilityPicker";
 import { readAudioMetadata } from "./trackFileParser";
 import { parseFilename } from "./trackFileParser";
+import { useProfile } from "@/features/profile/useProfile";
 import type { EmbeddedCoverArt } from "./trackFileParser";
 import type { MusicVisibility } from "@/types/music";
 
@@ -36,16 +37,17 @@ interface UploadTrackModalProps {
 
 export function UploadTrackModal({ open, onClose, defaultAlbumRef, defaultVisibility, defaultSpaceId }: UploadTrackModalProps) {
   const pubkey = useAppSelector((s) => s.identity.pubkey);
-  const ownAlbums = useAppSelector((s) => {
+  const allAlbums = useAppSelector((s) => s.music.albums);
+  const ownAlbums = useMemo(() => {
     if (!pubkey) return [];
-    return Object.values(s.music.albums).filter((a) => a.pubkey === pubkey);
-  });
-  const collabAlbums = useAppSelector((s) => {
+    return Object.values(allAlbums).filter((a) => a.pubkey === pubkey);
+  }, [allAlbums, pubkey]);
+  const collabAlbums = useMemo(() => {
     if (!pubkey) return [];
-    return Object.values(s.music.albums).filter(
+    return Object.values(allAlbums).filter(
       (a) => a.pubkey !== pubkey && a.featuredArtists.includes(pubkey),
     );
-  });
+  }, [allAlbums, pubkey]);
   const [title, setTitle] = useState("");
   const [artist, setArtist] = useState("");
   const [genre, setGenre] = useState("");
@@ -60,7 +62,9 @@ export function UploadTrackModal({ open, onClose, defaultAlbumRef, defaultVisibi
   const [coverFile, setCoverFile] = useState<File | null>(null);
   const [uploading, setUploading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [collaborators, setCollaborators] = useState<string[]>([]);
   const [embeddedCover, setEmbeddedCover] = useState<EmbeddedCoverArt | null>(null);
+  const { profile: myProfile } = useProfile(pubkey);
   const audioInputRef = useRef<HTMLInputElement>(null);
   const coverInputRef = useRef<HTMLInputElement>(null);
 
@@ -112,9 +116,10 @@ export function UploadTrackModal({ open, onClose, defaultAlbumRef, defaultVisibi
       // Compute artist pubkeys for the event
       const resolvedArtistPubkeys = iAmArtist ? [pubkey] : artistPubkeys;
 
-      const unsigned = buildTrackEvent(pubkey, {
+      const resolvedArtist = artist || myProfile?.display_name || myProfile?.name || pubkey;
+      const eventParams = {
         title,
-        artist: artist || pubkey,
+        artist: resolvedArtist,
         slug,
         duration: audioResult.duration,
         genre: genre || undefined,
@@ -129,6 +134,24 @@ export function UploadTrackModal({ open, onClose, defaultAlbumRef, defaultVisibi
         featuredArtists: featuredArtists.length > 0 ? featuredArtists : undefined,
         visibility,
         spaceId: visibility === "space" ? spaceId : undefined,
+      };
+
+      console.debug("[music:upload] Building event", {
+        visibility,
+        collaborators,
+        slug,
+        title,
+        isPrivate: visibility === "private",
+      });
+
+      const unsigned = visibility === "private"
+        ? await buildPrivateTrackEvent(pubkey, { ...eventParams, collaborators })
+        : buildTrackEvent(pubkey, eventParams);
+
+      console.debug("[music:upload] Event built, publishing...", {
+        kind: unsigned.kind,
+        tagCount: unsigned.tags.length,
+        visibility,
       });
 
       if (visibility === "local") {
@@ -136,6 +159,7 @@ export function UploadTrackModal({ open, onClose, defaultAlbumRef, defaultVisibi
       } else {
         await signAndPublish(unsigned);
       }
+      console.debug("[music:upload] Published successfully");
       onClose();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Upload failed");
@@ -320,6 +344,16 @@ export function UploadTrackModal({ open, onClose, defaultAlbumRef, defaultVisibi
             spaceId={spaceId}
             onSpaceIdChange={setSpaceId}
           />
+
+          {/* Collaborators (for private visibility) */}
+          {visibility === "private" && (
+            <FeaturedArtistsInput
+              value={collaborators}
+              onChange={setCollaborators}
+              label="Collaborators (can view this private track)"
+              placeholder="Paste collaborator npub or hex pubkey..."
+            />
+          )}
 
           {error && <p className="text-xs text-red-400">{error}</p>}
 

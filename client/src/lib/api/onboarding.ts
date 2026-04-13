@@ -159,6 +159,7 @@ export async function submitOnboarding(
 export async function fetchMyOnboardingState(spaceId: string) {
   return api<MemberOnboardingState | null>(
     `/spaces/${encodeURIComponent(spaceId)}/onboarding/me`,
+    { priority: "low" },
   );
 }
 
@@ -174,6 +175,6 @@ export async function completeTodoItem(spaceId: string, todoId: string) {
 export async function fetchOnboardingPreview(spaceId: string) {
   return api<OnboardingPreview | null>(
     `/spaces/${encodeURIComponent(spaceId)}/onboarding/preview`,
-    { auth: false },
+    { auth: false, priority: "low" },
   );
 }

@@ -4,6 +4,13 @@ import { X, GripVertical } from "lucide-react";
 import { useAppSelector, useAppDispatch } from "@/store/hooks";
 import { removeFromQueue, reorderQueue, setCurrentTrack } from "@/store/slices/musicSlice";
 import { getTrackImage } from "./trackImage";
+import { useResolvedArtist } from "./useResolvedArtist";
+import type { MusicTrack } from "@/types/music";
+
+function QueueTrackArtist({ track }: { track: MusicTrack }) {
+  const resolved = useResolvedArtist(track.artist, track.artistPubkeys);
+  return <>{resolved}</>;
+}
 
 export function QueueContent() {
   const dispatch = useAppDispatch();
@@ -148,7 +155,7 @@ export function QueueContent() {
               >
                 {track.title}
               </p>
-              <p className="truncate text-[11px] text-soft">{track.artist}</p>
+              <p className="truncate text-[11px] text-soft"><QueueTrackArtist track={track} /></p>
             </div>
             <button
               onClick={(e) => {

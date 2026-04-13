@@ -14,6 +14,10 @@ type Config struct {
 	LogLevel       string
 	AllowedOrigins []string
 	TrustedProxies []string // CIDRs allowed to set X-Forwarded-* headers
+
+	RateLimitRead   int // per-pubkey reads per minute
+	RateLimitWrite  int // per-pubkey writes per minute
+	RateLimitSearch int // per-pubkey searches per minute
 }
 
 func Load() *Config {
@@ -41,12 +45,25 @@ func Load() *Config {
 		LogLevel:       getEnv("LOG_LEVEL", "info"),
 		AllowedOrigins: origins,
 		TrustedProxies: proxies,
+
+		RateLimitRead:   getEnvInt("RATE_LIMIT_READ_PER_MIN", 100),
+		RateLimitWrite:  getEnvInt("RATE_LIMIT_WRITE_PER_MIN", 30),
+		RateLimitSearch: getEnvInt("RATE_LIMIT_SEARCH_PER_MIN", 10),
 	}
 }
 
 func getEnv(key, fallback string) string {
 	if v := os.Getenv(key); v != "" {
 		return v
+	}
+	return fallback
+}
+
+func getEnvInt(key string, fallback int) int {
+	if v := os.Getenv(key); v != "" {
+		if n, err := strconv.Atoi(v); err == nil {
+			return n
+		}
 	}
 	return fallback
 }

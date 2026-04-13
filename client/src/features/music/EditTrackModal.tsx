@@ -1,4 +1,4 @@
-import { useState, useRef } from "react";
+import { useState, useRef, useMemo } from "react";
 import { X } from "lucide-react";
 import { Modal } from "@/components/ui/Modal";
 import { useAppSelector } from "@/store/hooks";
@@ -9,6 +9,7 @@ import { selectAudioSource } from "./trackParser";
 import { FeaturedArtistsInput } from "./FeaturedArtistsInput";
 import { HashtagInput } from "./HashtagInput";
 import { GenrePicker } from "./GenrePicker";
+import { useProfile } from "@/features/profile/useProfile";
 import type { MusicTrack } from "@/types/music";
 
 interface EditTrackModalProps {
@@ -18,12 +19,17 @@ interface EditTrackModalProps {
 
 export function EditTrackModal({ track, onClose }: EditTrackModalProps) {
   const pubkey = useAppSelector((s) => s.identity.pubkey);
-  const userAlbums = useAppSelector((s) => {
+  const allAlbums = useAppSelector((s) => s.music.albums);
+  const userAlbums = useMemo(() => {
     if (!pubkey) return [];
-    return Object.values(s.music.albums).filter((a) => a.pubkey === pubkey);
-  });
+    return Object.values(allAlbums).filter((a) => a.pubkey === pubkey);
+  }, [allAlbums, pubkey]);
   const [title, setTitle] = useState(track.title);
-  const [artist, setArtist] = useState(track.artist);
+  // Don't pre-fill hex pubkeys in the artist input — the profile name
+  // will be used as fallback on submit via the prevention logic.
+  const [artist, setArtist] = useState(
+    /^[0-9a-f]{64}$/i.test(track.artist) ? "" : track.artist,
+  );
   const [genre, setGenre] = useState(track.genre ?? "");
   const [hashtags, setHashtags] = useState<string[]>(track.hashtags);
   const [albumRef, setAlbumRef] = useState(track.albumRef ?? "");
@@ -35,6 +41,7 @@ export function EditTrackModal({ track, onClose }: EditTrackModalProps) {
     track.artistPubkeys.filter((pk) => pk !== pubkey),
   );
   const [featuredArtists, setFeaturedArtists] = useState<string[]>(track.featuredArtists);
+  const { profile: myProfile } = useProfile(pubkey);
   const [coverFile, setCoverFile] = useState<File | null>(null);
   const [revisionSummary, setRevisionSummary] = useState("");
   const [submitting, setSubmitting] = useState(false);
@@ -67,9 +74,10 @@ export function EditTrackModal({ track, onClose }: EditTrackModalProps) {
 
       const resolvedArtistPubkeys = iAmArtist ? [pubkey] : artistPubkeys;
 
+      const resolvedArtist = artist || myProfile?.display_name || myProfile?.name || pubkey;
       const unsigned = buildTrackEvent(pubkey, {
         title,
-        artist: artist || pubkey,
+        artist: resolvedArtist,
         slug: existingDTag,
         duration: track.duration,
         genre: genre || undefined,

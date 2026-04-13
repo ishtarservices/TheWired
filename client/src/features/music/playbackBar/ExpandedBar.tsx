@@ -23,6 +23,7 @@ import { setBarMode, toggleNowPlaying } from "@/store/slices/musicSlice";
 import { openRightPanelToTab, toggleRightPanel } from "@/store/slices/uiSlice";
 import { useLibrary } from "../useLibrary";
 import { getTrackImage } from "../trackImage";
+import { useResolvedArtist } from "../useResolvedArtist";
 import { ProgressBar } from "./ProgressBar";
 import { ListenTogetherBadge } from "@/features/listenTogether/ListenTogetherBadge";
 import { MusicPostModal } from "../MusicPostModal";
@@ -68,6 +69,10 @@ export function ExpandedBar() {
   const [showVolume, setShowVolume] = useState(false);
   const [postModalOpen, setPostModalOpen] = useState(false);
   const volumeTimeoutRef = useRef<ReturnType<typeof setTimeout>>(undefined);
+  const resolvedArtist = useResolvedArtist(
+    currentTrack?.artist ?? "",
+    currentTrack?.artistPubkeys,
+  );
 
   if (!currentTrack) return null;
 
@@ -135,7 +140,7 @@ export function ExpandedBar() {
                 {currentTrack.title}
               </p>
               <p className="truncate text-xs text-soft leading-tight">
-                {currentTrack.artist}
+                {resolvedArtist}
               </p>
             </div>
             <button

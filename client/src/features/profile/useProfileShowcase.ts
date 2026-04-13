@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback, useRef, useMemo } from "react";
 import { relayManager } from "@/lib/nostr/relayManager";
 import { subscriptionManager } from "@/lib/nostr/subscriptionManager";
+import { PROFILE_RELAYS } from "@/lib/nostr/constants";
 import { signAndPublish } from "@/lib/nostr/publish";
 import { EVENT_KINDS } from "@/types/nostr";
 import type { NostrEvent } from "@/types/nostr";
@@ -69,6 +70,7 @@ export function useProfileShowcase(pubkey: string | null) {
           limit: 1,
         },
       ],
+      relayUrls: PROFILE_RELAYS,
       onEvent: (event: NostrEvent) => {
         if (cancelled) return;
         if (event.created_at <= newestAt.current) return;
@@ -129,7 +131,7 @@ export function useProfileShowcase(pubkey: string | null) {
     const filters = [...trackFilters, ...albumFilters];
     if (filters.length === 0) return;
 
-    const subId = subscriptionManager.subscribe({ filters });
+    const subId = subscriptionManager.subscribe({ filters, relayUrls: PROFILE_RELAYS });
 
     return () => {
       subscriptionManager.close(subId);

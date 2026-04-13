@@ -12,6 +12,13 @@ export const BOOTSTRAP_RELAYS = [
   "wss://nostr.wine",
 ];
 
+/** Targeted relays for profile data lookups (kind:0, kind:1, kind:3, kind:6, kind:30023) */
+export const PROFILE_RELAYS = [
+  APP_RELAY,
+  "wss://relay.damus.io",
+  "wss://relay.primal.net",
+];
+
 /** Reconnection backoff parameters */
 export const RECONNECT = {
   /** Initial delay in ms */

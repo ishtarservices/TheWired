@@ -5,6 +5,7 @@ import { useAppSelector } from "@/store/hooks";
 import { buildTrackEvent, buildAlbumEvent } from "./musicEventBuilder";
 import { signAndPublish } from "@/lib/nostr/publish";
 import { selectAudioSource } from "./trackParser";
+import { useResolvedArtist } from "./useResolvedArtist";
 import type { MusicTrack } from "@/types/music";
 
 interface MoveTrackModalProps {
@@ -25,6 +26,7 @@ export function MoveTrackModal({ track, onClose, onBack }: MoveTrackModalProps) 
     );
   }, [albums, pubkey]);
 
+  const resolvedArtist = useResolvedArtist(track.artist, track.artistPubkeys);
   const [targetAlbumId, setTargetAlbumId] = useState<string>("");
   const [revisionSummary, setRevisionSummary] = useState("");
   const [submitting, setSubmitting] = useState(false);
@@ -144,7 +146,7 @@ export function MoveTrackModal({ track, onClose, onBack }: MoveTrackModalProps) 
           {/* Track being moved */}
           <div className="rounded-xl border border-border bg-surface px-3 py-2">
             <p className="text-sm font-medium text-heading">{track.title}</p>
-            <p className="text-xs text-muted">{track.artist}</p>
+            <p className="text-xs text-muted">{resolvedArtist}</p>
           </div>
 
           {/* Current location */}

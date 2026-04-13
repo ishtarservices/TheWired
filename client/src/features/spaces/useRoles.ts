@@ -9,10 +9,12 @@ import {
 import type { SpaceRole } from "../../types/space";
 import * as rolesApi from "../../lib/api/roles";
 
+const EMPTY_ROLES: never[] = [];
+
 export function useRoles(spaceId: string | null) {
   const dispatch = useAppDispatch();
   const roles = useAppSelector(
-    (s) => (spaceId ? s.spaceConfig.roles[spaceId] : undefined) ?? [],
+    (s) => (spaceId ? s.spaceConfig.roles[spaceId] : undefined) ?? EMPTY_ROLES,
   );
   const isLoading = useAppSelector(
     (s) => (spaceId ? s.spaceConfig.loading[spaceId] : false) ?? false,
@@ -34,11 +36,11 @@ export function useRoles(spaceId: string | null) {
         fetchedRef.current = spaceId;
         dispatch(setRoles({ spaceId: spaceId!, roles: fetched as SpaceRole[] }));
 
-        // If backend returned empty (roles not seeded yet), retry up to 3 times
-        if (fetched.length === 0 && attempt < 3) {
+        // If backend returned empty (roles not seeded yet), retry once after 3s
+        if (fetched.length === 0 && attempt < 2) {
           retryTimer = setTimeout(() => {
             if (!cancelled) fetchRoles(attempt + 1);
-          }, 1000 * attempt); // 1s, 2s, 3s backoff
+          }, 3000);
         }
       } catch {
         // Backend unavailable — retry once after delay

@@ -9,6 +9,7 @@ import { MusicRouter } from "../features/music/MusicRouter";
 import { MusicLinkResolver } from "../features/music/MusicLinkResolver";
 import { RelayStatusPanel } from "../features/relay/RelayStatusPanel";
 import { ProfilePage } from "../features/profile/ProfilePage";
+import { NoteThreadPage } from "../features/profile/NoteThreadPage";
 import { SettingsPage } from "../features/settings/SettingsPage";
 import { DMView } from "../features/dm/DMView";
 import { DiscoverPage } from "../features/discover/DiscoverPage";
@@ -130,6 +131,10 @@ export default function App() {
               <Route path="music/album/:pubkey/:slug" element={<MusicLinkResolver type="album" />} />
               <Route path="music/track/:pubkey/:slug" element={<MusicLinkResolver type="track" />} />
               <Route
+                path="note/:noteId"
+                element={<NoteRouteWrapper />}
+              />
+              <Route
                 path="profile/:pubkey"
                 element={<ProfileRouteWrapper />}
               />
@@ -143,6 +148,12 @@ export default function App() {
       </BrowserRouter>
     </ThemeProvider>
   );
+}
+
+function NoteRouteWrapper() {
+  const { noteId } = useParams<{ noteId: string }>();
+  if (!noteId) return null;
+  return <NoteThreadPage noteId={noteId} />;
 }
 
 function ProfileRouteWrapper() {

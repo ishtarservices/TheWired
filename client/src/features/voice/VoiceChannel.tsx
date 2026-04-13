@@ -25,11 +25,13 @@ import { ListenTogetherInvite } from "@/features/listenTogether/ListenTogetherIn
  * - Connected (video): video grid always, with local camera tile
  * - Screen share: full-width screen with participant sidebar
  */
+const EMPTY_CHANNELS: never[] = [];
+
 export function VoiceChannel() {
   const activeSpaceId = useAppSelector((s) => s.spaces.activeSpaceId);
   const activeChannelId = useAppSelector((s) => s.spaces.activeChannelId);
   const channels = useAppSelector(
-    (s) => (activeSpaceId ? s.spaces.channels[activeSpaceId] : undefined) ?? [],
+    (s) => (activeSpaceId ? s.spaces.channels[activeSpaceId] : undefined) ?? EMPTY_CHANNELS,
   );
   const ltActive = useAppSelector((s) => s.listenTogether.active);
   const ltPickerOpen = useAppSelector((s) => s.listenTogether.pickerOpen);

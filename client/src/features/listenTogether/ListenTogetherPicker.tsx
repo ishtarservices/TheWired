@@ -18,6 +18,7 @@ import { useAudioPlayer } from "@/features/music/useAudioPlayer";
 import { useAppSelector } from "@/store/hooks";
 import { useMusicSearch } from "@/features/music/useMusicSearch";
 import { getTrackImage } from "@/features/music/trackImage";
+import { useResolvedArtist } from "@/features/music/useResolvedArtist";
 import { VolumeBalance } from "./VolumeBalance";
 import type { MusicTrack } from "@/types/music";
 
@@ -366,6 +367,11 @@ function SearchTab({
   );
 }
 
+function QueueItemArtist({ track }: { track: MusicTrack }) {
+  const resolved = useResolvedArtist(track.artist, track.artistPubkeys);
+  return <>{resolved}</>;
+}
+
 // ── Queue Tab ─────────────────────────────────────────────────────
 
 function QueueTab({
@@ -424,7 +430,7 @@ function QueueTab({
                 {track.title}
               </p>
               <p className="truncate text-[10px] text-soft leading-tight">
-                {track.artist}
+                <QueueItemArtist track={track} />
               </p>
             </div>
             {isLocalDJ && (
@@ -459,6 +465,7 @@ function TrackRow({
   actionLabel?: string;
 }) {
   const imageUrl = getTrackImage(track, albums);
+  const resolvedArtist = useResolvedArtist(track.artist, track.artistPubkeys);
 
   return (
     <div className="group flex items-center gap-2 px-3 py-1.5 hover:bg-surface-hover transition-colors">
@@ -477,7 +484,7 @@ function TrackRow({
           {track.title}
         </p>
         <p className="truncate text-[10px] text-soft leading-tight">
-          {track.artist}
+          {resolvedArtist}
         </p>
       </div>
 

@@ -13,6 +13,13 @@ import { useListenTogether } from "./useListenTogether";
 import { useAudioPlayer } from "@/features/music/useAudioPlayer";
 import { useAppSelector } from "@/store/hooks";
 import { useProfile } from "@/features/profile/useProfile";
+import { useResolvedArtist } from "@/features/music/useResolvedArtist";
+import type { MusicTrack } from "@/types/music";
+
+function ResolvedTrackArtist({ track }: { track: MusicTrack }) {
+  const resolved = useResolvedArtist(track.artist, track.artistPubkeys);
+  return <>{resolved}</>;
+}
 import { getTrackImage } from "@/features/music/trackImage";
 import { ProgressBar } from "@/features/music/playbackBar/ProgressBar";
 import { ReactionOverlay } from "./ReactionOverlay";
@@ -53,6 +60,11 @@ export function NowPlayingPanel({ onClose }: NowPlayingPanelProps) {
   const sharedQueueIndex = useAppSelector((s) => s.listenTogether.sharedQueueIndex);
   const tracks = useAppSelector((s) => s.music.tracks);
   const { profile: djProfile } = useProfile(djPubkey ?? "");
+
+  const resolvedArtist = useResolvedArtist(
+    currentTrack?.artist ?? "",
+    currentTrack?.artistPubkeys,
+  );
 
   if (!active || !currentTrack) return null;
 
@@ -100,7 +112,7 @@ export function NowPlayingPanel({ onClose }: NowPlayingPanelProps) {
               {currentTrack.title}
             </p>
             <p className="truncate text-xs text-soft mt-0.5">
-              {currentTrack.artist}
+              {resolvedArtist}
             </p>
 
             {/* DJ badge + listener count + leave */}
@@ -205,7 +217,7 @@ export function NowPlayingPanel({ onClose }: NowPlayingPanelProps) {
                   {track.title}
                 </span>
                 <span className="truncate text-[10px] text-muted max-w-[100px]">
-                  {track.artist}
+                  <ResolvedTrackArtist track={track} />
                 </span>
               </div>
             ))}

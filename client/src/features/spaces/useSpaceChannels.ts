@@ -8,6 +8,8 @@ import {
   setChannelsLoading,
 } from "../../store/slices/spacesSlice";
 import type { Space, SpaceChannel, SpaceChannelType } from "../../types/space";
+
+const EMPTY_CHANNELS: SpaceChannel[] = [];
 import * as channelsApi from "../../lib/api/channels";
 import { saveChannels, loadChannels } from "../../lib/db/channelStore";
 
@@ -37,7 +39,7 @@ function makeDefaultChannels(spaceId: string, mode: Space["mode"]): SpaceChannel
 export function useSpaceChannels(spaceId: string | null) {
   const dispatch = useAppDispatch();
   const channels = useAppSelector(
-    (s) => (spaceId ? s.spaces.channels[spaceId] : undefined) ?? [],
+    (s) => (spaceId ? s.spaces.channels[spaceId] : undefined) ?? EMPTY_CHANNELS,
   );
   const isLoading = useAppSelector(
     (s) => (spaceId ? s.spaces.channelsLoading[spaceId] : false) ?? false,

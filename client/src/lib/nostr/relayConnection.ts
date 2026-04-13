@@ -6,6 +6,10 @@ import { computeBackoff, StormDetector } from "./reconnect";
 /** Internal callback that includes the subscription ID for routing */
 type InternalEventCallback = (subId: string, event: NostrEvent, relayUrl: string) => void;
 
+/** Default subscription cap per relay if NIP-11 doesn't specify one.
+ *  Conservative to stay under most public relays. */
+const DEFAULT_MAX_SUBS = 20;
+
 export class RelayConnection {
   readonly url: string;
   readonly mode: RelayMode;
@@ -21,6 +25,11 @@ export class RelayConnection {
   private pingStart = 0;
   private eventCount = 0;
 
+  /** Per-relay subscription cap (from NIP-11 or default). */
+  private maxSubscriptions = DEFAULT_MAX_SUBS;
+  /** Overflow queue: subs that couldn't be sent because we're at the cap. */
+  private deferredSubs: Array<{ subId: string; filters: NostrFilter[] }> = [];
+
   // Callbacks
   private onEvent: InternalEventCallback | null = null;
   private onEOSE: RelayEOSECallback | null = null;
@@ -28,10 +37,14 @@ export class RelayConnection {
   private onStatusChange: RelayStatusCallback | null = null;
   private stormDetector: StormDetector;
 
+  /** Short relay name for logging (computed once). */
+  private shortUrl: string;
+
   constructor(url: string, mode: RelayMode, stormDetector: StormDetector) {
     this.url = url;
     this.mode = mode;
     this.stormDetector = stormDetector;
+    this.shortUrl = url.replace("wss://", "").replace("ws://", "").replace(/\/$/, "");
   }
 
   setCallbacks(cbs: {
@@ -103,6 +116,7 @@ export class RelayConnection {
     this.subscriptions.clear();
     this.pendingEOSE.clear();
     this.messageQueue = [];
+    this.deferredSubs = [];
   }
 
   send(msg: ClientMessage): void {
@@ -113,16 +127,54 @@ export class RelayConnection {
     }
   }
 
+  /** Update the subscription cap (called after fetching NIP-11). */
+  setMaxSubscriptions(max: number): void {
+    this.maxSubscriptions = max;
+  }
+
   subscribe(subId: string, filters: NostrFilter[]): void {
     this.subscriptions.set(subId, filters);
     this.pendingEOSE.add(subId);
-    this.send(["REQ", subId, ...filters]);
+
+    // Enforce per-relay subscription cap — defer if at limit
+    const activeSent = this.subscriptions.size - this.deferredSubs.length;
+    if (activeSent >= this.maxSubscriptions) {
+      this.deferredSubs.push({ subId, filters });
+      return;
+    }
+
+    // Send REQ directly if connected; otherwise resubscribe() handles it on connect.
+    // Do NOT queue REQs — that causes double-sends when flushQueue + resubscribe both fire.
+    if (this.ws && this.ws.readyState === WebSocket.OPEN) {
+      this.ws.send(JSON.stringify(["REQ", subId, ...filters]));
+    }
   }
 
   closeSubscription(subId: string): void {
     this.subscriptions.delete(subId);
     this.pendingEOSE.delete(subId);
+    // Remove from deferred queue if it was never sent
+    this.deferredSubs = this.deferredSubs.filter((d) => d.subId !== subId);
     this.send(["CLOSE", subId]);
+    // A slot opened — drain the next deferred sub
+    this.drainDeferred();
+  }
+
+  /** Send the next deferred subscription if a slot is available. */
+  private drainDeferred(): void {
+    if (this.deferredSubs.length === 0) return;
+    const activeSent = this.subscriptions.size - this.deferredSubs.length;
+    if (activeSent >= this.maxSubscriptions) return;
+    if (!this.ws || this.ws.readyState !== WebSocket.OPEN) return;
+
+    const next = this.deferredSubs.shift()!;
+    // The sub may have been closed while deferred
+    if (!this.subscriptions.has(next.subId)) {
+      this.drainDeferred(); // try next
+      return;
+    }
+
+    this.ws.send(JSON.stringify(["REQ", next.subId, ...next.filters]));
   }
 
   publish(event: NostrEvent): void {
@@ -162,7 +214,7 @@ export class RelayConnection {
         break;
       }
       case "NOTICE": {
-        console.warn(`[Relay ${this.url}] NOTICE: ${msg[1]}`);
+        console.warn(`[Relay ${this.shortUrl}] NOTICE: ${msg[1]}`);
         break;
       }
       case "CLOSED": {
@@ -190,10 +242,35 @@ export class RelayConnection {
     }
   }
 
+  /** Re-send all active subscriptions after reconnect, staggered in batches
+   *  to avoid overwhelming relays with concurrent REQs. */
   private resubscribe(): void {
-    for (const [subId, filters] of this.subscriptions) {
-      this.pendingEOSE.add(subId);
-      this.send(["REQ", subId, ...filters]);
+    const entries = [...this.subscriptions.entries()];
+    if (entries.length === 0) return;
+
+    const BATCH_SIZE = 5;
+    const BATCH_DELAY_MS = 150;
+
+    for (let i = 0; i < entries.length; i += BATCH_SIZE) {
+      const batch = entries.slice(i, i + BATCH_SIZE);
+      const delay = (i / BATCH_SIZE) * BATCH_DELAY_MS;
+
+      if (delay === 0) {
+        for (const [subId, filters] of batch) {
+          this.pendingEOSE.add(subId);
+          this.send(["REQ", subId, ...filters]);
+        }
+      } else {
+        setTimeout(() => {
+          if (this.ws && this.ws.readyState === WebSocket.OPEN) {
+            for (const [subId, filters] of batch) {
+              if (!this.subscriptions.has(subId)) continue;
+              this.pendingEOSE.add(subId);
+              this.send(["REQ", subId, ...filters]);
+            }
+          }
+        }, delay);
+      }
     }
   }
 

@@ -1,6 +1,6 @@
 import type { ImetaVariant } from "./media";
 
-export type MusicVisibility = "public" | "unlisted" | "space" | "local";
+export type MusicVisibility = "public" | "private" | "space" | "local";
 
 export type ProjectType = "album" | "ep" | "demo" | "mix" | "other";
 
@@ -12,7 +12,8 @@ export interface MusicTrack {
   title: string;
   artist: string;
   artistPubkeys: string[]; // pubkeys explicitly tagged as artist role (from p-tags with role "artist")
-  featuredArtists: string[]; // pubkeys of featured/collaborating artists (from p-tags)
+  featuredArtists: string[]; // pubkeys of featured/collaborating artists (from p-tags with role "featured")
+  collaborators: string[]; // pubkeys invited to view/edit private content (from p-tags with role "collaborator")
   albumRef?: string; // addressable ID of parent album
   duration?: number; // seconds
   genre?: string;
@@ -35,7 +36,8 @@ export interface MusicAlbum {
   title: string;
   artist: string;
   artistPubkeys: string[]; // pubkeys explicitly tagged as artist role
-  featuredArtists: string[]; // pubkeys of featured/collaborating artists (from p-tags)
+  featuredArtists: string[]; // pubkeys of featured/collaborating artists (from p-tags with role "featured")
+  collaborators: string[]; // pubkeys invited to view/edit private content (from p-tags with role "collaborator")
   projectType: ProjectType;
   imageUrl?: string;
   blurhash?: string;

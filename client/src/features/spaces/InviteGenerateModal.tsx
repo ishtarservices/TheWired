@@ -1,10 +1,13 @@
-import { useReducer, useCallback } from "react";
-import { X, Copy, Check, Send } from "lucide-react";
+import { useReducer, useCallback, useState, useRef, useEffect } from "react";
+import { X, Copy, Check, Send, Search } from "lucide-react";
 import { Modal } from "../../components/ui/Modal";
 import { Button } from "../../components/ui/Button";
 import { Spinner } from "../../components/ui/Spinner";
+import { Avatar } from "../../components/ui/Avatar";
 import { createInvite } from "../../lib/api/invites";
 import { sendDM } from "../dm/dmService";
+import { useUserSearch } from "../search/useUserSearch";
+import { useProfile } from "../profile/useProfile";
 
 interface InviteGenerateModalProps {
   open: boolean;
@@ -265,34 +268,14 @@ export function InviteGenerateModal({
             </div>
 
             {/* Send via DM */}
-            <div>
-              <label className="mb-1 block text-xs font-medium text-soft">
-                Send via DM (optional)
-              </label>
-              <div className="flex items-center gap-2">
-                <input
-                  type="text"
-                  value={state.dmTarget}
-                  onChange={(e) => dispatch({ type: "SET_DM_TARGET", value: e.target.value })}
-                  placeholder="Paste npub or hex pubkey..."
-                  className="flex-1 rounded-xl bg-field border border-border px-3 py-2 text-sm text-heading placeholder-muted font-mono focus:border-primary focus:outline-none transition-colors"
-                />
-                <Button
-                  variant="accent"
-                  size="md"
-                  onClick={handleSendDM}
-                  disabled={!state.dmTarget.trim() || state.dmSending || state.dmSent}
-                >
-                  {state.dmSending ? (
-                    <Spinner size="sm" />
-                  ) : state.dmSent ? (
-                    <Check size={14} className="text-green-400" />
-                  ) : (
-                    <Send size={14} />
-                  )}
-                </Button>
-              </div>
-            </div>
+            <DmTargetPicker
+              dmTarget={state.dmTarget}
+              onSelect={(pk) => dispatch({ type: "SET_DM_TARGET", value: pk })}
+              onClear={() => dispatch({ type: "SET_DM_TARGET", value: "" })}
+              onSend={handleSendDM}
+              dmSending={state.dmSending}
+              dmSent={state.dmSent}
+            />
 
             {state.error && (
               <p className="text-xs text-red-400">{state.error}</p>
@@ -307,5 +290,145 @@ export function InviteGenerateModal({
         )}
       </div>
     </Modal>
+  );
+}
+
+/* ── Selected user display ── */
+function SelectedUserChip({ pubkey, onClear }: { pubkey: string; onClear: () => void }) {
+  const { profile } = useProfile(pubkey);
+  const name = profile?.display_name || profile?.name || pubkey.slice(0, 12) + "...";
+
+  return (
+    <div className="flex items-center gap-2 rounded-xl bg-field border border-border px-3 py-1.5">
+      <Avatar src={profile?.picture} size="xs" />
+      <span className="flex-1 truncate text-sm text-heading">{name}</span>
+      <button
+        type="button"
+        onClick={onClear}
+        className="text-muted hover:text-heading transition-colors"
+      >
+        <X size={12} />
+      </button>
+    </div>
+  );
+}
+
+/* ── DM target picker with user search ── */
+function DmTargetPicker({
+  dmTarget,
+  onSelect,
+  onClear,
+  onSend,
+  dmSending,
+  dmSent,
+}: {
+  dmTarget: string;
+  onSelect: (pubkey: string) => void;
+  onClear: () => void;
+  onSend: () => void;
+  dmSending: boolean;
+  dmSent: boolean;
+}) {
+  const { query, setQuery, results, isSearching } = useUserSearch();
+  const [focused, setFocused] = useState(false);
+  const containerRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    function handleClick(e: MouseEvent) {
+      if (containerRef.current && !containerRef.current.contains(e.target as Node)) {
+        setFocused(false);
+      }
+    }
+    document.addEventListener("mousedown", handleClick);
+    return () => document.removeEventListener("mousedown", handleClick);
+  }, []);
+
+  const handleSelectUser = (pubkey: string) => {
+    onSelect(pubkey);
+    setQuery("");
+    setFocused(false);
+  };
+
+  const showDropdown = focused && query.trim().length > 0 && (results.length > 0 || isSearching);
+
+  return (
+    <div ref={containerRef}>
+      <label className="mb-1 block text-xs font-medium text-soft">
+        Send via DM (optional)
+      </label>
+      <div className="flex items-center gap-2">
+        {dmTarget ? (
+          <div className="flex-1">
+            <SelectedUserChip pubkey={dmTarget} onClear={onClear} />
+          </div>
+        ) : (
+          <div className="relative flex-1">
+            <div className="flex items-center gap-2 rounded-xl bg-field border border-border px-3 py-2 focus-within:border-primary focus-within:outline-none transition-colors">
+              <Search size={14} className="text-muted shrink-0" />
+              <input
+                type="text"
+                value={query}
+                onChange={(e) => setQuery(e.target.value)}
+                onFocus={() => setFocused(true)}
+                placeholder="Search by name, npub, or hex pubkey..."
+                className="flex-1 bg-transparent text-sm text-heading placeholder-muted outline-none"
+              />
+              {query && (
+                <button
+                  type="button"
+                  onClick={() => setQuery("")}
+                  className="text-muted hover:text-heading"
+                >
+                  <X size={12} />
+                </button>
+              )}
+            </div>
+            {showDropdown && (
+              <div className="absolute left-0 right-0 top-full z-50 mt-1 max-h-48 overflow-y-auto rounded-xl border border-border-light bg-panel shadow-xl shadow-black/40">
+                {isSearching && results.length === 0 && (
+                  <p className="px-3 py-2 text-xs text-muted">Searching...</p>
+                )}
+                {results.map((r) => {
+                  const name = r.profile.display_name || r.profile.name || r.pubkey.slice(0, 8) + "...";
+                  const secondary = r.profile.nip05 || r.pubkey.slice(0, 12) + "...";
+                  return (
+                    <button
+                      key={r.pubkey}
+                      type="button"
+                      onMouseDown={(e) => e.preventDefault()}
+                      onClick={() => handleSelectUser(r.pubkey)}
+                      className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-sm transition-colors hover:bg-card-hover/30"
+                    >
+                      <Avatar src={r.profile.picture} size="sm" />
+                      <div className="min-w-0 flex-1">
+                        <p className="truncate text-heading">{name}</p>
+                        <p className="truncate text-xs text-muted">{secondary}</p>
+                      </div>
+                    </button>
+                  );
+                })}
+                {isSearching && results.length > 0 && (
+                  <p className="px-3 py-1.5 text-center text-[10px] text-muted">Searching for more...</p>
+                )}
+              </div>
+            )}
+          </div>
+        )}
+        <Button
+          variant="accent"
+          size="md"
+          onClick={onSend}
+          disabled={!dmTarget || dmSending || dmSent}
+        >
+          {dmSending ? (
+            <Spinner size="sm" />
+          ) : dmSent ? (
+            <Check size={14} className="text-green-400" />
+          ) : (
+            <Send size={14} />
+          )}
+        </Button>
+      </div>
+    </div>
   );
 }

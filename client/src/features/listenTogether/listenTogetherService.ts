@@ -770,6 +770,7 @@ function ensureTrackAvailable(trackId: string, meta: TrackMeta): void {
       artist: meta.artist,
       artistPubkeys: [],
       featuredArtists: [],
+      collaborators: [],
       duration: undefined,
       genre: undefined,
       hashtags: [],

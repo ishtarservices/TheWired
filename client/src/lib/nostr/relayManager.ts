@@ -44,6 +44,8 @@ class RelayManagerImpl {
     }
 
     const conn = new RelayConnection(url, mode, this.stormDetector);
+    // Fetch NIP-11 relay info to learn subscription limits (non-blocking)
+    this.fetchNip11(url, conn);
     conn.setCallbacks({
       onEvent: (subId, event, relayUrl) => {
         // Route to the specific subscription callback
@@ -124,7 +126,7 @@ class RelayManagerImpl {
         }
       }
     } else {
-      // No specific URLs: send to all current read relays (unchanged behavior)
+      // No specific URLs: send to all current read relays
       for (const conn of this.getReadRelays()) {
         conn.subscribe(subId, filters);
       }
@@ -277,14 +279,38 @@ class RelayManagerImpl {
     });
   }
 
+  /** Fetch NIP-11 relay info document to learn subscription limits.
+   *  Non-blocking — if it fails, the default cap is used. */
+  private async fetchNip11(url: string, conn: RelayConnection): Promise<void> {
+    try {
+      const httpUrl = url.replace("wss://", "https://").replace("ws://", "http://");
+      const response = await fetch(httpUrl, {
+        headers: { Accept: "application/nostr+json" },
+        signal: AbortSignal.timeout(5000),
+      });
+      if (!response.ok) return;
+      const info = await response.json();
+      const maxSubs = info?.limitation?.max_subscriptions;
+      if (typeof maxSubs === "number" && maxSubs > 0) {
+        conn.setMaxSubscriptions(maxSubs);
+      }
+    } catch {
+      // NIP-11 not available — use default cap
+    }
+  }
+
   /** Forward pending subscriptions to a newly-connected relay */
   private forwardPendingSubscriptions(relayUrl: string, conn: RelayConnection): void {
+    let forwarded = 0;
     for (const [subId, pending] of this.pendingSubscriptions) {
       if (!pending.intendedUrls.includes(relayUrl)) continue;
       if (conn.hasSubscription(subId)) continue;
       if (!this.onEventCallbacks.has(subId)) continue;
       conn.subscribe(subId, pending.filters);
+      forwarded++;
     }
+    // forwarded count unused but kept for future diagnostics if needed
+    void forwarded;
   }
 }
 

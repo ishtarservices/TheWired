@@ -108,8 +108,10 @@ services:
       VAPID_PUBLIC_KEY: ${VAPID_PUBLIC_KEY:-}
       VAPID_PRIVATE_KEY: ${VAPID_PRIVATE_KEY:-}
       GIF_API_KEY: ${GIF_API_KEY:-}
+      BLOB_DIR: /app/blobs
+      MAX_BLOB_SIZE: ${MAX_BLOB_SIZE:-104857600}
     volumes:
-      - uploads:/app/uploads
+      - blobdata:/app/blobs
     depends_on:
       postgres:
         condition: service_healthy
@@ -212,6 +214,6 @@ volumes:
   pgdata:
   meilidata:
   redisdata:
-  uploads:
+  blobdata:
   caddy_data:
   caddy_config:

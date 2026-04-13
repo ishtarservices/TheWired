@@ -1,4 +1,4 @@
-import { useRef, useState, useCallback } from "react";
+import { useRef, useState, useCallback, useMemo } from "react";
 import { formatDistanceToNow } from "date-fns";
 import { SmilePlus } from "lucide-react";
 import { Avatar } from "../../components/ui/Avatar";
@@ -63,18 +63,19 @@ export function ChatMessage({
 
   // Aggregate reactions for this message
   const reactionIds = useAppSelector((s) => s.events.reactions[event.id]);
-  const reactions = useAppSelector((s) => {
+  const entities = useAppSelector((s) => s.events.entities);
+  const reactions = useMemo(() => {
     if (!reactionIds || reactionIds.length === 0) return [];
     const grouped: Record<string, number> = {};
     for (const id of reactionIds) {
-      const ev = s.events.entities[id];
+      const ev = entities[id];
       if (ev) {
         const key = ev.content || "+";
         grouped[key] = (grouped[key] ?? 0) + 1;
       }
     }
     return Object.entries(grouped).map(([content, count]) => ({ content, count }));
-  });
+  }, [reactionIds, entities]);
 
   const handleContextMenu = useCallback((e: React.MouseEvent) => {
     e.preventDefault();

@@ -1,12 +1,14 @@
 package ratelimit
 
 import (
+	"fmt"
 	"log"
 	"net/http"
 	"strings"
+	"time"
 )
 
-// RateLimitMiddleware applies per-pubkey rate limiting
+// RateLimitMiddleware applies per-pubkey rate limiting.
 func RateLimitMiddleware(limiter *Limiter, next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		pubkey := r.Header.Get("X-Auth-Pubkey")
@@ -34,7 +36,7 @@ func RateLimitMiddleware(limiter *Limiter, next http.Handler) http.Handler {
 			category = "search"
 		}
 
-		allowed, err := limiter.Allow(r.Context(), pubkey, category)
+		result, err := limiter.Allow(r.Context(), pubkey, category)
 		if err != nil {
 			log.Printf("Rate limiter error: %v", err)
 			w.Header().Set("Content-Type", "application/json")
@@ -43,7 +45,16 @@ func RateLimitMiddleware(limiter *Limiter, next http.Handler) http.Handler {
 			return
 		}
 
-		if !allowed {
+		// Always expose rate limit info so clients can self-throttle
+		w.Header().Set("X-RateLimit-Remaining", fmt.Sprintf("%d", result.Remaining))
+		w.Header().Set("X-RateLimit-Reset", fmt.Sprintf("%d", result.ResetAt.Unix()))
+
+		if !result.Allowed {
+			retryAfter := int64(time.Until(result.ResetAt).Seconds())
+			if retryAfter < 1 {
+				retryAfter = 1
+			}
+			w.Header().Set("Retry-After", fmt.Sprintf("%d", retryAfter))
 			w.Header().Set("Content-Type", "application/json")
 			w.WriteHeader(http.StatusTooManyRequests)
 			w.Write([]byte(`{"error":"rate limit exceeded","code":"RATE_LIMITED"}`))

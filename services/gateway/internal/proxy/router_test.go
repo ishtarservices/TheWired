@@ -94,7 +94,7 @@ func TestRouter_StripsCORSFromBackend(t *testing.T) {
 	}
 }
 
-func TestNewUploadsHandler_PassesPathThrough(t *testing.T) {
+func TestNewBlossomHandler_PassesPathThrough(t *testing.T) {
 	var receivedPath string
 	backend := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		receivedPath = r.URL.Path
@@ -102,13 +102,37 @@ func TestNewUploadsHandler_PassesPathThrough(t *testing.T) {
 	}))
 	defer backend.Close()
 
-	handler := NewUploadsHandler(backend.URL)
+	handler := NewBlossomHandler(backend.URL)
 
-	req := httptest.NewRequest("GET", "http://gateway/uploads/abc123.jpg", nil)
+	hash := "a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2"
+	req := httptest.NewRequest("GET", "http://gateway/"+hash+".mp3", nil)
 	rr := httptest.NewRecorder()
 	handler.ServeHTTP(rr, req)
 
-	if receivedPath != "/uploads/abc123.jpg" {
-		t.Errorf("expected /uploads/abc123.jpg, got %q", receivedPath)
+	if receivedPath != "/"+hash+".mp3" {
+		t.Errorf("expected /%s.mp3, got %q", hash, receivedPath)
+	}
+}
+
+func TestIsBlossomPath(t *testing.T) {
+	tests := []struct {
+		path string
+		want bool
+	}{
+		{"/upload", true},
+		{"/list/abc123", true},
+		{"/" + "a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2", true},
+		{"/" + "a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2" + ".mp3", true},
+		{"/api/spaces", false},
+		{"/health", false},
+		{"/short-hash", false},
+		{"/not-hex-gggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggg", false},
+	}
+
+	for _, tt := range tests {
+		got := IsBlossomPath(tt.path)
+		if got != tt.want {
+			t.Errorf("IsBlossomPath(%q) = %v, want %v", tt.path, got, tt.want)
+		}
 	}
 }

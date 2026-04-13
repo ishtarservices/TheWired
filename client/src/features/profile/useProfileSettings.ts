@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import { relayManager } from "@/lib/nostr/relayManager";
+import { PROFILE_RELAYS } from "@/lib/nostr/constants";
 import { signAndPublish } from "@/lib/nostr/publish";
 import { EVENT_KINDS } from "@/types/nostr";
 import type { NostrEvent } from "@/types/nostr";
@@ -63,6 +64,7 @@ export function useProfileSettings(pubkey: string | null) {
           limit: 1,
         },
       ],
+      relayUrls: PROFILE_RELAYS,
       onEvent: (event: NostrEvent) => {
         if (cancelled) return;
         // Addressable events: keep the newest created_at

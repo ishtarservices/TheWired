@@ -4,6 +4,7 @@ import { musicService } from "../services/musicService.js";
 import { db } from "../db/connection.js";
 import { eq, and, sql } from "drizzle-orm";
 import { savedAlbumVersions } from "../db/schema/savedVersions.js";
+import { spaceMembers } from "../db/schema/members.js";
 import { validate, hexId, nonEmptyString, limitParam, offsetParam } from "../lib/validation.js";
 
 const pubkeySlugParams = z.object({
@@ -67,6 +68,54 @@ function normalizeEvent(row: RelayEvent): RelayEvent {
   return { ...row, created_at: Number(row.created_at) };
 }
 
+/** Check visibility tags and enforce access control. Returns error reply if denied, undefined if allowed. */
+async function checkEventVisibility(
+  event: RelayEvent,
+  ownerPubkey: string,
+  authPubkey: string | null,
+  reply: import("fastify").FastifyReply,
+): Promise<boolean> {
+  const eventTags = event.tags;
+  const vis = eventTags.find((t: string[]) => t[0] === "visibility")?.[1];
+  const hTag = eventTags.find((t: string[]) => t[0] === "h")?.[1];
+
+  // Space-scoped: require membership or ownership
+  if (hTag) {
+    if (!authPubkey) {
+      reply.status(404).send({ error: "Not found", code: "NOT_FOUND" });
+      return false;
+    }
+    if (authPubkey !== ownerPubkey) {
+      const membership = await db
+        .select()
+        .from(spaceMembers)
+        .where(and(eq(spaceMembers.spaceId, hTag), eq(spaceMembers.pubkey, authPubkey)))
+        .limit(1);
+      if (membership.length === 0) {
+        reply.status(404).send({ error: "Not found", code: "NOT_FOUND" });
+        return false;
+      }
+    }
+  }
+
+  // Private/unlisted: require ownership or collaborator status
+  if (vis === "unlisted" || vis === "private") {
+    if (!authPubkey) {
+      reply.status(404).send({ error: "Not found", code: "NOT_FOUND" });
+      return false;
+    }
+    const isCollaborator = eventTags.some(
+      (t: string[]) => t[0] === "p" && t[1] === authPubkey,
+    );
+    if (authPubkey !== ownerPubkey && !isCollaborator) {
+      reply.status(404).send({ error: "Not found", code: "NOT_FOUND" });
+      return false;
+    }
+  }
+
+  return true;
+}
+
 export const musicRoutes: FastifyPluginAsync = async (server) => {
   // GET /music/resolve/album/:pubkey/:slug -- Resolve album by addressable ID
   server.get<{ Params: { pubkey: string; slug: string } }>(
@@ -90,6 +139,11 @@ export const musicRoutes: FastifyPluginAsync = async (server) => {
       if (rows.length === 0) {
         return reply.status(404).send({ error: "Album not found", code: "NOT_FOUND" });
       }
+
+      // Enforce visibility access control
+      const authPubkey = (request.headers["x-auth-pubkey"] as string) ?? null;
+      const allowed = await checkEventVisibility(rows[0], pubkey, authPubkey, reply);
+      if (!allowed) return;
 
       const albumEvent = normalizeEvent(rows[0]);
 
@@ -140,6 +194,11 @@ export const musicRoutes: FastifyPluginAsync = async (server) => {
       if (rows.length === 0) {
         return reply.status(404).send({ error: "Track not found", code: "NOT_FOUND" });
       }
+
+      // Enforce visibility access control
+      const authPubkey = (request.headers["x-auth-pubkey"] as string) ?? null;
+      const allowed = await checkEventVisibility(rows[0], pubkey, authPubkey, reply);
+      if (!allowed) return;
 
       return { data: { event: normalizeEvent(rows[0]) } };
     },

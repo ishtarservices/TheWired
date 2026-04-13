@@ -1,4 +1,4 @@
-import { Globe, Link2, Users, HardDrive } from "lucide-react";
+import { Globe, Lock, Users, HardDrive } from "lucide-react";
 import type { MusicVisibility } from "@/types/music";
 import { useAppSelector } from "@/store/hooks";
 
@@ -11,7 +11,7 @@ interface VisibilityPickerProps {
 
 const OPTIONS: { value: MusicVisibility; label: string; desc: string; icon: typeof Globe }[] = [
   { value: "public", label: "Public", desc: "Discoverable by everyone", icon: Globe },
-  { value: "unlisted", label: "Unlisted", desc: "Accessible via link, not in feeds", icon: Link2 },
+  { value: "private", label: "Private", desc: "Only you and collaborators", icon: Lock },
   { value: "space", label: "Space", desc: "Visible to space members only", icon: Users },
   { value: "local", label: "Local", desc: "Stored on this device only", icon: HardDrive },
 ];

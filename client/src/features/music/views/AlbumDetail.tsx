@@ -1,22 +1,23 @@
-import { useMemo, useState } from "react";
-import { ArrowLeft, Play, Shuffle, Disc3, Link2, Heart, Plus, Check, Trash2, Users, UserPlus, X, Clock, RefreshCw } from "lucide-react";
-import { nip19 } from "nostr-tools";
+import { useMemo, useState, useRef, useEffect } from "react";
+import { ArrowLeft, Play, Shuffle, Disc3, Link2, Heart, Plus, Check, Trash2, Users, UserPlus, X, Clock, RefreshCw, Pencil, Search } from "lucide-react";
 import { useAppSelector, useAppDispatch } from "@/store/hooks";
-import { goBack, setActiveDetailId, addAlbum } from "@/store/slices/musicSlice";
+import { goBack, setActiveDetailId } from "@/store/slices/musicSlice";
 import { TrackRow } from "../TrackRow";
 import { useAudioPlayer } from "../useAudioPlayer";
 import { useLibrary } from "../useLibrary";
 import { buildMusicLink } from "../musicLinks";
-import { buildAlbumEvent } from "../musicEventBuilder";
+import { buildAlbumEvent, buildPrivateAlbumEvent } from "../musicEventBuilder";
 import { copyToClipboard } from "@/lib/clipboard";
 import { signAndPublish } from "@/lib/nostr/publish";
-import { parseAlbumEvent } from "../albumParser";
 import { Avatar } from "@/components/ui/Avatar";
 import { useProfile } from "@/features/profile/useProfile";
+import { useUserSearch } from "@/features/search/useUserSearch";
 import { useSavedVersions } from "../useSavedVersions";
 import { ReleaseNotesModal } from "../ReleaseNotesModal";
+import { CreateAlbumModal } from "../CreateAlbumModal";
 import { AnnotationsPanel } from "../AnnotationsPanel";
 import { usePlaybackBarSpacing } from "@/hooks/usePlaybackBarSpacing";
+import { useResolvedArtist } from "../useResolvedArtist";
 
 function CollaboratorRow({
   pubkey,
@@ -47,21 +48,6 @@ function CollaboratorRow({
   );
 }
 
-function parsePubkeyInput(input: string): string | null {
-  const trimmed = input.trim();
-  if (!trimmed) return null;
-  if (/^[a-f0-9]{64}$/i.test(trimmed)) return trimmed.toLowerCase();
-  if (trimmed.startsWith("npub1")) {
-    try {
-      const decoded = nip19.decode(trimmed);
-      if (decoded.type === "npub") return decoded.data;
-    } catch {
-      return null;
-    }
-  }
-  return null;
-}
-
 export function AlbumDetail() {
   const dispatch = useAppDispatch();
   const albumId = useAppSelector((s) => s.music.activeDetailId);
@@ -81,12 +67,12 @@ export function AlbumDetail() {
   const [showReleaseNotes, setShowReleaseNotes] = useState(false);
   const [confirmRemove, setConfirmRemove] = useState(false);
   const [showMembers, setShowMembers] = useState(false);
-  const [addInput, setAddInput] = useState("");
-  const [addError, setAddError] = useState<string | null>(null);
+  const [editOpen, setEditOpen] = useState(false);
 
   const savedTrackIds = useAppSelector((s) => s.music.library.savedTrackIds);
   const savedAlbumIds = useAppSelector((s) => s.music.library.savedAlbumIds);
   const { scrollPaddingClass } = usePlaybackBarSpacing();
+  const resolvedArtist = useResolvedArtist(album?.artist ?? "", album?.artistPubkeys);
 
   // All tracks in this album (catalog-level)
   const allAlbumTracks = useMemo(() => {
@@ -96,7 +82,11 @@ export function AlbumDetail() {
 
   // For non-owner albums that are in the user's library, filter to only saved tracks.
   // Owner/collaborator albums and albums being browsed (not in library) show all tracks.
-  const isOwnerOrCollab = !!pubkey && (pubkey === album?.pubkey || (album?.featuredArtists.includes(pubkey) ?? false));
+  const isOwnerOrCollab = !!pubkey && (
+    pubkey === album?.pubkey ||
+    (album?.featuredArtists.includes(pubkey) ?? false) ||
+    (album?.collaborators.includes(pubkey) ?? false)
+  );
   const albumInLibrary = albumId ? savedAlbumIds.includes(albumId) : false;
   const shouldFilterByLibrary = !isOwnerOrCollab && albumInLibrary;
 
@@ -121,13 +111,16 @@ export function AlbumDetail() {
 
   const queueIds = albumTracks.map((t) => t.addressableId);
   const isOwner = pubkey === album.pubkey;
-  const isCollaborator = !!pubkey && album.featuredArtists.includes(pubkey);
-  const collaborators = album.featuredArtists;
+  const isCollaborator = !!pubkey && (
+    album.featuredArtists.includes(pubkey) || album.collaborators.includes(pubkey)
+  );
+  // All collaborator-type pubkeys for the members list
+  const collaborators = [...new Set([...album.featuredArtists, ...album.collaborators])];
 
-  const republishAlbum = async (newFeaturedArtists: string[]) => {
+  const republishAlbum = async (newCollaborators: string[]) => {
     if (!pubkey || !isOwner) return;
     const slug = album.addressableId.split(":").slice(2).join(":");
-    const unsigned = buildAlbumEvent(pubkey, {
+    const albumParams = {
       title: album.title,
       artist: album.artist,
       slug,
@@ -135,33 +128,23 @@ export function AlbumDetail() {
       imageUrl: album.imageUrl,
       trackRefs: album.trackRefs.length > 0 ? album.trackRefs : undefined,
       artistPubkeys: album.artistPubkeys.length > 0 ? album.artistPubkeys : undefined,
-      featuredArtists: newFeaturedArtists.length > 0 ? newFeaturedArtists : undefined,
+      featuredArtists: newCollaborators.length > 0 ? newCollaborators : undefined,
       hashtags: album.hashtags.length > 0 ? album.hashtags : undefined,
       projectType: album.projectType,
       visibility: album.visibility,
-    });
-    const signed = await signAndPublish(unsigned);
-    if (signed) {
-      dispatch(addAlbum(parseAlbumEvent(signed)));
-    }
+    };
+
+    // For private albums, re-encrypt with updated collaborator list
+    const unsigned = album.visibility === "private"
+      ? await buildPrivateAlbumEvent(pubkey, { ...albumParams, collaborators: newCollaborators })
+      : buildAlbumEvent(pubkey, albumParams);
+
+    await signAndPublish(unsigned);
+    // No manual dispatch needed — signAndPublish → processIncomingEvent handles it
   };
 
-  const handleAddCollaborator = async () => {
-    const pk = parsePubkeyInput(addInput);
-    if (!pk) {
-      setAddError("Invalid npub or hex pubkey");
-      return;
-    }
-    if (pk === album.pubkey) {
-      setAddError("Cannot add the project owner");
-      return;
-    }
-    if (collaborators.includes(pk)) {
-      setAddError("Already a collaborator");
-      return;
-    }
-    setAddError(null);
-    setAddInput("");
+  const handleAddCollaborator = async (pk: string) => {
+    if (pk === album.pubkey || collaborators.includes(pk)) return;
     await republishAlbum([...collaborators, pk]);
   };
 
@@ -196,7 +179,7 @@ export function AlbumDetail() {
             <p className="text-xs uppercase tracking-wider text-soft">{album.projectType === "album" ? "Album" : album.projectType}</p>
             <h1 className="text-2xl font-bold text-heading">{album.title}</h1>
             <p className="text-sm text-soft">
-              {album.artist} &middot; {album.trackCount} track
+              {resolvedArtist} &middot; {album.trackCount} track
               {album.trackCount !== 1 ? "s" : ""}
               {collaborators.length > 0 && (
                 <> &middot; {collaborators.length} collaborator{collaborators.length !== 1 ? "s" : ""}</>
@@ -304,6 +287,15 @@ export function AlbumDetail() {
                     {isAlbumFavorited(album.addressableId) ? "Favorited" : "Favorite"}
                   </button>
                 </>
+              )}
+              {(isOwner || isCollaborator) && (
+                <button
+                  onClick={() => setEditOpen(true)}
+                  className="flex items-center gap-1.5 rounded-full border border-border px-4 py-1.5 text-sm text-soft transition-colors hover:border-border-light hover:text-heading"
+                >
+                  <Pencil size={14} />
+                  Edit Project
+                </button>
               )}
               {(isOwner || isCollaborator) && (
                 <button
@@ -418,6 +410,14 @@ export function AlbumDetail() {
         />
       )}
 
+      {editOpen && (
+        <CreateAlbumModal
+          open={editOpen}
+          onClose={() => setEditOpen(false)}
+          album={album}
+        />
+      )}
+
       {showMembers && (
         <div className="flex w-64 shrink-0 flex-col border-l border-border">
           <div className="flex h-12 items-center border-b border-border px-4">
@@ -463,42 +463,110 @@ export function AlbumDetail() {
 
             {/* Add collaborator (owner only) */}
             {isOwner && (
-              <div className="mt-3 border-t border-border pt-3 px-1">
-                <div className="mb-1.5 flex items-center gap-1 text-[10px] font-semibold uppercase tracking-wider text-muted">
-                  <UserPlus size={10} />
-                  Add Collaborator
-                </div>
-                <div className="flex flex-col gap-1.5">
-                  <input
-                    type="text"
-                    value={addInput}
-                    onChange={(e) => {
-                      setAddInput(e.target.value);
-                      setAddError(null);
-                    }}
-                    onKeyDown={(e) => {
-                      if (e.key === "Enter") {
-                        e.preventDefault();
-                        handleAddCollaborator();
-                      }
-                    }}
-                    placeholder="npub or hex pubkey..."
-                    className="w-full rounded-xl border border-border bg-field px-3 py-1.5 text-sm text-heading placeholder-muted focus:border-primary/40 focus:outline-none transition-colors"
-                  />
-                  <button
-                    onClick={handleAddCollaborator}
-                    disabled={!addInput.trim()}
-                    className="w-full rounded-xl bg-linear-to-r from-primary to-primary-soft px-3 py-1.5 text-sm font-medium text-white hover:opacity-90 transition-all duration-150 press-effect disabled:opacity-40"
-                  >
-                    Add
-                  </button>
-                </div>
-                {addError && <p className="mt-1 text-xs text-red-400">{addError}</p>}
-              </div>
+              <AddCollaboratorSearch
+                ownerPubkey={album.pubkey}
+                existingCollaborators={collaborators}
+                onAdd={handleAddCollaborator}
+              />
             )}
           </div>
         </div>
       )}
+    </div>
+  );
+}
+
+/* ── Inline search-based collaborator adder ── */
+function AddCollaboratorSearch({
+  ownerPubkey,
+  existingCollaborators,
+  onAdd,
+}: {
+  ownerPubkey: string;
+  existingCollaborators: string[];
+  onAdd: (pubkey: string) => void;
+}) {
+  const { query, setQuery, results, isSearching } = useUserSearch();
+  const [focused, setFocused] = useState(false);
+  const containerRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    function handleClick(e: MouseEvent) {
+      if (containerRef.current && !containerRef.current.contains(e.target as Node)) {
+        setFocused(false);
+      }
+    }
+    document.addEventListener("mousedown", handleClick);
+    return () => document.removeEventListener("mousedown", handleClick);
+  }, []);
+
+  const excluded = new Set([ownerPubkey, ...existingCollaborators]);
+  const filteredResults = results.filter((r) => !excluded.has(r.pubkey));
+  const showDropdown = focused && query.trim().length > 0 && (filteredResults.length > 0 || isSearching);
+
+  const handleSelect = (pubkey: string) => {
+    onAdd(pubkey);
+    setQuery("");
+    setFocused(false);
+  };
+
+  return (
+    <div ref={containerRef} className="mt-3 border-t border-border pt-3 px-1">
+      <div className="mb-1.5 flex items-center gap-1 text-[10px] font-semibold uppercase tracking-wider text-muted">
+        <UserPlus size={10} />
+        Add Collaborator
+      </div>
+      <div className="relative">
+        <div className="flex items-center gap-2 rounded-xl border border-border bg-field px-3 py-1.5 focus-within:border-primary/40 transition-colors">
+          <Search size={12} className="text-muted shrink-0" />
+          <input
+            type="text"
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            onFocus={() => setFocused(true)}
+            placeholder="Search by name or npub..."
+            className="flex-1 bg-transparent text-sm text-heading placeholder-muted outline-none"
+          />
+          {query && (
+            <button
+              type="button"
+              onClick={() => setQuery("")}
+              className="text-muted hover:text-heading"
+            >
+              <X size={10} />
+            </button>
+          )}
+        </div>
+        {showDropdown && (
+          <div className="absolute left-0 right-0 top-full z-50 mt-1 max-h-48 overflow-y-auto rounded-xl border border-border-light bg-panel shadow-xl shadow-black/40">
+            {isSearching && filteredResults.length === 0 && (
+              <p className="px-3 py-2 text-xs text-muted">Searching...</p>
+            )}
+            {filteredResults.map((r) => {
+              const name = r.profile.display_name || r.profile.name || r.pubkey.slice(0, 8) + "...";
+              const secondary = r.profile.nip05 || r.pubkey.slice(0, 12) + "...";
+              return (
+                <button
+                  key={r.pubkey}
+                  type="button"
+                  onMouseDown={(e) => e.preventDefault()}
+                  onClick={() => handleSelect(r.pubkey)}
+                  className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-sm transition-colors hover:bg-card-hover/30"
+                >
+                  <Avatar src={r.profile.picture} size="sm" />
+                  <div className="min-w-0 flex-1">
+                    <p className="truncate text-heading">{name}</p>
+                    <p className="truncate text-xs text-muted">{secondary}</p>
+                  </div>
+                </button>
+              );
+            })}
+            {isSearching && filteredResults.length > 0 && (
+              <p className="px-3 py-1.5 text-center text-[10px] text-muted">Searching for more...</p>
+            )}
+          </div>
+        )}
+      </div>
     </div>
   );
 }

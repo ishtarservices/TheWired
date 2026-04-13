@@ -3,6 +3,7 @@ import type { Kind0Profile } from "../../types/profile";
 import { parseProfile } from "../../features/profile/profileParser";
 import { getProfile, putProfile } from "../db/profileStore";
 import { relayManager } from "./relayManager";
+import { PROFILE_RELAYS } from "./constants";
 
 interface CacheEntry {
   profile: Kind0Profile;
@@ -212,13 +213,13 @@ class ProfileCacheImpl {
     const pubkeys = [...this.pendingBatch];
     this.pendingBatch.clear();
 
-    // Track EOSE from each relay to auto-close
-    const readRelays = relayManager.getReadRelays();
+    // Track EOSE from each targeted relay to auto-close
     const eoseCount = { current: 0 };
-    const totalRelays = readRelays.length;
+    const totalRelays = PROFILE_RELAYS.length;
 
     const subId = relayManager.subscribe({
       filters: [{ kinds: [0], authors: pubkeys }],
+      relayUrls: PROFILE_RELAYS,
       onEvent: (event) => {
         this.handleProfileEvent(event);
       },

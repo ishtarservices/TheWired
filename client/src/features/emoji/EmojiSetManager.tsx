@@ -15,10 +15,12 @@ interface EmojiSetManagerProps {
 const MAX_EMOJI_SIZE = 256 * 1024; // 256KB per Discord convention
 const ACCEPTED_TYPES = ["image/png", "image/gif", "image/webp", "image/jpeg"];
 
+const EMPTY_IDS: string[] = [];
+
 export function EmojiSetManager({ spaceId }: EmojiSetManagerProps) {
   const pubkey = useAppSelector((s) => s.identity.pubkey);
   const emojiSets = useAppSelector((s) => s.emoji.emojiSets);
-  const spaceSetIds = useAppSelector((s) => s.emoji.spaceEmojiSets[spaceId] ?? []);
+  const spaceSetIds = useAppSelector((s) => s.emoji.spaceEmojiSets[spaceId] ?? EMPTY_IDS);
   const dispatch = useAppDispatch();
 
   const [shortcode, setShortcode] = useState("");

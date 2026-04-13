@@ -11,13 +11,16 @@ import {
 import type { Ban, Mute } from "../../../types/space";
 import * as moderationApi from "../../../lib/api/moderation";
 
-export function useModeration(spaceId: string | null) {
+const EMPTY_BANS: Ban[] = [];
+const EMPTY_MUTES: Mute[] = [];
+
+export function useModeration(spaceId: string | null, enabled = true) {
   const dispatch = useAppDispatch();
   const bans = useAppSelector(
-    (s) => (spaceId ? s.spaceConfig.bans[spaceId] : undefined) ?? [],
+    (s) => (spaceId ? s.spaceConfig.bans[spaceId] : undefined) ?? EMPTY_BANS,
   );
   const mutes = useAppSelector(
-    (s) => (spaceId ? s.spaceConfig.mutes[spaceId] : undefined) ?? [],
+    (s) => (spaceId ? s.spaceConfig.mutes[spaceId] : undefined) ?? EMPTY_MUTES,
   );
   const isLoading = useAppSelector(
     (s) => (spaceId ? s.spaceConfig.loading[spaceId] : false) ?? false,
@@ -38,8 +41,9 @@ export function useModeration(spaceId: string | null) {
   }, [spaceId, dispatch]);
 
   useEffect(() => {
+    if (!enabled) return;
     fetchData();
-  }, [fetchData]);
+  }, [fetchData, enabled]);
 
   const handleBanMember = useCallback(
     async (pubkey: string, reason?: string, expiresAt?: number) => {

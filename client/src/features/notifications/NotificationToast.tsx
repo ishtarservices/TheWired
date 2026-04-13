@@ -94,7 +94,9 @@ function Toast({
     notification.actionType === "follow_back" ||
     notification.type === "dm" ||
     notification.type === "mention" ||
-    notification.type === "chat";
+    notification.type === "chat" ||
+    notification.type === "invite" ||
+    notification.type === "follow";
 
   // Actionable notifications (friend req, follow back) get an extended toast
   // so the user has time to act. DMs and others use the short timer.

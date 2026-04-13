@@ -13,6 +13,8 @@ type Tab = "all" | "tracks" | "albums";
 type SortMode = "newest" | "az" | "artist";
 type ViewMode = "grid" | "list";
 
+const EMPTY_IDS: string[] = [];
+
 export function SpaceMusicView() {
   const { scrollPaddingClass } = usePlaybackBarSpacing();
   const activeChannelId = useAppSelector((s) => s.spaces.activeChannelId);
@@ -22,7 +24,7 @@ export function SpaceMusicView() {
   });
   const pubkey = useAppSelector((s) => s.identity.pubkey);
   const feedEventIds = useAppSelector(
-    (s) => (activeChannelId ? s.events.spaceFeeds[activeChannelId] : undefined) ?? [],
+    (s) => (activeChannelId ? s.events.spaceFeeds[activeChannelId] : undefined) ?? EMPTY_IDS,
   );
   const eventEntities = useAppSelector((s) => s.events.entities);
   const tracks = useAppSelector((s) => s.music.tracks);
@@ -57,12 +59,13 @@ export function SpaceMusicView() {
     return { trackItems: [...trackSet], albumItems: [...albumSet] };
   }, [feedEventIds, eventEntities, tracks, albums]);
 
-  // Filter + sort tracks
+  // Filter + sort tracks (exclude private tracks — they should not appear in space channels)
   const filteredTracks = useMemo(() => {
     const q = searchQuery.toLowerCase();
     let items = trackItems
       .map((id) => tracks[id])
       .filter(Boolean)
+      .filter((t) => t.visibility === "public" || t.visibility === "space")
       .filter((t) =>
         !q || t.title.toLowerCase().includes(q) || t.artist.toLowerCase().includes(q),
       );
@@ -74,12 +77,13 @@ export function SpaceMusicView() {
     return items;
   }, [trackItems, tracks, searchQuery, sortMode]);
 
-  // Filter + sort albums
+  // Filter + sort albums (exclude private albums — they should not appear in space channels)
   const filteredAlbums = useMemo(() => {
     const q = searchQuery.toLowerCase();
     let items = albumItems
       .map((id) => albums[id])
       .filter(Boolean)
+      .filter((a) => a.visibility === "public" || a.visibility === "space")
       .filter((a) =>
         !q || a.title.toLowerCase().includes(q) || a.artist.toLowerCase().includes(q),
       );

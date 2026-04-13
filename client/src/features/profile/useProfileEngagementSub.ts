@@ -1,5 +1,6 @@
 import { useEffect, useRef } from "react";
 import { subscriptionManager } from "../../lib/nostr/subscriptionManager";
+import { PROFILE_RELAYS } from "../../lib/nostr/constants";
 
 /** Max note IDs to subscribe engagement for at once */
 const BATCH_LIMIT = 20;
@@ -19,33 +20,19 @@ export function useProfileEngagementSub(noteEventIds: string[]) {
     if (idsKey === prevIdsRef.current) return;
     prevIdsRef.current = idsKey;
 
-    const subIds: string[] = [];
-
-    // Reactions (kind:7) — capped
-    subIds.push(
-      subscriptionManager.subscribe({
-        filters: [{ kinds: [7], "#e": ids, limit: ENGAGEMENT_LIMIT }],
-      }),
-    );
-
-    // Reposts (kind:6) — capped
-    subIds.push(
-      subscriptionManager.subscribe({
-        filters: [{ kinds: [6], "#e": ids, limit: ENGAGEMENT_LIMIT }],
-      }),
-    );
-
-    // Replies (kind:1 referencing these notes) — capped
-    subIds.push(
-      subscriptionManager.subscribe({
-        filters: [{ kinds: [1], "#e": ids, limit: ENGAGEMENT_LIMIT }],
-      }),
-    );
+    // Single sub with multiple filters — same events, fewer REQ messages per relay.
+    // NIP-01: multiple filters in one REQ are OR'd; relay can deduplicate across them.
+    const subId = subscriptionManager.subscribe({
+      filters: [
+        { kinds: [7], "#e": ids, limit: ENGAGEMENT_LIMIT },
+        { kinds: [6], "#e": ids, limit: ENGAGEMENT_LIMIT },
+        { kinds: [1], "#e": ids, limit: ENGAGEMENT_LIMIT },
+      ],
+      relayUrls: PROFILE_RELAYS,
+    });
 
     return () => {
-      for (const id of subIds) {
-        subscriptionManager.close(id);
-      }
+      subscriptionManager.close(subId);
       prevIdsRef.current = "";
     };
   }, [noteEventIds]);

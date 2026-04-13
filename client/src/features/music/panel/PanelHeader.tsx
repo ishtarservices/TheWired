@@ -2,6 +2,7 @@ import { X, Music } from "lucide-react";
 import type { MusicTrack } from "@/types/music";
 import { getTrackImage } from "../trackImage";
 import { useAppSelector } from "@/store/hooks";
+import { useResolvedArtist } from "../useResolvedArtist";
 
 interface PanelHeaderProps {
   track: MusicTrack;
@@ -11,6 +12,7 @@ interface PanelHeaderProps {
 export function PanelHeader({ track, onClose }: PanelHeaderProps) {
   const albums = useAppSelector((s) => s.music.albums);
   const imageUrl = getTrackImage(track, albums);
+  const resolvedArtist = useResolvedArtist(track.artist, track.artistPubkeys);
 
   return (
     <div className="flex items-center gap-3 border-b border-border/40 px-4 py-3">
@@ -28,7 +30,7 @@ export function PanelHeader({ track, onClose }: PanelHeaderProps) {
       {/* Title + artist */}
       <div className="min-w-0 flex-1">
         <p className="truncate text-sm font-medium text-heading">{track.title}</p>
-        <p className="truncate text-xs text-soft">{track.artist}</p>
+        <p className="truncate text-xs text-soft">{resolvedArtist}</p>
       </div>
 
       {/* Close */}

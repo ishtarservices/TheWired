@@ -4,6 +4,7 @@ import { useAppSelector } from "@/store/hooks";
 import { TrackRow } from "./TrackRow";
 import { useAudioPlayer } from "./useAudioPlayer";
 import { useLibrary } from "./useLibrary";
+import { useResolvedArtist } from "./useResolvedArtist";
 
 interface SpaceAlbumDetailProps {
   albumId: string;
@@ -16,6 +17,7 @@ export function SpaceAlbumDetail({ albumId, onBack }: SpaceAlbumDetailProps) {
   const tracksByAlbum = useAppSelector((s) => s.music.tracksByAlbum[albumId]);
   const { playQueue } = useAudioPlayer();
   const { saveAlbum, unsaveAlbum, isAlbumSaved, favoriteAlbum, unfavoriteAlbum, isAlbumFavorited } = useLibrary();
+  const resolvedArtist = useResolvedArtist(album?.artist ?? "", album?.artistPubkeys);
 
   const albumTracks = useMemo(() => {
     const refs = album?.trackRefs ?? tracksByAlbum ?? [];
@@ -61,7 +63,7 @@ export function SpaceAlbumDetail({ albumId, onBack }: SpaceAlbumDetailProps) {
           </p>
           <h2 className="text-xl font-bold text-heading">{album.title}</h2>
           <p className="text-sm text-soft">
-            {album.artist} &middot; {album.trackCount} track
+            {resolvedArtist} &middot; {album.trackCount} track
             {album.trackCount !== 1 ? "s" : ""}
           </p>
           <div className="mt-2.5 flex flex-wrap gap-2">

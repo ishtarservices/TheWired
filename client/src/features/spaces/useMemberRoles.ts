@@ -6,11 +6,12 @@ import * as rolesApi from "../../lib/api/roles";
 
 /** Track which spaces have been bulk-fetched to avoid redundant requests across hook instances */
 const fetchedSpaces = new Set<string>();
+const EMPTY_MEMBERS: never[] = [];
 
 export function useMemberRoles(spaceId: string | null) {
   const dispatch = useAppDispatch();
   const members = useAppSelector(
-    (s) => (spaceId ? s.spaceConfig.members[spaceId] : undefined) ?? [],
+    (s) => (spaceId ? s.spaceConfig.members[spaceId] : undefined) ?? EMPTY_MEMBERS,
   );
 
   // Auto-fetch all members with roles on first mount per space

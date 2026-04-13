@@ -22,4 +22,8 @@ export const config = {
   adminPubkeys: (process.env.ADMIN_PUBKEYS ?? "").split(",").filter(Boolean),
   /** Minimum member count for a space to request listing (admin bypass available) */
   minListingMembers: parseInt(process.env.MIN_LISTING_MEMBERS ?? "5", 10),
+  /** Blossom blob storage directory */
+  blobDir: process.env.BLOB_DIR ?? "blobs",
+  /** Max blob upload size in bytes (default 100MB) */
+  maxBlobSize: parseInt(process.env.MAX_BLOB_SIZE ?? String(100 * 1024 * 1024), 10),
 } as const;

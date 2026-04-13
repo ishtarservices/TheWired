@@ -1,4 +1,5 @@
 import { buildNip98Header } from "./nip98";
+import { requestQueue, type RequestPriority } from "./requestQueue";
 
 const DEFAULT_BASE_URL = import.meta.env.VITE_API_URL ?? "http://localhost:9080/api";
 
@@ -17,6 +18,7 @@ interface RequestOptions {
   body?: unknown;
   auth?: boolean;
   signal?: AbortSignal;
+  priority?: RequestPriority;
 }
 
 interface ApiResponse<T> {
@@ -41,7 +43,7 @@ export class ApiRequestError extends Error {
 }
 
 export async function api<T>(path: string, opts: RequestOptions = {}): Promise<ApiResponse<T>> {
-  const { method = "GET", body, auth = true, signal } = opts;
+  const { method = "GET", body, auth = true, signal, priority = "normal" } = opts;
   const url = `${baseUrl}${path}`;
 
   const headers: Record<string, string> = {};
@@ -60,10 +62,7 @@ export async function api<T>(path: string, opts: RequestOptions = {}): Promise<A
     }
   }
 
-  let retries = 0;
-  const maxRetries = 2;
-
-  while (true) {
+  const doFetch = async (): Promise<ApiResponse<T>> => {
     const response = await fetch(url, {
       method,
       headers,
@@ -71,11 +70,11 @@ export async function api<T>(path: string, opts: RequestOptions = {}): Promise<A
       signal,
     });
 
-    if (response.status === 429 && retries < maxRetries) {
-      retries++;
-      const backoff = Math.min(1000 * Math.pow(2, retries), 8000);
-      await new Promise((r) => setTimeout(r, backoff));
-      continue;
+    if (response.status === 429) {
+      // Read Retry-After header from gateway (seconds until window resets)
+      const retryAfter = parseInt(response.headers.get("Retry-After") ?? "5", 10);
+      requestQueue.triggerGlobalBackoff(retryAfter);
+      throw new RateLimitError(retryAfter);
     }
 
     if (!response.ok) {
@@ -87,5 +86,31 @@ export async function api<T>(path: string, opts: RequestOptions = {}): Promise<A
     }
 
     return (await response.json()) as ApiResponse<T>;
+  };
+
+  // First attempt through the queue
+  try {
+    return await requestQueue.enqueue(doFetch, priority);
+  } catch (err) {
+    // On rate limit, retry once through the queue (respects global backoff)
+    if (err instanceof RateLimitError) {
+      try {
+        return await requestQueue.enqueue(doFetch, priority);
+      } catch (retryErr) {
+        // Convert RateLimitError to ApiRequestError on second failure
+        if (retryErr instanceof RateLimitError) {
+          throw new ApiRequestError(429, "RATE_LIMITED", "rate limit exceeded");
+        }
+        throw retryErr;
+      }
+    }
+    throw err;
+  }
+}
+
+/** Internal error type for 429 responses — converted to ApiRequestError if retry also fails. */
+class RateLimitError extends Error {
+  constructor(public retryAfter: number) {
+    super("rate limited");
   }
 }

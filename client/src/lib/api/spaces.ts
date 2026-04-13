@@ -23,7 +23,7 @@ export async function listSpaces(opts?: { limit?: number; offset?: number }) {
 }
 
 export async function getSpace(id: string) {
-  return api<Space>(`/spaces/${encodeURIComponent(id)}`);
+  return api<Space>(`/spaces/${encodeURIComponent(id)}`, { priority: "low" });
 }
 
 /** Fetch all members of a space from the backend */

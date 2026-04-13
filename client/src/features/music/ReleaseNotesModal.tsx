@@ -1,5 +1,6 @@
 import { X, RefreshCw } from "lucide-react";
 import { useAppSelector } from "@/store/hooks";
+import { useResolvedArtist } from "./useResolvedArtist";
 
 interface ReleaseNotesModalProps {
   albumId: string;
@@ -10,6 +11,8 @@ interface ReleaseNotesModalProps {
 export function ReleaseNotesModal({ albumId, onClose, onUpdate }: ReleaseNotesModalProps) {
   const album = useAppSelector((s) => s.music.albums[albumId]);
   const savedVersion = useAppSelector((s) => s.music.savedVersions[albumId]);
+
+  const resolvedArtist = useResolvedArtist(album?.artist ?? "", album?.artistPubkeys);
 
   if (!album) return null;
 
@@ -35,7 +38,7 @@ export function ReleaseNotesModal({ albumId, onClose, onUpdate }: ReleaseNotesMo
 
         <div className="mb-4 rounded-xl border border-border bg-surface/50 p-4">
           <h3 className="text-sm font-semibold text-heading">{album.title}</h3>
-          <p className="mt-1 text-xs text-soft">{album.artist}</p>
+          <p className="mt-1 text-xs text-soft">{resolvedArtist}</p>
 
           <div className="mt-3 space-y-1.5">
             <div className="flex items-center justify-between text-xs">

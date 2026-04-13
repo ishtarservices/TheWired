@@ -7,6 +7,7 @@ import { useAudioPlayer } from "./useAudioPlayer";
 import { EditTrackModal } from "./EditTrackModal";
 import { FeaturedArtistsDisplay } from "./FeaturedArtistsDisplay";
 import { TrackActionPanel } from "./TrackActionPanel";
+import { useResolvedArtist } from "./useResolvedArtist";
 import { publishExisting } from "@/lib/nostr/publish";
 import { getEvent } from "@/lib/db/eventStore";
 import { removeLocalEventId } from "@/lib/db/musicStore";
@@ -40,6 +41,7 @@ export const TrackRow = memo(function TrackRow({
   const isDownloaded = useAppSelector((s) =>
     s.music.downloadedTrackIds.includes(track.addressableId),
   );
+  const resolvedArtist = useResolvedArtist(track.artist, track.artistPubkeys);
   const isOwner = pubkey === track.pubkey;
   const isLocal = track.visibility === "local";
   const isCurrent = player.currentTrackId === track.addressableId;
@@ -119,7 +121,7 @@ export const TrackRow = memo(function TrackRow({
             )}
           </p>
           <p className="truncate text-xs text-soft">
-            {track.artist}
+            {resolvedArtist}
             <FeaturedArtistsDisplay pubkeys={track.featuredArtists} />
             {albumName && (
               <>

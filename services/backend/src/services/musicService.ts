@@ -1,17 +1,18 @@
 import { createHash } from "crypto";
-import { createReadStream, createWriteStream } from "fs";
-import { mkdir, unlink } from "fs/promises";
+import { createWriteStream, existsSync } from "fs";
+import { mkdir, unlink, rename } from "fs/promises";
 import { join, extname } from "path";
 import { Readable } from "stream";
-import { eq, desc, sql } from "drizzle-orm";
+import { eq, desc, sql, and } from "drizzle-orm";
 import { db } from "../db/connection.js";
 import { musicUploads } from "../db/schema/music.js";
+import { blobs, blobOwners } from "../db/schema/blobs.js";
 import { nanoid } from "../lib/id.js";
 import { config } from "../config.js";
+import { mimeToExt } from "../lib/mimeToExt.js";
 
-const UPLOAD_DIR = process.env.UPLOAD_DIR ?? join(process.cwd(), "uploads", "music");
-const COVER_DIR = process.env.UPLOAD_DIR ?? join(process.cwd(), "uploads", "covers");
-const MAX_AUDIO_SIZE = 100 * 1024 * 1024; // 100MB
+const BLOB_DIR = join(process.cwd(), config.blobDir);
+const MAX_AUDIO_SIZE = config.maxBlobSize;
 const MAX_COVER_SIZE = 10 * 1024 * 1024; // 10MB
 
 const ALLOWED_AUDIO_TYPES = new Set([
@@ -43,16 +44,6 @@ async function ensureDir(dir: string) {
   await mkdir(dir, { recursive: true });
 }
 
-async function computeSha256(filePath: string): Promise<string> {
-  return new Promise((resolve, reject) => {
-    const hash = createHash("sha256");
-    const stream = createReadStream(filePath);
-    stream.on("data", (chunk) => hash.update(chunk));
-    stream.on("end", () => resolve(hash.digest("hex")));
-    stream.on("error", reject);
-  });
-}
-
 export const musicService = {
   async uploadAudio(
     file: { filename: string; mimetype: string; file: NodeJS.ReadableStream },
@@ -63,30 +54,53 @@ export const musicService = {
       throw new Error(`Invalid audio type: ${file.mimetype}`);
     }
 
-    await ensureDir(UPLOAD_DIR);
-    const id = nanoid(16);
-    const ext = extname(file.filename) || ".mp3";
-    const storedName = `${id}${ext}`;
-    const storagePath = join(UPLOAD_DIR, storedName);
+    await ensureDir(BLOB_DIR);
 
-    // Write file to disk
+    // Stream to a temp file first (we can't name by hash until we know it)
+    const tempId = nanoid(16);
+    const ext = mimeToExt(file.mimetype) || extname(file.filename) || ".mp3";
+    const tempPath = join(BLOB_DIR, `.tmp_${tempId}${ext}`);
+
     let size = 0;
-    const writeStream = createWriteStream(storagePath);
+    const writeStream = createWriteStream(tempPath);
+    const hash = createHash("sha256");
     const readable = file.file instanceof Readable ? file.file : Readable.from(file.file as AsyncIterable<Buffer>);
 
     for await (const chunk of readable) {
       size += (chunk as Buffer).length;
       if (size > MAX_AUDIO_SIZE) {
         writeStream.destroy();
+        await unlink(tempPath).catch(() => {});
         throw new Error("File too large (max 100MB)");
       }
+      hash.update(chunk as Buffer);
       writeStream.write(chunk);
     }
-    writeStream.end();
+    await new Promise<void>((resolve, reject) => {
+      writeStream.end(() => resolve());
+      writeStream.on("error", reject);
+    });
 
-    const sha256 = await computeSha256(storagePath);
-    const url = `${config.publicUrl}/uploads/music/${storedName}`;
+    const sha256 = hash.digest("hex");
+    const storedName = `${sha256}${ext}`;
+    const storagePath = join(BLOB_DIR, storedName);
 
+    // Dedup: if blob already exists on disk, skip the rename
+    if (existsSync(storagePath)) {
+      await unlink(tempPath).catch(() => {});
+    } else {
+      await rename(tempPath, storagePath);
+    }
+
+    const url = `${config.publicUrl}/${sha256}${ext}`;
+    const uploaded = Math.floor(Date.now() / 1000);
+
+    // Insert into blobs table (dedup-safe)
+    await db.insert(blobs).values({ sha256, size, type: file.mimetype, uploaded }).onConflictDoNothing();
+    await db.insert(blobOwners).values({ sha256, pubkey }).onConflictDoNothing();
+
+    // Insert into music_uploads for music-specific metadata
+    const id = nanoid(16);
     await db.insert(musicUploads).values({
       id,
       pubkey,
@@ -110,33 +124,56 @@ export const musicService = {
 
   async uploadCover(
     file: { filename: string; mimetype: string; file: NodeJS.ReadableStream },
-    _pubkey: string,
+    pubkey: string,
   ) {
     if (!ALLOWED_IMAGE_TYPES.has(file.mimetype)) {
       throw new Error(`Invalid image type: ${file.mimetype}`);
     }
 
-    await ensureDir(COVER_DIR);
-    const id = nanoid(16);
-    const ext = extname(file.filename) || ".jpg";
-    const storedName = `${id}${ext}`;
-    const storagePath = join(COVER_DIR, storedName);
+    await ensureDir(BLOB_DIR);
+
+    const tempId = nanoid(16);
+    const ext = mimeToExt(file.mimetype) || extname(file.filename) || ".jpg";
+    const tempPath = join(BLOB_DIR, `.tmp_${tempId}${ext}`);
 
     let size = 0;
-    const writeStream = createWriteStream(storagePath);
+    const writeStream = createWriteStream(tempPath);
+    const hash = createHash("sha256");
     const readable = file.file instanceof Readable ? file.file : Readable.from(file.file as AsyncIterable<Buffer>);
 
     for await (const chunk of readable) {
       size += (chunk as Buffer).length;
       if (size > MAX_COVER_SIZE) {
         writeStream.destroy();
+        await unlink(tempPath).catch(() => {});
         throw new Error("Image too large (max 10MB)");
       }
+      hash.update(chunk as Buffer);
       writeStream.write(chunk);
     }
-    writeStream.end();
+    await new Promise<void>((resolve, reject) => {
+      writeStream.end(() => resolve());
+      writeStream.on("error", reject);
+    });
 
-    return { url: `${config.publicUrl}/uploads/covers/${storedName}` };
+    const sha256 = hash.digest("hex");
+    const storedName = `${sha256}${ext}`;
+    const storagePath = join(BLOB_DIR, storedName);
+
+    if (existsSync(storagePath)) {
+      await unlink(tempPath).catch(() => {});
+    } else {
+      await rename(tempPath, storagePath);
+    }
+
+    const url = `${config.publicUrl}/${sha256}${ext}`;
+    const uploaded = Math.floor(Date.now() / 1000);
+
+    // Insert into blobs table (covers now tracked in DB)
+    await db.insert(blobs).values({ sha256, size, type: file.mimetype, uploaded }).onConflictDoNothing();
+    await db.insert(blobOwners).values({ sha256, pubkey }).onConflictDoNothing();
+
+    return { url, sha256 };
   },
 
   /**
@@ -184,10 +221,12 @@ export const musicService = {
         const genre = tags.find((t) => t[0] === "genre")?.[1] ?? "";
         const imageUrl = tags.find((t) => t[0] === "image")?.[1] ?? tags.find((t) => t[0] === "thumb")?.[1] ?? "";
         const visibility = tags.find((t) => t[0] === "visibility")?.[1];
+        const hTag = tags.find((t) => t[0] === "h")?.[1];
         const hashtags = tags.filter((t) => t[0] === "t").map((t) => t[1]);
+        const isPublic = !visibility || (visibility !== "unlisted" && visibility !== "private" && !hTag);
 
-        // Skip unlisted from search index but still count
-        if (visibility !== "unlisted") {
+        // Only index and count public tracks
+        if (isPublic) {
           msDocs.push({
             id: row.id,
             addressable_id: `31683:${row.pubkey}:${dTag}`,
@@ -195,12 +234,12 @@ export const musicService = {
             pubkey: row.pubkey,
             created_at: Number(row.created_at), // PG bigint → JS number
           });
-        }
 
-        eventIds.push(row.id);
-        if (genre) genreCounts.set(genre, (genreCounts.get(genre) ?? 0) + 1);
-        for (const tag of hashtags) {
-          tagCounts.set(tag, (tagCounts.get(tag) ?? 0) + 1);
+          eventIds.push(row.id);
+          if (genre) genreCounts.set(genre, (genreCounts.get(genre) ?? 0) + 1);
+          for (const tag of hashtags) {
+            tagCounts.set(tag, (tagCounts.get(tag) ?? 0) + 1);
+          }
         }
       }
 
@@ -234,9 +273,12 @@ export const musicService = {
         const genre = tags.find((t) => t[0] === "genre")?.[1] ?? "";
         const imageUrl = tags.find((t) => t[0] === "image")?.[1] ?? tags.find((t) => t[0] === "thumb")?.[1] ?? "";
         const visibility = tags.find((t) => t[0] === "visibility")?.[1];
+        const hTag = tags.find((t) => t[0] === "h")?.[1];
         const hashtags = tags.filter((t) => t[0] === "t").map((t) => t[1]);
+        const isPublic = !visibility || (visibility !== "unlisted" && visibility !== "private" && !hTag);
 
-        if (visibility !== "unlisted") {
+        // Only index and count public albums
+        if (isPublic) {
           msDocs.push({
             id: row.id,
             addressable_id: `33123:${row.pubkey}:${dTag}`,
@@ -244,12 +286,12 @@ export const musicService = {
             pubkey: row.pubkey,
             created_at: Number(row.created_at), // PG bigint → JS number
           });
-        }
 
-        eventIds.push(row.id);
-        if (genre) genreCounts.set(genre, (genreCounts.get(genre) ?? 0) + 1);
-        for (const tag of hashtags) {
-          tagCounts.set(tag, (tagCounts.get(tag) ?? 0) + 1);
+          eventIds.push(row.id);
+          if (genre) genreCounts.set(genre, (genreCounts.get(genre) ?? 0) + 1);
+          for (const tag of hashtags) {
+            tagCounts.set(tag, (tagCounts.get(tag) ?? 0) + 1);
+          }
         }
       }
 
@@ -676,14 +718,14 @@ export const musicService = {
       .catch((err) => console.error("[music] Failed to delete listeners:", (err as Error).message));
 
     // Clean up uploaded files from disk + music_uploads table.
-    // Extract media URLs from the deleted event tags, then remove matching files.
-    const audioUrls = new Set<string>();
+    // Extract sha256 hashes and cover URLs from the deleted event tags.
+    const audioHashes = new Set<string>();
     const coverUrls = new Set<string>();
     for (const row of deleted) {
       for (const tag of row.tags) {
         if (tag[0] === "imeta") {
           for (let i = 1; i < tag.length; i++) {
-            if (tag[i].startsWith("url ")) audioUrls.add(tag[i].slice(4));
+            if (tag[i].startsWith("x ")) audioHashes.add(tag[i].slice(2));
           }
         }
         if ((tag[0] === "image" || tag[0] === "thumb") && tag[1]) {
@@ -692,21 +734,38 @@ export const musicService = {
       }
     }
 
-    // Delete audio files tracked in music_uploads (1:1 with tracks)
-    for (const url of audioUrls) {
+    // Delete audio files tracked in music_uploads -- look up by sha256 (not URL)
+    for (const sha256 of audioHashes) {
       try {
-        const [upload] = await db.select().from(musicUploads)
-          .where(eq(musicUploads.url, url)).limit(1);
-        if (upload) {
-          await unlink(upload.storagePath).catch(() => {});
+        // Remove music_uploads rows for this pubkey + hash
+        const uploads = await db.select().from(musicUploads)
+          .where(and(eq(musicUploads.sha256, sha256), eq(musicUploads.pubkey, pubkey)));
+        for (const upload of uploads) {
           await db.delete(musicUploads).where(eq(musicUploads.id, upload.id));
         }
-      } catch { /* best-effort: orphaned files can be cleaned up later */ }
+
+        // Remove blob ownership
+        await db.delete(blobOwners)
+          .where(and(eq(blobOwners.sha256, sha256), eq(blobOwners.pubkey, pubkey)));
+
+        // If no owners remain, purge blob from disk and DB
+        const remaining = await db.select().from(blobOwners)
+          .where(eq(blobOwners.sha256, sha256)).limit(1);
+        if (remaining.length === 0) {
+          const [blob] = await db.select().from(blobs).where(eq(blobs.sha256, sha256)).limit(1);
+          if (blob) {
+            const ext = mimeToExt(blob.type);
+            await unlink(join(BLOB_DIR, `${sha256}${ext}`)).catch(() => {});
+            await db.delete(blobs).where(eq(blobs.sha256, sha256));
+          }
+        }
+      } catch (err) {
+        console.error("[music] Failed to clean up audio blob:", sha256, (err as Error).message);
+      }
     }
 
-    // Delete cover files if no other events still reference them
+    // Delete cover blobs if no other events still reference them
     for (const url of coverUrls) {
-      if (!url.includes("/uploads/covers/")) continue;
       try {
         const refs = (await db.execute(
           sql`SELECT 1 FROM relay.events
@@ -714,12 +773,25 @@ export const musicService = {
               LIMIT 1`,
         )) as unknown[];
         if (refs.length === 0) {
-          const filename = url.split("/uploads/covers/").pop();
-          if (filename && !filename.includes("/")) {
-            await unlink(join(COVER_DIR, filename)).catch(() => {});
+          // Extract sha256 from the URL (format: /<sha256>.<ext>)
+          const urlPath = new URL(url, "http://localhost").pathname;
+          const filename = urlPath.split("/").pop() ?? "";
+          const sha256Match = filename.match(/^([0-9a-f]{64})\.\w+$/);
+          if (sha256Match) {
+            const sha256 = sha256Match[1];
+            await db.delete(blobOwners)
+              .where(and(eq(blobOwners.sha256, sha256), eq(blobOwners.pubkey, pubkey)));
+            const remaining = await db.select().from(blobOwners)
+              .where(eq(blobOwners.sha256, sha256)).limit(1);
+            if (remaining.length === 0) {
+              await unlink(join(BLOB_DIR, filename)).catch(() => {});
+              await db.delete(blobs).where(eq(blobs.sha256, sha256));
+            }
           }
         }
-      } catch { /* best-effort */ }
+      } catch (err) {
+        console.error("[music] Failed to clean up cover blob:", url, (err as Error).message);
+      }
     }
 
     return true;

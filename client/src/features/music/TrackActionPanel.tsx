@@ -37,6 +37,7 @@ import { MusicPostModal } from "./MusicPostModal";
 import { useProfileShowcase } from "@/features/profile/useProfileShowcase";
 import { buildRepost } from "@/lib/nostr/eventBuilder";
 import { getTrackImage } from "./trackImage";
+import { useResolvedArtist } from "./useResolvedArtist";
 
 type TabId = "actions" | "notes" | "audio" | "history";
 
@@ -96,6 +97,10 @@ export function TrackActionPanel({
 }: TrackActionPanelProps) {
   const dispatch = useAppDispatch();
   const pubkey = useAppSelector((s) => s.identity.pubkey);
+  const isCollaborator = !!pubkey && (
+    track.featuredArtists.includes(pubkey) || track.collaborators.includes(pubkey)
+  );
+  const canManage = isOwner || isCollaborator;
   const annotationCount = useAppSelector((s) => {
     const anns = s.music.annotations[track.addressableId];
     if (!anns) return 0;
@@ -110,6 +115,7 @@ export function TrackActionPanel({
   const downloaded = isDownloaded(track.addressableId);
   const isDownloading = downloading === track.addressableId;
   const sharingDisabled = !!track.sharingDisabled;
+  const resolvedArtist = useResolvedArtist(track.artist, track.artistPubkeys);
 
   // Tab state
   const [activeTab, setActiveTab] = useState<TabId>("actions");
@@ -187,7 +193,7 @@ export function TrackActionPanel({
       const blobUrl = URL.createObjectURL(blob);
       const a = document.createElement("a");
       a.href = blobUrl;
-      a.download = `${track.artist} - ${track.title}.${getExtFromMime(track.variants[0]?.mimeType)}`;
+      a.download = `${resolvedArtist} - ${track.title}.${getExtFromMime(track.variants[0]?.mimeType)}`;
       a.click();
       setTimeout(() => URL.revokeObjectURL(blobUrl), 5000);
     } catch {
@@ -326,7 +332,7 @@ export function TrackActionPanel({
     { id: "actions", label: "Actions", show: true },
     { id: "notes", label: "Notes", badge: annotationCount > 0 ? annotationCount : undefined, show: true },
     { id: "audio", label: "Audio", show: true },
-    { id: "history", label: "History", show: isOwner },
+    { id: "history", label: "History", show: canManage },
   ];
 
   const visibleTabs = tabs.filter((t) => t.show);
@@ -388,6 +394,7 @@ export function TrackActionPanel({
               {activeTab === "actions" && (
                 <ActionsTab
                   isOwner={isOwner}
+                  isCollaborator={isCollaborator}
                   isLocal={isLocal}
                   saved={saved}
                   favorited={favorited}
@@ -441,12 +448,13 @@ export function TrackActionPanel({
                 <AudioTab
                   track={track}
                   isOwner={isOwner}
+                  isCollaborator={isCollaborator}
                   onReplaceAudio={() => setReplaceAudioOpen(true)}
                   onExport={handleExport}
                   exporting={exporting}
                 />
               )}
-              {activeTab === "history" && isOwner && (
+              {activeTab === "history" && canManage && (
                 <HistoryTab addressableId={track.addressableId} />
               )}
             </div>
@@ -509,7 +517,7 @@ export function TrackActionPanel({
             eventId: track.eventId,
             pubkey: track.pubkey,
             title: track.title,
-            artist: track.artist,
+            artist: resolvedArtist,
             imageUrl: getTrackImage(track, albums),
             kind: "track",
           }}

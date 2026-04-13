@@ -109,6 +109,10 @@ class SubscriptionManagerImpl {
   getAllSubscriptions(): Map<string, ManagedSubscription> {
     return this.subscriptions;
   }
+
+  getActiveCount(): number {
+    return this.subscriptions.size;
+  }
 }
 
 export const subscriptionManager = new SubscriptionManagerImpl();

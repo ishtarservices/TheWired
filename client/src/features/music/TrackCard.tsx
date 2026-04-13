@@ -9,6 +9,7 @@ import { FeaturedArtistsDisplay } from "./FeaturedArtistsDisplay";
 import { TrackActionPanel } from "./TrackActionPanel";
 import { EditTrackModal } from "./EditTrackModal";
 import { getTrackImage } from "./trackImage";
+import { useResolvedArtist } from "./useResolvedArtist";
 import { publishExisting } from "@/lib/nostr/publish";
 import { getEvent } from "@/lib/db/eventStore";
 import { removeLocalEventId } from "@/lib/db/musicStore";
@@ -31,6 +32,7 @@ export const TrackCard = memo(function TrackCard({
   const { saveTrack, unsaveTrack, isTrackSaved, favoriteTrack, unfavoriteTrack, isTrackFavorited } = useLibrary();
   const isPlaying = player.currentTrackId === track.addressableId && player.isPlaying;
   const imageUrl = getTrackImage(track, albums);
+  const resolvedArtist = useResolvedArtist(track.artist, track.artistPubkeys);
   const isOwner = pubkey === track.pubkey;
   const isLocal = track.visibility === "local";
   const saved = isTrackSaved(track.addressableId);
@@ -163,7 +165,7 @@ export const TrackCard = memo(function TrackCard({
         <div className="p-2 text-left">
           <p className="truncate text-sm font-medium text-heading">{track.title}</p>
           <p className="truncate text-xs text-soft">
-            {track.artist}
+            {resolvedArtist}
             <FeaturedArtistsDisplay pubkeys={track.featuredArtists} />
           </p>
           {albumName && (

@@ -50,11 +50,11 @@ import {
   setUserPlaylists,
   setRecentlyPlayedIds,
 } from "../../store/slices/musicSlice";
-import { parseTrackEvent } from "../../features/music/trackParser";
-import { parseAlbumEvent } from "../../features/music/albumParser";
+import { parseTrackEvent, parsePrivateTrackEvent } from "../../features/music/trackParser";
+import { parseAlbumEvent, parsePrivateAlbumEvent } from "../../features/music/albumParser";
 import { parsePlaylistEvent } from "../../features/music/playlistParser";
 import { parseAnnotationEvent } from "../../features/music/annotationParser";
-import { BOOTSTRAP_RELAYS, APP_RELAY } from "./constants";
+import { BOOTSTRAP_RELAYS, APP_RELAY, PROFILE_RELAYS } from "./constants";
 import { signAndPublish } from "./publish";
 import { buildDMRelayListEvent } from "./eventBuilder";
 import { profileCache } from "./profileCache";
@@ -534,45 +534,115 @@ export async function performLogin(
     (e) => !deletedEventIds.has(e.id) && !isDeletedByAddr(e, EVENT_KINDS.MUSIC_PLAYLIST),
   );
 
+  // Helper to index a parsed track into Redux
+  const indexParsedTrack = (track: import("../../types/music").MusicTrack) => {
+    if (track.artistPubkeys.length > 0) {
+      for (const pk of track.artistPubkeys) {
+        store.dispatch(indexTrackByArtist({ pubkey: pk, addressableId: track.addressableId }));
+      }
+    } else if (track.artist && track.artist !== track.pubkey) {
+      store.dispatch(indexTrackByArtistName({ normalizedName: track.artist.toLowerCase().trim(), addressableId: track.addressableId }));
+    } else {
+      store.dispatch(indexTrackByArtist({ pubkey: track.pubkey, addressableId: track.addressableId }));
+    }
+    for (const fp of track.featuredArtists) {
+      store.dispatch(indexTrackByArtist({ pubkey: fp, addressableId: track.addressableId }));
+    }
+    for (const cp of track.collaborators) {
+      store.dispatch(indexTrackByArtist({ pubkey: cp, addressableId: track.addressableId }));
+    }
+    if (track.albumRef) {
+      store.dispatch(indexTrackByAlbum({ albumAddrId: track.albumRef, trackAddrId: track.addressableId }));
+    }
+  };
+
+  // Helper to index a parsed album into Redux
+  const indexParsedAlbum = (album: import("../../types/music").MusicAlbum) => {
+    if (album.artistPubkeys.length > 0) {
+      for (const pk of album.artistPubkeys) {
+        store.dispatch(indexAlbumByArtist({ pubkey: pk, addressableId: album.addressableId }));
+      }
+    } else if (album.artist && album.artist !== album.pubkey) {
+      store.dispatch(indexAlbumByArtistName({ normalizedName: album.artist.toLowerCase().trim(), addressableId: album.addressableId }));
+    } else {
+      store.dispatch(indexAlbumByArtist({ pubkey: album.pubkey, addressableId: album.addressableId }));
+    }
+    for (const fp of album.featuredArtists) {
+      store.dispatch(indexAlbumByArtist({ pubkey: fp, addressableId: album.addressableId }));
+    }
+    for (const cp of album.collaborators) {
+      store.dispatch(indexAlbumByArtist({ pubkey: cp, addressableId: album.addressableId }));
+    }
+  };
+
   if (liveTrackEvents.length > 0) {
-    const tracks = liveTrackEvents.map(parseTrackEvent);
-    store.dispatch(addTracks(tracks));
-    for (const track of tracks) {
-      // Index by artist pubkeys
-      if (track.artistPubkeys.length > 0) {
-        for (const pk of track.artistPubkeys) {
-          store.dispatch(indexTrackByArtist({ pubkey: pk, addressableId: track.addressableId }));
-        }
-      } else if (track.artist && track.artist !== track.pubkey) {
-        store.dispatch(indexTrackByArtistName({ normalizedName: track.artist.toLowerCase().trim(), addressableId: track.addressableId }));
+    // Separate public and private tracks — private need async NIP-44 decryption
+    const publicTracks: typeof liveTrackEvents = [];
+    const privateTracks: typeof liveTrackEvents = [];
+    for (const e of liveTrackEvents) {
+      const isPrivate = e.tags.some(
+        (t) => t[0] === "visibility" && (t[1] === "private" || t[1] === "unlisted"),
+      );
+      if (isPrivate && e.content) {
+        privateTracks.push(e);
       } else {
-        store.dispatch(indexTrackByArtist({ pubkey: track.pubkey, addressableId: track.addressableId }));
+        publicTracks.push(e);
       }
-      // Featured artists
-      for (const fp of track.featuredArtists) {
-        store.dispatch(indexTrackByArtist({ pubkey: fp, addressableId: track.addressableId }));
-      }
-      if (track.albumRef) {
-        store.dispatch(indexTrackByAlbum({ albumAddrId: track.albumRef, trackAddrId: track.addressableId }));
-      }
+    }
+
+    // Dispatch public tracks immediately (sync)
+    if (publicTracks.length > 0) {
+      const tracks = publicTracks.map(parseTrackEvent);
+      store.dispatch(addTracks(tracks));
+      for (const track of tracks) indexParsedTrack(track);
+    }
+
+    // Decrypt private tracks async (non-blocking — UI shows public tracks first)
+    if (privateTracks.length > 0) {
+      Promise.all(
+        privateTracks.map((e) => parsePrivateTrackEvent(e, pubkey).catch(() => null)),
+      ).then((results) => {
+        const decrypted = results.filter(Boolean) as import("../../types/music").MusicTrack[];
+        if (decrypted.length > 0) {
+          console.debug("[loginFlow] Restored %d private tracks from IndexedDB", decrypted.length);
+          store.dispatch(addTracks(decrypted));
+          for (const track of decrypted) indexParsedTrack(track);
+        }
+      });
     }
   }
   if (liveAlbumEvents.length > 0) {
-    const albums = liveAlbumEvents.map(parseAlbumEvent);
-    store.dispatch(addAlbums(albums));
-    for (const album of albums) {
-      if (album.artistPubkeys.length > 0) {
-        for (const pk of album.artistPubkeys) {
-          store.dispatch(indexAlbumByArtist({ pubkey: pk, addressableId: album.addressableId }));
-        }
-      } else if (album.artist && album.artist !== album.pubkey) {
-        store.dispatch(indexAlbumByArtistName({ normalizedName: album.artist.toLowerCase().trim(), addressableId: album.addressableId }));
+    // Same split for albums
+    const publicAlbums: typeof liveAlbumEvents = [];
+    const privateAlbums: typeof liveAlbumEvents = [];
+    for (const e of liveAlbumEvents) {
+      const isPrivate = e.tags.some(
+        (t) => t[0] === "visibility" && (t[1] === "private" || t[1] === "unlisted"),
+      );
+      if (isPrivate && e.content) {
+        privateAlbums.push(e);
       } else {
-        store.dispatch(indexAlbumByArtist({ pubkey: album.pubkey, addressableId: album.addressableId }));
+        publicAlbums.push(e);
       }
-      for (const fp of album.featuredArtists) {
-        store.dispatch(indexAlbumByArtist({ pubkey: fp, addressableId: album.addressableId }));
-      }
+    }
+
+    if (publicAlbums.length > 0) {
+      const albums = publicAlbums.map(parseAlbumEvent);
+      store.dispatch(addAlbums(albums));
+      for (const album of albums) indexParsedAlbum(album);
+    }
+
+    if (privateAlbums.length > 0) {
+      Promise.all(
+        privateAlbums.map((e) => parsePrivateAlbumEvent(e, pubkey).catch(() => null)),
+      ).then((results) => {
+        const decrypted = results.filter(Boolean) as import("../../types/music").MusicAlbum[];
+        if (decrypted.length > 0) {
+          console.debug("[loginFlow] Restored %d private albums from IndexedDB", decrypted.length);
+          store.dispatch(addAlbums(decrypted));
+          for (const album of decrypted) indexParsedAlbum(album);
+        }
+      });
     }
   }
   if (livePlaylistEvents.length > 0) {
@@ -616,7 +686,20 @@ export async function performLogin(
         limit: 500,
       },
     ],
-    relayUrls: BOOTSTRAP_RELAYS,
+    relayUrls: PROFILE_RELAYS,
+  });
+
+  // Step 7e-a: Subscribe for music events where we are tagged (collaborator, featured artist).
+  // Without this, private tracks shared with us via p-tags would never arrive.
+  subscriptionManager.subscribe({
+    filters: [
+      {
+        kinds: [EVENT_KINDS.MUSIC_TRACK, EVENT_KINDS.MUSIC_ALBUM],
+        "#p": [pubkey],
+        limit: 200,
+      },
+    ],
+    relayUrls: PROFILE_RELAYS,
   });
 
   // Step 7e-b: Re-fetch any saved items that are missing from Redux.
@@ -643,7 +726,7 @@ export async function performLogin(
         const [kindStr, authorPk] = key.split(":");
         filters.push({ kinds: [parseInt(kindStr, 10)], authors: [authorPk], "#d": dTags });
       }
-      subscriptionManager.subscribe({ filters, relayUrls: BOOTSTRAP_RELAYS });
+      subscriptionManager.subscribe({ filters, relayUrls: PROFILE_RELAYS });
     }
   }
 
@@ -736,9 +819,7 @@ export async function performLogin(
 
   const followerBuffer: string[] = [];
   let followerEoseCount = 0;
-  // Use all connected read relays, falling back to bootstrap count
-  const connectedReadRelays = relayManager.getReadRelays();
-  const followerRelayCount = Math.max(connectedReadRelays.length, BOOTSTRAP_RELAYS.length);
+  const followerRelayCount = PROFILE_RELAYS.length;
 
   relayManager.subscribe({
     filters: [
@@ -748,7 +829,7 @@ export async function performLogin(
         limit: 500,
       },
     ],
-    // Don't restrict to BOOTSTRAP_RELAYS — let relayManager use all read relays
+    relayUrls: PROFILE_RELAYS,
     onEvent: (event) => {
       // Only care about events that include us in their follow list
       if (event.pubkey === pubkey) return;

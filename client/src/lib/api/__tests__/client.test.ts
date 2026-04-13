@@ -125,15 +125,15 @@ describe("api client", () => {
     }
   });
 
-  it("retries on 429 with exponential backoff", { timeout: 30_000 }, async () => {
+  it("retries once on 429 via request queue", { timeout: 30_000 }, async () => {
     let callCount = 0;
     server.use(
       http.get(`${BASE}/limited`, () => {
         callCount++;
-        if (callCount <= 2) {
+        if (callCount <= 1) {
           return HttpResponse.json(
             { error: "Rate limited", code: "RATE_LIMIT" },
-            { status: 429 },
+            { status: 429, headers: { "Retry-After": "1" } },
           );
         }
         return HttpResponse.json({ data: "success" });
@@ -142,15 +142,15 @@ describe("api client", () => {
 
     const result = await api<string>("/limited");
     expect(result.data).toBe("success");
-    expect(callCount).toBe(3); // 2 retries + 1 success
+    expect(callCount).toBe(2); // 1 failure + 1 retry success
   });
 
-  it("throws after exceeding max retries on 429", { timeout: 30_000 }, async () => {
+  it("throws after retry also gets 429", { timeout: 30_000 }, async () => {
     server.use(
       http.get(`${BASE}/always-limited`, () =>
         HttpResponse.json(
           { error: "Rate limited", code: "RATE_LIMIT" },
-          { status: 429 },
+          { status: 429, headers: { "Retry-After": "1" } },
         ),
       ),
     );

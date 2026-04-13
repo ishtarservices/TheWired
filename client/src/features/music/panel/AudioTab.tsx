@@ -37,12 +37,13 @@ function getMimeLabel(mime?: string): string {
 interface AudioTabProps {
   track: MusicTrack;
   isOwner: boolean;
+  isCollaborator?: boolean;
   onReplaceAudio: () => void;
   onExport: () => void;
   exporting: boolean;
 }
 
-export function AudioTab({ track, isOwner, onReplaceAudio, onExport, exporting }: AudioTabProps) {
+export function AudioTab({ track, isOwner, isCollaborator = false, onReplaceAudio, onExport, exporting }: AudioTabProps) {
   const { seek, player } = useAudioPlayer();
   const { downloadTrack, removeDownload, isDownloaded, downloading } = useDownload();
   const downloaded = isDownloaded(track.addressableId);
@@ -111,7 +112,7 @@ export function AudioTab({ track, isOwner, onReplaceAudio, onExport, exporting }
 
       {/* ── Actions ── */}
       <div className="flex flex-col gap-1.5">
-        {isOwner && (
+        {(isOwner || isCollaborator) && (
           <button
             onClick={onReplaceAudio}
             className="flex items-center gap-2 rounded-xl px-3 py-2.5 text-xs text-body transition-colors hover:bg-surface hover:text-heading"

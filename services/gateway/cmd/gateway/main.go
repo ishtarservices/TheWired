@@ -21,7 +21,12 @@ import (
 func main() {
 	cfg := config.Load()
 
-	limiter, err := ratelimit.NewLimiter(cfg.RedisURL)
+	limits := ratelimit.Limits{
+		ReadPerMin:   cfg.RateLimitRead,
+		WritePerMin:  cfg.RateLimitWrite,
+		SearchPerMin: cfg.RateLimitSearch,
+	}
+	limiter, err := ratelimit.NewLimiter(cfg.RedisURL, limits)
 	if err != nil {
 		log.Fatalf("Failed to initialize rate limiter: %v", err)
 	}
@@ -35,15 +40,17 @@ func main() {
 		w.Write([]byte(`{"status":"ok","service":"gateway"}`))
 	})
 
-	// Static uploads (no auth, just trusted-proxy + CORS + logging + proxy)
-	uploadsHandler := proxy.TrustedProxyMiddleware(cfg.TrustedProxies,
+	// Blossom endpoints (no auth at gateway -- backend handles kind 24242)
+	// PUT /upload, HEAD /upload
+	blossomHandler := proxy.TrustedProxyMiddleware(cfg.TrustedProxies,
 		gmiddleware.LoggingMiddleware(
-			cors.CORSMiddleware(cfg.AllowedOrigins)(
-				proxy.NewUploadsHandler(cfg.BackendURL),
+			cors.BlossomCORSMiddleware(
+				proxy.NewBlossomHandler(cfg.BackendURL),
 			),
 		),
 	)
-	mux.Handle("/uploads/", uploadsHandler)
+	mux.Handle("/upload", blossomHandler)
+	mux.Handle("/list/", blossomHandler)
 
 	// API routes: trusted-proxy (strip spoofed headers) -> logging -> CORS -> auth -> rate limit -> proxy
 	apiHandler := proxy.TrustedProxyMiddleware(cfg.TrustedProxies,
@@ -58,6 +65,23 @@ func main() {
 		),
 	)
 	mux.Handle("/api/", apiHandler)
+
+	// Blossom blob retrieval/deletion catch-all: /<sha256>[.<ext>]
+	// Registered as "/" so it catches paths not matched by /upload, /list/, /api/, /uploads/, /health
+	defaultHandler := proxy.TrustedProxyMiddleware(cfg.TrustedProxies,
+		gmiddleware.LoggingMiddleware(
+			cors.BlossomCORSMiddleware(
+				http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+					if proxy.IsBlossomPath(r.URL.Path) {
+						proxy.NewBlossomHandler(cfg.BackendURL).ServeHTTP(w, r)
+						return
+					}
+					http.NotFound(w, r)
+				}),
+			),
+		),
+	)
+	mux.Handle("/", defaultHandler)
 
 	addr := fmt.Sprintf(":%d", cfg.Port)
 	srv := &http.Server{

@@ -2,6 +2,7 @@ import { useEffect, useState, useMemo, useCallback, useRef } from "react";
 import { shallowEqual } from "react-redux";
 import { useAppSelector } from "../../store/hooks";
 import { subscriptionManager } from "../../lib/nostr/subscriptionManager";
+import { PROFILE_RELAYS } from "../../lib/nostr/constants";
 import { parseThreadRef } from "../spaces/noteParser";
 import { hasMediaUrls } from "../../lib/media/mediaUrlParser";
 import { matchEmbed } from "../../lib/content/embedPatterns";
@@ -64,11 +65,13 @@ export function useProfileFeed(pubkey: string) {
 
     const feedSubId = subscriptionManager.subscribe({
       filters: [{ kinds: [1, 6], authors: [pubkey], limit: 50 }],
+      relayUrls: PROFILE_RELAYS,
       onEOSE: () => setEoseReceived(true),
     });
 
     const articlesSubId = subscriptionManager.subscribe({
       filters: [{ kinds: [30023], authors: [pubkey], limit: 20 }],
+      relayUrls: PROFILE_RELAYS,
       onEOSE: () => setArticlesEose(true),
     });
 
@@ -233,6 +236,7 @@ export function useProfileFeed(pubkey: string) {
         until: oldestTimestampRef.current,
         limit: 50,
       }],
+      relayUrls: PROFILE_RELAYS,
       onEOSE: () => {
         setFetchingMore(false);
         subscriptionManager.close(subId);

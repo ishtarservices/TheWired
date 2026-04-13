@@ -37,11 +37,13 @@ const CHANNEL_COMPONENTS: Record<string, React.ComponentType> = {
   video: VoiceChannel,
 };
 
+const EMPTY_CHANNELS: never[] = [];
+
 export function ChannelPanel() {
   const activeChannelId = useAppSelector((s) => s.spaces.activeChannelId);
   const activeSpaceId = useAppSelector((s) => s.spaces.activeSpaceId);
   const channels = useAppSelector(
-    (s) => (activeSpaceId ? s.spaces.channels[activeSpaceId] : undefined) ?? [],
+    (s) => (activeSpaceId ? s.spaces.channels[activeSpaceId] : undefined) ?? EMPTY_CHANNELS,
   );
 
   // Resolve channel type from channel ID

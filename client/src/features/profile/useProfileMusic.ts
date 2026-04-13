@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef, useMemo } from "react";
 import { subscriptionManager } from "@/lib/nostr/subscriptionManager";
+import { PROFILE_RELAYS } from "@/lib/nostr/constants";
 import { useAppSelector } from "@/store/hooks";
 import { EVENT_KINDS } from "@/types/nostr";
 import { selectProfileTracks, selectProfileAlbums } from "@/features/music/musicSelectors";
@@ -33,6 +34,7 @@ export function useProfileMusic(pubkey: string) {
           limit: 200,
         },
       ],
+      relayUrls: PROFILE_RELAYS,
       onEOSE: () => {
         setLoading(false);
         fetchedRef.current = pubkey;

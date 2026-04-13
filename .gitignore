@@ -51,6 +51,8 @@ pnpm-debug.log*
 
 # Uploads / user data
 services/backend/uploads/
+services/backend/blobs/
+blobs/
 
 # Docker volumes (local data)
 pgdata/
@@ -78,6 +80,7 @@ coverage/
 *.orig
 
 PRODUCTION.md
+BLOSSOM_IMPLEMENTATION.md
 
 # Seed scripts (local demo data tooling)
 scripts/

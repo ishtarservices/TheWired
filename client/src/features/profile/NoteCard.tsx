@@ -1,4 +1,5 @@
 import { useState, useEffect, useMemo, useRef, memo, useCallback } from "react";
+import { useNavigate } from "react-router-dom";
 import { ChevronUp, ChevronDown, Image as ImageIcon, CornerUpLeft, MoreHorizontal, Trash2, Download } from "lucide-react";
 import { MediaLightbox, downloadMedia } from "../../components/ui/MediaLightbox";
 import { Avatar } from "../../components/ui/Avatar";
@@ -19,6 +20,7 @@ import { useClickOutside } from "../../hooks/useClickOutside";
 import { useAppSelector, useAppDispatch } from "../../store/hooks";
 import { eventsSelectors, removeEvent, removeRepost } from "../../store/slices/eventsSlice";
 import { subscriptionManager } from "../../lib/nostr/subscriptionManager";
+import { PROFILE_RELAYS } from "../../lib/nostr/constants";
 import { buildDeletionEvent } from "../../lib/nostr/eventBuilder";
 import { signAndPublish } from "../../lib/nostr/publish";
 import { deleteEvent as deleteEventFromDB } from "../../lib/db/eventStore";
@@ -138,6 +140,7 @@ function NoteCardInner({
   event: NostrEvent;
   showThreadContext?: boolean;
 }) {
+  const navigate = useNavigate();
   const { profile } = useProfile(event.pubkey);
   const engagement = useNoteEngagement(event.id);
   const actions = useProfileNoteActions(event);
@@ -155,6 +158,13 @@ function NoteCardInner({
 
   useClickOutside(overflowRef, () => setShowOverflow(false), showOverflow);
   useClickOutside(deleteConfirmRef, () => setShowDeleteConfirm(false), showDeleteConfirm);
+
+  const handleCardClick = useCallback((e: React.MouseEvent) => {
+    // Don't navigate if clicking on interactive elements
+    const target = e.target as HTMLElement;
+    if (target.closest("button, a, input, textarea, video, audio, [role='button']")) return;
+    navigate(`/note/${event.id}`);
+  }, [navigate, event.id]);
 
   const handleDelete = useCallback(() => {
     setShowDeleteConfirm(false);
@@ -184,7 +194,7 @@ function NoteCardInner({
   const hasMedia = media.length > 0;
 
   return (
-    <div className="group/notecard card-glass rounded-xl p-5 transition-all duration-150 hover-lift">
+    <div onClick={handleCardClick} className="group/notecard card-glass rounded-xl p-5 transition-all duration-150 hover-lift cursor-pointer">
       {/* Author row */}
       <div className="mb-3 flex items-center gap-3">
         <button
@@ -387,6 +397,7 @@ function ThreadContext({ parentId }: { parentId: string }) {
 
     const subId = subscriptionManager.subscribe({
       filters: [{ ids: [parentId] }],
+      relayUrls: PROFILE_RELAYS,
     });
 
     return () => {

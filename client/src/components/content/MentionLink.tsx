@@ -1,4 +1,5 @@
 import { useRef } from "react";
+import { useNavigate } from "react-router-dom";
 import { useProfile } from "@/features/profile/useProfile";
 
 interface MentionLinkProps {
@@ -8,6 +9,7 @@ interface MentionLinkProps {
 
 export function MentionLink({ pubkey, onClick }: MentionLinkProps) {
   const { profile } = useProfile(pubkey);
+  const navigate = useNavigate();
   const ref = useRef<HTMLButtonElement>(null);
 
   const displayName =
@@ -18,7 +20,11 @@ export function MentionLink({ pubkey, onClick }: MentionLinkProps) {
       ref={ref}
       type="button"
       onClick={() => {
-        if (onClick && ref.current) onClick(pubkey, ref.current);
+        if (onClick && ref.current) {
+          onClick(pubkey, ref.current);
+        } else {
+          navigate(`/profile/${pubkey}`);
+        }
       }}
       className="inline text-primary hover:text-primary-soft hover:underline font-medium cursor-pointer"
     >

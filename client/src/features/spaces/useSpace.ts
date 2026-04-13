@@ -1,4 +1,4 @@
-import { useCallback } from "react";
+import { useCallback, useRef } from "react";
 import { useAppSelector, useAppDispatch } from "../../store/hooks";
 import { store } from "../../store";
 import {
@@ -100,6 +100,7 @@ export function useSpace() {
   const allChannels = useAppSelector((s) => s.spaces.channels);
 
   const activeSpace = useAppSelector(selectActiveSpace);
+  const deferTimerRef = useRef<ReturnType<typeof setTimeout>>(undefined);
 
   /** Fetch members from backend and merge into Redux + IndexedDB */
   const syncMembers = useCallback(
@@ -252,39 +253,44 @@ export function useSpace() {
         syncFeedSources(spaceId);
       }
 
-      // Check onboarding state on space entry (non-blocking)
-      fetchMyOnboardingState(spaceId)
-        .then((res) => {
-          if (!res.data || !res.data.completed) {
-            // Not completed — check if space actually has onboarding enabled
-            fetchOnboardingPreview(spaceId)
-              .then((previewRes) => {
-                if (previewRes.data && previewRes.data.requireCompletion && previewRes.data.questions.length > 0) {
-                  dispatch(setOnboardingPending({ spaceId, pending: true }));
-                }
-              })
-              .catch(() => {});
-          } else {
-            dispatch(setOnboardingPending({ spaceId, pending: false }));
-          }
-        })
-        .catch(() => {});
+      // Defer low-priority background checks to avoid burst on space switch.
+      // These don't affect immediate UI and can wait until critical data loads.
+      if (deferTimerRef.current) clearTimeout(deferTimerRef.current);
+      deferTimerRef.current = setTimeout(() => {
+        // Check onboarding state on space entry
+        fetchMyOnboardingState(spaceId)
+          .then((res) => {
+            if (!res.data || !res.data.completed) {
+              // Not completed — check if space actually has onboarding enabled
+              fetchOnboardingPreview(spaceId)
+                .then((previewRes) => {
+                  if (previewRes.data && previewRes.data.requireCompletion && previewRes.data.questions.length > 0) {
+                    dispatch(setOnboardingPending({ spaceId, pending: true }));
+                  }
+                })
+                .catch(() => {});
+            } else {
+              dispatch(setOnboardingPending({ spaceId, pending: false }));
+            }
+          })
+          .catch(() => {});
 
-      // Background existence check — if the space was deleted, getSpace returns 404
-      getSpace(spaceId).catch((err) => {
-        if (err instanceof ApiRequestError && err.status === 404) {
-          cleanupSpaceState(spaceId, dispatch);
-          dispatch(
-            addNotification({
-              id: `space-gone-${spaceId}`,
-              type: "chat",
-              title: "Space removed",
-              body: "This space no longer exists and has been removed.",
-              timestamp: Math.floor(Date.now() / 1000),
-            }),
-          );
-        }
-      });
+        // Background existence check — if the space was deleted, getSpace returns 404
+        getSpace(spaceId).catch((err) => {
+          if (err instanceof ApiRequestError && err.status === 404) {
+            cleanupSpaceState(spaceId, dispatch);
+            dispatch(
+              addNotification({
+                id: `space-gone-${spaceId}`,
+                type: "chat",
+                title: "Space removed",
+                body: "This space no longer exists and has been removed.",
+                timestamp: Math.floor(Date.now() / 1000),
+              }),
+            );
+          }
+        });
+      }, 2000);
     },
     [dispatch, spaces, activeSpaceId, allChannels, syncMembers, syncFeedSources],
   );

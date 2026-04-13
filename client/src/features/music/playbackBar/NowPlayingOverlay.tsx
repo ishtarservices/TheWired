@@ -30,6 +30,13 @@ import { getTrackImage } from "../trackImage";
 import { useWaveform } from "../panel/useWaveform";
 import { selectAudioSource } from "../trackParser";
 import { ProgressBar } from "./ProgressBar";
+import { useResolvedArtist } from "../useResolvedArtist";
+import type { MusicTrack } from "@/types/music";
+
+function OverlayTrackArtist({ track }: { track: MusicTrack }) {
+  const resolved = useResolvedArtist(track.artist, track.artistPubkeys);
+  return <>{resolved}</>;
+}
 
 function formatTime(seconds: number): string {
   if (!isFinite(seconds) || seconds < 0) return "0:00";
@@ -57,6 +64,10 @@ export function NowPlayingOverlay() {
   const tracks = useAppSelector((s) => s.music.tracks);
   const { favoriteTrack, unfavoriteTrack, isTrackFavorited } = useLibrary();
   const isFavorited = currentTrack ? isTrackFavorited(currentTrack.addressableId) : false;
+  const resolvedArtist = useResolvedArtist(
+    currentTrack?.artist ?? "",
+    currentTrack?.artistPubkeys,
+  );
 
   const audioUrl = currentTrack ? selectAudioSource(currentTrack.variants) : null;
   const { canvasRef } = useWaveform(audioUrl, true, (fraction) => {
@@ -211,7 +222,7 @@ export function NowPlayingOverlay() {
                   {currentTrack.title}
                 </p>
                 <p className="truncate text-sm text-soft">
-                  {currentTrack.artist}
+                  {resolvedArtist}
                 </p>
               </div>
               <button
@@ -378,7 +389,7 @@ export function NowPlayingOverlay() {
                             <p className={`truncate text-sm font-medium ${isCurrent ? "text-primary" : "text-heading"}`}>
                               {track.title}
                             </p>
-                            <p className="truncate text-xs text-muted">{track.artist}</p>
+                            <p className="truncate text-xs text-muted"><OverlayTrackArtist track={track} /></p>
                           </div>
                           <button
                             onClick={(e) => {

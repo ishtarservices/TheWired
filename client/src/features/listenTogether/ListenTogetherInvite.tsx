@@ -1,6 +1,7 @@
 import { Headphones, Music, X } from "lucide-react";
 import { useListenTogether } from "./useListenTogether";
 import { useProfile } from "@/features/profile/useProfile";
+import { useResolvedArtist } from "@/features/music/useResolvedArtist";
 
 /**
  * Invite banner shown in voice channel / call UI when a DJ has started
@@ -16,7 +17,8 @@ export function ListenTogetherInvite() {
   if (!pendingInvite || dismissed) return null;
 
   const trackTitle = pendingInvite.trackMeta?.title;
-  const trackArtist = pendingInvite.trackMeta?.artist;
+  const rawTrackArtist = pendingInvite.trackMeta?.artist ?? "";
+  const trackArtist = useResolvedArtist(rawTrackArtist);
 
   return (
     <div className="flex items-center gap-3 px-4 py-2.5 bg-primary/8 border-b border-primary/15 animate-fade-in">
