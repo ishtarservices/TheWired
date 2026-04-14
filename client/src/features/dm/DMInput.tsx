@@ -263,7 +263,7 @@ export function DMInput({
       customEmojiMapRef.current.clear();
       onClearAttachments();
     },
-    [value, disabled, isUploading, attachments, onSend, onClearAttachments, isEditMode, editingMessage, onEditSubmit],
+    [value, disabled, isUploading, attachments, pendingGif, onSend, onClearAttachments, isEditMode, editingMessage, onEditSubmit],
   );
 
   const handleKeyDown = (e: KeyboardEvent<HTMLTextAreaElement>) => {

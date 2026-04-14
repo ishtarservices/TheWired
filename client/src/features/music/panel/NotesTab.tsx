@@ -210,7 +210,7 @@ export function NotesTab({ targetRef, targetName, ownerPubkey }: NotesTabProps) 
   };
 
   const handlePost = async () => {
-    if (!pubkey || !content.trim()) return;
+    if (!pubkey || (!content.trim() && !hasAttachments && !pendingGif)) return;
     setError(null);
     setSubmitting(true);
     try {
