@@ -29,15 +29,34 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          # workflow_run checks out the default branch; ensure we have the
-          # triggering commit so paths-filter can diff correctly
           ref: ${{ github.event.workflow_run.head_sha || github.sha }}
-          fetch-depth: 2
+          fetch-depth: 0  # Full history so we can diff against last successful build
 
       - name: Detect changed paths
         id: filter
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
-          CHANGED=$(git diff --name-only HEAD~1 HEAD)
+          # Diff against the last successful build, not just HEAD~1.
+          # This catches changes from prior commits whose tests failed.
+          LAST_BUILD_SHA=$(gh run list \
+            --workflow="Build & Push Docker Images" \
+            --status=success \
+            --json headSha \
+            --jq '.[0].headSha' 2>/dev/null || echo "")
+
+          if [ -z "$LAST_BUILD_SHA" ] || ! git cat-file -e "$LAST_BUILD_SHA" 2>/dev/null; then
+            echo "No prior successful build found — building all images"
+            echo "backend=true" >> "$GITHUB_OUTPUT"
+            echo "gateway=true" >> "$GITHUB_OUTPUT"
+            echo "relay=true" >> "$GITHUB_OUTPUT"
+            echo "landing=true" >> "$GITHUB_OUTPUT"
+            echo "proxy=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          echo "Diffing HEAD against last successful build: $LAST_BUILD_SHA"
+          CHANGED=$(git diff --name-only "$LAST_BUILD_SHA" HEAD)
           echo "Changed files:"
           echo "$CHANGED"
 
