@@ -189,14 +189,6 @@ export function evaluateCollaboratorNotification(
   const isAlbum = addressableId.startsWith("33123:");
   const kind = isAlbum ? "project" : "track";
 
-  console.debug("[music:notif] Sending collaborator notification", {
-    notifId,
-    addressableId,
-    contentTitle,
-    sender: event.pubkey.slice(0, 8) + "...",
-    senderName,
-  });
-
   store.dispatch(
     addNotification({
       id: notifId,

@@ -116,30 +116,12 @@ export async function parsePrivateTrackEvent(
   event: NostrEvent,
   viewerPubkey: string,
 ): Promise<MusicTrack | null> {
-  const dTag = event.tags.find((t) => t[0] === "d")?.[1] ?? "";
-  const addrId = `31683:${event.pubkey}:${dTag}`;
   const visibility = parseVisibility(event);
-
-  console.debug("[music:parse] parsePrivateTrackEvent called", {
-    addrId,
-    visibility,
-    viewerPubkey: viewerPubkey.slice(0, 8) + "...",
-    isOwner: event.pubkey === viewerPubkey,
-    hasContent: !!event.content,
-    contentLength: event.content?.length ?? 0,
-  });
-
-  if (visibility !== "private") {
-    console.debug("[music:parse] Not private, falling back to cleartext parse");
-    return parseTrackEvent(event);
-  }
+  if (visibility !== "private") return parseTrackEvent(event);
 
   // If content is empty, this is a private event without encrypted metadata
   // (e.g. old-style unlisted). Fall back to cleartext parsing.
-  if (!event.content) {
-    console.debug("[music:parse] Empty content on private track, falling back to cleartext parse");
-    return parseTrackEvent(event);
-  }
+  if (!event.content) return parseTrackEvent(event);
 
   try {
     const { nip44Decrypt } = await import("@/lib/nostr/nip44");
@@ -147,26 +129,14 @@ export async function parsePrivateTrackEvent(
 
     if (event.pubkey === viewerPubkey) {
       // Owner: content is encrypted to self
-      console.debug("[music:parse] Decrypting as owner (self-encrypted content)...");
       plaintext = await nip44Decrypt(viewerPubkey, event.content);
-      console.debug("[music:parse] Owner decryption OK, plaintext length:", plaintext.length);
     } else {
       // Collaborator: find per-collaborator encrypted_content tag
-      const encTags = event.tags.filter((t) => t[0] === "encrypted_content");
-      console.debug("[music:parse] Looking for collaborator encrypted_content tag", {
-        viewerPubkey: viewerPubkey.slice(0, 8) + "...",
-        encryptedContentTags: encTags.map((t) => t[2]?.slice(0, 8) + "..."),
-      });
       const myTag = event.tags.find(
         (t) => t[0] === "encrypted_content" && t[2] === viewerPubkey,
       );
-      if (!myTag) {
-        console.debug("[music:parse] No encrypted_content tag found for viewer — not a collaborator");
-        return null;
-      }
-      console.debug("[music:parse] Found encrypted_content tag, decrypting as collaborator...");
+      if (!myTag) return null; // Not a collaborator
       plaintext = await nip44Decrypt(event.pubkey, myTag[1]);
-      console.debug("[music:parse] Collaborator decryption OK, plaintext length:", plaintext.length);
     }
 
     const meta = JSON.parse(plaintext) as Record<string, unknown>;
@@ -207,14 +177,8 @@ export async function parsePrivateTrackEvent(
       visibility: "private",
       revisionSummary: meta.revisionSummary as string | undefined,
     };
-  } catch (err) {
-    console.warn("[music:parse] Private track decryption failed", {
-      addrId,
-      viewerPubkey: viewerPubkey.slice(0, 8) + "...",
-      isOwner: event.pubkey === viewerPubkey,
-      error: err instanceof Error ? err.message : String(err),
-    });
-    return null;
+  } catch {
+    return null; // Decryption failed — not authorized
   }
 }
 

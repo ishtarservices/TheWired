@@ -96,9 +96,9 @@ export function NotificationBell() {
 
       {/* Dropdown */}
       {open && (
-        <div className="absolute right-0 top-full mt-2 z-50 w-80 max-h-[420px] rounded-xl shadow-[var(--shadow-elevated)] animate-fade-in-up flex flex-col overflow-hidden border border-border-light glass-panel">
+        <div className="absolute right-0 top-full mt-2 z-50 w-80 max-h-[420px] rounded-xl shadow-[var(--shadow-elevated)] animate-fade-in-up flex flex-col overflow-hidden border border-border-light bg-panel backdrop-blur-xl">
           {/* Header */}
-          <div className="flex items-center justify-between border-b border-border px-4 py-2.5 bg-surface">
+          <div className="flex items-center justify-between border-b border-border px-4 py-2.5 bg-surface/80">
             <span className="text-xs font-semibold text-heading tracking-wide uppercase">Notifications</span>
             <div className="flex items-center gap-1">
               {notifications.length > 0 && (
@@ -196,10 +196,13 @@ function NotificationRow({
   const timeAgo = formatTimeAgo(notification.timestamp);
 
   return (
-    <button
+    <div
+      role="button"
+      tabIndex={0}
       onClick={onClick}
+      onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); onClick(); } }}
       className={cn(
-        "group flex w-full items-start gap-3 px-4 py-3 text-left transition-colors hover:bg-surface-hover",
+        "group flex w-full cursor-pointer items-start gap-3 px-4 py-3 text-left transition-colors hover:bg-surface-hover",
         !isRead && "bg-primary/[0.04]",
       )}
     >
@@ -250,7 +253,7 @@ function NotificationRow({
       >
         <X size={12} />
       </button>
-    </button>
+    </div>
   );
 }
 

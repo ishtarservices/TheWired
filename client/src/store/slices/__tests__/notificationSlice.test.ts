@@ -94,13 +94,13 @@ describe("notificationSlice", () => {
     expect(store.getState().notifications.notifications).toHaveLength(1);
   });
 
-  it("deduplicates notifications by id (replaces existing)", () => {
+  it("deduplicates notifications by id (skips if exists)", () => {
     const store = createTestStore();
     store.dispatch(addNotification(makeNotification({ body: "v1" })));
     store.dispatch(addNotification(makeNotification({ body: "v2" })));
     const notifs = store.getState().notifications.notifications;
     expect(notifs).toHaveLength(1);
-    expect(notifs[0].body).toBe("v2");
+    expect(notifs[0].body).toBe("v1"); // First one preserved, second skipped
   });
 
   it("caps notifications at 50", () => {

@@ -1,9 +1,10 @@
 import { store } from "@/store";
-import { restoreNotificationState, type NotificationPreferences, type SpaceMute, type ChannelNotifMode, type SpaceNotifSettings } from "@/store/slices/notificationSlice";
+import { restoreNotificationState, type NotificationPreferences, type SpaceMute, type ChannelNotifMode, type SpaceNotifSettings, type InAppNotification } from "@/store/slices/notificationSlice";
 import { saveUserState, getUserState } from "@/lib/db/userStateStore";
 
 const PREFS_KEY = "notification_preferences";
 const STATE_KEY = "notification_unread_state";
+const NOTIFS_KEY = "notification_items";
 const DEBOUNCE_MS = 5_000;
 
 let debounceTimer: ReturnType<typeof setTimeout> | null = null;
@@ -33,12 +34,13 @@ export async function savePreferences(prefs: NotificationPreferences): Promise<v
 // ── Unread state (IndexedDB via userStateStore) ─────────────────
 
 export async function loadNotificationState(): Promise<void> {
-  const [persisted, prefs] = await Promise.all([
+  const [persisted, prefs, savedNotifs] = await Promise.all([
     getUserState<PersistedUnreadState>(STATE_KEY),
     loadPreferences(),
+    getUserState<InAppNotification[]>(NOTIFS_KEY),
   ]);
 
-  const payload: Partial<PersistedUnreadState & { preferences: NotificationPreferences }> = {};
+  const payload: Partial<PersistedUnreadState & { preferences: NotificationPreferences; notifications: InAppNotification[] }> = {};
 
   if (persisted) {
     payload.spaceUnread = persisted.spaceUnread;
@@ -55,6 +57,15 @@ export async function loadNotificationState(): Promise<void> {
 
   if (prefs) {
     payload.preferences = prefs;
+  }
+
+  const savedDismissed = await getUserState<string[]>("notification_dismissed_ids");
+
+  if (savedNotifs?.length) {
+    payload.notifications = savedNotifs;
+  }
+  if (savedDismissed?.length) {
+    (payload as Record<string, unknown>).dismissedNotifIds = savedDismissed;
   }
 
   if (Object.keys(payload).length > 0) {
@@ -74,29 +85,11 @@ export function cancelPendingSave(): void {
 export function scheduleSaveNotificationState(): void {
   if (debounceTimer) clearTimeout(debounceTimer);
   debounceTimer = setTimeout(() => {
-    const state = store.getState().notifications;
-    const persisted: PersistedUnreadState = {
-      spaceUnread: state.spaceUnread,
-      channelUnread: state.channelUnread,
-      spaceMentions: state.spaceMentions,
-      channelMentions: state.channelMentions,
-      lastReadTimestamps: state.lastReadTimestamps,
-      spaceMutes: state.spaceMutes,
-      channelNotifSettings: state.channelNotifSettings,
-      spaceNotifSettings: state.spaceNotifSettings,
-    };
-    saveUserState(STATE_KEY, persisted).catch(() => {});
-    savePreferences(state.preferences);
+    saveNotificationStateToDB();
   }, DEBOUNCE_MS);
 }
 
-/** Immediately flush any pending debounced save (used on app close / account switch) */
-export function flushPendingSave(): void {
-  if (debounceTimer) {
-    clearTimeout(debounceTimer);
-    debounceTimer = null;
-  }
-
+function saveNotificationStateToDB(): void {
   const state = store.getState().notifications;
   const persisted: PersistedUnreadState = {
     spaceUnread: state.spaceUnread,
@@ -110,6 +103,18 @@ export function flushPendingSave(): void {
   };
   saveUserState(STATE_KEY, persisted).catch(() => {});
   savePreferences(state.preferences);
+  // Persist notification items + dismissed IDs so state survives restart
+  saveUserState(NOTIFS_KEY, state.notifications).catch(() => {});
+  saveUserState("notification_dismissed_ids", state.dismissedNotifIds).catch(() => {});
+}
+
+/** Immediately flush any pending debounced save (used on app close / account switch) */
+export function flushPendingSave(): void {
+  if (debounceTimer) {
+    clearTimeout(debounceTimer);
+    debounceTimer = null;
+  }
+  saveNotificationStateToDB();
 }
 
 /** Subscribe to Redux store changes and auto-persist */
@@ -119,7 +124,7 @@ export function startNotificationPersistence(): () => void {
 
   const unsubscribe = store.subscribe(() => {
     const s = store.getState().notifications;
-    const fingerprint = `${Object.keys(s.spaceUnread).length}:${Object.keys(s.channelUnread).length}:${Object.keys(s.spaceMutes).length}:${Object.keys(s.channelNotifSettings).length}:${Object.keys(s.spaceNotifSettings).length}:${Object.keys(s.lastReadTimestamps).length}:${s.preferences.enabled}:${s.preferences.dnd}`;
+    const fingerprint = `${Object.keys(s.spaceUnread).length}:${Object.keys(s.channelUnread).length}:${Object.keys(s.spaceMutes).length}:${Object.keys(s.channelNotifSettings).length}:${Object.keys(s.spaceNotifSettings).length}:${Object.keys(s.lastReadTimestamps).length}:${s.preferences.enabled}:${s.preferences.dnd}:${s.notifications.length}:${s.notifications.filter(n => n.read).length}:${s.dismissedNotifIds.length}`;
 
     if (fingerprint !== lastFingerprint) {
       lastFingerprint = fingerprint;

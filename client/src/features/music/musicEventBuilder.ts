@@ -193,14 +193,6 @@ export async function buildPrivateTrackEvent(
   pubkey: string,
   params: TrackEventParams & { collaborators?: string[] },
 ): Promise<UnsignedEvent> {
-  console.debug("[music:build] Building private track event", {
-    slug: params.slug,
-    title: params.title,
-    collaborators: params.collaborators ?? [],
-    artistPubkeys: params.artistPubkeys ?? [],
-    featuredArtists: params.featuredArtists ?? [],
-  });
-
   // All metadata that should be encrypted
   const metadata: Record<string, unknown> = {
     title: params.title,
@@ -220,9 +212,7 @@ export async function buildPrivateTrackEvent(
   };
 
   const plaintext = JSON.stringify(metadata);
-  console.debug("[music:build] Encrypting track content to self (NIP-44)...");
   const encryptedContent = await nip44Encrypt(pubkey, plaintext);
-  console.debug("[music:build] Self-encryption OK, ciphertext length:", encryptedContent.length);
 
   const tags: string[][] = [
     ["d", params.slug],
@@ -245,19 +235,10 @@ export async function buildPrivateTrackEvent(
   if (params.collaborators) {
     for (const collab of params.collaborators) {
       tags.push(["p", collab, "", "collaborator"]);
-      console.debug("[music:build] Encrypting track content for collaborator:", collab.slice(0, 8) + "...");
       const collabEncrypted = await nip44Encrypt(collab, plaintext);
-      console.debug("[music:build] Collaborator encryption OK, ciphertext length:", collabEncrypted.length);
       tags.push(["encrypted_content", collabEncrypted, collab]);
     }
   }
-
-  console.debug("[music:build] Private track event built:", {
-    slug: params.slug,
-    tagCount: tags.length,
-    pTags: tags.filter((t) => t[0] === "p").map((t) => ({ pubkey: t[1].slice(0, 8), role: t[3] })),
-    encryptedContentTags: tags.filter((t) => t[0] === "encrypted_content").length,
-  });
 
   return {
     pubkey,
@@ -273,12 +254,6 @@ export async function buildPrivateAlbumEvent(
   pubkey: string,
   params: AlbumEventParams & { collaborators?: string[] },
 ): Promise<UnsignedEvent> {
-  console.debug("[music:build] Building private album event", {
-    slug: params.slug,
-    title: params.title,
-    collaborators: params.collaborators ?? [],
-  });
-
   const metadata: Record<string, unknown> = {
     title: params.title,
     artist: params.artist,

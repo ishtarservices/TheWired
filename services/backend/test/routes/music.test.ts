@@ -19,6 +19,23 @@ const BLOB_DIR = join(process.cwd(), config.blobDir);
 
 beforeAll(async () => {
   server = await buildTestServer();
+
+  // Create the relay schema + events table used by resolve endpoints.
+  // In production, the Rust relay creates this; in tests we need a minimal version.
+  await db.execute(sql`CREATE SCHEMA IF NOT EXISTS relay`);
+  await db.execute(sql`
+    CREATE TABLE IF NOT EXISTS relay.events (
+      id TEXT PRIMARY KEY,
+      pubkey TEXT NOT NULL,
+      created_at BIGINT NOT NULL,
+      kind INTEGER NOT NULL,
+      tags JSONB NOT NULL DEFAULT '[]',
+      content TEXT NOT NULL DEFAULT '',
+      sig TEXT NOT NULL,
+      d_tag TEXT,
+      h_tag TEXT
+    )
+  `);
 });
 
 afterAll(async () => {

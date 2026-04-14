@@ -604,7 +604,6 @@ export async function performLogin(
       ).then((results) => {
         const decrypted = results.filter(Boolean) as import("../../types/music").MusicTrack[];
         if (decrypted.length > 0) {
-          console.debug("[loginFlow] Restored %d private tracks from IndexedDB", decrypted.length);
           store.dispatch(addTracks(decrypted));
           for (const track of decrypted) indexParsedTrack(track);
         }
@@ -638,7 +637,6 @@ export async function performLogin(
       ).then((results) => {
         const decrypted = results.filter(Boolean) as import("../../types/music").MusicAlbum[];
         if (decrypted.length > 0) {
-          console.debug("[loginFlow] Restored %d private albums from IndexedDB", decrypted.length);
           store.dispatch(addAlbums(decrypted));
           for (const album of decrypted) indexParsedAlbum(album);
         }
@@ -675,6 +673,12 @@ export async function performLogin(
     store.dispatch(setUserPlaylists(musicLib.userPlaylists));
     store.dispatch(setRecentlyPlayedIds(musicLib.recentlyPlayedIds));
   }
+
+  // Step 7d-b: Load notification state BEFORE relay subscriptions so that
+  // re-delivered events (which trigger evaluateCollaboratorNotification)
+  // find existing notifications and skip them via addNotification dedup.
+  await loadNotificationState();
+  cleanupNotificationPersistence = startNotificationPersistence();
 
   // Step 7e: Subscribe for user's own music events + deletion events from relays
   // Events flow through processIncomingEvent → Redux + IndexedDB persistence
@@ -756,11 +760,7 @@ export async function performLogin(
   await loadFriendRequestState();
   cleanupFriendRequestPersistence = startFriendRequestPersistence();
 
-  // Step 7f-c: Load persisted notification state (unread counts, preferences, mutes).
-  // MUST complete before background chat subs so lastReadTimestamps are available
-  // for the notification evaluator to skip already-read messages.
-  await loadNotificationState();
-  cleanupNotificationPersistence = startNotificationPersistence();
+  // Step 7f-c: Notification state already loaded in step 7d-b (before relay subs).
 
   // Step 7f-d: NOW start background chat subs — notification state is restored,
   // so re-fetched messages will be correctly filtered by lastReadTimestamps.

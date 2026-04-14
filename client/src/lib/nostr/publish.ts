@@ -14,18 +14,8 @@ export async function signAndPublish(
   const signer = getSigner();
   if (!signer) throw new Error("No signer available");
 
-  console.debug("[publish] Signing event", {
-    kind: unsigned.kind,
-    tagCount: unsigned.tags.length,
-    contentLength: unsigned.content?.length ?? 0,
-    pTags: unsigned.tags.filter((t) => t[0] === "p").map((t) => ({ pk: t[1]?.slice(0, 8), role: t[3] })),
-  });
-
   const signed = await signingQueue.enqueue(() => signer.signEvent(unsigned));
-  console.debug("[publish] Event signed", { eventId: signed.id.slice(0, 12), kind: signed.kind });
-
   relayManager.publish(signed, targetRelays);
-  console.debug("[publish] Published to relays", { targetRelays: targetRelays ?? "default write relays" });
 
   // Persist to IndexedDB so events survive page refresh
   await putEvent(signed);
@@ -33,7 +23,6 @@ export async function signAndPublish(
   // Process locally so the event appears in Redux immediately
   // (dedup will prevent double-processing when it bounces back from relays)
   await processIncomingEvent(signed, "local");
-  console.debug("[publish] Local processing complete", { eventId: signed.id.slice(0, 12) });
 
   return signed;
 }

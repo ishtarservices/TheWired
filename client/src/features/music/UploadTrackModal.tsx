@@ -136,30 +136,15 @@ export function UploadTrackModal({ open, onClose, defaultAlbumRef, defaultVisibi
         spaceId: visibility === "space" ? spaceId : undefined,
       };
 
-      console.debug("[music:upload] Building event", {
-        visibility,
-        collaborators,
-        slug,
-        title,
-        isPrivate: visibility === "private",
-      });
-
       const unsigned = visibility === "private"
         ? await buildPrivateTrackEvent(pubkey, { ...eventParams, collaborators })
         : buildTrackEvent(pubkey, eventParams);
-
-      console.debug("[music:upload] Event built, publishing...", {
-        kind: unsigned.kind,
-        tagCount: unsigned.tags.length,
-        visibility,
-      });
 
       if (visibility === "local") {
         await signAndSaveLocally(unsigned);
       } else {
         await signAndPublish(unsigned);
       }
-      console.debug("[music:upload] Published successfully");
       onClose();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Upload failed");

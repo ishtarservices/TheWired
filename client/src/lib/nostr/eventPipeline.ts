@@ -255,32 +255,10 @@ async function indexEvent(event: NostrEvent): Promise<void> {
       break;
     }
     case EVENT_KINDS.MUSIC_TRACK: {
-      const contextId = hTag ?? "global";
-      const dTag = event.tags.find((t) => t[0] === "d")?.[1] ?? "";
-      const trackAddrId = `31683:${event.pubkey}:${dTag}`;
-      console.debug("[music:pipeline] MUSIC_TRACK received", {
-        addrId: trackAddrId,
-        eventId: event.id.slice(0, 12),
-        author: event.pubkey.slice(0, 8) + "...",
-        contextId,
-        pTags: event.tags.filter((t) => t[0] === "p").map((t) => ({ pk: t[1]?.slice(0, 8), role: t[3] })),
-        visibility: event.tags.find((t) => t[0] === "visibility")?.[1] ?? "public",
-        hasContent: !!event.content,
-        contentLength: event.content?.length ?? 0,
-      });
-
-      store.dispatch(indexMusicTrack({ contextId, eventId: event.id }));
+      store.dispatch(indexMusicTrack({ contextId: hTag ?? "global", eventId: event.id }));
 
       // Helper to dispatch track into Redux + artist/collaborator indices
       const dispatchTrack = (track: import("../../types/music").MusicTrack) => {
-        console.debug("[music:pipeline] Dispatching track to Redux", {
-          addrId: track.addressableId,
-          title: track.title,
-          visibility: track.visibility,
-          collaborators: track.collaborators.map((c) => c.slice(0, 8) + "..."),
-          artistPubkeys: track.artistPubkeys.map((c) => c.slice(0, 8) + "..."),
-          featuredArtists: track.featuredArtists.map((c) => c.slice(0, 8) + "..."),
-        });
         store.dispatch(addTrack(track));
         if (track.artistPubkeys.length > 0) {
           for (const pk of track.artistPubkeys) {
@@ -310,36 +288,20 @@ async function indexEvent(event: NostrEvent): Promise<void> {
       if (isPrivate && event.content) {
         // Private track with encrypted content — attempt async decryption
         const myPubkey = store.getState().identity.pubkey;
-        console.debug("[music:pipeline] Private track detected, attempting decrypt", {
-          addrId: trackAddrId,
-          myPubkey: myPubkey?.slice(0, 8) + "...",
-          isOwner: myPubkey === event.pubkey,
-        });
         if (myPubkey) {
           // Await the decrypt so the track is in Redux before signAndPublish returns
           try {
             const track = await parsePrivateTrackEvent(event, myPubkey);
             if (track) {
-              console.debug("[music:pipeline] Private track decrypted successfully", {
-                addrId: track.addressableId,
-                title: track.title,
-              });
               dispatchTrack(track);
               // Notify collaborator if this is not our own event
               if (event.pubkey !== myPubkey && track.collaborators.includes(myPubkey)) {
                 evaluateCollaboratorNotification(event, track.title, track.addressableId);
               }
-            } else {
-              console.debug("[music:pipeline] Private track decrypt returned null — not authorized");
             }
-          } catch (err) {
-            console.warn("[music:pipeline] Private track decrypt threw error", {
-              addrId: trackAddrId,
-              error: err instanceof Error ? err.message : String(err),
-            });
+          } catch {
+            // Can't decrypt = not authorized, silently skip
           }
-        } else {
-          console.debug("[music:pipeline] No identity pubkey set, skipping private track");
         }
       } else {
         // Public, space, or legacy private (no encrypted content)
@@ -358,26 +320,9 @@ async function indexEvent(event: NostrEvent): Promise<void> {
       break;
     }
     case EVENT_KINDS.MUSIC_ALBUM: {
-      const contextId = hTag ?? "global";
-      const albumDTag = event.tags.find((t) => t[0] === "d")?.[1] ?? "";
-      const albumAddrId = `33123:${event.pubkey}:${albumDTag}`;
-      console.debug("[music:pipeline] MUSIC_ALBUM received", {
-        addrId: albumAddrId,
-        eventId: event.id.slice(0, 12),
-        author: event.pubkey.slice(0, 8) + "...",
-        visibility: event.tags.find((t) => t[0] === "visibility")?.[1] ?? "public",
-        hasContent: !!event.content,
-      });
-
-      store.dispatch(indexMusicAlbum({ contextId, eventId: event.id }));
+      store.dispatch(indexMusicAlbum({ contextId: hTag ?? "global", eventId: event.id }));
 
       const dispatchAlbum = (album: import("../../types/music").MusicAlbum) => {
-        console.debug("[music:pipeline] Dispatching album to Redux", {
-          addrId: album.addressableId,
-          title: album.title,
-          visibility: album.visibility,
-          collaborators: album.collaborators.map((c) => c.slice(0, 8) + "..."),
-        });
         store.dispatch(addAlbum(album));
         if (album.artistPubkeys.length > 0) {
           for (const pk of album.artistPubkeys) {
@@ -403,31 +348,17 @@ async function indexEvent(event: NostrEvent): Promise<void> {
 
       if (isPrivateAlbum && event.content) {
         const myPubkey = store.getState().identity.pubkey;
-        console.debug("[music:pipeline] Private album detected, attempting decrypt", {
-          addrId: albumAddrId,
-          myPubkey: myPubkey?.slice(0, 8) + "...",
-          isOwner: myPubkey === event.pubkey,
-        });
         if (myPubkey) {
           try {
             const album = await parsePrivateAlbumEvent(event, myPubkey);
             if (album) {
-              console.debug("[music:pipeline] Private album decrypted successfully", {
-                addrId: album.addressableId,
-                title: album.title,
-              });
               dispatchAlbum(album);
               if (event.pubkey !== myPubkey && album.collaborators.includes(myPubkey)) {
                 evaluateCollaboratorNotification(event, album.title, album.addressableId);
               }
-            } else {
-              console.debug("[music:pipeline] Private album decrypt returned null — not authorized");
             }
-          } catch (err) {
-            console.warn("[music:pipeline] Private album decrypt threw error", {
-              addrId: albumAddrId,
-              error: err instanceof Error ? err.message : String(err),
-            });
+          } catch {
+            // Can't decrypt = not authorized
           }
         }
       } else {

@@ -87,19 +87,10 @@ export async function parsePrivateAlbumEvent(
   event: NostrEvent,
   viewerPubkey: string,
 ): Promise<MusicAlbum | null> {
-  const dTag = event.tags.find((t) => t[0] === "d")?.[1] ?? "";
-  const addrId = `33123:${event.pubkey}:${dTag}`;
   const visibility = parseVisibility(event);
-
-  console.debug("[music:parse] parsePrivateAlbumEvent called", {
-    addrId,
-    visibility,
-    viewerPubkey: viewerPubkey.slice(0, 8) + "...",
-    isOwner: event.pubkey === viewerPubkey,
-    hasContent: !!event.content,
-  });
-
   if (visibility !== "private") return parseAlbumEvent(event);
+
+  // If content is empty, fall back to cleartext parsing (old-style unlisted)
   if (!event.content) return parseAlbumEvent(event);
 
   try {
@@ -107,20 +98,13 @@ export async function parsePrivateAlbumEvent(
     let plaintext: string;
 
     if (event.pubkey === viewerPubkey) {
-      console.debug("[music:parse] Decrypting album as owner...");
       plaintext = await nip44Decrypt(viewerPubkey, event.content);
-      console.debug("[music:parse] Owner album decryption OK");
     } else {
       const myTag = event.tags.find(
         (t) => t[0] === "encrypted_content" && t[2] === viewerPubkey,
       );
-      if (!myTag) {
-        console.debug("[music:parse] No encrypted_content tag for viewer — not a collaborator");
-        return null;
-      }
-      console.debug("[music:parse] Decrypting album as collaborator...");
+      if (!myTag) return null;
       plaintext = await nip44Decrypt(event.pubkey, myTag[1]);
-      console.debug("[music:parse] Collaborator album decryption OK");
     }
 
     const meta = JSON.parse(plaintext) as Record<string, unknown>;
@@ -162,13 +146,7 @@ export async function parsePrivateAlbumEvent(
       visibility: "private",
       revisionSummary: meta.revisionSummary as string | undefined,
     };
-  } catch (err) {
-    console.warn("[music:parse] Private album decryption failed", {
-      addrId,
-      viewerPubkey: viewerPubkey.slice(0, 8) + "...",
-      isOwner: event.pubkey === viewerPubkey,
-      error: err instanceof Error ? err.message : String(err),
-    });
+  } catch {
     return null;
   }
 }

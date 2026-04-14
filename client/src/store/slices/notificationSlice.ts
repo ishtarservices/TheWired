@@ -89,6 +89,9 @@ interface NotificationState {
   /** Captured old lastRead timestamps for unread divider positioning.
    *  Set when navigating to a channel that has unreads. */
   unreadDividerTimestamps: Record<string, number>;
+  /** IDs of notifications that were dismissed/cleared by the user.
+   *  Prevents re-delivered relay events from re-creating them. */
+  dismissedNotifIds: string[];
 }
 
 const initialState: NotificationState = {
@@ -103,6 +106,7 @@ const initialState: NotificationState = {
   channelNotifSettings: {},
   spaceNotifSettings: {},
   unreadDividerTimestamps: {},
+  dismissedNotifIds: [],
 };
 
 export const notificationSlice = createSlice({
@@ -176,13 +180,13 @@ export const notificationSlice = createSlice({
     },
 
     addNotification(state, action: PayloadAction<InAppNotification>) {
-      // Dedup by ID: replace existing notification with same ID instead of adding duplicate
-      const existingIdx = state.notifications.findIndex((n) => n.id === action.payload.id);
-      if (existingIdx >= 0) {
-        state.notifications[existingIdx] = action.payload;
-      } else {
-        state.notifications.push(action.payload);
-      }
+      const id = action.payload.id;
+      // Skip if already in the visible list
+      if (state.notifications.some((n) => n.id === id)) return;
+      // Skip if previously dismissed by the user
+      if (state.dismissedNotifIds.includes(id)) return;
+
+      state.notifications.push(action.payload);
       // Cap at 50 notifications in memory
       if (state.notifications.length > 50) {
         state.notifications = state.notifications.slice(-50);
@@ -190,6 +194,10 @@ export const notificationSlice = createSlice({
     },
 
     removeNotification(state, action: PayloadAction<string>) {
+      // Track dismissed ID so relay re-deliveries don't re-create it
+      if (!state.dismissedNotifIds.includes(action.payload)) {
+        state.dismissedNotifIds.push(action.payload);
+      }
       state.notifications = state.notifications.filter(
         (n) => n.id !== action.payload,
       );
@@ -218,7 +226,17 @@ export const notificationSlice = createSlice({
     },
 
     clearAllNotifications(state) {
+      // Track all dismissed IDs before clearing
+      for (const n of state.notifications) {
+        if (!state.dismissedNotifIds.includes(n.id)) {
+          state.dismissedNotifIds.push(n.id);
+        }
+      }
       state.notifications = [];
+      // Cap dismissed list to prevent unbounded growth
+      if (state.dismissedNotifIds.length > 200) {
+        state.dismissedNotifIds = state.dismissedNotifIds.slice(-200);
+      }
     },
 
     setSpaceMute(
@@ -297,6 +315,8 @@ export const notificationSlice = createSlice({
         preferences?: NotificationPreferences;
         channelNotifSettings?: Record<string, ChannelNotifMode>;
         spaceNotifSettings?: Record<string, SpaceNotifSettings>;
+        notifications?: InAppNotification[];
+        dismissedNotifIds?: string[];
       }>,
     ) {
       const p = action.payload;
@@ -312,6 +332,8 @@ export const notificationSlice = createSlice({
         state.channelNotifSettings = p.channelNotifSettings;
       if (p.spaceNotifSettings)
         state.spaceNotifSettings = p.spaceNotifSettings;
+      if (p.notifications) state.notifications = p.notifications;
+      if (p.dismissedNotifIds) state.dismissedNotifIds = p.dismissedNotifIds;
     },
   },
 });
