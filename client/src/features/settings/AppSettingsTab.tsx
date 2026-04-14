@@ -19,12 +19,14 @@ const STORAGE_KEY = "thewired_app_settings";
 interface AppSettings {
   sidebarDefaultExpanded: boolean;
   memberListDefaultVisible: boolean;
+  autoUpdates: boolean;
   developerMode: boolean;
 }
 
 const defaults: AppSettings = {
   sidebarDefaultExpanded: true,
   memberListDefaultVisible: true,
+  autoUpdates: true,
   developerMode: false,
 };
 
@@ -36,6 +38,11 @@ function loadSettings(): AppSettings {
   } catch {
     return defaults;
   }
+}
+
+/** Read whether auto-updates are enabled (for use outside settings UI) */
+export function getAutoUpdatesEnabled(): boolean {
+  return loadSettings().autoUpdates;
 }
 
 function saveSettings(settings: AppSettings) {
@@ -115,6 +122,14 @@ export function AppSettingsTab() {
             checked={settings.memberListDefaultVisible}
             onChange={(v) => update("memberListDefaultVisible", v)}
           />
+          {isTauri && (
+            <Toggle
+              label="Automatic updates"
+              description="Download and install updates automatically on startup"
+              checked={settings.autoUpdates}
+              onChange={(v) => update("autoUpdates", v)}
+            />
+          )}
           <Toggle
             label="Developer mode"
             description="Enable developer tools and debug information"

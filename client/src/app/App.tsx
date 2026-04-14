@@ -20,6 +20,9 @@ import { ThemeProvider } from "../contexts/ThemeContext";
 import { tryRestoreSession } from "../lib/nostr/loginFlow";
 import { ProfileWizard } from "../features/onboarding/ProfileWizard";
 import { AppTour } from "../features/onboarding/AppTour";
+import { UpdateOverlay } from "../components/UpdateOverlay";
+import { getAutoUpdatesEnabled } from "../features/settings/AppSettingsTab";
+import { useAppUpdater } from "../hooks/useAppUpdater";
 
 /** Restores session + guards all routes behind login */
 function AuthGate() {
@@ -115,38 +118,82 @@ function MainContent() {
   );
 }
 
+const isTauri =
+  typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
+
+const shouldAutoUpdate = isTauri && getAutoUpdatesEnabled();
+
+/** Silently checks for updates on startup; shows overlay only when an update is found */
+function AutoUpdateGate({ children }: { children: React.ReactNode }) {
+  const { status, version, progress, error } = useAppUpdater(true, true);
+  const [dismissed, setDismissed] = useState(false);
+
+  const showOverlay =
+    !dismissed &&
+    (status === "available" ||
+      status === "downloading" ||
+      status === "ready");
+
+  if (showOverlay) {
+    return (
+      <UpdateOverlay
+        status={status}
+        version={version}
+        progress={progress}
+        error={error}
+        onSkip={() => setDismissed(true)}
+      />
+    );
+  }
+
+  // Error — don't block the app, just let it through
+  return <>{children}</>;
+}
+
 export default function App() {
   return (
     <ThemeProvider>
       <BrowserRouter>
-        <Routes>
-          <Route element={<AuthGate />}>
-            <Route element={<Layout />}>
-              <Route index element={<MainContent />} />
-              <Route path="relays" element={<RelayStatusPanel />} />
-              <Route path="settings" element={<SettingsPage />} />
-              <Route path="discover" element={<DiscoverPage />} />
-              <Route path="dm" element={<DMView />} />
-              <Route path="dm/:pubkey" element={<DMView />} />
-              <Route path="music/album/:pubkey/:slug" element={<MusicLinkResolver type="album" />} />
-              <Route path="music/track/:pubkey/:slug" element={<MusicLinkResolver type="track" />} />
-              <Route
-                path="note/:noteId"
-                element={<NoteRouteWrapper />}
-              />
-              <Route
-                path="profile/:pubkey"
-                element={<ProfileRouteWrapper />}
-              />
-              <Route
-                path="invite/:code"
-                element={<InviteRouteWrapper />}
-              />
-            </Route>
-          </Route>
-        </Routes>
+        {shouldAutoUpdate ? (
+          <AutoUpdateGate>
+            <AppRoutes />
+          </AutoUpdateGate>
+        ) : (
+          <AppRoutes />
+        )}
       </BrowserRouter>
     </ThemeProvider>
+  );
+}
+
+function AppRoutes() {
+  return (
+    <Routes>
+      <Route element={<AuthGate />}>
+        <Route element={<Layout />}>
+          <Route index element={<MainContent />} />
+          <Route path="relays" element={<RelayStatusPanel />} />
+          <Route path="settings" element={<SettingsPage />} />
+          <Route path="discover" element={<DiscoverPage />} />
+          <Route path="dm" element={<DMView />} />
+          <Route path="dm/:pubkey" element={<DMView />} />
+          <Route path="music/album/:pubkey/:slug" element={<MusicLinkResolver type="album" />} />
+          <Route path="music/track/:pubkey/:slug" element={<MusicLinkResolver type="track" />} />
+          <Route
+            path="note/:noteId"
+            element={<NoteRouteWrapper />}
+          />
+          <Route
+            path="profile/:pubkey"
+            element={<ProfileRouteWrapper />}
+          />
+          <Route
+            path="invite/:code"
+            element={<InviteRouteWrapper />}
+          />
+        </Route>
+      </Route>
+    </Routes>
   );
 }
 
