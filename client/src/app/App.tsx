@@ -40,12 +40,12 @@ function AuthGate() {
         <img
           src="/logo.png"
           alt="The Wired"
-          width={64}
-          height={64}
+          width={80}
+          height={80}
           className="rounded-2xl animate-pulse"
         />
-        <p className="mt-5 text-sm font-medium text-muted tracking-wide">
-          {switchingAccount ? "Switching account..." : "Loading..."}
+        <p className="mt-6 text-sm font-medium text-muted tracking-wide">
+          Starting...
         </p>
       </div>
     );
