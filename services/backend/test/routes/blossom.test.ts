@@ -2,13 +2,35 @@ import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import { createHash } from "crypto";
 import type { FastifyInstance } from "fastify";
 import { finalizeEvent } from "nostr-tools";
+import { sql } from "drizzle-orm";
 import { buildTestServer, closeTestServer } from "../helpers/testServer.js";
+import { db } from "../../src/db/connection.js";
 import { LUNA, MARCUS, type TestUser } from "../helpers/testUsers.js";
 
 let server: FastifyInstance;
 
 beforeAll(async () => {
   server = await buildTestServer();
+
+  // Create the relay schema + events table used by protected-blob access control.
+  // In production, the Rust relay creates this; in tests we need a minimal version.
+  await db.execute(sql`CREATE SCHEMA IF NOT EXISTS relay`);
+  await db.execute(sql`
+    CREATE TABLE IF NOT EXISTS relay.events (
+      id TEXT PRIMARY KEY,
+      pubkey TEXT NOT NULL,
+      created_at BIGINT NOT NULL,
+      kind INTEGER NOT NULL,
+      tags JSONB NOT NULL DEFAULT '[]',
+      content TEXT NOT NULL DEFAULT '',
+      sig TEXT NOT NULL,
+      d_tag TEXT,
+      h_tag TEXT,
+      visibility TEXT
+    )
+  `);
+  // Ensure visibility column exists (relay migration 002 may not have been applied)
+  await db.execute(sql`ALTER TABLE relay.events ADD COLUMN IF NOT EXISTS visibility TEXT`);
 });
 
 afterAll(async () => {

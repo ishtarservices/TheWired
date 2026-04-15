@@ -33,9 +33,12 @@ beforeAll(async () => {
       content TEXT NOT NULL DEFAULT '',
       sig TEXT NOT NULL,
       d_tag TEXT,
-      h_tag TEXT
+      h_tag TEXT,
+      visibility TEXT
     )
   `);
+  // Ensure visibility column exists (relay migration 002 may not have been applied)
+  await db.execute(sql`ALTER TABLE relay.events ADD COLUMN IF NOT EXISTS visibility TEXT`);
 });
 
 afterAll(async () => {
