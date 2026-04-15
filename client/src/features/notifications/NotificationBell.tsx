@@ -182,7 +182,9 @@ function NotificationRow({
   const handleFollowBack = (e: React.MouseEvent) => {
     e.stopPropagation();
     if (notification.actionTarget) {
-      followUser(notification.actionTarget);
+      followUser(notification.actionTarget).catch((err) => {
+        console.error("[NotificationBell] Follow-back failed:", err);
+      });
     }
   };
 

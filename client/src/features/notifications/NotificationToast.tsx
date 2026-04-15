@@ -150,7 +150,9 @@ function Toast({
   const handleFollowBack = (e: React.MouseEvent) => {
     e.stopPropagation();
     if (notification.actionTarget) {
-      followUser(notification.actionTarget);
+      followUser(notification.actionTarget).catch((err) => {
+        console.error("[NotificationToast] Follow-back failed:", err);
+      });
       // Acted on — safe to remove everywhere
       dispatch(removeNotification(notification.id));
     }

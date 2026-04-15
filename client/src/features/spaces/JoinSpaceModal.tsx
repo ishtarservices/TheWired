@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect, useRef } from "react";
 import { useNavigate } from "react-router-dom";
 import { X, ArrowLeft, Users, AlertCircle } from "lucide-react";
 import { Modal } from "../../components/ui/Modal";
@@ -67,6 +67,18 @@ export function JoinSpaceModal({ open, onClose, initialCode }: JoinSpaceModalPro
     setError(null);
     setLoading(false);
   };
+
+  // Auto-lookup when opened with an initialCode (e.g. from invite link or InviteCard)
+  const didAutoLookup = useRef(false);
+  useEffect(() => {
+    if (open && initialCode && !didAutoLookup.current) {
+      didAutoLookup.current = true;
+      handleLookup();
+    }
+    if (!open) {
+      didAutoLookup.current = false;
+    }
+  }, [open, initialCode]);
 
   const handleClose = () => {
     reset();

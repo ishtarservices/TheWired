@@ -5,6 +5,7 @@ import { MentionLink } from "./MentionLink";
 import { InlineMarkdown } from "./InlineMarkdown";
 import { EmbedRenderer } from "./EmbedRenderer";
 import { MusicEmbedCard } from "./MusicEmbedCard";
+import { InviteCard } from "./InviteCard";
 import { MediaLightbox, downloadMedia } from "../ui/MediaLightbox";
 
 interface RichContentProps {
@@ -119,6 +120,9 @@ function RichSegment({
           <span className="truncate">{segment.filename}</span>
         </a>
       );
+
+    case "invite":
+      return <InviteCard code={segment.code} />;
 
     case "embed":
       return <EmbedRenderer embed={segment.embed} />;

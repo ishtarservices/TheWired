@@ -83,7 +83,7 @@ export const identitySlice = createSlice({
       state,
       action: PayloadAction<{ entries: RelayListEntry[]; createdAt: number }>,
     ) {
-      if (action.payload.createdAt <= state.relayListCreatedAt) return;
+      if (action.payload.createdAt < state.relayListCreatedAt) return;
       state.relayList = action.payload.entries;
       state.relayListCreatedAt = action.payload.createdAt;
     },
@@ -91,7 +91,7 @@ export const identitySlice = createSlice({
       state,
       action: PayloadAction<{ relays: string[]; createdAt: number }>,
     ) {
-      if (action.payload.createdAt <= state.dmRelayListCreatedAt) return;
+      if (action.payload.createdAt < state.dmRelayListCreatedAt) return;
       state.dmRelayList = action.payload.relays;
       state.dmRelayListCreatedAt = action.payload.createdAt;
     },
@@ -99,7 +99,7 @@ export const identitySlice = createSlice({
       state,
       action: PayloadAction<{ follows: string[]; createdAt: number }>,
     ) {
-      if (action.payload.createdAt <= state.followListCreatedAt) return;
+      if (action.payload.createdAt < state.followListCreatedAt) return;
       state.followList = action.payload.follows;
       state.followListCreatedAt = action.payload.createdAt;
     },
@@ -107,7 +107,7 @@ export const identitySlice = createSlice({
       state,
       action: PayloadAction<{ mutes: MuteEntry[]; createdAt: number }>,
     ) {
-      if (action.payload.createdAt <= state.muteListCreatedAt) return;
+      if (action.payload.createdAt < state.muteListCreatedAt) return;
       state.muteList = action.payload.mutes;
       state.muteListCreatedAt = action.payload.createdAt;
     },
@@ -115,7 +115,7 @@ export const identitySlice = createSlice({
       state,
       action: PayloadAction<{ noteIds: string[]; createdAt: number }>,
     ) {
-      if (action.payload.createdAt <= state.pinnedNotesCreatedAt) return;
+      if (action.payload.createdAt < state.pinnedNotesCreatedAt) return;
       state.pinnedNoteIds = action.payload.noteIds;
       state.pinnedNotesCreatedAt = action.payload.createdAt;
     },

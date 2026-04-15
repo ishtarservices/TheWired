@@ -46,6 +46,7 @@ import { followUser, unfollowUser } from "../../lib/nostr/follow";
 import { sendFriendRequest, acceptFriendRequestAction, cancelFriendRequestAction, removeFriendAction, wouldBreakFriendship } from "../../lib/nostr/friendRequest";
 import { useAppSelector, useAppDispatch } from "../../store/hooks";
 import { setMuteList } from "../../store/slices/identitySlice";
+import { addNotification } from "../../store/slices/notificationSlice";
 import { buildMuteListEvent } from "../../lib/nostr/eventBuilder";
 import { signAndPublish } from "../../lib/nostr/publish";
 import { useClickOutside } from "../../hooks/useClickOutside";
@@ -145,17 +146,30 @@ export function ProfilePage({ pubkey }: ProfilePageProps) {
   useClickOutside(unfollowConfirmRef, () => setShowUnfollowConfirm(false), showUnfollowConfirm);
   useClickOutside(unfriendConfirmRef, () => setShowUnfriendConfirm(false), showUnfriendConfirm);
 
+  const followListLoaded = useAppSelector((s) => s.identity.followListCreatedAt > 0);
+
   const handleFollow = useCallback(async () => {
-    if (iFollow) {
-      if (wouldBreakFriendship(pubkey)) {
-        setShowUnfollowConfirm(true);
-        return;
+    try {
+      if (iFollow) {
+        if (wouldBreakFriendship(pubkey)) {
+          setShowUnfollowConfirm(true);
+          return;
+        }
+        await unfollowUser(pubkey);
+      } else {
+        await followUser(pubkey);
       }
-      await unfollowUser(pubkey);
-    } else {
-      await followUser(pubkey);
+    } catch (err) {
+      console.error("[ProfilePage] Follow action failed:", err);
+      dispatch(addNotification({
+        id: `follow-error-${Date.now()}`,
+        type: "follow",
+        title: "Follow failed",
+        body: "Your contact list is still loading. Please wait a moment and try again.",
+        timestamp: Date.now(),
+      }));
     }
-  }, [pubkey, iFollow]);
+  }, [pubkey, iFollow, dispatch]);
 
   const handleConfirmUnfollow = useCallback(async () => {
     setShowUnfollowConfirm(false);
@@ -327,12 +341,12 @@ export function ProfilePage({ pubkey }: ProfilePageProps) {
               <div className="relative">
               <button
                 onClick={handleFollow}
-                disabled={followLoading}
+                disabled={followLoading || !followListLoaded}
                 className={`flex items-center gap-1.5 rounded-lg px-4 py-2 text-sm font-medium transition-colors ${
                   iFollow
                     ? "bg-surface-hover text-heading hover:bg-red-500/10 hover:text-red-400"
                     : "bg-primary/20 text-primary hover:bg-primary/30"
-                }`}
+                } disabled:opacity-50 disabled:cursor-not-allowed`}
               >
                 {iFollow ? (
                   <>

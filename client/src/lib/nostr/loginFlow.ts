@@ -215,6 +215,16 @@ function subscribeUserData(
         }
       }
     },
+    onEOSE: () => {
+      // If no kind:3 was found on relays (new user or contact list not on these
+      // relays), mark the follow list as loaded so follow actions aren't blocked.
+      // createdAt: 1 is a sentinel meaning "checked relays, confirmed empty" —
+      // any real kind:3 event will have a much larger timestamp and override this.
+      const { followListCreatedAt } = store.getState().identity;
+      if (followListCreatedAt === 0) {
+        store.dispatch(setFollowList({ follows: [], createdAt: 1 }));
+      }
+    },
   });
 }
 

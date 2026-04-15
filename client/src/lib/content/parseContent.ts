@@ -13,6 +13,7 @@ export type ContentSegment =
   | { type: "audio"; url: string }
   | { type: "file"; url: string; filename: string }
   | { type: "embed"; embed: EmbedMatch }
+  | { type: "invite"; code: string }
   | { type: "hashtag"; value: string }
   | { type: "custom-emoji"; shortcode: string; url: string };
 
@@ -20,6 +21,9 @@ const IMAGE_EXTS = /\.(jpe?g|png|gif|webp|svg|avif|bmp)(\?.*)?$/i;
 const VIDEO_EXTS = /\.(mp4|webm|mov|m3u8|mkv|avi)(\?.*)?$/i;
 const AUDIO_EXTS = /\.(mp3|wav|ogg|flac|aac|m4a|opus)(\?.*)?$/i;
 const DOC_EXTS = /\.(pdf)(\?.*)?$/i;
+const INVITE_RE = /\/invite\/([A-Za-z0-9_-]+)/;
+/** Matches a full invite URL (localhost or any domain) embedded in text */
+const INVITE_URL_RE = /https?:\/\/[^\s]+\/invite\/([A-Za-z0-9_-]+)/g;
 
 /** Type guard: pointer is a ProfilePointer (has pubkey, no id) */
 function isProfilePointer(p: ProfilePointer | EventPointer | AddressPointer): p is ProfilePointer {
@@ -70,6 +74,35 @@ function expandCustomEmojis(segments: ContentSegment[], emojiMap: Map<string, st
         result.push({ type: "text", text: seg.text.slice(lastIndex, match.index) });
       }
       result.push({ type: "custom-emoji", shortcode, url });
+      lastIndex = match.index + match[0].length;
+    }
+    // Push remaining text
+    if (lastIndex < seg.text.length) {
+      result.push({ type: "text", text: seg.text.slice(lastIndex) });
+    } else if (lastIndex === 0) {
+      result.push(seg);
+    }
+  }
+  return result;
+}
+
+/** Extract invite URLs from text segments that the NIP-27 parser missed (e.g. localhost URLs) */
+function extractInviteLinks(segments: ContentSegment[]): ContentSegment[] {
+  const result: ContentSegment[] = [];
+  for (const seg of segments) {
+    if (seg.type !== "text") {
+      result.push(seg);
+      continue;
+    }
+    let lastIndex = 0;
+    let match: RegExpExecArray | null;
+    INVITE_URL_RE.lastIndex = 0;
+    while ((match = INVITE_URL_RE.exec(seg.text)) !== null) {
+      // Push preceding text
+      if (match.index > lastIndex) {
+        result.push({ type: "text", text: seg.text.slice(lastIndex, match.index) });
+      }
+      result.push({ type: "invite", code: match[1] });
       lastIndex = match.index + match[0].length;
     }
     // Push remaining text
@@ -136,11 +169,16 @@ export function parseContent(content: string, emojiTags?: string[][]): ContentSe
           const filename = url.split("/").pop()?.split("?")[0] || "document.pdf";
           segments.push({ type: "file", url, filename });
         } else {
-          const embed = matchEmbed(url);
-          if (embed) {
-            segments.push({ type: "embed", embed });
+          const inviteMatch = url.match(INVITE_RE);
+          if (inviteMatch) {
+            segments.push({ type: "invite", code: inviteMatch[1] });
           } else {
-            segments.push({ type: "url", url });
+            const embed = matchEmbed(url);
+            if (embed) {
+              segments.push({ type: "embed", embed });
+            } else {
+              segments.push({ type: "url", url });
+            }
           }
         }
         break;
@@ -166,11 +204,14 @@ export function parseContent(content: string, emojiTags?: string[][]): ContentSe
     }
   }
 
+  // Post-process: extract invite links from text segments (localhost URLs aren't parsed by NIP-27)
+  let processed = extractInviteLinks(segments);
+
   // Post-process: replace :shortcode: patterns with custom-emoji segments (NIP-30)
   const emojiMap = buildEmojiMap(emojiTags);
   if (emojiMap) {
-    return expandCustomEmojis(segments, emojiMap);
+    processed = expandCustomEmojis(processed, emojiMap);
   }
 
-  return segments;
+  return processed;
 }

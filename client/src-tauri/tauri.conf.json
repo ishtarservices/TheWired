@@ -24,7 +24,7 @@
       }
     ],
     "security": {
-      "csp": "default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; img-src 'self' https: blob: data:; media-src 'self' https: blob:; connect-src 'self' https://*.thewired.app wss: ws: https: http://localhost:*; worker-src 'self' blob:; frame-src https://www.youtube.com https://www.youtube-nocookie.com https://platform.twitter.com https://open.spotify.com https://www.tiktok.com"
+      "csp": "default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; img-src 'self' https: blob: data:; media-src 'self' https: blob:; connect-src 'self' ipc: http://ipc.localhost https://*.thewired.app wss: ws: https: http://localhost:*; worker-src 'self' blob:; frame-src https://www.youtube.com https://www.youtube-nocookie.com https://platform.twitter.com https://open.spotify.com https://www.tiktok.com"
     }
   },
   "plugins": {

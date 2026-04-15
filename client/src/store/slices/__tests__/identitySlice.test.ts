@@ -87,6 +87,23 @@ describe("identitySlice", () => {
     expect(store.getState().identity.relayList[0].url).toBe("wss://r1.com");
   });
 
+  it("accepts relay list with createdAt 0 from initial state (cache load)", () => {
+    const store = createTestStore();
+    const entries = [{ url: "wss://cached.com", mode: "read+write" as const }];
+    store.dispatch(setRelayList({ entries, createdAt: 0 }));
+    expect(store.getState().identity.relayList).toHaveLength(1);
+    expect(store.getState().identity.relayList[0].url).toBe("wss://cached.com");
+  });
+
+  it("allows relay event to override cache (equal createdAt 0)", () => {
+    const store = createTestStore();
+    const cached = [{ url: "wss://cached.com", mode: "read+write" as const }];
+    const fromRelay = [{ url: "wss://relay.com", mode: "read" as const }];
+    store.dispatch(setRelayList({ entries: cached, createdAt: 0 }));
+    store.dispatch(setRelayList({ entries: fromRelay, createdAt: 1000 }));
+    expect(store.getState().identity.relayList[0].url).toBe("wss://relay.com");
+  });
+
   // ─── setFollowList ─────────────────────────────
 
   it("sets follow list with timestamp guard", () => {
@@ -100,6 +117,35 @@ describe("identitySlice", () => {
     store.dispatch(setFollowList({ follows: ["pk1"], createdAt: 200 }));
     store.dispatch(setFollowList({ follows: ["pk2"], createdAt: 100 }));
     expect(store.getState().identity.followList).toEqual(["pk1"]);
+  });
+
+  it("accepts follow list with createdAt 0 from initial state (cache load)", () => {
+    const store = createTestStore();
+    // Simulates loginFlow step 5c: cached follow list dispatched with createdAt: 0
+    store.dispatch(setFollowList({ follows: ["pk1", "pk2"], createdAt: 0 }));
+    expect(store.getState().identity.followList).toEqual(["pk1", "pk2"]);
+    expect(store.getState().identity.followListCreatedAt).toBe(0);
+  });
+
+  it("allows relay event to override cached follow list", () => {
+    const store = createTestStore();
+    // Cache load
+    store.dispatch(setFollowList({ follows: ["pk1"], createdAt: 0 }));
+    // Relay event arrives with real timestamp
+    store.dispatch(setFollowList({ follows: ["pk1", "pk2", "pk3"], createdAt: 1700000000 }));
+    expect(store.getState().identity.followList).toEqual(["pk1", "pk2", "pk3"]);
+    expect(store.getState().identity.followListCreatedAt).toBe(1700000000);
+  });
+
+  it("does not let stale relay event overwrite optimistic follow update", () => {
+    const store = createTestStore();
+    // Relay data loaded
+    store.dispatch(setFollowList({ follows: ["pk1"], createdAt: 1700000000 }));
+    // User follows someone new — optimistic update with current timestamp
+    store.dispatch(setFollowList({ follows: ["pk1", "pk2"], createdAt: 1700000100 }));
+    // Stale relay event arrives
+    store.dispatch(setFollowList({ follows: ["pk1"], createdAt: 1700000000 }));
+    expect(store.getState().identity.followList).toEqual(["pk1", "pk2"]);
   });
 
   // ─── setMuteList ───────────────────────────────
@@ -140,6 +186,12 @@ describe("identitySlice", () => {
     expect(store.getState().identity.pinnedNoteIds).toEqual(["n1", "n2"]);
   });
 
+  it("accepts pinned notes with createdAt 0 from initial state (cache load)", () => {
+    const store = createTestStore();
+    store.dispatch(setPinnedNotes({ noteIds: ["n1"], createdAt: 0 }));
+    expect(store.getState().identity.pinnedNoteIds).toEqual(["n1"]);
+  });
+
   // ─── setDMRelayList ────────────────────────────
 
   it("sets DM relay list with timestamp guard", () => {
@@ -148,6 +200,18 @@ describe("identitySlice", () => {
       setDMRelayList({ relays: ["wss://dm.com"], createdAt: 100 }),
     );
     expect(store.getState().identity.dmRelayList).toEqual(["wss://dm.com"]);
+  });
+
+  it("accepts DM relay list with createdAt 0 from initial state (cache load)", () => {
+    const store = createTestStore();
+    store.dispatch(setDMRelayList({ relays: ["wss://dm-cached.com"], createdAt: 0 }));
+    expect(store.getState().identity.dmRelayList).toEqual(["wss://dm-cached.com"]);
+  });
+
+  it("accepts mute list with createdAt 0 from initial state (cache load)", () => {
+    const store = createTestStore();
+    store.dispatch(setMuteList({ mutes: [{ type: "pubkey", value: "pk1" }], createdAt: 0 }));
+    expect(store.getState().identity.muteList).toHaveLength(1);
   });
 
   // ─── Known followers ──────────────────────────
