@@ -11,14 +11,13 @@ pub fn run() {
         .plugin(tauri_plugin_updater::Builder::new().build())
         .plugin(tauri_plugin_process::init());
 
-    // In production builds, serve from http://localhost:<port> instead of tauri://localhost
+    // In production builds, serve from http://localhost:14420 instead of tauri://localhost
     // so that third-party iframes (YouTube embeds) get a valid HTTP Referer header.
+    // Fixed port so localStorage/IndexedDB persist across launches (storage is origin-scoped).
     #[cfg(not(dev))]
-    let port = {
-        let port = portpicker::pick_unused_port().expect("failed to find unused port");
-        builder = builder.plugin(tauri_plugin_localhost::Builder::new(port).build());
-        port
-    };
+    {
+        builder = builder.plugin(tauri_plugin_localhost::Builder::new(14420).build());
+    }
 
     builder
         .setup(move |app| {
@@ -30,15 +29,13 @@ pub fn run() {
                 )?;
             }
 
-            // In production, grant the localhost URL IPC access and navigate to it
+            // In production, navigate to the localhost URL for IPC access
             #[cfg(not(dev))]
             {
                 use tauri::Manager;
                 let main_window = app.get_webview_window("main")
                     .expect("main window not found");
-                let url: tauri::Url = format!("http://localhost:{}", port)
-                    .parse()
-                    .unwrap();
+                let url: tauri::Url = "http://localhost:14420".parse().unwrap();
                 main_window.navigate(url);
             }
 
