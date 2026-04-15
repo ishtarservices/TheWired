@@ -219,7 +219,7 @@ export function MembersTab({ spaceId }: MembersTabProps) {
       const channelIdPart = parseChannelIdPart(state.spaces.activeChannelId);
       const channel = spaceChannels?.find((c) => c.id === channelIdPart);
       if (channel) {
-        switchSpaceChannel(updatedSpace, channel.type);
+        switchSpaceChannel(updatedSpace, channel.type, channel.id);
       }
     },
     [spaceId],

@@ -24,7 +24,7 @@ const patterns: EmbedPattern[] = [
       platform: "youtube",
       id: match[1],
       originalUrl: url,
-      embedUrl: `https://www.youtube.com/embed/${match[1]}`,
+      embedUrl: `https://www.youtube-nocookie.com/embed/${match[1]}`,
     }),
   },
   // Twitter / X

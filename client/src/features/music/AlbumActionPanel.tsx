@@ -222,9 +222,10 @@ export function AlbumActionPanel({ album, open, onClose, onEdit }: AlbumActionPa
         await signAndPublish(unsigned, [space.hostRelay]);
       }
       await publishExisting(evt, [space.hostRelay]);
+      // Also index into "all" mode music channels (curated channels require explicit sharing)
       const allChannels = store.getState().spaces.channels[space.id] ?? [];
-      const musicCh = allChannels.find((c) => c.type === "music");
-      if (musicCh) {
+      const allModeMusic = allChannels.filter((c) => c.type === "music" && c.feedMode !== "curated");
+      for (const musicCh of allModeMusic) {
         dispatch(indexSpaceFeed({ contextId: `${space.id}:${musicCh.id}`, eventId: album.eventId }));
         dispatch(trackFeedTimestamp({ contextId: `${space.id}:${musicCh.id}`, createdAt: evt.created_at }));
       }

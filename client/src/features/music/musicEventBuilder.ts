@@ -24,6 +24,7 @@ interface TrackEventParams {
   revisionSummary?: string;
   sharingDisabled?: boolean;
   spaceId?: string;
+  channelId?: string;
 }
 
 interface AlbumEventParams {
@@ -42,6 +43,7 @@ interface AlbumEventParams {
   revisionSummary?: string;
   sharingDisabled?: boolean;
   spaceId?: string;
+  channelId?: string;
 }
 
 interface PlaylistEventParams {
@@ -52,14 +54,18 @@ interface PlaylistEventParams {
   trackRefs?: string[];
   visibility?: MusicVisibility;
   spaceId?: string;
+  channelId?: string;
 }
 
 /** Append visibility-related tags */
-function addVisibilityTags(tags: string[][], visibility?: MusicVisibility, spaceId?: string) {
+function addVisibilityTags(tags: string[][], visibility?: MusicVisibility, spaceId?: string, channelId?: string) {
   if (visibility === "private") {
     tags.push(["visibility", "private"]);
   } else if (visibility === "space" && spaceId) {
     tags.push(["h", spaceId]);
+    if (channelId) {
+      tags.push(["channel", channelId]);
+    }
   }
   // "public" = no extra tag (default), "local" = not published so no tag needed
 }
@@ -117,7 +123,7 @@ export function buildTrackEvent(
     tags.push(["sharing", "disabled"]);
   }
 
-  addVisibilityTags(tags, params.visibility, params.spaceId);
+  addVisibilityTags(tags, params.visibility, params.spaceId, params.channelId);
 
   return {
     pubkey,
@@ -177,7 +183,7 @@ export function buildAlbumEvent(
     tags.push(["sharing", "disabled"]);
   }
 
-  addVisibilityTags(tags, params.visibility, params.spaceId);
+  addVisibilityTags(tags, params.visibility, params.spaceId, params.channelId);
 
   return {
     pubkey,
@@ -326,7 +332,7 @@ export function buildPlaylistEvent(
     }
   }
 
-  addVisibilityTags(tags, params.visibility, params.spaceId);
+  addVisibilityTags(tags, params.visibility, params.spaceId, params.channelId);
 
   return {
     pubkey,

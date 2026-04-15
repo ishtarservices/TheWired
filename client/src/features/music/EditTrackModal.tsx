@@ -3,14 +3,16 @@ import { X } from "lucide-react";
 import { Modal } from "@/components/ui/Modal";
 import { useAppSelector } from "@/store/hooks";
 import { uploadCoverArt } from "@/lib/api/music";
-import { buildTrackEvent } from "./musicEventBuilder";
-import { signAndPublish } from "@/lib/nostr/publish";
+import { buildTrackEvent, buildPrivateTrackEvent } from "./musicEventBuilder";
+import { signAndPublish, signAndSaveLocally } from "@/lib/nostr/publish";
 import { selectAudioSource } from "./trackParser";
 import { FeaturedArtistsInput } from "./FeaturedArtistsInput";
 import { HashtagInput } from "./HashtagInput";
 import { GenrePicker } from "./GenrePicker";
+import { VisibilityPicker } from "./VisibilityPicker";
 import { useProfile } from "@/features/profile/useProfile";
 import type { MusicTrack } from "@/types/music";
+import type { MusicVisibility } from "@/types/music";
 
 interface EditTrackModalProps {
   track: MusicTrack;
@@ -41,6 +43,10 @@ export function EditTrackModal({ track, onClose }: EditTrackModalProps) {
     track.artistPubkeys.filter((pk) => pk !== pubkey),
   );
   const [featuredArtists, setFeaturedArtists] = useState<string[]>(track.featuredArtists);
+  const [visibility, setVisibility] = useState<MusicVisibility>(track.visibility);
+  const [spaceId, setSpaceId] = useState(track.spaceId ?? "");
+  const [channelId, setChannelId] = useState(track.channelId ?? "");
+  const [collaborators, setCollaborators] = useState<string[]>(track.collaborators);
   const { profile: myProfile } = useProfile(pubkey);
   const [coverFile, setCoverFile] = useState<File | null>(null);
   const [revisionSummary, setRevisionSummary] = useState("");
@@ -75,7 +81,7 @@ export function EditTrackModal({ track, onClose }: EditTrackModalProps) {
       const resolvedArtistPubkeys = iAmArtist ? [pubkey] : artistPubkeys;
 
       const resolvedArtist = artist || myProfile?.display_name || myProfile?.name || pubkey;
-      const unsigned = buildTrackEvent(pubkey, {
+      const eventParams = {
         title,
         artist: resolvedArtist,
         slug: existingDTag,
@@ -87,11 +93,21 @@ export function EditTrackModal({ track, onClose }: EditTrackModalProps) {
         albumRef: albumRef || undefined,
         artistPubkeys: resolvedArtistPubkeys.length > 0 ? resolvedArtistPubkeys : undefined,
         featuredArtists: featuredArtists.length > 0 ? featuredArtists : undefined,
-        visibility: track.visibility,
+        visibility,
+        spaceId: visibility === "space" ? spaceId : undefined,
+        channelId: visibility === "space" && channelId ? channelId : undefined,
         revisionSummary: revisionSummary.trim() || undefined,
-      });
+      };
 
-      await signAndPublish(unsigned);
+      const unsigned = visibility === "private"
+        ? await buildPrivateTrackEvent(pubkey, { ...eventParams, collaborators })
+        : buildTrackEvent(pubkey, eventParams);
+
+      if (visibility === "local") {
+        await signAndSaveLocally(unsigned);
+      } else {
+        await signAndPublish(unsigned);
+      }
       onClose();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to save changes");
@@ -102,15 +118,15 @@ export function EditTrackModal({ track, onClose }: EditTrackModalProps) {
 
   return (
     <Modal open={true} onClose={onClose}>
-      <div className="w-full max-w-md max-h-[90vh] overflow-y-auto rounded-2xl border border-border card-glass p-6 shadow-xl">
-        <div className="mb-4 flex items-center justify-between">
+      <div className="w-full max-w-md max-h-[90vh] rounded-2xl border border-border card-glass shadow-xl flex flex-col">
+        <div className="shrink-0 flex items-center justify-between p-6 pb-0 mb-4">
           <h2 className="text-lg font-semibold text-heading">Edit Track</h2>
           <button onClick={onClose} className="text-soft hover:text-heading">
             <X size={18} />
           </button>
         </div>
 
-        <div className="space-y-3">
+        <div className="space-y-3 overflow-y-auto px-6 pb-6">
           <div>
             <label className="mb-1 block text-xs font-medium text-soft">Title *</label>
             <input
@@ -177,6 +193,26 @@ export function EditTrackModal({ track, onClose }: EditTrackModalProps) {
           {/* Featured Artists */}
           <FeaturedArtistsInput value={featuredArtists} onChange={setFeaturedArtists} />
 
+          {/* Visibility */}
+          <VisibilityPicker
+            value={visibility}
+            onChange={setVisibility}
+            spaceId={spaceId}
+            onSpaceIdChange={setSpaceId}
+            channelId={channelId}
+            onChannelIdChange={setChannelId}
+          />
+
+          {/* Collaborators (for private visibility) */}
+          {visibility === "private" && (
+            <FeaturedArtistsInput
+              value={collaborators}
+              onChange={setCollaborators}
+              label="Collaborators (can view this private track)"
+              placeholder="Paste collaborator npub or hex pubkey..."
+            />
+          )}
+
           {/* Cover art */}
           <div>
             <label className="mb-1 block text-xs font-medium text-soft">Cover Art</label>
@@ -218,10 +254,14 @@ export function EditTrackModal({ track, onClose }: EditTrackModalProps) {
 
           <button
             onClick={handleSubmit}
-            disabled={!title.trim() || submitting}
+            disabled={!title.trim() || submitting || (visibility === "space" && !spaceId)}
             className="w-full rounded-xl bg-gradient-to-r from-primary to-primary-soft py-2 text-sm font-medium text-white transition-opacity hover:opacity-90 press-effect disabled:opacity-50"
           >
-            {submitting ? "Saving..." : "Save Changes"}
+            {submitting
+              ? "Saving..."
+              : visibility === "local"
+                ? "Save Locally"
+                : "Save Changes"}
           </button>
         </div>
       </div>

@@ -33,6 +33,9 @@ export type ChannelType =
 /** Channel types available in client-defined spaces */
 export type SpaceChannelType = "chat" | "notes" | "media" | "articles" | "music" | "voice" | "video";
 
+/** Feed mode for channels — "all" shows all members' content, "curated" shows only explicitly shared content */
+export type ChannelFeedMode = "all" | "curated";
+
 /** A backend-managed channel within a space */
 export interface SpaceChannel {
   id: string;
@@ -46,6 +49,8 @@ export interface SpaceChannel {
   slowModeSeconds: number;
   /** If true, channel is deleted when all participants leave */
   temporary?: boolean;
+  /** Feed mode: "all" shows all members' content, "curated" shows only explicitly shared content */
+  feedMode: ChannelFeedMode;
 }
 
 /** Role within a space */

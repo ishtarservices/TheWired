@@ -80,6 +80,8 @@ export function parseTrackEvent(event: NostrEvent): MusicTrack {
     : variants[0]?.duration;
 
   const visibility = parseVisibility(event);
+  const spaceId = event.tags.find((t) => t[0] === "h")?.[1];
+  const channelId = event.tags.find((t) => t[0] === "channel")?.[1];
   const sharingDisabled = event.tags.some((t) => t[0] === "sharing" && t[1] === "disabled");
   const revisionSummary = event.tags.find((t) => t[0] === "revision_summary")?.[1];
 
@@ -101,6 +103,8 @@ export function parseTrackEvent(event: NostrEvent): MusicTrack {
     blurhash,
     createdAt: event.created_at,
     license,
+    spaceId,
+    channelId,
     visibility,
     sharingDisabled: sharingDisabled || undefined,
     revisionSummary,

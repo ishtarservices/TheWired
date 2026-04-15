@@ -1,4 +1,4 @@
-import type { NostrEvent, NostrFilter } from "../../types/nostr";
+import type { NostrEvent, NostrFilter, UnsignedEvent } from "../../types/nostr";
 import type { RelayMode } from "../../types/relay";
 import type { RelayEventCallback, RelayEOSECallback, RelayOKCallback, RelayStatusCallback, SubscribeOptions, RelayConfig } from "./types";
 import { RelayConnection } from "./relayConnection";
@@ -65,6 +65,30 @@ class RelayManagerImpl {
         this.globalOnStatusChange?.(relayUrl, status, error);
         if (status === "connected") {
           this.forwardPendingSubscriptions(relayUrl, conn);
+        }
+      },
+      onAuth: async (challenge: string, relayUrl: string): Promise<NostrEvent | null> => {
+        // Lazy imports to avoid circular dependency
+        const { getSigner } = await import("./loginFlow");
+        const { store } = await import("../../store");
+        const signer = getSigner();
+        if (!signer) return null;
+        const pubkey = store.getState().identity.pubkey;
+        if (!pubkey) return null;
+        const unsigned: UnsignedEvent = {
+          pubkey,
+          created_at: Math.floor(Date.now() / 1000),
+          kind: 22242,
+          tags: [
+            ["relay", relayUrl],
+            ["challenge", challenge],
+          ],
+          content: "",
+        };
+        try {
+          return await signer.signEvent(unsigned);
+        } catch {
+          return null;
         }
       },
     });

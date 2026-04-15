@@ -42,9 +42,42 @@ export class ApiRequestError extends Error {
   }
 }
 
+/**
+ * In-flight GET request deduplication.
+ * When multiple components request the same URL concurrently, they share a
+ * single network request instead of each firing independently.
+ * Only applies to GET (read) requests — writes always execute individually.
+ */
+const inflightGets = new Map<string, Promise<ApiResponse<unknown>>>();
+
 export async function api<T>(path: string, opts: RequestOptions = {}): Promise<ApiResponse<T>> {
   const { method = "GET", body, auth = true, signal, priority = "normal" } = opts;
   const url = `${baseUrl}${path}`;
+
+  // Deduplicate concurrent GET requests to the same path
+  if (method === "GET") {
+    const inflight = inflightGets.get(path);
+    if (inflight) return inflight as Promise<ApiResponse<T>>;
+  }
+
+  const promise = apiExecute<T>(url, { method, body, auth, signal, priority });
+
+  if (method === "GET") {
+    inflightGets.set(path, promise as Promise<ApiResponse<unknown>>);
+    // The .finally() chain creates a derived promise that also rejects when
+    // the original rejects. Swallow it — callers handle errors via `promise`.
+    promise.finally(() => inflightGets.delete(path)).catch(() => {});
+  }
+
+  return promise;
+}
+
+async function apiExecute<T>(
+  url: string,
+  opts: Required<Pick<RequestOptions, "method" | "auth" | "priority">> &
+    Pick<RequestOptions, "body" | "signal">,
+): Promise<ApiResponse<T>> {
+  const { method, body, auth, signal, priority } = opts;
 
   const headers: Record<string, string> = {};
 

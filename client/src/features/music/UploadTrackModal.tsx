@@ -33,9 +33,10 @@ interface UploadTrackModalProps {
   defaultAlbumRef?: string;
   defaultVisibility?: MusicVisibility;
   defaultSpaceId?: string;
+  defaultChannelId?: string;
 }
 
-export function UploadTrackModal({ open, onClose, defaultAlbumRef, defaultVisibility, defaultSpaceId }: UploadTrackModalProps) {
+export function UploadTrackModal({ open, onClose, defaultAlbumRef, defaultVisibility, defaultSpaceId, defaultChannelId }: UploadTrackModalProps) {
   const pubkey = useAppSelector((s) => s.identity.pubkey);
   const allAlbums = useAppSelector((s) => s.music.albums);
   const ownAlbums = useMemo(() => {
@@ -58,6 +59,7 @@ export function UploadTrackModal({ open, onClose, defaultAlbumRef, defaultVisibi
   const [featuredArtists, setFeaturedArtists] = useState<string[]>([]);
   const [visibility, setVisibility] = useState<MusicVisibility>(defaultVisibility ?? "public");
   const [spaceId, setSpaceId] = useState(defaultSpaceId ?? "");
+  const [channelId, setChannelId] = useState(defaultChannelId ?? "");
   const [audioFile, setAudioFile] = useState<File | null>(null);
   const [coverFile, setCoverFile] = useState<File | null>(null);
   const [uploading, setUploading] = useState(false);
@@ -67,6 +69,27 @@ export function UploadTrackModal({ open, onClose, defaultAlbumRef, defaultVisibi
   const { profile: myProfile } = useProfile(pubkey);
   const audioInputRef = useRef<HTMLInputElement>(null);
   const coverInputRef = useRef<HTMLInputElement>(null);
+
+  const resetForm = () => {
+    setTitle("");
+    setArtist("");
+    setGenre("");
+    setHashtags([]);
+    setAlbumRef(defaultAlbumRef ?? "");
+    setIAmArtist(true);
+    setArtistPubkeys([]);
+    setFeaturedArtists([]);
+    setVisibility(defaultVisibility ?? "public");
+    setSpaceId(defaultSpaceId ?? "");
+    setChannelId(defaultChannelId ?? "");
+    setAudioFile(null);
+    setCoverFile(null);
+    setError(null);
+    setCollaborators([]);
+    setEmbeddedCover(null);
+    if (audioInputRef.current) audioInputRef.current.value = "";
+    if (coverInputRef.current) coverInputRef.current.value = "";
+  };
 
   const handleAudioChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0] ?? null;
@@ -134,6 +157,7 @@ export function UploadTrackModal({ open, onClose, defaultAlbumRef, defaultVisibi
         featuredArtists: featuredArtists.length > 0 ? featuredArtists : undefined,
         visibility,
         spaceId: visibility === "space" ? spaceId : undefined,
+        channelId: visibility === "space" && channelId ? channelId : undefined,
       };
 
       const unsigned = visibility === "private"
@@ -145,6 +169,7 @@ export function UploadTrackModal({ open, onClose, defaultAlbumRef, defaultVisibi
       } else {
         await signAndPublish(unsigned);
       }
+      resetForm();
       onClose();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Upload failed");
@@ -158,9 +183,16 @@ export function UploadTrackModal({ open, onClose, defaultAlbumRef, defaultVisibi
       <div className="w-full max-w-md max-h-[90vh] rounded-2xl border border-border card-glass shadow-xl flex flex-col">
         <div className="shrink-0 flex items-center justify-between p-6 pb-0 mb-4">
           <h2 className="text-lg font-semibold text-heading">Upload Track</h2>
-          <button onClick={onClose} className="text-soft hover:text-heading">
-            <X size={18} />
-          </button>
+          <div className="flex items-center gap-2">
+            {(audioFile || title || artist) && (
+              <button onClick={resetForm} className="text-xs text-soft hover:text-heading">
+                Clear
+              </button>
+            )}
+            <button onClick={onClose} className="text-soft hover:text-heading">
+              <X size={18} />
+            </button>
+          </div>
         </div>
 
         <div className="space-y-3 overflow-y-auto px-6 pb-6">
@@ -328,6 +360,8 @@ export function UploadTrackModal({ open, onClose, defaultAlbumRef, defaultVisibi
             onChange={setVisibility}
             spaceId={spaceId}
             onSpaceIdChange={setSpaceId}
+            channelId={channelId}
+            onChannelIdChange={setChannelId}
           />
 
           {/* Collaborators (for private visibility) */}

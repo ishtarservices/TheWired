@@ -4,7 +4,7 @@ import { spaceChannels } from "../db/schema/channels.js";
 import { eq, and, asc } from "drizzle-orm";
 
 /** Feed types that allow only one channel per space */
-const UNIQUE_FEED_TYPES = new Set(["notes", "media", "articles", "music"]);
+const UNIQUE_FEED_TYPES = new Set(["notes", "media", "articles"]);
 
 interface CreateChannelParams {
   type: string;
@@ -13,6 +13,7 @@ interface CreateChannelParams {
   adminOnly?: boolean;
   slowModeSeconds?: number;
   temporary?: boolean;
+  feedMode?: string;
 }
 
 interface UpdateChannelParams {
@@ -22,6 +23,7 @@ interface UpdateChannelParams {
   adminOnly?: boolean;
   slowModeSeconds?: number;
   isDefault?: boolean;
+  feedMode?: string;
 }
 
 const DEFAULT_CHANNELS: Array<{ type: string; label: string }> = [
@@ -82,6 +84,7 @@ export const channelService = {
         adminOnly: params.adminOnly ?? false,
         slowModeSeconds: params.slowModeSeconds ?? 0,
         temporary: params.temporary ?? false,
+        feedMode: params.feedMode ?? "all",
       })
       .returning();
 

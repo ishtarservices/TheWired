@@ -74,7 +74,7 @@ export function navigateToNotification(
         const spaceChannels = state.spaces.channels[spaceId];
         const channel = spaceChannels?.find((c) => c.id === channelPart);
         if (channel) {
-          switchSpaceChannel(space, channel.type);
+          switchSpaceChannel(space, channel.type, channel.id);
         } else {
           // channelPart is the type itself (legacy format)
           switchSpaceChannel(space, channelPart);

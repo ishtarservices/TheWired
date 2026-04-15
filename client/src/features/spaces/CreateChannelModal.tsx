@@ -3,10 +3,10 @@ import { X } from "lucide-react";
 import { Button } from "../../components/ui/Button";
 import { Modal } from "../../components/ui/Modal";
 import { useSpaceChannels } from "./useSpaceChannels";
-import type { SpaceChannel, SpaceChannelType } from "../../types/space";
+import type { SpaceChannel, SpaceChannelType, ChannelFeedMode } from "../../types/space";
 
 /** Feed types that only allow one channel per space */
-const UNIQUE_FEED_TYPES = new Set<SpaceChannelType>(["notes", "media", "articles", "music"]);
+const UNIQUE_FEED_TYPES = new Set<SpaceChannelType>(["notes", "media", "articles"]);
 
 const ALL_TYPES: { value: SpaceChannelType; label: string }[] = [
   { value: "chat", label: "Chat" },
@@ -38,6 +38,7 @@ export function CreateChannelModal({
   const [adminOnly, setAdminOnly] = useState(false);
   const [slowModeSeconds, setSlowModeSeconds] = useState(0);
   const [temporary, setTemporary] = useState(false);
+  const [feedMode, setFeedMode] = useState<ChannelFeedMode>("all");
   const [error, setError] = useState<string | null>(null);
   const [creating, setCreating] = useState(false);
 
@@ -73,6 +74,7 @@ export function CreateChannelModal({
         adminOnly,
         slowModeSeconds,
         ...(isVoiceOrVideo && temporary ? { temporary: true } : {}),
+        ...(type === "music" ? { feedMode } : {}),
       });
       setName("");
       setType("chat");
@@ -80,6 +82,7 @@ export function CreateChannelModal({
       setAdminOnly(false);
       setSlowModeSeconds(0);
       setTemporary(false);
+      setFeedMode("all");
       onClose();
     } catch (err: any) {
       setError(err.message ?? "Failed to create channel");
@@ -135,6 +138,43 @@ export function CreateChannelModal({
               ))}
             </select>
           </div>
+
+          {type === "music" && (
+            <div>
+              <label className="mb-1 block text-xs font-medium text-soft">
+                Feed Mode
+              </label>
+              <div className="flex gap-2">
+                <button
+                  type="button"
+                  onClick={() => setFeedMode("all")}
+                  className={`flex-1 rounded-xl px-3 py-2 text-sm font-medium transition-all duration-150 ${
+                    feedMode === "all"
+                      ? "bg-primary/15 text-primary-soft ring-1 ring-primary/30"
+                      : "bg-surface text-soft hover:text-heading"
+                  }`}
+                >
+                  All Members
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setFeedMode("curated")}
+                  className={`flex-1 rounded-xl px-3 py-2 text-sm font-medium transition-all duration-150 ${
+                    feedMode === "curated"
+                      ? "bg-primary/15 text-primary-soft ring-1 ring-primary/30"
+                      : "bg-surface text-soft hover:text-heading"
+                  }`}
+                >
+                  Curated
+                </button>
+              </div>
+              <p className="mt-1 text-[11px] text-muted">
+                {feedMode === "curated"
+                  ? "Only tracks explicitly shared or uploaded to this channel"
+                  : "Shows all public tracks from space members"}
+              </p>
+            </div>
+          )}
 
           <div>
             <label className="mb-1 block text-xs font-medium text-soft">

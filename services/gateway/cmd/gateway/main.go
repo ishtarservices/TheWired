@@ -68,16 +68,19 @@ func main() {
 
 	// Blossom blob retrieval/deletion catch-all: /<sha256>[.<ext>]
 	// Registered as "/" so it catches paths not matched by /upload, /list/, /api/, /uploads/, /health
+	// NIP-98 auth is optional here — allows backend to check access for protected blobs
 	defaultHandler := proxy.TrustedProxyMiddleware(cfg.TrustedProxies,
 		gmiddleware.LoggingMiddleware(
 			cors.BlossomCORSMiddleware(
-				http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-					if proxy.IsBlossomPath(r.URL.Path) {
-						proxy.NewBlossomHandler(cfg.BackendURL).ServeHTTP(w, r)
-						return
-					}
-					http.NotFound(w, r)
-				}),
+				auth.NIP98Middleware(
+					http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+						if proxy.IsBlossomPath(r.URL.Path) {
+							proxy.NewBlossomHandler(cfg.BackendURL).ServeHTTP(w, r)
+							return
+						}
+						http.NotFound(w, r)
+					}),
+				),
 			),
 		),
 	)

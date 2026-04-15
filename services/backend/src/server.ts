@@ -39,7 +39,18 @@ export async function createServer() {
   });
 
   await server.register(cors, {
-    origin: config.allowedOrigins.length > 0 ? config.allowedOrigins : true,
+    origin:
+      config.allowedOrigins.length > 0
+        ? (origin: string | undefined, cb: (err: Error | null, allow: boolean) => void) => {
+            if (!origin) return cb(null, true);
+            if (config.allowedOrigins.includes(origin)) return cb(null, true);
+            // tauri-plugin-localhost uses a random port each launch
+            if (config.allowedOrigins.includes("http://localhost") && origin.startsWith("http://localhost:")) {
+              return cb(null, true);
+            }
+            cb(null, false);
+          }
+        : true,
   });
   await server.register(helmet, {
     contentSecurityPolicy: false,

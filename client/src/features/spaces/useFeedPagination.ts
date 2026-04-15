@@ -20,15 +20,16 @@ const DEFAULT_META: FeedMeta = {
  * Auto-fetches on mount when the feed context has no data yet,
  * so feeds like MediaFeed don't require a prior visit to NotesFeed.
  */
-export function useFeedPagination(channelType: string) {
+export function useFeedPagination(channelType: string, channelId?: string) {
   const activeSpace = useAppSelector(selectActiveSpace);
   const activeSpaceId = useAppSelector((s) => s.spaces.activeSpaceId);
   const isFriendsFeed = activeSpaceId === FRIENDS_FEED_ID;
 
+  // Use channel ID for context when available (supports multiple channels per type)
   const contextId = isFriendsFeed
     ? `${FRIENDS_FEED_ID}:${channelType}`
     : activeSpace
-      ? `${activeSpace.id}:${channelType}`
+      ? channelId ? `${activeSpace.id}:${channelId}` : `${activeSpace.id}:${channelType}`
       : "";
 
   const meta = useAppSelector(
@@ -59,27 +60,27 @@ export function useFeedPagination(channelType: string) {
     if (isFriendsFeed) {
       refreshFriendsFeed(channelType, true);
     } else if (activeSpace) {
-      refreshSpaceFeed(activeSpace, channelType, true);
+      refreshSpaceFeed(activeSpace, channelType, true, channelId);
     }
-  }, [contextId, feedEventCount, meta.isRefreshing, isFriendsFeed, activeSpace, channelType]);
+  }, [contextId, feedEventCount, meta.isRefreshing, isFriendsFeed, activeSpace, channelType, channelId]);
 
   const refresh = useCallback(() => {
     if (meta.isRefreshing) return;
     if (isFriendsFeed) {
       refreshFriendsFeed(channelType);
     } else if (activeSpace) {
-      refreshSpaceFeed(activeSpace, channelType);
+      refreshSpaceFeed(activeSpace, channelType, false, channelId);
     }
-  }, [activeSpace, isFriendsFeed, channelType, meta.isRefreshing]);
+  }, [activeSpace, isFriendsFeed, channelType, channelId, meta.isRefreshing]);
 
   const loadMore = useCallback(() => {
     if (meta.isLoadingMore || !meta.hasMore) return;
     if (isFriendsFeed) {
       loadMoreFriendsFeed(channelType);
     } else if (activeSpace) {
-      loadMoreSpaceFeed(activeSpace, channelType);
+      loadMoreSpaceFeed(activeSpace, channelType, channelId);
     }
-  }, [activeSpace, isFriendsFeed, channelType, meta.isLoadingMore, meta.hasMore]);
+  }, [activeSpace, isFriendsFeed, channelType, channelId, meta.isLoadingMore, meta.hasMore]);
 
   return { meta, refresh, loadMore };
 }

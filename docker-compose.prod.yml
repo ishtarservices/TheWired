@@ -99,7 +99,7 @@ services:
       PORT: 3002
       NODE_ENV: production
       LOG_LEVEL: info
-      ALLOWED_ORIGINS: ${ALLOWED_ORIGINS:-https://thewired.app,tauri://localhost}
+      ALLOWED_ORIGINS: ${ALLOWED_ORIGINS:-https://thewired.app,tauri://localhost,http://localhost}
       PUBLIC_URL: ${PUBLIC_URL:-https://api.thewired.app}
       ADMIN_PUBKEYS: ${ADMIN_PUBKEYS:-}
       LIVEKIT_URL: ${LIVEKIT_URL:-ws://livekit:7880}
@@ -140,7 +140,7 @@ services:
       GATEWAY_PORT: 9080
       BACKEND_URL: http://backend:3002
       REDIS_URL: redis://redis:6379
-      ALLOWED_ORIGINS: ${ALLOWED_ORIGINS:-https://thewired.app,tauri://localhost}
+      ALLOWED_ORIGINS: ${ALLOWED_ORIGINS:-https://thewired.app,tauri://localhost,http://localhost}
     depends_on:
       backend:
         condition: service_started

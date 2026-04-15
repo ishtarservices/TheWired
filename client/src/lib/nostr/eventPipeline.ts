@@ -5,7 +5,7 @@ import { isValidEventStructure } from "./validation";
 import { verifyBridge } from "./verifyWorkerBridge";
 import { store } from "../../store";
 import { putEvent, deleteEvent, deleteAddressableEvent } from "../db/eventStore";
-import { addEvent, indexChatMessage, indexReel, indexLongForm, indexLiveStream, indexNote, indexSpaceFeed, indexMusicTrack, indexMusicAlbum, indexReaction, indexReply, indexRepost, indexRepostByAuthor, indexQuote, removeChatMessage, hideMessage, removeEvent, removeNote, removeRepost, trackDeletedNote, trackDeletedAddr, indexEditedMessage } from "../../store/slices/eventsSlice";
+import { addEvent, indexChatMessage, indexReel, indexLongForm, indexLiveStream, indexNote, indexSpaceFeed, removeEventFromAllSpaceFeeds, indexMusicTrack, indexMusicAlbum, indexReaction, indexReply, indexRepost, indexRepostByAuthor, indexQuote, removeChatMessage, hideMessage, removeEvent, removeNote, removeRepost, trackDeletedNote, trackDeletedAddr, indexEditedMessage } from "../../store/slices/eventsSlice";
 import { addTrack, indexTrackByArtist, indexTrackByAlbum, indexTrackByArtistName, indexAlbumByArtist, indexAlbumByArtistName, addAlbum, addPlaylist, addAnnotation, removeAnnotation, removeTrack, removeAlbum, removePlaylist } from "../../store/slices/musicSlice";
 import { addDMMessage, editDMMessage, remoteDeleteDMMessage } from "../../store/slices/dmSlice";
 import { parseTrackEvent, parsePrivateTrackEvent } from "../../features/music/trackParser";
@@ -544,6 +544,18 @@ function indexEventIntoSpaceFeeds(event: NostrEvent): void {
       (t) => t[0] === "visibility" && (t[1] === "private" || t[1] === "unlisted"),
     );
     if (hasPrivateTag) return;
+
+    // When an addressable event replaces an older version (same pubkey+kind+d_tag),
+    // remove the old event ID from all space feeds to prevent stale entries.
+    // This happens when visibility changes (e.g., private → space).
+    const dTag = event.tags.find((t) => t[0] === "d")?.[1];
+    if (dTag) {
+      const addrId = `${event.kind}:${event.pubkey}:${dTag}`;
+      const existingTrack = store.getState().music.tracks[addrId] ?? store.getState().music.albums[addrId.replace("31683:", "33123:")];
+      if (existingTrack && existingTrack.eventId !== event.id) {
+        store.dispatch(removeEventFromAllSpaceFeeds(existingTrack.eventId));
+      }
+    }
   }
 
   const state = store.getState();
@@ -586,17 +598,35 @@ function indexEventIntoSpaceFeeds(event: NostrEvent): void {
     );
     if (!authorSet.has(event.pubkey)) continue;
 
+    // Space-scoped events (h-tag) should only index into their target space.
+    // Without this check, a track with ["h", "space-A"] would leak into space-B
+    // if the author is a member of both spaces.
+    const eventHTag = event.tags.find((t) => t[0] === "h")?.[1];
+    if (eventHTag && eventHTag !== space.id) continue;
+
     // Check which space channel this event kind belongs to
     for (const [channelType, route] of Object.entries(SPACE_CHANNEL_ROUTES)) {
       if (route.filterMode === "htag") continue; // Chat is h-tag scoped, not author-scoped
       if (!route.kinds.includes(event.kind)) continue;
 
-      // Index with channel ID format if channels are loaded
+      // Index with channel ID format if channels are loaded.
+      // Use filter (not find) to support multiple channels of the same type (e.g. music).
       const spaceChannels = channelsMap[space.id];
       if (spaceChannels && spaceChannels.length > 0) {
-        const matchingChannel = spaceChannels.find((c) => c.type === channelType);
-        if (matchingChannel) {
-          const contextId = `${space.id}:${matchingChannel.id}`;
+        const matchingChannels = spaceChannels.filter((c) => c.type === channelType);
+        const eventChannelTag = event.tags.find((t) => t[0] === "channel")?.[1];
+
+        for (const ch of matchingChannels) {
+          if (eventChannelTag) {
+            // Event explicitly targets a specific channel — only index into that channel,
+            // regardless of feed mode. A track tagged for #content should NOT also appear in #music.
+            if (eventChannelTag !== ch.id) continue;
+          } else if (ch.feedMode === "curated") {
+            // Curated channels only accept explicitly tagged events
+            continue;
+          }
+          // All-mode channels with no channel tag on the event: accept (default behavior)
+          const contextId = `${space.id}:${ch.id}`;
           store.dispatch(indexSpaceFeed({ contextId, eventId: event.id }));
           store.dispatch(trackFeedTimestamp({ contextId, createdAt: event.created_at }));
         }

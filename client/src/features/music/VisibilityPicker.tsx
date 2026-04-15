@@ -7,6 +7,8 @@ interface VisibilityPickerProps {
   onChange: (v: MusicVisibility) => void;
   spaceId: string;
   onSpaceIdChange: (id: string) => void;
+  channelId?: string;
+  onChannelIdChange?: (id: string) => void;
 }
 
 const OPTIONS: { value: MusicVisibility; label: string; desc: string; icon: typeof Globe }[] = [
@@ -16,8 +18,14 @@ const OPTIONS: { value: MusicVisibility; label: string; desc: string; icon: type
   { value: "local", label: "Local", desc: "Stored on this device only", icon: HardDrive },
 ];
 
-export function VisibilityPicker({ value, onChange, spaceId, onSpaceIdChange }: VisibilityPickerProps) {
+export function VisibilityPicker({ value, onChange, spaceId, onSpaceIdChange, channelId, onChannelIdChange }: VisibilityPickerProps) {
   const spaces = useAppSelector((s) => s.spaces.list);
+  const allChannels = useAppSelector((s) => s.spaces.channels);
+
+  // Get music channels for the selected space
+  const musicChannels = spaceId
+    ? (allChannels[spaceId] ?? []).filter((c) => c.type === "music")
+    : [];
 
   return (
     <div>
@@ -48,18 +56,37 @@ export function VisibilityPicker({ value, onChange, spaceId, onSpaceIdChange }: 
         })}
       </div>
       {value === "space" && (
-        <select
-          value={spaceId}
-          onChange={(e) => onSpaceIdChange(e.target.value)}
-          className="mt-2 w-full rounded-xl border border-border bg-field px-3 py-1.5 text-sm text-heading outline-none focus:border-primary/30"
-        >
-          <option value="">Select a space</option>
-          {spaces.map((s) => (
-            <option key={s.id} value={s.id}>
-              {s.name}
-            </option>
-          ))}
-        </select>
+        <>
+          <select
+            value={spaceId}
+            onChange={(e) => {
+              onSpaceIdChange(e.target.value);
+              onChannelIdChange?.("");
+            }}
+            className="mt-2 w-full rounded-xl border border-border bg-field px-3 py-1.5 text-sm text-heading outline-none focus:border-primary/30"
+          >
+            <option value="">Select a space</option>
+            {spaces.map((s) => (
+              <option key={s.id} value={s.id}>
+                {s.name}
+              </option>
+            ))}
+          </select>
+          {onChannelIdChange && musicChannels.length > 1 && (
+            <select
+              value={channelId ?? ""}
+              onChange={(e) => onChannelIdChange(e.target.value)}
+              className="mt-1.5 w-full rounded-xl border border-border bg-field px-3 py-1.5 text-sm text-heading outline-none focus:border-primary/30"
+            >
+              <option value="">Default music channel</option>
+              {musicChannels.map((ch) => (
+                <option key={ch.id} value={ch.id}>
+                  {ch.label} {ch.feedMode === "curated" ? "(Curated)" : ""}
+                </option>
+              ))}
+            </select>
+          )}
+        </>
       )}
     </div>
   );

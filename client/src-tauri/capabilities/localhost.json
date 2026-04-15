@@ -1,0 +1,25 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "localhost",
+  "description": "Grants IPC access when served via tauri-plugin-localhost in production",
+  "remote": {
+    "urls": ["http://localhost:*"]
+  },
+  "windows": ["main"],
+  "permissions": [
+    "core:default",
+    "opener:default",
+    "updater:default",
+    "process:default",
+    "fs:allow-read-file",
+    {
+      "identifier": "http:default",
+      "allow": [
+        { "url": "https://blossom.primal.net/**" },
+        { "url": "https://cdn.satellite.earth/**" },
+        { "url": "https://blossom.oxtr.dev/**" },
+        { "url": "https://files.v0l.io/**" }
+      ]
+    }
+  ]
+}

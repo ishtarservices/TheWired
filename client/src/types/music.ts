@@ -23,6 +23,8 @@ export interface MusicTrack {
   blurhash?: string;
   createdAt: number;
   license?: string;
+  spaceId?: string;
+  channelId?: string;
   visibility: MusicVisibility;
   sharingDisabled?: boolean;
   revisionSummary?: string;

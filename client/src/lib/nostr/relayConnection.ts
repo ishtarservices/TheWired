@@ -35,6 +35,8 @@ export class RelayConnection {
   private onEOSE: RelayEOSECallback | null = null;
   private onOK: RelayOKCallback | null = null;
   private onStatusChange: RelayStatusCallback | null = null;
+  /** NIP-42 AUTH callback: receives (challenge, relayUrl) and should return a signed kind:22242 event */
+  private onAuth: ((challenge: string, relayUrl: string) => Promise<NostrEvent | null>) | null = null;
   private stormDetector: StormDetector;
 
   /** Short relay name for logging (computed once). */
@@ -52,11 +54,13 @@ export class RelayConnection {
     onEOSE?: RelayEOSECallback;
     onOK?: RelayOKCallback;
     onStatusChange?: RelayStatusCallback;
+    onAuth?: (challenge: string, relayUrl: string) => Promise<NostrEvent | null>;
   }) {
     if (cbs.onEvent) this.onEvent = cbs.onEvent;
     if (cbs.onEOSE) this.onEOSE = cbs.onEOSE;
     if (cbs.onOK) this.onOK = cbs.onOK;
     if (cbs.onStatusChange) this.onStatusChange = cbs.onStatusChange;
+    if (cbs.onAuth) this.onAuth = cbs.onAuth;
   }
 
   connect(): void {
@@ -223,7 +227,15 @@ export class RelayConnection {
         break;
       }
       case "AUTH": {
-        // NIP-42 auth challenge - handled in later steps
+        // NIP-42 auth challenge — sign and respond with kind:22242
+        const challenge = msg[1] as string;
+        if (challenge && this.onAuth) {
+          this.onAuth(challenge, this.url).then((signedEvent) => {
+            if (signedEvent && this.ws?.readyState === WebSocket.OPEN) {
+              this.ws.send(JSON.stringify(["AUTH", signedEvent]));
+            }
+          }).catch(() => {});
+        }
         break;
       }
     }

@@ -56,6 +56,7 @@ export function CreateAlbumModal({ open, onClose, album }: CreateAlbumModalProps
   const [featuredArtists, setFeaturedArtists] = useState<string[]>([]);
   const [visibility, setVisibility] = useState<MusicVisibility>("public");
   const [spaceId, setSpaceId] = useState("");
+  const [channelId, setChannelId] = useState("");
   const [projectType, setProjectType] = useState<ProjectType>("album");
   const [collaborators, setCollaborators] = useState<string[]>([]);
   const [coverFile, setCoverFile] = useState<File | null>(null);
@@ -301,6 +302,7 @@ export function CreateAlbumModal({ open, onClose, album }: CreateAlbumModalProps
               artistPubkeys: resolvedArtistPubkeys.length > 0 ? resolvedArtistPubkeys : undefined,
               visibility,
               spaceId: visibility === "space" ? spaceId : undefined,
+              channelId: visibility === "space" && channelId ? channelId : undefined,
             };
 
             const trackUnsigned = visibility === "private"
@@ -340,6 +342,7 @@ export function CreateAlbumModal({ open, onClose, album }: CreateAlbumModalProps
         projectType,
         visibility,
         spaceId: visibility === "space" ? spaceId : undefined,
+        channelId: visibility === "space" && channelId ? channelId : undefined,
       };
 
       const unsigned = visibility === "private"
@@ -738,6 +741,8 @@ export function CreateAlbumModal({ open, onClose, album }: CreateAlbumModalProps
             onChange={setVisibility}
             spaceId={spaceId}
             onSpaceIdChange={setSpaceId}
+            channelId={channelId}
+            onChannelIdChange={setChannelId}
           />
 
           {/* Collaborators (for private visibility) */}

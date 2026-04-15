@@ -424,7 +424,12 @@ function SpacePreviewModal({ space, onClose }: { space: DiscoverSpace | null; on
       const { space: spaceData, channels, feedPubkeys } = res.data;
 
       // Store channels in Redux BEFORE joinSpace so they're available
-      dispatch(setChannels({ spaceId: space.id, channels }));
+      // Normalize channels to ensure feedMode is present (backward compat)
+      const normalizedChannels: SpaceChannel[] = channels.map((ch: any) => ({
+        ...ch,
+        feedMode: ch.feedMode ?? "all",
+      }));
+      dispatch(setChannels({ spaceId: space.id, channels: normalizedChannels }));
 
       const spaceMode = (spaceData.mode as "read" | "read-write") ?? "read-write";
 
@@ -451,16 +456,16 @@ function SpacePreviewModal({ space, onClose }: { space: DiscoverSpace | null; on
 
       // Manually pick the default channel and create the Nostr subscription
       // since joinSpace's allChannels closure is stale.
-      if (channels.length > 0) {
+      if (normalizedChannels.length > 0) {
         const visible = spaceMode === "read"
-          ? channels.filter((c: SpaceChannel) => c.type !== "chat")
-          : channels;
+          ? normalizedChannels.filter((c: SpaceChannel) => c.type !== "chat")
+          : normalizedChannels;
         const sorted = [...visible].sort((a: SpaceChannel, b: SpaceChannel) => a.position - b.position);
         const best = sorted.find((c: SpaceChannel) => c.isDefault) ?? sorted[0];
         if (best) {
           const channelId = `${space.id}:${best.id}`;
           dispatch(setActiveChannel(channelId));
-          switchSpaceChannel(spaceObj, best.type);
+          switchSpaceChannel(spaceObj, best.type, best.id);
         }
       }
 

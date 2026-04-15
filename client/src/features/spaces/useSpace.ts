@@ -81,13 +81,23 @@ function activateChannel(channelId: string, dispatch: ReturnType<typeof useAppDi
 function cleanupSpaceState(spaceId: string, dispatch: ReturnType<typeof useAppDispatch>) {
   leaveClientSpace(spaceId);
   closeBgChatSub(spaceId);
-  dispatch(removeSpace(spaceId));
-  dispatch(clearSpaceUnread(spaceId));
-  dispatch(clearSpaceFeed(spaceId));
+
+  // Clear feed meta for all channels (by ID and legacy type keys)
+  const spaceChannels = store.getState().spaces.channels[spaceId];
+  if (spaceChannels) {
+    for (const ch of spaceChannels) {
+      dispatch(clearFeedMeta(`${spaceId}:${ch.id}`));
+    }
+  }
+  // Also clear legacy type-based keys
   dispatch(clearFeedMeta(`${spaceId}:notes`));
   dispatch(clearFeedMeta(`${spaceId}:media`));
   dispatch(clearFeedMeta(`${spaceId}:articles`));
   dispatch(clearFeedMeta(`${spaceId}:music`));
+
+  dispatch(removeSpace(spaceId));
+  dispatch(clearSpaceUnread(spaceId));
+  dispatch(clearSpaceFeed(spaceId));
   removeSpaceFromStore(spaceId);
   removeLastChannel(spaceId);
 }
@@ -131,7 +141,7 @@ export function useSpace() {
             const channelIdPart = parseChannelIdPart(state.spaces.activeChannelId);
             const channel = spaceChannels?.find((c) => c.id === channelIdPart);
             if (channel) {
-              switchSpaceChannel(updated, channel.type);
+              switchSpaceChannel(updated, channel.type, channel.id);
             }
           }
         }
@@ -183,7 +193,7 @@ export function useSpace() {
             const channelIdPart = parseChannelIdPart(state.spaces.activeChannelId);
             const channel = spaceChannels?.find((c) => c.id === channelIdPart);
             if (channel) {
-              switchSpaceChannel(updated, channel.type);
+              switchSpaceChannel(updated, channel.type, channel.id);
             }
           }
         }
@@ -237,7 +247,7 @@ export function useSpace() {
           const channelId = `${spaceId}:${best.id}`;
           dispatch(setActiveChannel(channelId));
           activateChannel(channelId, dispatch);
-          switchSpaceChannel(space, best.type);
+          switchSpaceChannel(space, best.type, best.id);
           setLastChannel(spaceId, best.id);
         }
       } else {
@@ -317,7 +327,7 @@ export function useSpace() {
         const channelId = `${activeSpace.id}:${channel.id}`;
         dispatch(setActiveChannel(channelId));
         activateChannel(channelId, dispatch);
-        switchSpaceChannel(activeSpace, channel.type);
+        switchSpaceChannel(activeSpace, channel.type, channel.id);
         setLastChannel(activeSpace.id, channel.id);
       } else {
         // Legacy: treat as channel type string
@@ -352,6 +362,12 @@ export function useSpace() {
     return activeChannelId?.split(":").pop() ?? "";
   }, [resolveActiveChannel, activeChannelId]);
 
+  /** Get the channel ID part (without space prefix) for the active channel */
+  const getActiveChannelIdPart = useCallback((): string | undefined => {
+    const channel = resolveActiveChannel();
+    return channel?.id;
+  }, [resolveActiveChannel]);
+
   const createSpace = useCallback(
     (space: Space) => {
       dispatch(addSpace(space));
@@ -383,10 +399,11 @@ export function useSpace() {
       // Re-subscribe if this is the active space to pick up new member's content
       if (activeSpaceId === spaceId && activeChannelId) {
         const channelType = getActiveChannelType();
-        switchSpaceChannel(updated, channelType);
+        const channelIdPart = getActiveChannelIdPart();
+        switchSpaceChannel(updated, channelType, channelIdPart);
       }
     },
-    [dispatch, spaces, activeSpaceId, activeChannelId, getActiveChannelType],
+    [dispatch, spaces, activeSpaceId, activeChannelId, getActiveChannelType, getActiveChannelIdPart],
   );
 
   /** Join a space (add it locally and auto-select it) */
@@ -412,7 +429,7 @@ export function useSpace() {
           const channelId = `${space.id}:${best.id}`;
           dispatch(setActiveChannel(channelId));
           activateChannel(channelId, dispatch);
-          switchSpaceChannel(space, best.type);
+          switchSpaceChannel(space, best.type, best.id);
         }
       } else {
         dispatch(setActiveChannel(null));
@@ -444,10 +461,11 @@ export function useSpace() {
       // Re-subscribe if this is the active space
       if (activeSpaceId === spaceId && activeChannelId) {
         const channelType = getActiveChannelType();
-        switchSpaceChannel(updated, channelType);
+        const channelIdPart = getActiveChannelIdPart();
+        switchSpaceChannel(updated, channelType, channelIdPart);
       }
     },
-    [dispatch, spaces, activeSpaceId, activeChannelId, getActiveChannelType],
+    [dispatch, spaces, activeSpaceId, activeChannelId, getActiveChannelType, getActiveChannelIdPart],
   );
 
   return {
@@ -459,6 +477,7 @@ export function useSpace() {
     selectChannel,
     resolveActiveChannel,
     getActiveChannelType,
+    getActiveChannelIdPart,
     createSpace,
     joinSpace,
     deleteSpace,

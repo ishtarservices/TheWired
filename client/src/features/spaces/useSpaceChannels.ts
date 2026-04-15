@@ -13,6 +13,11 @@ const EMPTY_CHANNELS: SpaceChannel[] = [];
 import * as channelsApi from "../../lib/api/channels";
 import { saveChannels, loadChannels } from "../../lib/db/channelStore";
 
+/** Ensure all channels have feedMode (backward compat for cached data without it) */
+function normalizeChannels(channels: SpaceChannel[]): SpaceChannel[] {
+  return channels.map((ch) => ch.feedMode ? ch : { ...ch, feedMode: "all" as const });
+}
+
 /** Hardcoded defaults used when backend is unavailable */
 function makeDefaultChannels(spaceId: string, mode: Space["mode"]): SpaceChannel[] {
   const types: Array<{ type: SpaceChannelType; label: string }> = [
@@ -33,6 +38,7 @@ function makeDefaultChannels(spaceId: string, mode: Space["mode"]): SpaceChannel
     isDefault: i === 0,
     adminOnly: false,
     slowModeSeconds: 0,
+    feedMode: "all" as const,
   }));
 }
 
@@ -69,14 +75,14 @@ export function useSpaceChannels(spaceId: string | null) {
       if (!hasCached) {
         const cached = await loadChannels(spaceId);
         if (cached && cached.length > 0 && !cancelled) {
-          dispatch(setChannels({ spaceId, channels: cached }));
+          dispatch(setChannels({ spaceId, channels: normalizeChannels(cached) }));
         }
       }
 
       // Always revalidate from backend when entering a space
       if (needsBackendFetch) {
         try {
-          const fetched = await channelsApi.fetchChannels(spaceId);
+          const fetched = normalizeChannels(await channelsApi.fetchChannels(spaceId));
           if (!cancelled) {
             dispatch(setChannels({ spaceId, channels: fetched }));
             saveChannels(spaceId, fetched);
@@ -103,7 +109,7 @@ export function useSpaceChannels(spaceId: string | null) {
   // Note: channels.length intentionally excluded to avoid infinite loops
 
   const handleCreateChannel = useCallback(
-    async (params: { type: string; label: string; categoryId?: string; adminOnly?: boolean; slowModeSeconds?: number }) => {
+    async (params: { type: string; label: string; categoryId?: string; adminOnly?: boolean; slowModeSeconds?: number; feedMode?: "all" | "curated" }) => {
       if (!spaceId) return;
       const channel = await channelsApi.createChannel(spaceId, params);
       dispatch(addChannelToList(channel));
@@ -125,7 +131,7 @@ export function useSpaceChannels(spaceId: string | null) {
   );
 
   const handleUpdateChannel = useCallback(
-    async (channelId: string, params: { label?: string; categoryId?: string | null; adminOnly?: boolean; slowModeSeconds?: number; isDefault?: boolean }) => {
+    async (channelId: string, params: { label?: string; categoryId?: string | null; adminOnly?: boolean; slowModeSeconds?: number; isDefault?: boolean; feedMode?: "all" | "curated" }) => {
       if (!spaceId) return;
       const updated = await channelsApi.updateChannel(spaceId, channelId, params);
       // When setting a new home channel, clear isDefault on all others in Redux

@@ -1,5 +1,5 @@
 import { useMemo, useState } from "react";
-import { Music, Upload, Search, LayoutGrid, List, ArrowUpDown } from "lucide-react";
+import { Music, Upload, Search, LayoutGrid, List, ArrowUpDown, RefreshCw } from "lucide-react";
 import { useAppSelector } from "@/store/hooks";
 import { usePlaybackBarSpacing } from "@/hooks/usePlaybackBarSpacing";
 import { TrackCard } from "./TrackCard";
@@ -8,6 +8,9 @@ import { AlbumCard } from "./AlbumCard";
 import { SpaceAlbumDetail } from "./SpaceAlbumDetail";
 import { UploadTrackModal } from "./UploadTrackModal";
 import { EVENT_KINDS } from "@/types/nostr";
+import { parseChannelIdPart } from "@/features/spaces/spaceSelectors";
+import { useFeedPagination } from "@/features/spaces/useFeedPagination";
+import { LoadMoreButton } from "@/features/spaces/LoadMoreButton";
 
 type Tab = "all" | "tracks" | "albums";
 type SortMode = "newest" | "az" | "artist";
@@ -23,6 +26,11 @@ export function SpaceMusicView() {
     return id ? s.spaces.list.find((sp) => sp.id === id) : undefined;
   });
   const pubkey = useAppSelector((s) => s.identity.pubkey);
+  const allChannels = useAppSelector((s) => activeSpace ? s.spaces.channels[activeSpace.id] : undefined);
+  const activeChannelIdPart = activeChannelId ? parseChannelIdPart(activeChannelId) : undefined;
+  const activeChannel = allChannels?.find((c) => c.id === activeChannelIdPart);
+  const isCurated = activeChannel?.feedMode === "curated";
+  const { meta, refresh, loadMore } = useFeedPagination("music", activeChannelIdPart);
   const feedEventIds = useAppSelector(
     (s) => (activeChannelId ? s.events.spaceFeeds[activeChannelId] : undefined) ?? EMPTY_IDS,
   );
@@ -113,7 +121,9 @@ export function SpaceMusicView() {
     return (
       <div className="flex flex-1 flex-col items-center justify-center gap-3">
         <Music size={32} className="text-muted" />
-        <p className="text-sm text-soft">No music yet from space members</p>
+        <p className="text-sm text-soft">
+          {isCurated ? "No tracks shared to this channel yet" : "No music yet from space members"}
+        </p>
         {isMember && (
           <button
             onClick={() => setUploadOpen(true)}
@@ -129,6 +139,7 @@ export function SpaceMusicView() {
             onClose={() => setUploadOpen(false)}
             defaultVisibility="space"
             defaultSpaceId={activeSpace?.id}
+            defaultChannelId={isCurated ? activeChannel?.id : undefined}
           />
         )}
       </div>
@@ -168,6 +179,12 @@ export function SpaceMusicView() {
             );
           })}
         </div>
+
+        {isCurated && (
+          <span className="rounded-full bg-primary/10 px-2 py-0.5 text-[10px] font-medium text-primary">
+            Curated
+          </span>
+        )}
 
         {/* Search */}
         <div className="relative ml-auto flex items-center">
@@ -212,6 +229,16 @@ export function SpaceMusicView() {
             </button>
           </div>
         )}
+
+        {/* Refresh */}
+        <button
+          onClick={refresh}
+          disabled={meta.isRefreshing}
+          className="rounded-full p-1 text-muted transition-colors hover:text-heading disabled:opacity-50"
+          title="Refresh"
+        >
+          <RefreshCw size={13} className={meta.isRefreshing ? "animate-spin" : ""} />
+        </button>
 
         {/* Upload */}
         {isMember && (
@@ -284,6 +311,8 @@ export function SpaceMusicView() {
             <p className="text-sm text-soft">No results for "{searchQuery}"</p>
           </div>
         )}
+
+        <LoadMoreButton isLoading={meta.isLoadingMore} hasMore={meta.hasMore} onLoadMore={loadMore} />
       </div>
 
       {/* Upload modal */}

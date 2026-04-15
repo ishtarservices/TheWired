@@ -1,15 +1,24 @@
 package cors
 
-import "net/http"
+import (
+	"net/http"
+	"strings"
+)
 
 // CORSMiddleware returns a middleware that adds CORS headers for browser clients.
 // When allowedOrigins contains "*", all origins are permitted.
 // Otherwise only origins in the list are reflected back.
+// "http://localhost" in the list matches any http://localhost:<port> origin
+// (used by tauri-plugin-localhost which picks a random port each launch).
 func CORSMiddleware(allowedOrigins []string) func(http.Handler) http.Handler {
 	allowAll := len(allowedOrigins) == 1 && allowedOrigins[0] == "*"
+	allowLocalhost := false
 
 	allowed := make(map[string]bool, len(allowedOrigins))
 	for _, o := range allowedOrigins {
+		if o == "http://localhost" {
+			allowLocalhost = true
+		}
 		allowed[o] = true
 	}
 
@@ -20,6 +29,9 @@ func CORSMiddleware(allowedOrigins []string) func(http.Handler) http.Handler {
 			if allowAll {
 				w.Header().Set("Access-Control-Allow-Origin", "*")
 			} else if origin != "" && allowed[origin] {
+				w.Header().Set("Access-Control-Allow-Origin", origin)
+				w.Header().Set("Vary", "Origin")
+			} else if allowLocalhost && strings.HasPrefix(origin, "http://localhost:") {
 				w.Header().Set("Access-Control-Allow-Origin", origin)
 				w.Header().Set("Vary", "Origin")
 			}

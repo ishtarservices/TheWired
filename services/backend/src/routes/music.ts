@@ -271,6 +271,14 @@ export const musicRoutes: FastifyPluginAsync = async (server) => {
       limit: query.limit,
       offset: query.offset,
     });
+    // Defensive filter: ensure no private/space content in browse results
+    const isPublicEvent = (r: any) => {
+      const tags: string[][] = r?.tags ?? [];
+      const vis = tags.find((t: string[]) => t[0] === "visibility")?.[1];
+      const hTag = tags.find((t: string[]) => t[0] === "h")?.[1];
+      return !vis && !hTag;
+    };
+    results.tracks = results.tracks.filter(isPublicEvent);
     return { data: results };
   });
 
@@ -286,6 +294,14 @@ export const musicRoutes: FastifyPluginAsync = async (server) => {
       limit: query.limit,
       offset: query.offset,
     });
+    // Defensive filter: ensure no private/space content in album browse results
+    const isPublicEvent = (r: any) => {
+      const tags: string[][] = r?.tags ?? [];
+      const vis = tags.find((t: string[]) => t[0] === "visibility")?.[1];
+      const hTag = tags.find((t: string[]) => t[0] === "h")?.[1];
+      return !vis && !hTag;
+    };
+    results.albums = results.albums.filter(isPublicEvent);
     return { data: results };
   });
 

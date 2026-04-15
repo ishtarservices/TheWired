@@ -84,6 +84,29 @@ export function ChannelsTab({ spaceId }: ChannelsTabProps) {
                     <span className="text-[10px] text-muted">{ch.slowModeSeconds}s</span>
                   )}
 
+                  {/* Feed mode toggle for music channels */}
+                  {ch.type === "music" && (
+                    <button
+                      onClick={() =>
+                        updateChannel(ch.id, {
+                          feedMode: ch.feedMode === "curated" ? "all" : "curated",
+                        })
+                      }
+                      className={`rounded px-1.5 py-0.5 text-[10px] font-medium transition-colors ${
+                        ch.feedMode === "curated"
+                          ? "bg-primary/15 text-primary"
+                          : "bg-surface text-muted hover:text-soft"
+                      }`}
+                      title={
+                        ch.feedMode === "curated"
+                          ? "Curated: only explicitly shared tracks appear"
+                          : "All Members: shows all public tracks from members"
+                      }
+                    >
+                      {ch.feedMode === "curated" ? "Curated" : "All"}
+                    </button>
+                  )}
+
                   {/* Home channel indicator */}
                   <button
                     onClick={() => {

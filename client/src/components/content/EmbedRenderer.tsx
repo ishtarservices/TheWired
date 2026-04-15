@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect, useRef } from "react";
 import { ExternalLink } from "lucide-react";
 import type { EmbedMatch, EmbedPlatform } from "@/lib/content/embedPatterns";
 
@@ -33,6 +33,55 @@ export function EmbedRenderer({ embed }: EmbedRendererProps) {
 
 function EmbedIframe({ embed }: { embed: EmbedMatch }) {
   const [error, setError] = useState(false);
+  const iframeRef = useRef<HTMLIFrameElement>(null);
+
+  useEffect(() => {
+    const tag = `[EmbedRenderer:${embed.platform}]`;
+    console.log(`${tag} Mounting iframe`, {
+      embedUrl: embed.embedUrl,
+      originalUrl: embed.originalUrl,
+      windowOrigin: window.location.origin,
+      windowHref: window.location.href,
+    });
+
+    // Listen for YouTube postMessage errors (Error 153 is reported this way)
+    const handleMessage = (e: MessageEvent) => {
+      // YouTube sends messages from its embed origin
+      if (
+        typeof e.data === "string" &&
+        e.data.includes("youtube")
+      ) {
+        console.log(`${tag} postMessage (string) from ${e.origin}:`, e.data);
+      }
+      if (typeof e.data === "object" && e.data !== null) {
+        // YouTube IFrame API sends JSON with event/info keys
+        const info = (e.data as Record<string, unknown>).info ??
+          (e.data as Record<string, unknown>).event ??
+          e.data;
+        console.log(`${tag} postMessage (object) from ${e.origin}:`, JSON.stringify(info, null, 2));
+      }
+    };
+
+    // Listen for CSP violations — these block iframe loads silently
+    const handleCSPViolation = (e: SecurityPolicyViolationEvent) => {
+      console.error(`${tag} CSP VIOLATION:`, {
+        blockedURI: e.blockedURI,
+        violatedDirective: e.violatedDirective,
+        effectiveDirective: e.effectiveDirective,
+        originalPolicy: e.originalPolicy,
+        sourceFile: e.sourceFile,
+        lineNumber: e.lineNumber,
+      });
+    };
+
+    window.addEventListener("message", handleMessage);
+    document.addEventListener("securitypolicyviolation", handleCSPViolation);
+
+    return () => {
+      window.removeEventListener("message", handleMessage);
+      document.removeEventListener("securitypolicyviolation", handleCSPViolation);
+    };
+  }, [embed.embedUrl, embed.originalUrl, embed.platform]);
 
   if (error) {
     return <EmbedLinkCard embed={embed} />;
@@ -44,14 +93,27 @@ function EmbedIframe({ embed }: { embed: EmbedMatch }) {
     <div className="my-2 -mx-3 min-w-[280px] max-w-md overflow-hidden rounded-lg border border-border-light">
       <div className={dimensions.wrapperClass}>
         <iframe
+          ref={iframeRef}
           src={embed.embedUrl!}
           title={`${PLATFORM_LABELS[embed.platform]} embed`}
           className={dimensions.iframeClass}
-          sandbox="allow-scripts allow-same-origin allow-popups"
+          {...(embed.platform === "youtube"
+            ? {} // YouTube's player breaks under sandbox restrictions (Error 153)
+            : { sandbox: "allow-scripts allow-same-origin allow-popups allow-forms" }
+          )}
+          referrerPolicy="strict-origin-when-cross-origin"
           loading="lazy"
           allowFullScreen
-          allow="autoplay; encrypted-media"
-          onError={() => setError(true)}
+          allow="autoplay; encrypted-media; fullscreen"
+          onLoad={() => {
+            console.log(`[EmbedRenderer:${embed.platform}] iframe onLoad fired`, {
+              src: iframeRef.current?.src,
+            });
+          }}
+          onError={(e) => {
+            console.error(`[EmbedRenderer:${embed.platform}] iframe onError fired`, e);
+            setError(true);
+          }}
         />
       </div>
       <EmbedFooter embed={embed} />

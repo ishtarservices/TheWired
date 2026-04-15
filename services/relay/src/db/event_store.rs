@@ -20,6 +20,8 @@ fn is_addressable(kind: i32) -> bool {
 pub async fn store_event(pool: &PgPool, event: &Event) -> anyhow::Result<bool> {
     let d_tag = event.get_tag_value("d");
     let h_tag = event.get_tag_value("h");
+    let visibility = event.get_tag_value("visibility");
+    let channel_tag = event.get_tag_value("channel");
     let tags_json: Value = serde_json::to_value(&event.tags)?;
 
     // For replaceable/addressable events, delete the older version first.
@@ -60,8 +62,8 @@ pub async fn store_event(pool: &PgPool, event: &Event) -> anyhow::Result<bool> {
 
     let result = sqlx::query(
         r#"
-        INSERT INTO relay.events (id, pubkey, created_at, kind, tags, content, sig, d_tag, h_tag)
-        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+        INSERT INTO relay.events (id, pubkey, created_at, kind, tags, content, sig, d_tag, h_tag, visibility)
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
         ON CONFLICT (id) DO NOTHING
         "#,
     )
@@ -74,6 +76,7 @@ pub async fn store_event(pool: &PgPool, event: &Event) -> anyhow::Result<bool> {
     .bind(&event.sig)
     .bind(&d_tag)
     .bind(&h_tag)
+    .bind(&visibility)
     .execute(pool)
     .await;
 
@@ -106,7 +109,7 @@ pub async fn store_event(pool: &PgPool, event: &Event) -> anyhow::Result<bool> {
 }
 
 /// Query events matching a filter with dynamic WHERE clauses
-pub async fn query_events(pool: &PgPool, filter: &Filter) -> anyhow::Result<Vec<Event>> {
+pub async fn query_events(pool: &PgPool, filter: &Filter, authed_pubkey: Option<&str>) -> anyhow::Result<Vec<Event>> {
     // Delegate NIP-50 full-text search to the dedicated handler
     if let Some(ref search_query) = filter.search {
         let limit = filter.limit.unwrap_or(100);
@@ -196,6 +199,39 @@ pub async fn query_events(pool: &PgPool, filter: &Filter) -> anyhow::Result<Vec<
             "EXISTS (SELECT 1 FROM jsonb_array_elements(tags) elem WHERE elem->>0 = 'e' AND elem->>1 = ANY(${param_counter}))"
         ));
         binds.push(BindValue::StringVec(filter.e_tags.clone()));
+    }
+
+    // Visibility access control: filter protected events based on authenticated pubkey.
+    // - Private/unlisted events: only visible to author or p-tagged collaborators
+    // - Space-scoped events (h_tag): only visible to author or space members
+    // - Public events (no visibility, no h_tag): visible to everyone
+    match authed_pubkey {
+        Some(pk) => {
+            param_counter += 1;
+            let auth_param = param_counter;
+            binds.push(BindValue::StringVec(vec![pk.to_string()]));
+
+            // Private/unlisted: author or collaborator
+            conditions.push(format!(
+                "(visibility IS NULL OR pubkey = ${auth_param}[1] OR EXISTS (\
+                    SELECT 1 FROM jsonb_array_elements(tags) t \
+                    WHERE t->>0 = 'p' AND t->>1 = ${auth_param}[1]\
+                ))"
+            ));
+
+            // Space-scoped: author or space member
+            conditions.push(format!(
+                "(h_tag IS NULL OR pubkey = ${auth_param}[1] OR EXISTS (\
+                    SELECT 1 FROM app.space_members \
+                    WHERE space_id = h_tag AND pubkey = ${auth_param}[1]\
+                ))"
+            ));
+        }
+        None => {
+            // Unauthenticated: only public events (no visibility tag, no h_tag)
+            conditions.push("visibility IS NULL".to_string());
+            conditions.push("h_tag IS NULL".to_string());
+        }
     }
 
     let where_clause = if conditions.is_empty() {

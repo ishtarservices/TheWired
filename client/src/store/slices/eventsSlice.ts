@@ -153,6 +153,19 @@ export const eventsSlice = createSlice({
     clearSpaceFeed(state, action: PayloadAction<string>) {
       delete state.spaceFeeds[action.payload];
     },
+    /** Remove a specific event ID from ALL space feed arrays (used when an addressable event is replaced) */
+    removeEventFromAllSpaceFeeds(state, action: PayloadAction<string>) {
+      const eventId = action.payload;
+      for (const key of Object.keys(state.spaceFeeds)) {
+        const arr = state.spaceFeeds[key];
+        if (arr) {
+          const idx = arr.indexOf(eventId);
+          if (idx !== -1) {
+            arr.splice(idx, 1);
+          }
+        }
+      }
+    },
     indexMusicTrack(
       state,
       action: PayloadAction<{ contextId: string; eventId: string }>,
@@ -304,6 +317,7 @@ export const {
   indexNote,
   indexSpaceFeed,
   clearSpaceFeed,
+  removeEventFromAllSpaceFeeds,
   indexMusicTrack,
   indexMusicAlbum,
   indexReaction,

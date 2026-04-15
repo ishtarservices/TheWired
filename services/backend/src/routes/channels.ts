@@ -12,6 +12,7 @@ const createChannelBody = z.object({
   categoryId: z.string().optional(),
   adminOnly: z.boolean().optional(),
   slowModeSeconds: nonNegativeInt.optional(),
+  feedMode: z.enum(["all", "curated"]).optional(),
 });
 
 const channelParams = z.object({ spaceId: nonEmptyString, channelId: nonEmptyString });
@@ -23,6 +24,7 @@ const updateChannelBody = z.object({
   adminOnly: z.boolean().optional(),
   slowModeSeconds: z.number().optional(),
   isDefault: z.boolean().optional(),
+  feedMode: z.enum(["all", "curated"]).optional(),
 });
 
 const reorderBody = z.object({

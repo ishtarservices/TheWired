@@ -14,6 +14,7 @@ export const FRIENDS_FEED_CHANNELS: SpaceChannel[] = [
     isDefault: true,
     adminOnly: false,
     slowModeSeconds: 0,
+    feedMode: "all",
   },
   {
     id: "media",
@@ -24,6 +25,7 @@ export const FRIENDS_FEED_CHANNELS: SpaceChannel[] = [
     isDefault: false,
     adminOnly: false,
     slowModeSeconds: 0,
+    feedMode: "all",
   },
   {
     id: "articles",
@@ -34,5 +36,6 @@ export const FRIENDS_FEED_CHANNELS: SpaceChannel[] = [
     isDefault: false,
     adminOnly: false,
     slowModeSeconds: 0,
+    feedMode: "all",
   },
 ];

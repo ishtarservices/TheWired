@@ -159,8 +159,11 @@ export function enterClientSpace(space: Space): void {
 export function switchSpaceChannel(
   space: Space,
   channelType: string,
+  channelId?: string,
 ): void {
-  const channelId = `${space.id}:${channelType}`;
+  // Use channel ID for the subscription key when available (supports multiple channels per type).
+  // Falls back to channel type for legacy callers.
+  const subKey = channelId ? `${space.id}:${channelId}` : `${space.id}:${channelType}`;
   const state = store.getState();
 
   // Close previous channel subscription for this space
@@ -205,7 +208,7 @@ export function switchSpaceChannel(
       : undefined,  // all read relays
   });
 
-  store.dispatch(setChannelSubscription({ channelId, subId }));
+  store.dispatch(setChannelSubscription({ channelId: subKey, subId }));
 }
 
 /** Leave a client-defined space: close all subscriptions */
@@ -406,6 +409,7 @@ export function refreshSpaceFeed(
   space: Space,
   channelType: string,
   initial = false,
+  channelId?: string,
 ): void {
   const route = getSpaceChannelRoute(channelType);
   if (!route || route.filterMode === "htag") return;
@@ -414,7 +418,7 @@ export function refreshSpaceFeed(
     space.mode === "read" ? space.feedPubkeys : space.memberPubkeys;
   if (authors.length === 0) return;
 
-  const contextId = `${space.id}:${channelType}`;
+  const contextId = channelId ? `${space.id}:${channelId}` : `${space.id}:${channelType}`;
   const meta = store.getState().feed.meta[contextId];
 
   store.dispatch(setRefreshing({ contextId, value: true }));
@@ -465,6 +469,7 @@ export function refreshSpaceFeed(
 export function loadMoreSpaceFeed(
   space: Space,
   channelType: string,
+  channelId?: string,
 ): void {
   const route = getSpaceChannelRoute(channelType);
   if (!route || route.filterMode === "htag") return;
@@ -473,7 +478,7 @@ export function loadMoreSpaceFeed(
     space.mode === "read" ? space.feedPubkeys : space.memberPubkeys;
   if (authors.length === 0) return;
 
-  const contextId = `${space.id}:${channelType}`;
+  const contextId = channelId ? `${space.id}:${channelId}` : `${space.id}:${channelType}`;
   const meta = store.getState().feed.meta[contextId];
   if (!meta?.oldestAt) return; // Nothing loaded yet, nothing to paginate from
 

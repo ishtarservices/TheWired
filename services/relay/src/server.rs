@@ -23,6 +23,8 @@ pub struct AppState {
     pub broadcast_tx: broadcast::Sender<Event>,
     pub relay_identity: RelayIdentity,
     pub active_connections: AtomicUsize,
+    /// Relay WebSocket URL used for NIP-42 AUTH challenge verification
+    pub relay_url: String,
 }
 
 pub async fn run(config: Config, pool: PgPool) -> anyhow::Result<()> {
@@ -32,12 +34,16 @@ pub async fn run(config: Config, pool: PgPool) -> anyhow::Result<()> {
 
     let relay_identity = RelayIdentity::new(config.relay_secret_key.clone(), &config.rust_env);
 
+    let relay_url = std::env::var("RELAY_URL")
+        .unwrap_or_else(|_| format!("ws://localhost:{}", port));
+
     let state = Arc::new(AppState {
         pool,
         config,
         broadcast_tx,
         relay_identity,
         active_connections: AtomicUsize::new(0),
+        relay_url,
     });
 
     let cors = CorsLayer::new()

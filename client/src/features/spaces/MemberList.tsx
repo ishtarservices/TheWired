@@ -167,10 +167,12 @@ function FeedSourceSearch({
   spaceId,
   existingPubkeys,
   activeChannelType,
+  activeChannelIdPart,
 }: {
   spaceId: string;
   existingPubkeys: string[];
   activeChannelType: string;
+  activeChannelIdPart?: string;
 }) {
   const dispatch = useAppDispatch();
   const space = useAppSelector((s) => s.spaces.list.find((sp) => sp.id === spaceId));
@@ -188,7 +190,7 @@ function FeedSourceSearch({
 
       // Re-subscribe the active channel with updated feed sources
       if (activeChannelType) {
-        switchSpaceChannel(updatedSpace, activeChannelType);
+        switchSpaceChannel(updatedSpace, activeChannelType, activeChannelIdPart);
       }
 
       setQuery("");
@@ -201,11 +203,11 @@ function FeedSourceSearch({
         updateSpaceInStore(space);
         // Re-subscribe with original
         if (activeChannelType) {
-          switchSpaceChannel(space, activeChannelType);
+          switchSpaceChannel(space, activeChannelType, activeChannelIdPart);
         }
       });
     },
-    [dispatch, space, spaceId, setQuery, activeChannelType],
+    [dispatch, space, spaceId, setQuery, activeChannelType, activeChannelIdPart],
   );
 
   const filtered = results.filter((r) => !existingPubkeys.includes(r.pubkey));
@@ -257,7 +259,7 @@ function FeedSourceSearch({
 
 export function MemberList() {
   const dispatch = useAppDispatch();
-  const { activeSpace, activeSpaceId, getActiveChannelType } = useSpace();
+  const { activeSpace, activeSpaceId, getActiveChannelType, getActiveChannelIdPart } = useSpace();
   const currentPubkey = useAppSelector((s) => s.identity.pubkey);
   const space = useAppSelector(selectActiveSpace);
   const { can } = usePermissions(activeSpaceId);
@@ -275,6 +277,7 @@ export function MemberList() {
   const canManageFeed = isAdmin || (!!currentPubkey && space.creatorPubkey === currentPubkey);
   const canInvite = can("CREATE_INVITES") || can("MANAGE_MEMBERS") || isAdmin;
   const activeChannelType = getActiveChannelType();
+  const activeChIdPart = getActiveChannelIdPart();
 
   const handleRemoveFeedSource = (pubkey: string) => {
     // Optimistic update
@@ -285,7 +288,7 @@ export function MemberList() {
 
     // Re-subscribe the active channel with updated feed sources
     if (activeChannelType) {
-      switchSpaceChannel(updatedSpace, activeChannelType);
+      switchSpaceChannel(updatedSpace, activeChannelType, activeChIdPart);
     }
 
     // Persist to backend
@@ -295,7 +298,7 @@ export function MemberList() {
       dispatch(updateSpaceFeedSources({ spaceId: activeSpaceId, pubkeys: space.feedPubkeys }));
       updateSpaceInStore(space);
       if (activeChannelType) {
-        switchSpaceChannel(space, activeChannelType);
+        switchSpaceChannel(space, activeChannelType, activeChIdPart);
       }
     });
   };
@@ -313,7 +316,7 @@ export function MemberList() {
         </div>
 
         {canManageFeed && (
-          <FeedSourceSearch spaceId={activeSpaceId} existingPubkeys={feedSources} activeChannelType={activeChannelType} />
+          <FeedSourceSearch spaceId={activeSpaceId} existingPubkeys={feedSources} activeChannelType={activeChannelType} activeChannelIdPart={activeChIdPart} />
         )}
 
         {feedSources.length === 0 ? (

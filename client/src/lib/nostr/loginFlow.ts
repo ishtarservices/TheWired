@@ -423,14 +423,23 @@ export async function performLogin(
         await saveSpaces(savedSpaces);
         for (const entry of res.data) {
           if (entry.channels.length > 0) {
-            await saveChannels(entry.space.id, entry.channels);
+            // Normalize channels to ensure feedMode is present (backward compat)
+            const normalized = entry.channels.map((ch: any) => ({
+              ...ch,
+              feedMode: ch.feedMode ?? "all",
+            }));
+            await saveChannels(entry.space.id, normalized);
           }
         }
 
         // Hydrate channels into Redux
         for (const entry of res.data) {
           if (entry.channels.length > 0) {
-            store.dispatch(setChannels({ spaceId: entry.space.id, channels: entry.channels }));
+            const normalized = entry.channels.map((ch: any) => ({
+              ...ch,
+              feedMode: ch.feedMode ?? "all",
+            }));
+            store.dispatch(setChannels({ spaceId: entry.space.id, channels: normalized }));
           }
         }
       }

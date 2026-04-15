@@ -14,7 +14,8 @@ pub async fn handle_message(
     text: &str,
     state: &Arc<AppState>,
     subscriptions: &Arc<Mutex<SubscriptionManager>>,
-    _authed_pubkey: &mut Option<String>,
+    authed_pubkey: &mut Option<String>,
+    auth_challenge: &str,
     broadcast_tx: &broadcast::Sender<Event>,
 ) -> Vec<String> {
     let msg: serde_json::Value = match serde_json::from_str(text) {
@@ -28,8 +29,9 @@ pub async fn handle_message(
 
     match msg_type {
         "EVENT" => handle_event(msg, state, broadcast_tx).await,
-        "REQ" => handle_req(msg, state, subscriptions).await,
+        "REQ" => handle_req(msg, state, subscriptions, authed_pubkey).await,
         "CLOSE" => handle_close(msg, subscriptions).await,
+        "AUTH" => handle_auth(msg, state, authed_pubkey, auth_challenge).await,
         _ => {
             tracing::debug!(msg_type, "Unknown message type");
             vec![format!(r#"["NOTICE","unknown message type: {msg_type}"]"#)]
@@ -180,6 +182,7 @@ async fn handle_req(
     msg: serde_json::Value,
     state: &Arc<AppState>,
     subscriptions: &Arc<Mutex<SubscriptionManager>>,
+    authed_pubkey: &Option<String>,
 ) -> Vec<String> {
     let sub_id = match msg.get(1).and_then(|v| v.as_str()) {
         Some(id) => id.to_string(),
@@ -191,10 +194,14 @@ async fn handle_req(
         Err(_) => return vec![r#"["NOTICE","invalid filter"]"#.to_string()],
     };
 
-    // Query stored events using the validated filter
-    let events = event_store::query_events(&state.pool, &filter)
-        .await
-        .unwrap_or_default();
+    // Query stored events, filtered by visibility based on auth status
+    let events = event_store::query_events(
+        &state.pool,
+        &filter,
+        authed_pubkey.as_deref(),
+    )
+    .await
+    .unwrap_or_default();
 
     tracing::debug!(
         sub_id,
@@ -240,4 +247,38 @@ async fn handle_close(
     } else {
         vec![r#"["NOTICE","missing subscription ID"]"#.to_string()]
     }
+}
+
+/// Handle NIP-42 AUTH message: verify kind:22242 event and set authenticated pubkey
+async fn handle_auth(
+    msg: serde_json::Value,
+    state: &Arc<AppState>,
+    authed_pubkey: &mut Option<String>,
+    challenge: &str,
+) -> Vec<String> {
+    let event: Event = match serde_json::from_value(msg.get(1).cloned().unwrap_or_default()) {
+        Ok(e) => e,
+        Err(_) => return vec![r#"["NOTICE","invalid AUTH event"]"#.to_string()],
+    };
+
+    let relay_url = &state.relay_url;
+
+    if !crate::protocol::nip42::verify_auth_event(&event, challenge, relay_url) {
+        tracing::debug!(
+            event_id = &event.id[..12],
+            "AUTH failed: invalid challenge/relay/signature"
+        );
+        return vec![format!(
+            r#"["OK","{}",false,"auth-required: verification failed"]"#,
+            event.id
+        )];
+    }
+
+    tracing::info!(
+        pubkey = &event.pubkey[..12],
+        "Client authenticated (NIP-42)"
+    );
+    *authed_pubkey = Some(event.pubkey.clone());
+
+    vec![format!(r#"["OK","{}",true,""]"#, event.id)]
 }

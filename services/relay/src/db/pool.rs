@@ -13,9 +13,14 @@ pub async fn create_pool(database_url: &str) -> anyhow::Result<PgPool> {
 }
 
 pub async fn run_migrations(pool: &PgPool) -> anyhow::Result<()> {
-    // Run raw SQL migrations
-    let migration_sql = include_str!("../../migrations/001_initial.sql");
-    sqlx::raw_sql(migration_sql).execute(pool).await?;
+    // Run raw SQL migrations sequentially
+    let migrations = [
+        include_str!("../../migrations/001_initial.sql"),
+        include_str!("../../migrations/002_visibility_column.sql"),
+    ];
+    for migration in &migrations {
+        sqlx::raw_sql(migration).execute(pool).await?;
+    }
     tracing::info!("Database migrations applied");
     Ok(())
 }
