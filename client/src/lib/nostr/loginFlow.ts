@@ -837,8 +837,17 @@ export async function performLogin(
   cleanupFollowerPersistence = startFollowerPersistence();
 
   const followerBuffer: string[] = [];
-  let followerEoseCount = 0;
-  const followerRelayCount = PROFILE_RELAYS.length;
+  let followerMerged = false;
+
+  const mergeFollowers = () => {
+    if (followerMerged) return;
+    followerMerged = true;
+    clearTimeout(followerTimer);
+    // Merge buffered followers with cached set — always union, never replace with smaller
+    const cached = store.getState().identity.knownFollowers;
+    const merged = Array.from(new Set([...cached, ...followerBuffer]));
+    store.dispatch(setKnownFollowers(merged));
+  };
 
   relayManager.subscribe({
     filters: [
@@ -857,26 +866,21 @@ export async function performLogin(
       );
       if (!followsUs) return;
 
-      if (followerEoseCount < followerRelayCount) {
+      if (!followerMerged) {
         // Still buffering — collect pubkeys
         if (!followerBuffer.includes(event.pubkey)) {
           followerBuffer.push(event.pubkey);
         }
       } else {
-        // Post-EOSE: genuinely new follower
+        // Post-merge: genuinely new follower
         store.dispatch(addKnownFollower(event.pubkey));
       }
     },
-    onEOSE: () => {
-      followerEoseCount++;
-      if (followerEoseCount >= followerRelayCount) {
-        // Merge buffered followers with cached set — always union, never replace with smaller
-        const cached = store.getState().identity.knownFollowers;
-        const merged = Array.from(new Set([...cached, ...followerBuffer]));
-        store.dispatch(setKnownFollowers(merged));
-      }
-    },
+    onEOSE: mergeFollowers,
   });
+
+  // Safety: merge whatever we have if no EOSE arrives
+  const followerTimer = setTimeout(mergeFollowers, 10_000);
 
   // Step 8: Persist multi-account session
   const existingSession = await getUserState<MultiAccountSession>("session");

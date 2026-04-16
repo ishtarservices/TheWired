@@ -93,7 +93,8 @@ export function UserPopoverCard({
   const dispatch = useAppDispatch();
   const { profile } = useProfile(pubkey);
   const mutualSpaces = useMutualSpaces(pubkey);
-  const { iFollow, isMutual, loading: followLoading } = useMutualFollow(pubkey);
+  const { iFollow } = useMutualFollow(pubkey);
+  const followListLoaded = useAppSelector((s) => s.identity.followListCreatedAt > 0);
   const myPubkey = useAppSelector((s) => s.identity.pubkey);
   const muteList = useAppSelector((s) => s.identity.muteList);
   const friendRequests = useAppSelector((s) => s.friendRequests.requests);
@@ -351,13 +352,13 @@ export function UserPopoverCard({
                 <span className="text-sm font-bold text-heading truncate">
                   {displayName}
                 </span>
-                {friendStatus === "friends" && isMutual && (
+                {friendStatus === "friends" && (
                   <span className="inline-flex items-center gap-1 rounded-full bg-primary/15 px-2 py-0.5 text-[10px] font-semibold text-primary shrink-0">
                     <HeartHandshake size={10} />
                     Friends
                   </span>
                 )}
-                {iFollow && !(friendStatus === "friends" && isMutual) && !isMe && (
+                {iFollow && friendStatus !== "friends" && !isMe && (
                   <span className="inline-flex items-center gap-1 rounded-full bg-surface-hover px-2 py-0.5 text-[10px] font-semibold text-muted shrink-0">
                     Following
                   </span>
@@ -442,7 +443,7 @@ export function UserPopoverCard({
 
                 <button
                   onClick={handleFollow}
-                  disabled={followLoading}
+                  disabled={!followListLoaded}
                   className={`flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-medium transition-colors ml-auto ${
                     iFollow
                       ? "bg-surface-hover text-muted hover:bg-red-500/10 hover:text-red-400"

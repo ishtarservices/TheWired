@@ -68,7 +68,7 @@ export function ProfilePage({ pubkey }: ProfilePageProps) {
   const [followModal, setFollowModal] = useState<"following" | "followers" | null>(null);
   const feed = useProfileFeed(pubkey);
   const { following, followers, followingLoading, followersLoading } = useFollowData(pubkey, followModal === "followers");
-  const { iFollow, isMutual, loading: followLoading } = useMutualFollow(pubkey);
+  const { iFollow } = useMutualFollow(pubkey);
   const myPubkey = useAppSelector((s) => s.identity.pubkey);
   const muteList = useAppSelector((s) => s.identity.muteList);
   const dispatch = useAppDispatch();
@@ -341,7 +341,7 @@ export function ProfilePage({ pubkey }: ProfilePageProps) {
               <div className="relative">
               <button
                 onClick={handleFollow}
-                disabled={followLoading || !followListLoaded}
+                disabled={!followListLoaded}
                 className={`flex items-center gap-1.5 rounded-lg px-4 py-2 text-sm font-medium transition-colors ${
                   iFollow
                     ? "bg-surface-hover text-heading hover:bg-red-500/10 hover:text-red-400"
@@ -482,13 +482,13 @@ export function ProfilePage({ pubkey }: ProfilePageProps) {
 
         <div className="flex items-center gap-2">
           <h1 className="text-2xl font-bold tracking-tight text-heading">{displayName}</h1>
-          {friendStatus === "friends" && isMutual && (
+          {friendStatus === "friends" && (
             <span className="inline-flex items-center gap-1 rounded-full bg-primary/15 px-2.5 py-0.5 text-xs font-semibold text-primary">
               <HeartHandshake size={12} />
               Friends
             </span>
           )}
-          {iFollow && !(friendStatus === "friends" && isMutual) && !isMe && (
+          {iFollow && friendStatus !== "friends" && !isMe && (
             <span className="inline-flex items-center gap-1 rounded-full bg-surface-hover px-2.5 py-0.5 text-xs font-semibold text-muted">
               Following
             </span>

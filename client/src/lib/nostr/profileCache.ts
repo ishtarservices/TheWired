@@ -213,9 +213,13 @@ class ProfileCacheImpl {
     const pubkeys = [...this.pendingBatch];
     this.pendingBatch.clear();
 
-    // Track EOSE from each targeted relay to auto-close
-    const eoseCount = { current: 0 };
-    const totalRelays = PROFILE_RELAYS.length;
+    let closed = false;
+    const close = () => {
+      if (closed) return;
+      closed = true;
+      clearTimeout(timer);
+      relayManager.closeSubscription(subId);
+    };
 
     const subId = relayManager.subscribe({
       filters: [{ kinds: [0], authors: pubkeys }],
@@ -223,13 +227,11 @@ class ProfileCacheImpl {
       onEvent: (event) => {
         this.handleProfileEvent(event);
       },
-      onEOSE: () => {
-        eoseCount.current++;
-        if (eoseCount.current >= totalRelays) {
-          relayManager.closeSubscription(subId);
-        }
-      },
+      onEOSE: close,
     });
+
+    // Safety: close subscription if no relay responds
+    const timer = setTimeout(close, 10_000);
   }
 }
 
