@@ -24,7 +24,7 @@ import { addFriendRequest, markOutgoingAccepted, acceptFriendRequest, addProcess
 import { addKnownFollower } from "../../store/slices/identitySlice";
 import { acceptFriendRequestAction } from "./friendRequest";
 import { followUser } from "./follow";
-import { setIncomingCall, missedCall, endCall } from "../../store/slices/callSlice";
+import { setIncomingCall, missedCall, endCall, addProcessedCallWrapId } from "../../store/slices/callSlice";
 import { addEmojiSet, setUserEmojis, setSpaceEmojiSets } from "../../store/slices/emojiSlice";
 import { parseEmojiSetEvent, parseUserEmojiListEvent } from "../../features/emoji/emojiSetParser";
 import { parseRTCSignal } from "./callSignaling";
@@ -908,16 +908,38 @@ function handleFriendRemoveWrap(
   }
 }
 
+/**
+ * Calls use persistent gift wraps (kind:1059) for signalling because ephemeral
+ * kinds aren't available for E2E-encrypted DMs. Relays keep those wraps forever,
+ * so every client reconnect replays them. A call is only valid for seconds, so
+ * anything older than this window is stale noise — suppress it.
+ */
+const CALL_WRAP_MAX_AGE_SEC = 60;
+
+function isCallWrapFresh(createdAt: number | undefined): boolean {
+  if (typeof createdAt !== "number") return false;
+  const nowSec = Math.round(Date.now() / 1000);
+  return nowSec - createdAt <= CALL_WRAP_MAX_AGE_SEC;
+}
+
 /** Handle an incoming call invitation from a gift wrap */
 function handleCallInviteWrap(
-  dm: { sender: string; content: string; tags: string[][]; wrapId: string },
+  dm: { sender: string; content: string; tags: string[][]; wrapId: string; createdAt?: number },
   myPubkey: string,
 ): void {
   const isOwnMessage = dm.sender === myPubkey;
   if (isOwnMessage) return; // Ignore our own outgoing invites
 
-  // Don't accept calls if we already have an active call
   const callState = store.getState().call;
+
+  // Dedup: never re-ring on the same wrap (survives reload / user switch via IDB).
+  if (callState.processedWrapIds.includes(dm.wrapId)) return;
+  store.dispatch(addProcessedCallWrapId(dm.wrapId));
+
+  // Drop stale invites resurfaced from relay storage on reconnect.
+  if (!isCallWrapFresh(dm.createdAt)) return;
+
+  // Don't accept calls if we already have an active call
   if (callState.activeCall || callState.incomingCall) return;
 
   try {
@@ -926,6 +948,11 @@ function handleCallInviteWrap(
       callType: CallType;
       callerName: string;
     };
+
+    console.log(
+      `[call] ← incoming invite from=${dm.sender.slice(0, 8)} type=${payload.callType} ` +
+        `wrapAge=${Math.round(Date.now() / 1000) - (dm.createdAt ?? 0)}s`,
+    );
 
     store.dispatch(
       setIncomingCall({
@@ -943,13 +970,17 @@ function handleCallInviteWrap(
 
 /** Handle a call decline notification — the remote party declined our outgoing call */
 function handleCallDeclineWrap(
-  dm: { sender: string; content: string; tags: string[][]; wrapId: string },
+  dm: { sender: string; content: string; tags: string[][]; wrapId: string; createdAt?: number },
   myPubkey: string,
 ): void {
   const isOwnMessage = dm.sender === myPubkey;
   if (isOwnMessage) return;
 
   const callState = store.getState().call;
+  if (callState.processedWrapIds.includes(dm.wrapId)) return;
+  store.dispatch(addProcessedCallWrapId(dm.wrapId));
+  if (!isCallWrapFresh(dm.createdAt)) return;
+
   if (callState.activeCall?.partnerPubkey === dm.sender) {
     store.dispatch(endCall("declined"));
   }
@@ -957,13 +988,17 @@ function handleCallDeclineWrap(
 
 /** Handle a missed call notification */
 function handleCallMissedWrap(
-  dm: { sender: string; content: string; tags: string[][]; wrapId: string },
+  dm: { sender: string; content: string; tags: string[][]; wrapId: string; createdAt?: number },
   myPubkey: string,
 ): void {
   const isOwnMessage = dm.sender === myPubkey;
   if (isOwnMessage) return;
 
   const callState = store.getState().call;
+  if (callState.processedWrapIds.includes(dm.wrapId)) return;
+  store.dispatch(addProcessedCallWrapId(dm.wrapId));
+  if (!isCallWrapFresh(dm.createdAt)) return;
+
   if (callState.incomingCall?.callerPubkey === dm.sender) {
     store.dispatch(missedCall());
   }

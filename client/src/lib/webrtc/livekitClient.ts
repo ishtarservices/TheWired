@@ -53,7 +53,7 @@ export async function connectToRoom(
     adaptiveStream: true,
     dynacast: true,
     videoCaptureDefaults: {
-      resolution: { width: 1280, height: 720, frameRate: 30 },
+      resolution: { width: 640, height: 360, frameRate: 24 },
     },
     audioCaptureDefaults: {
       echoCancellation: true,
@@ -169,7 +169,10 @@ export async function connectToRoom(
   );
 
   room.on(RoomEvent.Disconnected, (reason?: DisconnectReason) => {
-    console.log("[LiveKit] Disconnected:", reason);
+    console.log(
+      `[LiveKit] Disconnected: reason=${disconnectReasonName(reason)} (${reason ?? "?"}) ` +
+        `state=${room.state}`,
+    );
     cleanupListenTogether();
     store.dispatch(disconnectRoom());
     currentRoom = null;
@@ -181,6 +184,18 @@ export async function connectToRoom(
 
   room.on(RoomEvent.Reconnected, () => {
     console.log("[LiveKit] Reconnected");
+  });
+
+  room.on(RoomEvent.ConnectionStateChanged, (state) => {
+    console.log(`[LiveKit] ConnectionState → ${state}`);
+  });
+
+  room.on(RoomEvent.MediaDevicesError, (error) => {
+    console.error(`[LiveKit] MediaDevicesError:`, error);
+  });
+
+  room.on(RoomEvent.SignalConnected, () => {
+    console.log(`[LiveKit] signal connected`);
   });
 
   // Listen Together: route data messages with the LT topic
@@ -210,7 +225,9 @@ export async function connectToRoom(
   });
 
   // Connect
+  console.log(`[LiveKit] connecting to ${serverUrl}`);
   await room.connect(serverUrl, token);
+  console.log(`[LiveKit] connect() resolved — state=${room.state} sid=${room.localParticipant.sid ?? "?"}`);
 
   // Add existing participants
   for (const participant of room.remoteParticipants.values()) {
@@ -266,6 +283,19 @@ export async function setCameraEnabled(enabled: boolean): Promise<void> {
 export async function setScreenShareEnabled(enabled: boolean): Promise<void> {
   if (!currentRoom) return;
   await currentRoom.localParticipant.setScreenShareEnabled(enabled);
+}
+
+/**
+ * Decode LiveKit DisconnectReason enum number to a readable name.
+ * Enum values (as of livekit-client 2.x):
+ *   0 UNKNOWN_REASON  1 CLIENT_INITIATED  2 DUPLICATE_IDENTITY  3 SERVER_SHUTDOWN
+ *   4 PARTICIPANT_REMOVED  5 ROOM_DELETED  6 STATE_MISMATCH  7 JOIN_FAILURE
+ *   8 MIGRATION  9 SIGNAL_CLOSE  10 ROOM_CLOSED  11 USER_UNAVAILABLE  12 USER_REJECTED
+ */
+function disconnectReasonName(reason: DisconnectReason | undefined): string {
+  if (reason === undefined) return "undefined";
+  const name = DisconnectReason[reason as unknown as number];
+  return typeof name === "string" ? name : "UNKNOWN";
 }
 
 /** Map LiveKit ConnectionQuality to our type */

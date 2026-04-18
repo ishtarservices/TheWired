@@ -16,12 +16,16 @@ interface CallSliceState {
     duration: number;
     outcome: "completed" | "missed" | "declined" | "failed";
   }>;
+  /** Gift-wrap IDs already processed as call events — prevents stale wraps
+   *  from re-triggering rings on app restart or user switch. Persisted to IDB. */
+  processedWrapIds: string[];
 }
 
 const initialState: CallSliceState = {
   activeCall: null,
   incomingCall: null,
   callHistory: [],
+  processedWrapIds: [],
 };
 
 export const callSlice = createSlice({
@@ -144,6 +148,14 @@ export const callSlice = createSlice({
       state.callHistory = [];
     },
 
+    addProcessedCallWrapId(state, action: PayloadAction<string>) {
+      if (state.processedWrapIds.includes(action.payload)) return;
+      state.processedWrapIds.push(action.payload);
+      if (state.processedWrapIds.length > 3000) {
+        state.processedWrapIds = state.processedWrapIds.slice(-2000);
+      }
+    },
+
     missedCall(state) {
       if (state.incomingCall) {
         state.callHistory.unshift({
@@ -175,4 +187,5 @@ export const {
   setSfuFallback,
   clearCallHistory,
   missedCall,
+  addProcessedCallWrapId,
 } = callSlice.actions;

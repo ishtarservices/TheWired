@@ -152,6 +152,16 @@ services:
       - frontend
       - backend
 
+  # NOTE: Docker Desktop on macOS has known UDP port-forwarding issues that
+  # prevent LiveKit media from working reliably. For Mac development, run
+  # LiveKit natively instead of in Docker:
+  #   brew install livekit
+  #   livekit-server --dev
+  # Then comment out this service or stop it with `docker stop <container>`.
+  #
+  # LIVEKIT_NODE_IP defaults to the host's LAN IP for Linux hosts where
+  # Docker UDP works. On Mac, set it to your LAN IP (e.g. 192.168.1.x) only
+  # if you absolutely must keep LiveKit in Docker.
   livekit:
     image: livekit/livekit-server:latest
     ports:
@@ -161,7 +171,7 @@ services:
     environment:
       LIVEKIT_KEYS: "devkey: ${LIVEKIT_API_SECRET:-secret}"
       LIVEKIT_LOG_LEVEL: info
-    command: --dev --bind 0.0.0.0 --node-ip=127.0.0.1
+    command: --dev --bind 0.0.0.0 ${LIVEKIT_NODE_IP:+--node-ip=${LIVEKIT_NODE_IP}}
     restart: unless-stopped
     networks:
       - backend

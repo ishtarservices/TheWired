@@ -1,8 +1,21 @@
 import { useState, useRef, useEffect, useMemo, useCallback } from "react";
 import { createPortal } from "react-dom";
-import { X, HelpCircle, Copy, Check, ChevronRight, ChevronLeft, Key } from "lucide-react";
+import {
+  X,
+  HelpCircle,
+  Copy,
+  Check,
+  ChevronRight,
+  ChevronLeft,
+  Key,
+  AlertTriangle,
+  Download,
+  Eye,
+  EyeOff,
+  ExternalLink,
+} from "lucide-react";
 import { AnimatePresence, motion } from "motion/react";
-import { npubEncode } from "nostr-tools/nip19";
+import { npubEncode, nsecEncode } from "nostr-tools/nip19";
 import { cn } from "@/lib/utils";
 import { Button } from "../../components/ui/Button";
 import { ShimmerButton } from "@/components/ui/ShimmerButton";
@@ -41,12 +54,8 @@ const HELP_TEXT: Record<string, { label: string; help: string }> = {
     help: "A short bio. Tell people what you're about.",
   },
   nip05: {
-    label: "NIP-05 Identifier",
-    help: "A verification identifier (you@domain.com) that proves you own a domain. Adds credibility. You can set this up later.",
-  },
-  lud16: {
-    label: "Lightning Address",
-    help: "For receiving Bitcoin tips (you@wallet.com). If you don't have one, skip this.",
+    label: "Nostr Address",
+    help: "A human-readable handle (like you@thewired.app) that shows the Nostr community you're a real person behind this account. Different apps display the verification in different ways — think of it as a friendly alias for your long key.",
   },
   website: {
     label: "Website",
@@ -108,6 +117,13 @@ export function ProfileWizard() {
   const existingProfile = useAppSelector((s) => s.identity.profile);
   const profileCreatedAt = useAppSelector((s) => s.identity.profileCreatedAt);
   const loginMethod = useAppSelector((s) => s.onboarding.loginMethod);
+  const signerType = useAppSelector((s) => s.identity.signerType);
+
+  // Newly-generated keys on the desktop keystore are the only case where we
+  // can (and should) surface the nsec for backup — nip07 keys live in the
+  // extension, and imported keys are already known to the user.
+  const canBackupNsec =
+    loginMethod === "generate" && signerType === "tauri_keystore";
 
   // For import/nip07, skip to tour offer if profile already exists
   const shouldSkipToComplete =
@@ -274,11 +290,15 @@ export function ProfileWizard() {
 
   // Auto-save when reaching complete step (if not already saved).
   // Skip auto-publish if the form is entirely empty — this prevents wiping
-  // an existing profile when relay data hasn't arrived yet.
+  // an existing profile when relay data hasn't arrived yet, and closes the
+  // wizard instead of stranding the user on a blank complete screen.
   const formHasContent = !!(form.name || form.display_name || form.about || form.picture || form.banner);
   useEffect(() => {
-    if (step === "complete" && !saved && !saving && formHasContent) {
+    if (step !== "complete" || saved || saving) return;
+    if (formHasContent) {
       handleSaveProfile();
+    } else {
+      handleClose();
     }
   }, [step, formHasContent]); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -330,10 +350,13 @@ export function ProfileWizard() {
         animate={{ opacity: 1, y: 0 }}
         className="relative w-full max-w-md rounded-2xl border-gradient card-glass p-8 mx-4"
       >
-        {/* Close button */}
-        {step !== "complete" && (
+        {/* Close button — hidden only while actively publishing so the user
+            is never stuck on error/retry or empty-complete states */}
+        {!saving && (
           <button
-            onClick={() => setShowSkipConfirm(true)}
+            onClick={() =>
+              step === "complete" ? handleClose() : setShowSkipConfirm(true)
+            }
             className="absolute top-4 right-4 text-muted hover:text-heading transition-colors"
           >
             <X size={16} />
@@ -358,6 +381,7 @@ export function ProfileWizard() {
               <WelcomeStep
                 npub={npub}
                 copied={copied}
+                canBackupNsec={canBackupNsec}
                 onCopy={handleCopy}
                 onNext={goNext}
               />
@@ -396,6 +420,10 @@ export function ProfileWizard() {
                 onStartTour={handleStartTour}
                 onClose={handleClose}
                 onRetry={handleSaveProfile}
+                onEditDetails={() => {
+                  setError(null);
+                  setStep("advanced");
+                }}
               />
             )}
           </motion.div>
@@ -411,17 +439,80 @@ export function ProfileWizard() {
 function WelcomeStep({
   npub,
   copied,
+  canBackupNsec,
   onCopy,
   onNext,
 }: {
   npub: string;
   copied: boolean;
+  canBackupNsec: boolean;
   onCopy: () => void;
   onNext: () => void;
 }) {
+  const [nsec, setNsec] = useState<string | null>(null);
+  const [nsecVisible, setNsecVisible] = useState(false);
+  const [nsecLoading, setNsecLoading] = useState(false);
+  const [nsecError, setNsecError] = useState<string | null>(null);
+  const [nsecCopied, setNsecCopied] = useState(false);
+  const [downloaded, setDownloaded] = useState(false);
+  const [acknowledged, setAcknowledged] = useState(!canBackupNsec);
+
+  const revealNsec = useCallback(async () => {
+    if (nsec) {
+      setNsecVisible(true);
+      return;
+    }
+    setNsecLoading(true);
+    setNsecError(null);
+    try {
+      const { TauriSigner } = await import("@/lib/nostr/tauriSigner");
+      const hex = await new TauriSigner().getSecretKey();
+      const bytes = new Uint8Array(
+        hex.match(/.{2}/g)!.map((b) => parseInt(b, 16)),
+      );
+      setNsec(nsecEncode(bytes));
+      setNsecVisible(true);
+    } catch (err) {
+      setNsecError(
+        err instanceof Error ? err.message : "Failed to retrieve secret key",
+      );
+    } finally {
+      setNsecLoading(false);
+    }
+  }, [nsec]);
+
+  const copyNsec = useCallback(async () => {
+    if (!nsec) return;
+    await navigator.clipboard.writeText(nsec);
+    setNsecCopied(true);
+    setTimeout(() => setNsecCopied(false), 2000);
+  }, [nsec]);
+
+  const downloadNsec = useCallback(() => {
+    if (!nsec) return;
+    const stamp = new Date().toISOString().slice(0, 10);
+    const body =
+      `The Wired — Nostr Secret Key Backup\n` +
+      `Generated: ${new Date().toISOString()}\n\n` +
+      `⚠️  Keep this secret. Anyone with this key controls your account.\n` +
+      `   No one can recover it for you if it's lost.\n\n` +
+      `Secret Key (nsec):\n${nsec}\n\n` +
+      `Public Key (npub):\n${npub}\n`;
+    const blob = new Blob([body], { type: "text/plain;charset=utf-8" });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = `thewired-nsec-${stamp}.txt`;
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    URL.revokeObjectURL(url);
+    setDownloaded(true);
+  }, [nsec, npub]);
+
   return (
     <div className="text-center">
-      <div className="mb-5 flex justify-center">
+      <div className="mb-4 flex justify-center">
         <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-primary/10">
           <Key size={28} className="text-primary-soft" />
         </div>
@@ -430,35 +521,131 @@ function WelcomeStep({
         as="h2"
         animation="blurInUp"
         by="word"
-        className="text-xl font-bold text-gradient-accent tracking-wide mb-3"
+        className="text-xl font-bold text-gradient-accent tracking-wide mb-2"
         startOnView={false}
       >
         Welcome to The Wired
       </TextAnimate>
       <p className="text-sm text-soft mb-5 leading-relaxed">
-        Your identity is a cryptographic keypair.
-        You own it — no company controls it.
+        Nostr is a safe, open network where your identity belongs to you.
+        You sign in with a key that only you control.
       </p>
 
-      {/* npub display */}
-      <div className="flex items-center gap-2 rounded-xl bg-field border border-border px-3 py-2 mb-6">
-        <span className="flex-1 truncate text-xs text-muted font-mono">
-          {npub}
-        </span>
-        <button
-          onClick={onCopy}
-          className="shrink-0 text-muted hover:text-heading transition-colors"
-          title="Copy public key"
-        >
-          {copied ? (
-            <Check size={14} className="text-green-400" />
-          ) : (
-            <Copy size={14} />
-          )}
-        </button>
+      {/* npub — shareable public handle */}
+      <div className="mb-4 text-left">
+        <div className="mb-1.5 text-[11px] uppercase tracking-wide text-muted">
+          Your public handle (safe to share)
+        </div>
+        <div className="flex items-center gap-2 rounded-xl bg-field border border-border px-3 py-2">
+          <span className="flex-1 truncate text-xs text-muted font-mono">
+            {npub}
+          </span>
+          <button
+            onClick={onCopy}
+            className="shrink-0 text-muted hover:text-heading transition-colors"
+            title="Copy npub"
+          >
+            {copied ? (
+              <Check size={14} className="text-green-400" />
+            ) : (
+              <Copy size={14} />
+            )}
+          </button>
+        </div>
       </div>
 
-      <ShimmerButton className="w-full gap-2" onClick={onNext}>
+      {/* nsec backup — only for newly-generated desktop keys */}
+      {canBackupNsec && (
+        <div className="mb-5 text-left rounded-xl border border-yellow-500/30 bg-yellow-500/5 p-3">
+          <div className="flex items-start gap-2 mb-2.5">
+            <AlertTriangle
+              size={14}
+              className="mt-0.5 shrink-0 text-yellow-400"
+            />
+            <div>
+              <p className="text-xs font-semibold text-yellow-300 mb-0.5">
+                Back up your secret key
+              </p>
+              <p className="text-[11px] text-soft leading-relaxed">
+                This key <em>is</em> your account. If you lose it, it can't be
+                recovered — not by us, not by anyone. Never share it.
+              </p>
+            </div>
+          </div>
+
+          {nsecVisible && nsec ? (
+            <>
+              <div className="mb-2 flex items-center gap-2 rounded-lg border border-yellow-500/20 bg-black/40 px-2.5 py-1.5">
+                <span className="flex-1 truncate text-[11px] font-mono text-yellow-200">
+                  {nsec}
+                </span>
+                <button
+                  onClick={() => setNsecVisible(false)}
+                  className="text-muted hover:text-heading transition-colors"
+                  title="Hide"
+                >
+                  <EyeOff size={13} />
+                </button>
+              </div>
+              <div className="flex gap-2">
+                <button
+                  onClick={copyNsec}
+                  className="flex-1 inline-flex items-center justify-center gap-1.5 rounded-lg border border-border bg-panel py-1.5 text-[11px] text-soft transition-colors hover:text-heading"
+                >
+                  {nsecCopied ? (
+                    <Check size={12} className="text-green-400" />
+                  ) : (
+                    <Copy size={12} />
+                  )}
+                  {nsecCopied ? "Copied" : "Copy nsec"}
+                </button>
+                <button
+                  onClick={downloadNsec}
+                  className="flex-1 inline-flex items-center justify-center gap-1.5 rounded-lg border border-border bg-panel py-1.5 text-[11px] text-soft transition-colors hover:text-heading"
+                >
+                  {downloaded ? (
+                    <Check size={12} className="text-green-400" />
+                  ) : (
+                    <Download size={12} />
+                  )}
+                  {downloaded ? "Saved" : "Download .txt"}
+                </button>
+              </div>
+            </>
+          ) : (
+            <button
+              onClick={revealNsec}
+              disabled={nsecLoading}
+              className="w-full inline-flex items-center justify-center gap-1.5 rounded-lg border border-yellow-500/30 bg-panel py-1.5 text-xs text-yellow-200 transition-colors hover:bg-yellow-500/10 disabled:opacity-60"
+            >
+              <Eye size={13} />
+              {nsecLoading ? "Loading…" : "Reveal secret key"}
+            </button>
+          )}
+
+          {nsecError && (
+            <p className="mt-1.5 text-[11px] text-red-400">{nsecError}</p>
+          )}
+
+          <label className="mt-3 flex cursor-pointer items-start gap-2 select-none">
+            <input
+              type="checkbox"
+              checked={acknowledged}
+              onChange={(e) => setAcknowledged(e.target.checked)}
+              className="mt-0.5 accent-primary"
+            />
+            <span className="text-[11px] leading-relaxed text-soft">
+              I've saved my secret key somewhere safe.
+            </span>
+          </label>
+        </div>
+      )}
+
+      <ShimmerButton
+        className="w-full gap-2 disabled:cursor-not-allowed disabled:opacity-50"
+        onClick={onNext}
+        disabled={!acknowledged}
+      >
         Set Up Your Profile
         <ChevronRight size={16} />
       </ShimmerButton>
@@ -493,6 +680,11 @@ function BasicInfoStep({
           <div key={key}>
             <label className="mb-1 flex items-center text-xs text-soft">
               {HELP_TEXT[key].label}
+              {key === "name" && (
+                <span className="ml-1 text-red-400/80" aria-hidden>
+                  *
+                </span>
+              )}
               <HelpTooltip text={HELP_TEXT[key].help} />
             </label>
             {key === "about" ? (
@@ -524,7 +716,11 @@ function BasicInfoStep({
           <ChevronLeft size={14} />
           Back
         </Button>
-        <Button onClick={onNext} className="gap-1">
+        <Button
+          onClick={onNext}
+          disabled={!form.name?.trim()}
+          className="gap-1 disabled:cursor-not-allowed disabled:opacity-50"
+        >
           Next
           <ChevronRight size={14} />
         </Button>
@@ -625,7 +821,7 @@ function AdvancedStep({
       </p>
 
       <div className="space-y-3">
-        {(["nip05", "lud16", "website"] as const).map((key) => (
+        {(["nip05", "website"] as const).map((key) => (
           <div key={key}>
             <label className="mb-1 flex items-center text-xs text-soft">
               {HELP_TEXT[key].label}
@@ -638,9 +834,7 @@ function AdvancedStep({
               placeholder={
                 key === "nip05"
                   ? "username@thewired.app"
-                  : key === "lud16"
-                    ? "you@wallet.com"
-                    : "https://yoursite.com"
+                  : "https://yoursite.com"
               }
               className={cn(
                 "w-full rounded-xl border bg-field px-3 py-2 text-sm text-heading placeholder-muted focus:outline-none transition-colors",
@@ -685,6 +879,7 @@ function CompleteStep({
   onStartTour,
   onClose,
   onRetry,
+  onEditDetails,
 }: {
   saving: boolean;
   saved: boolean;
@@ -692,6 +887,7 @@ function CompleteStep({
   onStartTour: () => void;
   onClose: () => void;
   onRetry: () => void;
+  onEditDetails: () => void;
 }) {
   return (
     <div className="text-center">
@@ -707,9 +903,15 @@ function CompleteStep({
       {error && (
         <>
           <p className="text-sm text-red-400 mb-3">{error}</p>
-          <Button variant="secondary" size="sm" onClick={onRetry}>
-            Retry
-          </Button>
+          <div className="flex justify-center gap-2">
+            <Button variant="ghost" size="sm" onClick={onEditDetails}>
+              <ChevronLeft size={14} />
+              Edit details
+            </Button>
+            <Button variant="secondary" size="sm" onClick={onRetry}>
+              Retry
+            </Button>
+          </div>
         </>
       )}
 
@@ -752,6 +954,19 @@ function CompleteStep({
             >
               I'll Explore on My Own
             </Button>
+          </div>
+
+          <div className="mt-5 pt-4 border-t border-border/60">
+            <p className="text-[11px] text-muted mb-1.5">New to Nostr?</p>
+            <a
+              href="https://nostr.com"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="inline-flex items-center gap-1 text-xs text-primary-soft hover:text-primary transition-colors"
+            >
+              Learn what makes it different
+              <ExternalLink size={11} />
+            </a>
           </div>
         </>
       )}

@@ -5,6 +5,9 @@ api.thewired.app {
 relay.thewired.app {
 	reverse_proxy relay:7777
 }
+livekit.thewired.app {
+    reverse_proxy livekit:7880
+}
 
 thewired.app {
 	# NIP-05 identity verification — must be served from the root domain
