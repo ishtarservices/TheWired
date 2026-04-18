@@ -949,10 +949,7 @@ function handleCallInviteWrap(
       callerName: string;
     };
 
-    console.log(
-      `[call] ← incoming invite from=${dm.sender.slice(0, 8)} type=${payload.callType} ` +
-        `wrapAge=${Math.round(Date.now() / 1000) - (dm.createdAt ?? 0)}s`,
-    );
+    console.log(`[call] incoming invite from=${dm.sender.slice(0, 8)} type=${payload.callType}`);
 
     store.dispatch(
       setIncomingCall({

@@ -169,33 +169,17 @@ export async function connectToRoom(
   );
 
   room.on(RoomEvent.Disconnected, (reason?: DisconnectReason) => {
-    console.log(
-      `[LiveKit] Disconnected: reason=${disconnectReasonName(reason)} (${reason ?? "?"}) ` +
-        `state=${room.state}`,
-    );
+    // Only log non-user-initiated disconnects — ordinary hangups are noise.
+    if (reason !== undefined && reason !== DisconnectReason.CLIENT_INITIATED) {
+      console.warn(`[LiveKit] disconnected: ${disconnectReasonName(reason)} (${reason})`);
+    }
     cleanupListenTogether();
     store.dispatch(disconnectRoom());
     currentRoom = null;
   });
 
-  room.on(RoomEvent.Reconnecting, () => {
-    console.log("[LiveKit] Reconnecting...");
-  });
-
-  room.on(RoomEvent.Reconnected, () => {
-    console.log("[LiveKit] Reconnected");
-  });
-
-  room.on(RoomEvent.ConnectionStateChanged, (state) => {
-    console.log(`[LiveKit] ConnectionState → ${state}`);
-  });
-
   room.on(RoomEvent.MediaDevicesError, (error) => {
     console.error(`[LiveKit] MediaDevicesError:`, error);
-  });
-
-  room.on(RoomEvent.SignalConnected, () => {
-    console.log(`[LiveKit] signal connected`);
   });
 
   // Listen Together: route data messages with the LT topic
@@ -225,9 +209,7 @@ export async function connectToRoom(
   });
 
   // Connect
-  console.log(`[LiveKit] connecting to ${serverUrl}`);
   await room.connect(serverUrl, token);
-  console.log(`[LiveKit] connect() resolved — state=${room.state} sid=${room.localParticipant.sid ?? "?"}`);
 
   // Add existing participants
   for (const participant of room.remoteParticipants.values()) {

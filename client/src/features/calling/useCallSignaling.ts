@@ -37,12 +37,10 @@ export function useCallSignaling() {
       ],
     });
 
-    console.log(`[call] subscribing to RTC signals room=${roomId.slice(0, 8)} me=${myPubkey.slice(0, 8)} subId=${subId.slice(0, 8)}`);
     subIdRef.current = subId;
 
     return () => {
       if (subIdRef.current) {
-        console.log(`[call] closing RTC signal subscription ${subIdRef.current.slice(0, 8)}`);
         subscriptionManager.close(subIdRef.current);
         subIdRef.current = null;
       }
