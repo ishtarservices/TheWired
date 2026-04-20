@@ -1,7 +1,8 @@
 # THE WIRED V1 -- Architecture Document
 
-> Decentralized Nostr-native media platform: streaming, messaging, music libraries.
-> Tech Stack: Tauri + React + Redux | Nostr Protocol | Custom Rust Relay | Fastify + PostgreSQL + Redis + Meilisearch | Go API Gateway
+> Decentralized Nostr-native media platform: streaming, messaging, music libraries, voice/video, Blossom blobs, discover.
+> Current version: v0.4.3
+> Tech Stack: Tauri v2 + React 19 + Redux | Nostr Protocol | Custom Rust Relay | Fastify + PostgreSQL + Redis + Meilisearch | Go API Gateway | LiveKit SFU | Caddy proxy | Astro landing
 
 ---
 
@@ -154,6 +155,12 @@
 | Seal | 13 | NIP-17 | Regular | Intermediate encryption layer inside gift wrap |
 | Rumor (DM) | 14 | NIP-17 | Regular | Decrypted inner DM content (never published raw) |
 | Client Auth | 22242 | NIP-42 | Ephemeral | Challenge-response for relay auth |
+| Blossom Auth | 24242 | BUD-11 | Regular | Signed auth token for Blossom blob upload/delete/list |
+| HTTP Auth | 27235 | NIP-98 | Regular | Gateway auth token for backend API calls |
+| User Groups | 10009 | NIP-51 | Replaceable | User's NIP-29 group memberships |
+| Relay Monitor | 30166 | NIP-66 | Addressable | Read-only -- ingested by relay directory worker |
+| Moderated Community | 34550 | NIP-72 | Addressable | Discover/communities tab (read-only) |
+| Starter Pack | 39089 | NIP-51 | Addressable | Discover/people tab (read-only) |
 
 ### Custom Music Event Kinds (Addressable Range)
 
@@ -878,40 +885,63 @@ Lightweight reverse proxy handling cross-cutting concerns before requests reach 
 
 Single Node.js/Fastify service (`@thewired/backend`) that handles all API logic, background indexing, and data processing.
 
-**Routes:**
+**Routes (25 modules):**
 
 | Route Module | Purpose |
 |-------------|---------|
-| `spaces` | Space directory listing, creation, metadata |
-| `invites` | Invite code generation, redemption |
+| `spaces` | Space directory listing, creation, metadata, validation |
+| `channels` | Space channel CRUD (create/update/delete/reorder, seed defaults) |
+| `roles` | Role CRUD, assignments, channel overrides, effective permissions |
 | `members` | Member listing, role management |
+| `moderation` | Ban/unban, mute/unmute, kick |
 | `permissions` | RBAC permission checks and updates |
-| `search` | Full-text search via Meilisearch |
+| `invites` | Invite code generation, redemption, revocation |
+| `search` | Full-text search via Meilisearch (events, profiles, tracks, albums, music) |
 | `feeds` | Trending and personalized feed endpoints |
-| `push` | Push notification registration and dispatch |
+| `discovery` | Discover tab: listed spaces, featured, categories, relay directory, listing requests |
+| `push` | Push notification registration and dispatch (VAPID) |
+| `notifications` | Notification preferences, queue management |
 | `analytics` | View counts, engagement metrics |
+| `insights` | Artist analytics dashboard (plays, listener stats, chart data) |
 | `content` | Media upload handling, content metadata |
 | `profiles` | Profile cache and resolution |
-| `music` | Audio/cover upload (`POST /music/upload`, `POST /music/upload/cover`) |
+| `music` | Audio/cover upload, music CRUD, delete |
+| `proposals` | Music proposal (draft edit) submission and review |
+| `revisions` | Track revision history |
+| `onboarding` | Profile wizard state, welcome checklist, app tour |
+| `nip05` | `.well-known/nostr.json` NIP-05 identity service |
+| `blossom` | BUD-01/02/06/11: `GET/HEAD /<sha256>`, `PUT /upload`, `DELETE /<sha256>`, `GET /list/<pubkey>` |
+| `gif` | GIF search proxy (Tenor/Giphy wrapper) |
+| `voice` | LiveKit token generation, room/participant management |
 | `health` | Health check endpoint |
 
-**Services:**
+**Services (21 modules):**
 
 | Service | Purpose |
 |---------|---------|
 | `spaceDirectory` | Space discovery, directory listing, featured spaces |
+| `channelService` | Channel CRUD, default seeding, one-per-feed-type enforcement |
+| `roleService` | Role CRUD, member assignments, channel overrides, effective permission resolution |
+| `moderationService` | Ban/mute/kick, active-ban/mute queries |
+| `permissionService` | RBAC checks (bans → auto-deny all, mutes → auto-deny SEND_MESSAGES, then roles) |
 | `inviteService` | Invite code lifecycle (create, validate, redeem) |
-| `permissionService` | RBAC checks against `app.permissions` and `app.roles` |
-| `pushService` | Push notification delivery |
-| `searchService` | Meilisearch index management and query execution |
-| `feedService` | Feed composition from precomputed Redis sorted sets |
+| `searchService` | Meilisearch index management and query execution (events, profiles, tracks, albums) |
+| `feedService` | Feed composition from precomputed Redis sorted sets, follow-graph personalization |
+| `discoveryService` | Listed spaces, featured, categories, listing request lifecycle, relay directory |
+| `pushService` | Push notification delivery (VAPID) |
+| `notificationEnqueue` | Notification queue writer used by `relayIngester` |
 | `analyticsService` | Event counting, engagement tracking |
-| `spamService` | Reputation scoring, rate anomaly detection |
+| `spamService` | Reputation scoring, rate anomaly detection (stub -- full model TODO) |
 | `contentService` | Upload handling, file metadata management |
-| `musicService` | Audio/cover upload with MIME validation, SHA-256, disk storage |
+| `musicService` | Audio/cover upload with MIME validation, SHA-256, Blossom-backed storage |
+| `revisionService` | Track revision history, snapshot/rollback |
+| `proposalService` | Music proposal (draft edit) submission and review flow |
+| `onboardingService` | Profile wizard state, welcome checklist progress |
+| `livekitService` | LiveKit room tokens, participant listing |
+| `gifService` | GIF search proxy |
 | `profileCacheService` | Profile resolution with Redis caching layer |
 
-**Background Workers:**
+**Background Workers (6 workers):**
 
 | Worker | Schedule/Trigger | Purpose |
 |--------|-----------------|---------|
@@ -920,6 +950,7 @@ Single Node.js/Fastify service (`@thewired/backend`) that handles all API logic,
 | `profileRefresher` | Every hour | Finds profiles with `fetched_at > 24h` (limit 50), batch-fetches kind:0 from relay, upserts into `cached_profiles` + Meilisearch. |
 | `notificationDispatcher` | Every 30 seconds | Queries unsent `notification_queue` (limit 100), sends via `web-push` with VAPID, removes 410 Gone subscriptions. |
 | `analyticsAggregator` | Every 24 hours | Aggregates yesterday's relay events by space into `space_activity_daily`. Rolls up per-member engagement. Updates `spaces.messages_last_24h` and `active_members_24h`. |
+| `discoveryScoreComputer` | Every 15 minutes | Computes `discovery_score = members*2 + active24h*5 + messages24h + recency_boost` for listed spaces. Auto-delists inactive spaces (0 msgs, 0 active, <3 members, listed 30+ days). |
 
 ### 7.4 PostgreSQL Schema Design
 
@@ -936,21 +967,36 @@ relay.group_roles     -- Group roles and permissions (group_id, pubkey, role)
 relay.invite_codes    -- Group invite codes (code, group_id, creator, uses_remaining)
 ```
 
-**`app` schema** -- Managed by the Fastify backend via Drizzle ORM migrations:
+**`app` schema** -- Managed by the Fastify backend via Drizzle ORM migrations (0001-0019):
 
 ```sql
-app.spaces            -- Space directory (id, group_id, name, description, featured)
-app.invites           -- Application-level invites
-app.members           -- Denormalized member data with display info
-app.roles             -- RBAC role definitions
-app.permissions       -- RBAC permission assignments
-app.notifications     -- Notification queue
-app.content           -- Content metadata (uploads, transcoding status, URLs)
-app.profiles          -- Cached profile data from kind:0 events
-app.analytics         -- View counts, engagement metrics, aggregations
-app.moderation        -- Moderation actions and reports
-app.feeds             -- Precomputed feed entries and metadata
-app.music_uploads     -- Uploaded audio/cover files (id, pubkey, sha256, url, mime_type, file_size)
+app.spaces                  -- Space directory (id, group_id, name, mode, listed, listed_at, discovery_score, messages_last_24h, active_members_24h, featured)
+app.space_categories        -- 11 seeded categories for discovery
+app.invites                 -- Application-level invites
+app.members                 -- Denormalized member data with display info
+app.roles                   -- RBAC role definitions
+app.permissions             -- RBAC permission assignments
+app.channels                -- Space channel definitions (id, spaceId, type, label, categoryId, position, adminOnly, slowModeSeconds, feedMode)
+app.notifications           -- In-app notification history
+app.notification_queue      -- Pending push notifications
+app.notification_preferences -- Per-user per-type toggles + DND windows
+app.content                 -- Content metadata (uploads, transcoding status, URLs)
+app.profiles                -- Cached profile data from kind:0 events
+app.analytics               -- View counts, engagement metrics, aggregations
+app.moderation              -- Active bans and mutes
+app.feeds                   -- Precomputed feed entries and metadata
+app.feed_sources            -- Per-space feed source configuration
+app.music_uploads           -- Uploaded audio/cover files (sha256, url, mime_type, file_size, duration, status)
+app.music_revisions         -- Track revision history + release notes
+app.music_proposals         -- Draft proposed edits pending approval
+app.saved_album_versions    -- Album snapshots for restore
+app.music_plays             -- Per-user listening history
+app.listing_requests        -- Space listing request queue for /discover
+app.relay_directory         -- NIP-66/NIP-11 relay metadata (name, NIPs, RTT, user_count)
+app.onboarding_state        -- Profile wizard completion + app tour progress
+app.nip05_identities        -- `name@thewired.app` mappings served via `.well-known/nostr.json`
+app.blossom_blobs           -- Content-addressed blob metadata (sha256, owner pubkey, visibility, mime_type, size)
+app.temporary_channels      -- Ephemeral space channels
 ```
 
 ### 7.5 Redis Usage
@@ -994,6 +1040,103 @@ Meilisearch v1.6 provides full-text search for the API layer:
 - `music.ts` -- Music upload/search DTOs (`MusicUploadResponse`, `MusicSearchResult`)
 
 ---
+
+## 7.8 Blossom Blob Storage (BUD-01/02/06/11)
+
+The backend doubles as a Blossom server for content-addressed file storage:
+
+| Endpoint | NIP / BUD | Purpose |
+|----------|-----------|---------|
+| `GET/HEAD /<sha256>` | BUD-01 | Blob retrieval (optionally `.<ext>` suffix) |
+| `PUT /upload` | BUD-02 | Upload blob with kind:24242 auth, returns SHA-256 descriptor |
+| `HEAD /upload` | BUD-06 | Upload preflight (size, MIME validation) |
+| `DELETE /<sha256>` | BUD-02 | Delete blob owned by signer |
+| `GET /list/<pubkey>` | BUD-02 | List blobs owned by pubkey |
+
+**Auth:** Clients sign a **kind 24242** event with `["t", "upload"|"delete"|"list"]`, `["x", <sha256>]`, `["expiration", <unix>]` tags, base64-encode, send as `Authorization: Nostr <base64>` header.
+
+**Storage:** `app.blossom_blobs` table keyed on SHA-256 with `owner_pubkey`, `visibility` (public/unlisted/protected), `mime_type`, `size`, and the filesystem `storage_path`. Music uploads route through this layer so tracks are content-addressed.
+
+**Key files:**
+- `services/backend/src/routes/blossom.ts` -- Route handlers
+- `services/backend/src/db/schema/blobs.ts` -- Drizzle schema
+- `client/src/lib/api/blossom.ts` -- Upload/retrieve client
+- `client/src/lib/api/blossomAuth.ts` -- Kind 24242 event construction
+
+## 7.9 Voice & Video Architecture
+
+Two independent real-time paths:
+
+**Space voice/video channels (LiveKit SFU):**
+- `SpaceChannelType` extended with `"voice" | "video"`
+- `services/backend/src/services/livekitService.ts` issues JWT tokens scoped to a room (space/channel ID) and pubkey
+- `POST /voice/token` returns a token; client connects `livekit-client` to `ws://livekit:7880`
+- `VoiceChannel.tsx` manages LiveKit Room, `ParticipantTile` renders tracks, `ScreenShareView` handles screen share
+- `useVoiceRoomPresence` publishes kind:30311-style presence for UI badges
+- Keep-alive pattern in `ChannelPanel` keeps the session alive while browsing other channels
+- `config/livekit.yaml` configures the LiveKit SFU (dev key/secret; prod uses real credentials)
+
+**1:1 DM WebRTC calls:**
+- `client/src/lib/nostr/callSignaling.ts` wraps offer/answer/ICE exchange in NIP-17 gift wraps
+- `usePeerConnection` owns the `RTCPeerConnection`; `useCallSignaling` handles signaling with ICE buffering until the remote description is set
+- `CallController` orchestrates the call state machine; `IncomingCallModal` + `callRingtone` handle ringing
+- Video capture capped at 640x360 by default to reduce bandwidth (see `callService.ts`)
+
+## 7.10 Discover Subsystem
+
+A directory of public spaces, relays, and communities surfaced via `/discover`.
+
+**Backend:**
+- `app.listing_requests`: admins submit listing requests with category + tags
+- `app.space_categories`: 11 seeded categories with counts
+- `app.relay_directory`: NIP-66 monitor data + NIP-11 probes (worker TODO)
+- `spaces.listed`, `spaces.listed_at`, `spaces.discovery_score` columns added
+- Auto-approve path: 20+ members AND 7+ days old. Manual review queue otherwise. `ADMIN_PUBKEYS` bypasses.
+- `discoveryScoreComputer` worker (every 15 min) recomputes scores and auto-delists (0 messages, 0 active, <3 members, listed 30+ days ago)
+
+**Endpoints:**
+```
+GET    /discovery/spaces                  # Browse listed spaces (?category &tag &search &sort)
+GET    /discovery/spaces/featured         # Editorial featured list
+GET    /discovery/categories              # Category list with space counts
+GET    /discovery/relays                  # Relay directory (?nip filter)
+POST   /discovery/listing-requests        # Admin submits listing
+GET    /discovery/listing-requests        # Pending queue (admin only)
+PATCH  /discovery/listing-requests/:id    # Approve/reject
+```
+
+**Client:** Four tabs (Spaces/Relays/Communities/People) in `features/discover/DiscoverPage.tsx`. Spaces tab has featured horizontal scroll + trending grid + category chips + search + paginate. Relays tab is a grid. Communities and People tabs are TODO (read directly from NIP-72 kind:34550 and NIP-51 kind:39089 on bootstrap relays).
+
+## 7.11 Friends Feed (Virtual Space)
+
+A pseudo-space rendered at the top of the sidebar that aggregates kind:1/20/21/22/30023 from the user's follow list.
+
+- Sentinel ID: `__friends_feed__` (`features/friends/friendsFeedConstants.ts`)
+- Subscribes on `read` relays only (reads follow pubkeys, not an NIP-29 group)
+- Event pipeline indexes into `__friends_feed__:notes|media|articles`
+- Cross-indexes notes with media URLs into the media feed
+- Uses the same pagination + keep-alive panel infrastructure as real spaces
+- `useSpace` has `FRIENDS_FEED_ID` branches in `selectSpace`, `selectChannel`, `resolveActiveChannel`
+
+## 7.12 Onboarding & Multi-Account
+
+**Onboarding:**
+- `ProfileWizard` (display name, about, picture) runs on first login
+- `AppTour` / `tourSteps` -- guided tooltip overlay
+- `WelcomeChecklist` -- per-space new-member tasks (join, say hi, pin first message)
+- `app.onboarding_state` tracks completion per pubkey
+
+**Multi-account:**
+- `AddAccountModal` adds additional signers (NIP-07 or Tauri keystore)
+- Active account tracked in Redux; IndexedDB cache is isolated per pubkey (separate `thewired_<pubkey>` databases)
+- Switching accounts closes all subscriptions, reloads relay list + state from scratch
+
+## 7.13 Theme Engine
+
+- Preset-based theme system in `client/src/styles/`
+- `ThemeQuickPicker` in the top bar for runtime preset switching
+- `ThemeBackground` renders per-preset gradient/mesh backgrounds
+- Persisted to Redux `uiSlice` + IndexedDB
 
 ## 8. Event Deduplication Strategy
 
@@ -1045,20 +1188,28 @@ Results can be merged and deduplicated by event ID on the client.
 
 ## 10. Infrastructure and Deployment
 
-### 10.1 Docker Compose (Development and Production)
+### 10.1 Docker Compose (Development)
 
-All infrastructure runs via `docker-compose.yml`:
+Dev infrastructure runs via `docker-compose.yml`:
 
 | Service | Image / Build | Port | Depends On |
 |---------|---------------|------|------------|
 | `postgres` | `postgres:16-alpine` | 5432 | -- |
 | `redis` | `redis:7-alpine` (256MB, allkeys-lru) | 6380 | -- |
 | `meilisearch` | `getmeili/meilisearch:v1.6` | 7700 | -- |
+| `livekit` | `livekit/livekit-server:latest` | 7880 (WS) + 7881/7882 (TURN) | -- |
 | `relay` | Build from `services/relay/Dockerfile` | 7777 | postgres |
-| `backend` | Build from `services/backend/Dockerfile` | 3002 | postgres, redis, relay, meilisearch |
+| `backend` | Build from `services/backend/Dockerfile` | 3002 | postgres, redis, relay, meilisearch, livekit |
 | `gateway` | Build from `services/gateway/Dockerfile` | 9080 | backend, redis |
 
-**Volumes:** `pgdata` (PostgreSQL), `meilidata` (Meilisearch)
+**Volumes:** `pgdata` (PostgreSQL), `redisdata` (Redis), `meilidata` (Meilisearch)
+
+### 10.2 Release Pipeline
+
+- **Tauri auto-updater:** `latest.json` signed manifests uploaded to GitHub Releases on tag push
+- **CI:** Per-platform Rust targets (Darwin arm64/x86, Windows x64, Linux arm64/x64)
+- **Docker image builds** gated on test workflow success (diffed against last successful build)
+- **CLIENT landing page** pulls download URLs dynamically from GitHub Releases API
 
 ### 10.2 NIP-77 Negentropy Sync (Future)
 
@@ -1242,49 +1393,158 @@ Per-user recommendations based on listening history, genre preferences, and soci
 
 ---
 
-### Phase 4: Discovery and Scale -- TODO
+### Phase 4: Spaces, DMs, Notifications & Social -- COMPLETE
 
-**Goal:** Ranking UI, search UI, spam filtering, live streaming.
+**Goal:** Custom channels, roles/permissions, moderation, encrypted DMs, notifications, friend requests.
+
+- Channel CRUD (`app.channels`, `channelService`), admin-only channels, slow mode, one-per-feed-type constraint
+- Role CRUD with color, channel overrides, effective permission resolution
+- Moderation (bans, mutes, kicks) with `permissionService` auto-deny logic
+- Space Settings modal (tabbed: General / Channels / Roles / Members / Moderation / Notifications / Onboarding)
+- NIP-17 encrypted DMs (gift wrap → seal → rumor) with Tauri keystore NIP-44 v2 (pure Rust)
+- Self-wraps for sent message persistence, IndexedDB persistence (200 msgs/conversation)
+- Friend request system with `type` tag discriminator, auto-follow on accept, `removedPubkeys` guard
+- Client-side notification evaluation (prefs, space mutes, DND, mute list) → toasts + bell
+- Backend push via `notification_queue` → `notificationDispatcher` → VAPID web-push
+
+### Phase 5: Voice, Video & Calls -- COMPLETE
+
+- LiveKit SFU for space voice/video channels (`voice`/`video` channel types, token service, keep-alive)
+- 1:1 DM WebRTC calls with NIP-17 signaling (offer/answer + ICE buffering, 640x360 default)
+- Screen share, pre-join device picker, voice status bar, participant tiles
+
+### Phase 6: Blossom Blob Storage -- COMPLETE
+
+- BUD-01/02/06/11 endpoints on the Fastify backend
+- Kind 24242 auth, content-addressed storage, visibility flags (public/unlisted/protected)
+- Music uploads now route through Blossom for content addressing
+- `app.blossom_blobs` table (migration 0018)
+
+### Phase 7: Discovery & Onboarding -- COMPLETE
+
+- `/discover` page with Spaces/Relays/Communities/People tabs (Spaces + Relays fully wired)
+- Listing request flow, category browse, auto-approve + admin bypass
+- `discoveryScoreComputer` worker with auto-delist
+- Profile wizard, app tour, welcome checklist
+- NIP-05 identities via `.well-known/nostr.json`
+- Multi-account with per-pubkey IndexedDB isolation
+
+### Phase 8: Music System Overhaul -- COMPLETE
+
+- Revisions, proposals, saved album versions, annotations, insights dashboard
+- Listen Together synced playback sessions (DJ model, vote-skip, reactions)
+- Genre taxonomy, hashtag input, featured artists, visibility controls
+- Music link embeds in chat, `SpaceMusicView`, `SpaceAlbumDetail`
+- Per-user play tracking (`music_plays`), download cache
+
+### Phase 9: Theming, Polish & Ops -- COMPLETE
+
+- Theme engine with presets and runtime switching
+- Resizable sidebar/center/right panels
+- Native titlebar overlay (macOS frameless feel)
+- Tauri auto-updater with branded overlay
+- GitHub Releases CI (mac/win/linux, arm64/x64, signed)
+- Caddy production proxy (`services/proxy/`), Astro landing page (`services/landing/`)
+- Comprehensive test suite (229 client + 49 gateway + 33 relay + backend + Playwright)
+
+---
+
+### Phase 10: Discovery UX & Scale -- TODO
+
+See [DISCOVER_REMAINING_PHASES.md](./DISCOVER_REMAINING_PHASES.md).
 
 **Client:**
-- Trending/personalized feed UI (consuming backend `feedService` endpoints via client API layer)
-- Search UI (local + Meilisearch API + NIP-50 federated)
-- NIP-77 Negentropy sync
-- NIP-53 live streaming + live chat
-- Full NIP-29 moderation tools
-- Sub-spaces, active members sidebar
+- Join-from-Discover button + membership state on `SpaceCard`
+- Right panel discover preview (space/relay detail view)
+- Listing request submission modal for space admins
+- Communities tab (kind:34550 browser)
+- People tab (starter packs kind:39089 + 2-hop suggested follows)
+- "Friends Are In" section (spaces where your follows are members)
+- Command Palette (Cmd+K) with spaces/channels/people/actions
+- Trending/personalized feed UI (backend endpoints already exist)
+- Search UI unified local + Meilisearch API + NIP-50 federated
+- NIP-77 Negentropy sync for efficient reconnection
+- NIP-53 live streaming + live chat UI
+- Pinned messages panel per channel
+- Audit log (moderation/admin action history)
+- Announcement channels (admin-only enforcement on relay)
+- Auto-mod (keyword filters, spam detection)
+- Anti-raid protection
+- Custom per-space emoji reactions
+- Forum-style threads
+- Responsive/narrow adaptations, animation polish
 
 **Backend:**
-- `spamService` reputation model and anomaly detection
-- Search ranking and boosting tuning in Meilisearch
+- `relayDirectoryWorker` (NIP-66 ingestion + NIP-11 probing)
+- `relayIngester` extensions for kind:10002 (relay user counts) + kind:34550 (communities)
+- Meilisearch spaces index (replace SQL `ILIKE`)
+- `spamService` full reputation model + rate anomaly detection
+- Meilisearch search ranking / boosting tuning
 - Monitoring (Prometheus + Grafana)
 
-### Phase 5: Ecosystem -- TODO
+### Phase 11: Monetization & Ecosystem -- TODO
 
+- NIP-57 zaps on tracks/videos/articles (counter pipeline exists; UI TODO)
+- NIP-47 Nostr Wallet Connect for in-app payments
+- NIP-22 comments on tracks/videos/articles
+- NIP-44 encrypted private playlists
+- FFmpeg transcoding workers (multi-bitrate HLS, audio normalization to -14 LUFS)
 - NIP-89 app handler registration
 - Collaborative playlists
-- Artist analytics dashboard
-- Mobile companion app
 - Plugin/extension API
+- Mobile companion app
 
 ---
 
 ## Critical First Files
 
+**Client transport & state:**
 | File | Purpose |
 |------|---------|
-| `client/src/lib/nostr/relayManager.ts` | Core multi-relay WebSocket manager. Foundation transport layer. |
+| `client/src/lib/nostr/relayManager.ts` | Core multi-relay WebSocket manager. Singleton. |
 | `client/src/lib/nostr/subscriptionManager.ts` | REQ/CLOSE/EOSE lifecycle, filter construction, dedup integration. |
-| `client/src/store/index.ts` | Redux store with normalized entity shape. All UI reads from here. |
-| `services/relay/src/main.rs` | Rust relay entry point. Custom NIP-29 relay for all group operations. |
-| `services/relay/src/db/event_store.rs` | PostgreSQL event persistence. Core data layer for the relay. |
-| `services/backend/src/server.ts` | Fastify backend entry point. Registers routes, services, workers. |
-| `services/backend/src/workers/relayIngester.ts` | WebSocket bridge from Rust relay to backend data pipeline. |
-| `services/backend/src/db/schema/` | Drizzle ORM schema definitions for the `app` PostgreSQL schema. |
-| `services/gateway/cmd/gateway/` | Go gateway entry point. NIP-98 auth + rate limiting. |
-| `packages/shared-types/src/index.ts` | Shared TypeScript types for nostr, spaces, profiles, music, API DTOs. |
-| `client/src/store/slices/musicSlice.ts` | Full music state: catalogs, library, player transport, discovery, UI. |
+| `client/src/lib/nostr/eventPipeline.ts` | Dedup → validate → verify → dispatch + feature routing (DMs, friends, music, notifications). |
+| `client/src/lib/nostr/signer.ts` + `nip07Signer.ts` + `tauriSigner.ts` | Signer abstraction; NIP-07 browser + Tauri keystore backends. |
+| `client/src/lib/nostr/giftWrap.ts` + `nip44.ts` | NIP-17 gift wrap crypto (used by DMs, friend requests, call signaling). |
+| `client/src/lib/nostr/callSignaling.ts` | WebRTC offer/answer/ICE over NIP-17 for DM calls. |
+| `client/src/lib/api/` | 22 API modules including `blossom.ts`, `discover.ts`, `voice.ts`, `requestQueue.ts`. |
+| `client/src/store/index.ts` | Redux store with 16 slices. |
+
+**Client features:**
+| File | Purpose |
+|------|---------|
+| `client/src/store/slices/musicSlice.ts` | Full music state: catalogs, library, player, discovery, UI. |
 | `client/src/features/music/useAudioPlayer.ts` | Audio engine: HTMLAudioElement singleton, Media Session API, queue logic. |
 | `client/src/features/music/MusicRouter.tsx` | Keep-alive router for all music views. |
-| `services/backend/src/services/musicService.ts` | Audio/cover upload with MIME validation, SHA-256, disk storage. |
-| `docker-compose.yml` | Full local infrastructure: postgres, redis, meilisearch, relay, backend, gateway. |
+| `client/src/features/voice/VoiceChannel.tsx` | LiveKit voice/video channel UI. |
+| `client/src/features/calling/CallController.tsx` | 1:1 DM call state machine. |
+| `client/src/features/discover/DiscoverPage.tsx` | Spaces/Relays/Communities/People browser. |
+| `client/src/features/listenTogether/listenTogetherMiddleware.ts` | Synced playback session coordination. |
+| `client/src/features/onboarding/ProfileWizard.tsx` + `AppTour.tsx` | First-run flow. |
+
+**Backend:**
+| File | Purpose |
+|------|---------|
+| `services/backend/src/server.ts` | Fastify entry. Registers routes, services, workers. |
+| `services/backend/src/workers/relayIngester.ts` | WebSocket bridge from Rust relay to backend pipeline. |
+| `services/backend/src/workers/trendingComputer.ts` + `discoveryScoreComputer.ts` | Ranking pipelines. |
+| `services/backend/src/services/musicService.ts` | Audio/cover upload with MIME validation, SHA-256, Blossom-backed. |
+| `services/backend/src/services/discoveryService.ts` | Listing lifecycle, category/tag browse, relay directory. |
+| `services/backend/src/services/livekitService.ts` | LiveKit JWT minting. |
+| `services/backend/src/routes/blossom.ts` | BUD-01/02/06/11 blob endpoints. |
+| `services/backend/src/db/schema/` | Drizzle ORM schema for the `app` PostgreSQL schema (20 tables). |
+
+**Relay & gateway:**
+| File | Purpose |
+|------|---------|
+| `services/relay/src/main.rs` | Rust relay entry point. |
+| `services/relay/src/db/event_store.rs` | PostgreSQL event persistence with dynamic parameterized query building. |
+| `services/relay/src/nostr/nip29/` | NIP-29 group logic (groups, membership, metadata, moderation). |
+| `services/gateway/cmd/gateway/` | Go gateway entry point. NIP-98 auth + rate limiting. |
+
+**Shared & infra:**
+| File | Purpose |
+|------|---------|
+| `packages/shared-types/src/index.ts` | Shared types for nostr, spaces, profiles, music, API DTOs. |
+| `docker-compose.yml` | Dev stack: postgres, redis, meilisearch, livekit, relay, backend, gateway. |
+| `config/livekit.yaml` | LiveKit SFU configuration. |

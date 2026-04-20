@@ -1,6 +1,8 @@
 # The Wired V1
 
-Decentralized Nostr-native media platform -- streaming, messaging, and long-form content in a desktop app. Built with Tauri v2, React 19, and the Nostr protocol.
+Decentralized Nostr-native media platform -- streaming, messaging, music, voice/video calls, and long-form content in a desktop app. Built with Tauri v2, React 19, and the Nostr protocol.
+
+Current version: **v0.4.3**. Auto-updating Tauri desktop app with macOS, Windows, and Linux builds.
 
 ## Architecture
 
@@ -8,11 +10,13 @@ Decentralized Nostr-native media platform -- streaming, messaging, and long-form
 |---------|----------|------|---------|
 | Client | TypeScript/React/Tauri | 1420 | Desktop app with Nostr relay connections |
 | Relay | Rust (axum + sqlx) | 7777 | Custom NIP-29 relay with PostgreSQL storage |
-| Backend | Node.js/TypeScript (Fastify + Drizzle) | 3002 | Business logic, RBAC, search, feeds, push |
+| Backend | Node.js/TypeScript (Fastify + Drizzle) | 3002 | Business logic, RBAC, search, feeds, push, Blossom blobs |
 | Gateway | Go | 9080 | NIP-98 auth, rate limiting, request routing |
+| Landing | Astro + React | - | Marketing site (`services/landing/`) |
 | PostgreSQL | - | 5432 | Shared database (relay + app schemas) |
 | Redis | - | 6380 | Rate limits, caching, trending feeds |
 | Meilisearch | - | 7700 | Full-text search engine |
+| LiveKit | - | 7880 | WebRTC SFU for voice/video channels |
 
 See [ARCHITECTURE.md](./ARCHITECTURE.md) for the full design document.
 
@@ -236,31 +240,48 @@ All jobs run in parallel. Backend tests get a fresh PostgreSQL 16 container per 
 TheWiredV1/
 ├── client/                        # Tauri + React desktop app
 │   ├── src/
-│   │   ├── app/                   # App root, layout, routing
+│   │   ├── app/                   # App root, layout, routing, auth gate
 │   │   ├── components/
-│   │   │   ├── layout/            # Sidebar, CenterPanel, RightPanel, TopBar
-│   │   │   └── ui/                # Button, Avatar, Spinner
+│   │   │   ├── layout/            # Sidebar, CenterPanel, RightPanel, TopBar, ThemeBackground
+│   │   │   └── ui/                # Button, Avatar, Spinner, Modal, PopoverMenu, MagicCard, etc.
+│   │   ├── contexts/              # React contexts (theme, toast, etc.)
 │   │   ├── features/
-│   │   │   ├── chat/              # Kind:9 real-time chat with optimistic UI
-│   │   │   ├── dm/                # NIP-17 encrypted DMs (gift wraps), friend list
-│   │   │   ├── identity/          # Login, profile card, signer detection
+│   │   │   ├── calling/           # 1:1 WebRTC DM calls (peer connection, signaling, ringtone)
+│   │   │   ├── chat/              # Kind:9 real-time chat, edits, context menu, GIFs, emoji
+│   │   │   ├── discover/          # /discover page: spaces, relays, communities, people
+│   │   │   ├── dm/                # NIP-17 encrypted DMs, contacts, conversations, friend list
+│   │   │   ├── emoji/             # Emoji picker / reactions
+│   │   │   ├── friends/           # Friends Feed virtual space (follow list aggregation)
+│   │   │   ├── identity/          # Login, multi-account switcher, profile card
+│   │   │   ├── listenTogether/    # Synced playback sessions (now playing, vote-skip, DJ transfer)
 │   │   │   ├── longform/          # Kind:30023 Markdown article rendering
 │   │   │   ├── media/             # Kind:22 video playback (HLS via hls.js)
-│   │   │   ├── music/             # Music library, player, upload (kinds 31683/33123/30119)
-│   │   │   │   └── views/         # MusicHome, SongList, AlbumGrid, ArtistDetail, etc.
-│   │   │   ├── notifications/     # Toast stack, bell dropdown, browser/push notifications
-│   │   │   ├── profile/           # Profile display, edit, friend request buttons
+│   │   │   ├── music/             # Music library, player, upload, revisions, proposals, insights
+│   │   │   │   ├── views/         # MusicHome, SongList, AlbumGrid, ArtistDetail, Explore, etc.
+│   │   │   │   ├── panel/         # Side panel (Actions, Audio, History, Notes tabs, waveform)
+│   │   │   │   └── playbackBar/   # MiniBar, ExpandedBar, NowPlayingOverlay, progress bar
+│   │   │   ├── notifications/     # Toast stack, bell dropdown, browser/push, service worker
+│   │   │   ├── onboarding/        # Profile wizard, app tour, welcome flow
+│   │   │   ├── profile/           # Profile page, edit, follow cards, pinned notes, showcase
 │   │   │   ├── relay/             # Relay connection status panel
-│   │   │   ├── settings/          # Notification preferences, DND settings
-│   │   │   └── spaces/            # NIP-29 spaces, channels, members
+│   │   │   ├── search/            # Command palette, user/message search
+│   │   │   ├── settings/          # Notification preferences, theme picker, account
+│   │   │   ├── spaces/            # NIP-29 spaces, channels, members, moderation, settings
+│   │   │   │   ├── moderation/    # Ban/mute/kick, member context menu
+│   │   │   │   ├── notes/         # Thread view, quoted notes, reply composer
+│   │   │   │   └── settings/      # Tabbed Space Settings modal
+│   │   │   └── voice/             # LiveKit voice/video channels, screen share, pre-join
 │   │   ├── lib/
-│   │   │   ├── api/               # Backend API client (NIP-98 auth, typed endpoints)
-│   │   │   ├── db/                # IndexedDB persistence
-│   │   │   └── nostr/             # Protocol: relay, subscription, event pipeline, signer
-│   │   ├── store/                 # Redux store + slices
+│   │   │   ├── api/               # Backend API client (22 modules; NIP-98 auth, request queue)
+│   │   │   ├── db/                # IndexedDB persistence (events, profiles, music, audio cache)
+│   │   │   └── nostr/             # Protocol: relay, subscription, event pipeline, signers,
+│   │   │                          #   NIP-44, gift wrap, follow list, signing queue, callSignaling
+│   │   ├── store/                 # Redux store + 16 slices
+│   │   ├── styles/                # Theme engine presets, color tokens
 │   │   ├── types/                 # TypeScript types
 │   │   └── workers/               # Web Worker for schnorr verification
-│   ├── src-tauri/                 # Rust: OS keychain + Tauri commands
+│   ├── src-tauri/                 # Rust: OS keychain, NIP-44 v2, keystore IPC, updater
+│   ├── e2e/                       # Playwright E2E tests
 │   ├── index.html
 │   ├── vite.config.ts
 │   └── package.json
@@ -268,25 +289,31 @@ TheWiredV1/
 │   └── shared-types/              # @thewired/shared-types
 │       └── src/                   # nostr, space, profile, api, permissions, music
 ├── services/
-│   ├── backend/                   # Node.js/Fastify backend
+│   ├── backend/                   # Node.js/Fastify backend (@thewired/backend)
 │   │   └── src/
-│   │       ├── routes/            # REST API endpoints (12 modules)
-│   │       ├── services/          # Business logic (11 modules)
-│   │       ├── workers/           # Background jobs (5 workers)
-│   │       ├── db/schema/         # Drizzle ORM tables (app schema)
+│   │       ├── routes/            # REST API endpoints (25 route modules)
+│   │       ├── services/          # Business logic (21 service modules)
+│   │       ├── workers/           # Background jobs (6 workers)
+│   │       ├── db/schema/         # Drizzle ORM tables (app schema, 20 tables)
+│   │       ├── db/migrations/     # SQL migrations (0001-0019)
 │   │       ├── middleware/        # Auth context, error handler
-│   │       └── lib/               # Redis, Meilisearch, Nostr utils
+│   │       └── lib/               # Redis, Meilisearch, Nostr utils, MIME, validation
 │   ├── gateway/                   # Go API gateway
 │   │   ├── cmd/gateway/           # Entry point
-│   │   └── internal/              # auth, ratelimit, proxy, cors, logging
-│   └── relay/                     # Rust NIP-29 relay
-│       ├── migrations/            # PostgreSQL schema (relay schema)
-│       └── src/                   # nostr, protocol, db, music
-├── docker-compose.yml             # Full infrastructure stack
+│   │   └── internal/              # auth, ratelimit, proxy, cors, logging, config
+│   ├── relay/                     # Rust NIP-29 relay
+│   │   ├── migrations/            # PostgreSQL schema (relay schema)
+│   │   └── src/                   # nostr, protocol, db, music, relay_identity, connection
+│   └── landing/                   # Astro marketing site (downloads, features, pricing)
+├── config/livekit.yaml            # LiveKit SFU config
+├── docker-compose.yml             # Dev infrastructure stack
 ├── pnpm-workspace.yaml            # Workspace config
 ├── tsconfig.base.json             # Shared TypeScript config
 ├── CLAUDE.md                      # Claude Code instructions
 ├── ARCHITECTURE.md                # Full design document
+├── BLOSSOM_IMPLEMENTATION.md      # Blossom blob store design notes
+├── VOICE_VIDEO_PLAN.md            # Voice/video implementation plan
+├── DISCOVER_REMAINING_PHASES.md   # Discover feature roadmap (phases 4-6)
 └── README.md
 ```
 
@@ -341,30 +368,39 @@ TheWiredV1/
 | Kind | NIP | Feature |
 |------|-----|---------|
 | 0 | NIP-01 | User profiles |
-| 1 | NIP-01 | Announcements / short text |
+| 1 | NIP-01 | Announcements / short text notes |
 | 3 | NIP-02 | Follow lists |
 | 7 | NIP-25 | Reactions |
 | 9 | NIP-C7 | Chat messages |
+| 20 | NIP-68 | Picture posts |
 | 22 | NIP-71 | Portrait/reel videos |
+| 34235 | NIP-71 | Addressable landscape videos |
 | 34236 | NIP-71 | Addressable reel videos |
 | 30023 | NIP-23 | Long-form articles |
 | 30311 | NIP-53 | Live streams |
 | 1311 | NIP-53 | Live chat |
-| 1059 | NIP-17 | Gift wraps (encrypted DMs + friend requests) |
+| 1059 | NIP-17 | Gift wraps (encrypted DMs, friend requests, call signaling) |
 | 13 | NIP-17 | Seals (intermediate encryption layer) |
-| 14 | NIP-17 | Rumors (decrypted DM content) |
+| 14 | NIP-17 | Rumors (decrypted DM / call signaling content) |
 | 10000 | NIP-51 | Mute lists |
 | 10002 | NIP-65 | Relay lists |
+| 10009 | NIP-51 | User group memberships |
+| 10063 | NIP-B7 | Blossom server list |
+| 22242 | NIP-42 | Client auth (relay challenge/response) |
+| 24242 | BUD-01 | Blossom blob auth tokens |
 | 27235 | NIP-98 | HTTP auth (gateway) |
 | 39000 | NIP-29 | Group metadata |
 | 39001 | NIP-29 | Group admins |
 | 39002 | NIP-29 | Group members |
-| 9000-9022 | NIP-29 | Group moderation |
+| 9000-9022 | NIP-29 | Group moderation (ban/unban, kick, metadata edits) |
 | 31683 | Custom | Music track metadata |
 | 33123 | Custom | Music album |
 | 30119 | Custom | Music playlist |
 | 30000 | NIP-51 | Follow sets (favorite artists) |
 | 30003 | NIP-51 | Bookmark sets (liked tracks) |
+| 30166 | NIP-66 | Relay monitor data (read-only, discover worker) |
+| 34550 | NIP-72 | Moderated communities (discover) |
+| 39089 | NIP-51 | Starter packs (discover) |
 
 ## Development Phases
 
@@ -519,38 +555,142 @@ Custom channels, roles/permissions, moderation tools, Space Settings UI, encrypt
 - Friend buttons on profile page, user popover cards, and DM sidebar
 - Accept button in notification toast and bell dropdown
 
-### Phase 5: Discovery and Scale -- TODO
+### Phase 5: Voice, Video & Calls -- COMPLETE
 
-Ranking UI, search UI, spam filtering, live streaming.
-
-**Client:**
-- Trending and personalized feed UI (consuming backend `feedService` endpoints)
-- Search UI (local + Meilisearch API + NIP-50 federated relay search)
-- NIP-77 Negentropy sync for efficient reconnection
-- NIP-53 live streaming + live chat
-- Channel categories (collapsible section headers)
-- Invite system UI (create/share/redeem invite links)
-- Pinned messages panel per channel
-- Audit log (track all moderation/admin actions)
-- Welcome screen / rules onboarding for new members
-- Announcement channels (admin-only posting enforcement on relay)
-- Auto-mod (keyword filters, spam detection)
-- Anti-raid protection
-- Custom emoji reactions per server
-- Forum-style threads
+Real-time voice and video via LiveKit SFU, plus 1:1 DM WebRTC calls.
 
 **Backend:**
-- `spamService` reputation model and rate anomaly detection
-- Search ranking and boosting tuning in Meilisearch
-- Monitoring (Prometheus + Grafana)
+- `livekitService`: token generation, room management
+- `/voice` routes: `POST /voice/token` (room join), `GET /voice/rooms/:id/participants`, presence helpers
+- LiveKit service added to `docker-compose.yml` (port 7880, TURN on 7881/7882)
+- `config/livekit.yaml` for SFU configuration
 
-### Phase 5: Ecosystem -- TODO
+**Client -- Voice/Video Channels (spaces):**
+- `voice` and `video` channel types added to `SpaceChannelType`
+- `VoiceChannel.tsx`, `VideoGrid.tsx`, `VoiceControls.tsx`, `ParticipantTile.tsx`, `ScreenShareView.tsx`
+- `useVoiceChannel`, `useMediaDevices`, `useScreenShare`, `useVoiceRoomPresence` hooks
+- `PreJoinModal` for device selection before joining
+- Keep-alive pattern: voice session persists across channel navigation
+- Voice status bar and voice channel preview
 
-- NIP-89 app handler registration
-- Collaborative playlists
-- Artist analytics dashboard
-- Mobile companion app
-- Plugin/extension API
+**Client -- DM Calls (1:1 WebRTC):**
+- `usePeerConnection`, `useCallSignaling` (gift-wrapped call offers over NIP-17)
+- `CallController`, `CallControls`, `IncomingCallModal`, `callRingtone`
+- Offer/answer handshake with ICE buffering, video capture capped at 640x360
+
+### Phase 6: Blossom Blob Storage -- COMPLETE
+
+Content-addressed decentralized file storage built into the Fastify backend.
+
+- **BUD-01:** `GET/HEAD /<sha256>` blob retrieval with protected blob access
+- **BUD-02:** `PUT /upload`, `DELETE /<sha256>`, `GET /list/<pubkey>`
+- **BUD-06:** `HEAD /upload` preflight
+- **BUD-11:** Kind 24242 auth tokens (signed Nostr events)
+- `app.blossom_blobs` table (migration 0018): SHA-256 keyed, visibility flags, owner pubkey
+- Client `lib/api/blossom.ts` + `blossomAuth.ts` for kind-24242 signed uploads
+- Music uploads now write through Blossom storage layer (content-addressed)
+
+### Phase 7: Discovery & Onboarding -- COMPLETE
+
+**Discover page (`/discover`):**
+- Four tabs: Spaces, Relays, Communities, People
+- Featured spaces (horizontal scroll), trending section, category chip filter, browse-all with search
+- `app.listing_requests`, `app.space_categories` (11 seeded), `app.relay_directory` tables
+- `discoveryService`: browse, featured, categories, listing submission/review, relay directory
+- `discoveryScoreComputer` worker (every 15 min): `members*2 + active24h*5 + messages24h + recency` scoring, auto-delist inactive spaces
+- `ADMIN_PUBKEYS` bypass, `MIN_LISTING_MEMBERS=5`, auto-approve path for 20+ members & 7+ days
+- `GET /discovery/spaces|spaces/featured|categories|relays`, `POST/PATCH /discovery/listing-requests`
+
+**Onboarding:**
+- `ProfileWizard` (display name, about, picture)
+- `AppTour` guided tour with `tourSteps`
+- `WelcomeChecklist` per-space new-member flow
+- `app.onboarding_state` table (migration 0016)
+
+**Friends Feed (virtual space):**
+- `FRIENDS_FEED_ID` sentinel, subscribes to kind:1/20/21/22/30023 from follow list
+- Cross-indexes notes with media URLs into media feed
+- Pull-to-refresh and load-more pagination
+
+**Multi-account support:**
+- `AddAccountModal` for adding secondary accounts
+- Per-pubkey IndexedDB cache isolation
+- Account switcher in identity menu
+
+### Phase 8: Music System Overhaul -- COMPLETE
+
+Expanded from basic upload/playback into a full artist + release workflow.
+
+- **Revisions (`app.music_revisions`):** Track-level revision history with release notes
+- **Proposals (`app.music_proposals`):** Draft edits submitted for approval (collaborative editing)
+- **Saved album versions (`app.saved_album_versions`):** Snapshot/restore album state
+- **Annotations:** Track-anchored comments (like SoundCloud) -- `AnnotationCard`, `AnnotationsPanel`
+- **Insights (`/insights`):** Artist dashboard with play counts, listener metrics, chart components
+- **Plays tracking (`app.music_plays`, migration 0014):** Per-user listening history
+- **Genre taxonomy:** Curated genre list with `GenrePicker` and `GenreCard`
+- **Visibility:** Public / private / unlisted per track with `VisibilityPicker`
+- **Featured artists:** Multi-artist attribution via `FeaturedArtistsInput`
+- **Listen Together:** Synced playback sessions (DJ model, vote-skip, reactions, volume balance)
+- **Music-first spaces:** Curated music channels, `SpaceMusicView`, `SpaceAlbumDetail`
+- **Music links:** In-chat music embed resolution (`MusicLinkResolver`, `MusicPostModal`)
+- **Hashtag support:** `HashtagInput` for track tagging
+- **Downloads:** `useDownload` hook + cache layer (`audioCache`)
+- **Duplicate detection:** SHA-256 based `DuplicateTrackModal`
+- **Waveform rendering:** `useWaveform` hook for progress bar
+
+### Phase 9: Theming, Polish & Infrastructure -- COMPLETE
+
+- **Theme engine:** Preset-based (`styles/` tokens + `ThemeQuickPicker`), background component, runtime switching
+- **Native titlebar overlay:** macOS native titlebar for frameless feel
+- **Auto-updater:** Tauri updater with branded overlay, runs on startup
+- **GitHub Releases CI:** Multi-platform builds (macOS, Windows, Linux ARM/x64) + signed updates
+- **NIP-05 identities:** `app.nip05_identities` table (migration 0017), `.well-known/nostr.json` route
+- **Custom branding:** Logo assets, landing page (Astro), redesigned with JetBrains Mono
+- **Resizable panels:** Drag handles between Sidebar / Center / RightPanel
+- **Collapsible sidebar:** Compact + expanded modes
+- **Space mode:** `read-write` vs `read` (community vs feed)
+- **Saved invite cards:** Invite links persisted and rendered as rich cards in DMs
+- **Comprehensive test suite:** 229 client Vitest + 49 gateway Go + 33 relay Rust + backend Fastify-inject + Playwright E2E
+- **Path-based CI:** Docker image builds gated on test success, diff against last successful build
+
+### Phase 10: Discovery UX & Polish -- TODO
+
+See [DISCOVER_REMAINING_PHASES.md](./DISCOVER_REMAINING_PHASES.md) for detail.
+
+- **Join from Discover:** Join button on `SpaceCard` with membership state
+- **Right panel preview:** Detailed space/relay preview when clicking a card
+- **Listing request UI:** Modal for space admins to submit listing requests
+- **Meilisearch spaces index:** Replace SQL `ILIKE` with full-text search
+- **Relay directory worker:** NIP-66 monitor ingestion + NIP-11 probing
+- **`relayIngester`** extensions for kind:10002 (relay usage counts) and kind:34550 (communities)
+- **Communities tab:** NIP-72 moderated communities browser
+- **People tab:** Starter packs (kind:39089) + suggested follows (2-hop social graph)
+- **"Friends Are In"** section: Spaces your follows are members of
+- **Command Palette (Cmd+K):** Global search overlay
+- **Trending/personalized feed UI** (backend endpoints already exist)
+- **NIP-77 Negentropy sync** for efficient reconnection
+- **NIP-53 live streaming** + live chat UI
+- **Pinned messages panel** per channel
+- **Audit log** (moderation/admin action history)
+- **Announcement channels** (admin-only posting enforcement on relay)
+- **Auto-mod** (keyword filters, spam detection)
+- **Anti-raid protection**
+- **Custom emoji reactions** per server
+- **Forum-style threads**
+
+### Phase 11: Monetization & Ecosystem -- TODO
+
+- **NIP-57 zaps** integration for tracks/videos/articles
+- **NIP-47 Nostr Wallet Connect** for in-app payments
+- **NIP-22 comments** on tracks, videos, articles
+- **NIP-44 encrypted private playlists**
+- **FFmpeg transcoding workers** (multi-bitrate HLS, audio normalization to -14 LUFS)
+- **NIP-89 app handler registration**
+- **Collaborative playlists**
+- **Plugin/extension API**
+- **Mobile companion app**
+- **Monitoring** (Prometheus + Grafana)
+- **`spamService` reputation model** and rate anomaly detection
 
 ## License
 
