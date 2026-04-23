@@ -36,7 +36,7 @@ pub fn run() {
                 let main_window = app.get_webview_window("main")
                     .expect("main window not found");
                 let url: tauri::Url = "http://localhost:14420".parse().unwrap();
-                main_window.navigate(url);
+                let _ = main_window.navigate(url);
             }
 
             Ok(())

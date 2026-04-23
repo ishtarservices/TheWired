@@ -81,6 +81,7 @@ coverage/
 
 PRODUCTION.md
 BLOSSOM_IMPLEMENTATION.md
+spaces.json
 
 # Seed scripts (local demo data tooling)
 scripts/
