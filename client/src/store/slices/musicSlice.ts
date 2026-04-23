@@ -73,6 +73,7 @@ interface MusicState {
   downloadedTrackIds: string[];
 
   previousView: MusicView | null;
+  previousDetailId: string | null;
 
   activeView: MusicView;
   activeDetailId: string | null;
@@ -151,6 +152,7 @@ const initialState: MusicState = {
   downloadedTrackIds: [],
 
   previousView: null,
+  previousDetailId: null,
 
   activeView: "home",
   activeDetailId: null,
@@ -727,19 +729,23 @@ export const musicSlice = createSlice({
     // ── UI ──────────────────────────────────────────────────
     setMusicView(state, action: PayloadAction<MusicView>) {
       state.previousView = null;
+      state.previousDetailId = null;
       state.activeView = action.payload;
       state.activeDetailId = null;
     },
     setActiveDetailId(state, action: PayloadAction<{ view: MusicView; id: string }>) {
-      // Save current view so detail views can go back
+      // Save current view + detailId so nested detail → detail navigations
+      // (e.g., artist-detail → album-detail) can restore both on goBack.
       state.previousView = state.activeView;
+      state.previousDetailId = state.activeDetailId;
       state.activeView = action.payload.view;
       state.activeDetailId = action.payload.id;
     },
     goBack(state) {
       state.activeView = state.previousView ?? "home";
-      state.activeDetailId = null;
+      state.activeDetailId = state.previousDetailId;
       state.previousView = null;
+      state.previousDetailId = null;
     },
     setBarMode(state, action: PayloadAction<"expanded" | "mini">) {
       state.player.barMode = action.payload;

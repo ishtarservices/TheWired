@@ -7,22 +7,42 @@ import { TrackRow } from "../TrackRow";
 import { AlbumCard } from "../AlbumCard";
 import { Avatar } from "@/components/ui/Avatar";
 import { useProfile } from "@/features/profile/useProfile";
+import { useProfileMusic } from "@/features/profile/useProfileMusic";
 import { useUserPopover } from "@/features/profile/UserPopoverContext";
 import { useArtistImage } from "../useArtistImage";
 import { usePlaybackBarSpacing } from "@/hooks/usePlaybackBarSpacing";
 import {
-  selectArtistTracks,
-  selectArtistAlbums,
+  selectProfileTracks,
+  selectProfileAlbums,
   selectArtistNameTracks,
   selectArtistNameAlbums,
 } from "../musicSelectors";
 import type { MusicTrack, MusicAlbum } from "@/types/music";
 
-/** Group tracks into album sections + a "Singles" section for loose tracks */
+interface GroupedCatalog {
+  /** Albums with at least one locally loaded track — rendered inline with a track list. */
+  withTracks: { album: MusicAlbum; tracks: MusicTrack[] }[];
+  /** Albums whose tracks aren't in the store yet — rendered as a compact wrap-grid of cards. */
+  moreAlbums: MusicAlbum[];
+  /** Loose tracks with no known album. */
+  singles: MusicTrack[];
+}
+
+/** Group tracks into album sections + a "Singles" section for loose tracks.
+ *
+ * Albums with the same title are collapsed: when a collaborator edits a
+ * shared album, the current save path re-publishes under the collaborator's
+ * own pubkey, producing a distinct addressableId at the same title. We pick
+ * one canonical entry per title so the profile doesn't show obvious dupes.
+ *
+ * Returns three buckets so the view can keep "inline album with tracks"
+ * blocks contiguous and collapse cards-only albums into a single wrap-grid.
+ */
 function useGroupedTracks(
   tracks: MusicTrack[],
   albums: MusicAlbum[],
-): { album: MusicAlbum | null; tracks: MusicTrack[] }[] {
+  profilePubkey: string | null = null,
+): GroupedCatalog {
   return useMemo(() => {
     // Build album lookup
     const albumMap = new Map<string, MusicAlbum>();
@@ -42,47 +62,76 @@ function useGroupedTracks(
       }
     }
 
-    const sections: { album: MusicAlbum | null; tracks: MusicTrack[] }[] = [];
-
-    // Albums first (sorted by newest)
-    const albumEntries = [...grouped.entries()]
-      .map(([ref, trks]) => ({ album: albumMap.get(ref)!, tracks: trks }))
-      .sort((a, b) => b.album.createdAt - a.album.createdAt);
-
-    for (const entry of albumEntries) {
-      // Sort tracks within album by their position in album trackRefs
-      const refOrder = entry.album.trackRefs;
-      entry.tracks.sort((a, b) => {
+    // Collect every album candidate (with tracks or empty) before dedup.
+    const rawEntries: { album: MusicAlbum; tracks: MusicTrack[] }[] = [];
+    for (const [ref, trks] of grouped) {
+      const album = albumMap.get(ref)!;
+      const refOrder = album.trackRefs;
+      trks.sort((a, b) => {
         const ai = refOrder.indexOf(a.addressableId);
         const bi = refOrder.indexOf(b.addressableId);
         return (ai === -1 ? 999 : ai) - (bi === -1 ? 999 : bi);
       });
-      sections.push(entry);
+      rawEntries.push({ album, tracks: trks });
     }
-
-    // Also include albums that have no tracks loaded yet (just the card)
     for (const a of albums) {
       if (!grouped.has(a.addressableId)) {
-        sections.push({ album: a, tracks: [] });
+        rawEntries.push({ album: a, tracks: [] });
       }
     }
 
-    // Singles last (sorted newest first)
-    if (singles.length > 0) {
-      singles.sort((a, b) => b.createdAt - a.createdAt);
-      sections.push({ album: null, tracks: singles });
+    // Dedupe by lowercased title: prefer more tracks → profile-owned →
+    // newest createdAt. Items without a title fall through unmerged.
+    const byTitle = new Map<string, { album: MusicAlbum; tracks: MusicTrack[] }>();
+    const untitled: { album: MusicAlbum; tracks: MusicTrack[] }[] = [];
+    for (const entry of rawEntries) {
+      const key = entry.album.title.toLowerCase().trim();
+      if (!key) {
+        untitled.push(entry);
+        continue;
+      }
+      const existing = byTitle.get(key);
+      if (!existing) {
+        byTitle.set(key, entry);
+        continue;
+      }
+      const prefer =
+        entry.tracks.length !== existing.tracks.length
+          ? (entry.tracks.length > existing.tracks.length ? entry : existing)
+          : profilePubkey && entry.album.pubkey === profilePubkey && existing.album.pubkey !== profilePubkey
+            ? entry
+            : profilePubkey && existing.album.pubkey === profilePubkey && entry.album.pubkey !== profilePubkey
+              ? existing
+              : entry.album.createdAt >= existing.album.createdAt
+                ? entry
+                : existing;
+      byTitle.set(key, prefer);
     }
 
-    return sections;
-  }, [tracks, albums]);
+    const deduped = [...byTitle.values(), ...untitled];
+    const withTracks = deduped
+      .filter((e) => e.tracks.length > 0)
+      .sort((a, b) => b.album.createdAt - a.album.createdAt);
+    const moreAlbums = deduped
+      .filter((e) => e.tracks.length === 0)
+      .map((e) => e.album)
+      .sort((a, b) => b.createdAt - a.createdAt);
+
+    singles.sort((a, b) => b.createdAt - a.createdAt);
+
+    return { withTracks, moreAlbums, singles };
+  }, [tracks, albums, profilePubkey]);
 }
 
 function PubkeyArtistDetail({ pubkey }: { pubkey: string }) {
   const dispatch = useAppDispatch();
   const navigate = useNavigate();
   const { openUserPopover } = useUserPopover();
-  const tracksSelector = useMemo(() => selectArtistTracks(pubkey), [pubkey]);
-  const albumsSelector = useMemo(() => selectArtistAlbums(pubkey), [pubkey]);
+  // Subscribe to this artist's tracks/albums so viewers who don't follow or
+  // own their content still see the full public catalog.
+  const { loading: musicLoading } = useProfileMusic(pubkey);
+  const tracksSelector = useMemo(() => selectProfileTracks(pubkey), [pubkey]);
+  const albumsSelector = useMemo(() => selectProfileAlbums(pubkey), [pubkey]);
   const artistTracks = useAppSelector(tracksSelector);
   const artistAlbums = useAppSelector(albumsSelector);
   const { profile } = useProfile(pubkey);
@@ -106,15 +155,25 @@ function PubkeyArtistDetail({ pubkey }: { pubkey: string }) {
   }, [artistAlbums, artistTracks]);
 
   const avatarSrc = profile?.picture || localImage || fallbackImage;
-  const sections = useGroupedTracks(artistTracks, artistAlbums);
+  const { withTracks, moreAlbums, singles } = useGroupedTracks(
+    artistTracks,
+    artistAlbums,
+    pubkey,
+  );
+  const isEmpty =
+    withTracks.length === 0 && moreAlbums.length === 0 && singles.length === 0;
 
-  // Build a flat queue of all track IDs in section order
+  // Flat queue of all track IDs in render order: with-tracks sections first,
+  // then singles. "More albums" are cards only so they don't contribute here.
   const allQueueIds = useMemo(
-    () => sections.flatMap((s) => s.tracks.map((t) => t.addressableId)),
-    [sections],
+    () => [
+      ...withTracks.flatMap((s) => s.tracks.map((t) => t.addressableId)),
+      ...singles.map((t) => t.addressableId),
+    ],
+    [withTracks, singles],
   );
 
-  // Running index offset for TrackRow numbering across sections
+  // Running index offset for the flat queue
   let trackOffset = 0;
 
   return (
@@ -195,96 +254,104 @@ function PubkeyArtistDetail({ pubkey }: { pubkey: string }) {
         </div>
       </div>
 
-      {/* Sections grouped by album */}
-      {sections.length === 0 && (
+      {/* Empty / loading state */}
+      {isEmpty && (
         <div className="flex flex-col items-center justify-center py-16 text-center">
-          <Music size={32} className="mb-3 text-muted" />
-          <p className="text-sm text-soft">No tracks or albums found for this artist.</p>
+          {musicLoading ? (
+            <>
+              <div className="mb-3 h-6 w-6 animate-spin rounded-full border-2 border-primary/30 border-t-primary" />
+              <p className="text-sm text-soft">Loading catalog…</p>
+            </>
+          ) : (
+            <>
+              <Music size={32} className="mb-3 text-muted" />
+              <p className="text-sm text-soft">No tracks or albums found for this artist.</p>
+            </>
+          )}
         </div>
       )}
-      {sections.map((section) => {
+
+      {/* Albums with loaded tracks — inline sections */}
+      {withTracks.map((section) => {
         const sectionStart = trackOffset;
         trackOffset += section.tracks.length;
-
-        if (section.album && section.tracks.length === 0) {
-          // Album with no loaded tracks — just show the card
-          return (
-            <section key={section.album.addressableId} className="px-6 py-4">
-              <h2 className="mb-2 text-sm font-semibold uppercase tracking-[0.15em] text-muted">
-                {section.album.title}
+        return (
+          <section key={section.album.addressableId} className="px-6 py-4">
+            <div className="mb-2 flex items-center gap-3">
+              {section.album.imageUrl && (
+                <button
+                  onClick={() =>
+                    dispatch(setActiveDetailId({ view: "album-detail", id: section.album.addressableId }))
+                  }
+                  className="h-10 w-10 shrink-0 overflow-hidden rounded-lg transition-opacity hover:opacity-80"
+                >
+                  <img src={section.album.imageUrl} alt="" className="h-full w-full object-cover" />
+                </button>
+              )}
+              <div>
+                <button
+                  onClick={() =>
+                    dispatch(setActiveDetailId({ view: "album-detail", id: section.album.addressableId }))
+                  }
+                  className="text-sm font-semibold text-heading hover:underline"
+                >
+                  {section.album.title}
+                </button>
                 {section.album.projectType !== "album" && (
-                  <span className="ml-1.5 text-[10px] font-normal normal-case tracking-normal text-muted">
+                  <span className="ml-1.5 text-[10px] text-muted">
                     ({section.album.projectType})
                   </span>
                 )}
-              </h2>
-              <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4">
-                <AlbumCard album={section.album} />
               </div>
-            </section>
-          );
-        }
-
-        if (section.album) {
-          // Album section with tracks
-          return (
-            <section key={section.album.addressableId} className="px-6 py-4">
-              <div className="mb-2 flex items-center gap-3">
-                {section.album.imageUrl && (
-                  <button
-                    onClick={() =>
-                      dispatch(setActiveDetailId({ view: "album-detail", id: section.album!.addressableId }))
-                    }
-                    className="h-10 w-10 shrink-0 overflow-hidden rounded-lg transition-opacity hover:opacity-80"
-                  >
-                    <img src={section.album.imageUrl} alt="" className="h-full w-full object-cover" />
-                  </button>
-                )}
-                <div>
-                  <button
-                    onClick={() =>
-                      dispatch(setActiveDetailId({ view: "album-detail", id: section.album!.addressableId }))
-                    }
-                    className="text-sm font-semibold text-heading hover:underline"
-                  >
-                    {section.album.title}
-                  </button>
-                  {section.album.projectType !== "album" && (
-                    <span className="ml-1.5 text-[10px] text-muted">
-                      ({section.album.projectType})
-                    </span>
-                  )}
-                </div>
-              </div>
-              {section.tracks.map((track, i) => (
-                <TrackRow
-                  key={track.addressableId}
-                  track={track}
-                  index={sectionStart + i}
-                  queueTracks={allQueueIds}
-                />
-              ))}
-            </section>
-          );
-        }
-
-        // Singles section
-        return (
-          <section key="__singles__" className="px-6 py-4">
-            <h2 className="mb-2 text-sm font-semibold uppercase tracking-[0.15em] text-muted">
-              Singles
-            </h2>
+            </div>
             {section.tracks.map((track, i) => (
               <TrackRow
                 key={track.addressableId}
                 track={track}
                 index={sectionStart + i}
+                displayIndex={i + 1}
                 queueTracks={allQueueIds}
               />
             ))}
           </section>
         );
       })}
+
+      {/* Albums whose tracks aren't loaded yet — one combined wrap-grid. */}
+      {moreAlbums.length > 0 && (
+        <section className="px-6 py-4">
+          <h2 className="mb-2 text-sm font-semibold uppercase tracking-[0.15em] text-muted">
+            More albums
+          </h2>
+          <div className="grid grid-cols-[repeat(auto-fill,minmax(160px,1fr))] gap-3">
+            {moreAlbums.map((album) => (
+              <AlbumCard key={album.addressableId} album={album} />
+            ))}
+          </div>
+        </section>
+      )}
+
+      {/* Singles last */}
+      {singles.length > 0 && (() => {
+        const sectionStart = trackOffset;
+        trackOffset += singles.length;
+        return (
+          <section key="__singles__" className="px-6 py-4">
+            <h2 className="mb-2 text-sm font-semibold uppercase tracking-[0.15em] text-muted">
+              Singles
+            </h2>
+            {singles.map((track, i) => (
+              <TrackRow
+                key={track.addressableId}
+                track={track}
+                index={sectionStart + i}
+                displayIndex={i + 1}
+                queueTracks={allQueueIds}
+              />
+            ))}
+          </section>
+        );
+      })()}
     </div>
   );
 }
@@ -316,11 +383,19 @@ function NameArtistDetail({ normalizedName }: { normalizedName: string }) {
   }, [artistAlbums, artistTracks]);
 
   const avatarSrc = localImage || fallbackImage;
-  const sections = useGroupedTracks(artistTracks, artistAlbums);
+  const { withTracks, moreAlbums, singles } = useGroupedTracks(
+    artistTracks,
+    artistAlbums,
+  );
+  const isEmpty =
+    withTracks.length === 0 && moreAlbums.length === 0 && singles.length === 0;
 
   const allQueueIds = useMemo(
-    () => sections.flatMap((s) => s.tracks.map((t) => t.addressableId)),
-    [sections],
+    () => [
+      ...withTracks.flatMap((s) => s.tracks.map((t) => t.addressableId)),
+      ...singles.map((t) => t.addressableId),
+    ],
+    [withTracks, singles],
   );
 
   let trackOffset = 0;
@@ -366,88 +441,95 @@ function NameArtistDetail({ normalizedName }: { normalizedName: string }) {
         </div>
       </div>
 
-      {/* Sections grouped by album */}
-      {sections.length === 0 && (
+      {/* Empty state */}
+      {isEmpty && (
         <div className="flex flex-col items-center justify-center py-16 text-center">
           <Music size={32} className="mb-3 text-muted" />
           <p className="text-sm text-soft">No tracks or albums found for this artist.</p>
         </div>
       )}
-      {sections.map((section) => {
+
+      {/* Albums with loaded tracks */}
+      {withTracks.map((section) => {
         const sectionStart = trackOffset;
         trackOffset += section.tracks.length;
-
-        if (section.album && section.tracks.length === 0) {
-          return (
-            <section key={section.album.addressableId} className="px-6 py-4">
-              <h2 className="mb-2 text-sm font-semibold uppercase tracking-[0.15em] text-muted">
-                {section.album.title}
-              </h2>
-              <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4">
-                <AlbumCard album={section.album} />
-              </div>
-            </section>
-          );
-        }
-
-        if (section.album) {
-          return (
-            <section key={section.album.addressableId} className="px-6 py-4">
-              <div className="mb-2 flex items-center gap-3">
-                {section.album.imageUrl && (
-                  <button
-                    onClick={() =>
-                      dispatch(setActiveDetailId({ view: "album-detail", id: section.album!.addressableId }))
-                    }
-                    className="h-10 w-10 shrink-0 overflow-hidden rounded-lg transition-opacity hover:opacity-80"
-                  >
-                    <img src={section.album.imageUrl} alt="" className="h-full w-full object-cover" />
-                  </button>
-                )}
-                <div>
-                  <button
-                    onClick={() =>
-                      dispatch(setActiveDetailId({ view: "album-detail", id: section.album!.addressableId }))
-                    }
-                    className="text-sm font-semibold text-heading hover:underline"
-                  >
-                    {section.album.title}
-                  </button>
-                  {section.album.projectType !== "album" && (
-                    <span className="ml-1.5 text-[10px] text-muted">
-                      ({section.album.projectType})
-                    </span>
-                  )}
-                </div>
-              </div>
-              {section.tracks.map((track, i) => (
-                <TrackRow
-                  key={track.addressableId}
-                  track={track}
-                  index={sectionStart + i}
-                  queueTracks={allQueueIds}
-                />
-              ))}
-            </section>
-          );
-        }
-
         return (
-          <section key="__singles__" className="px-6 py-4">
-            <h2 className="mb-2 text-sm font-semibold uppercase tracking-[0.15em] text-muted">
-              Singles
-            </h2>
+          <section key={section.album.addressableId} className="px-6 py-4">
+            <div className="mb-2 flex items-center gap-3">
+              {section.album.imageUrl && (
+                <button
+                  onClick={() =>
+                    dispatch(setActiveDetailId({ view: "album-detail", id: section.album.addressableId }))
+                  }
+                  className="h-10 w-10 shrink-0 overflow-hidden rounded-lg transition-opacity hover:opacity-80"
+                >
+                  <img src={section.album.imageUrl} alt="" className="h-full w-full object-cover" />
+                </button>
+              )}
+              <div>
+                <button
+                  onClick={() =>
+                    dispatch(setActiveDetailId({ view: "album-detail", id: section.album.addressableId }))
+                  }
+                  className="text-sm font-semibold text-heading hover:underline"
+                >
+                  {section.album.title}
+                </button>
+                {section.album.projectType !== "album" && (
+                  <span className="ml-1.5 text-[10px] text-muted">
+                    ({section.album.projectType})
+                  </span>
+                )}
+              </div>
+            </div>
             {section.tracks.map((track, i) => (
               <TrackRow
                 key={track.addressableId}
                 track={track}
                 index={sectionStart + i}
+                displayIndex={i + 1}
                 queueTracks={allQueueIds}
               />
             ))}
           </section>
         );
       })}
+
+      {/* Combined cards grid for albums whose tracks aren't loaded */}
+      {moreAlbums.length > 0 && (
+        <section className="px-6 py-4">
+          <h2 className="mb-2 text-sm font-semibold uppercase tracking-[0.15em] text-muted">
+            More albums
+          </h2>
+          <div className="grid grid-cols-[repeat(auto-fill,minmax(160px,1fr))] gap-3">
+            {moreAlbums.map((album) => (
+              <AlbumCard key={album.addressableId} album={album} />
+            ))}
+          </div>
+        </section>
+      )}
+
+      {/* Singles last */}
+      {singles.length > 0 && (() => {
+        const sectionStart = trackOffset;
+        trackOffset += singles.length;
+        return (
+          <section key="__singles__" className="px-6 py-4">
+            <h2 className="mb-2 text-sm font-semibold uppercase tracking-[0.15em] text-muted">
+              Singles
+            </h2>
+            {singles.map((track, i) => (
+              <TrackRow
+                key={track.addressableId}
+                track={track}
+                index={sectionStart + i}
+                displayIndex={i + 1}
+                queueTracks={allQueueIds}
+              />
+            ))}
+          </section>
+        );
+      })()}
     </div>
   );
 }

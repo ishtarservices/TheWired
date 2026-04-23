@@ -309,7 +309,7 @@ export function AlbumDetail() {
                   </button>
                 </>
               )}
-              {(isOwner || isCollaborator) && (
+              {isOwner && (
                 <button
                   onClick={() => setEditOpen(true)}
                   className="flex items-center gap-1.5 rounded-full border border-border px-4 py-1.5 text-sm text-soft transition-colors hover:border-border-light hover:text-heading"

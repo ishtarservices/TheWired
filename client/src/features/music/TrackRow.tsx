@@ -17,6 +17,8 @@ interface TrackRowProps {
   index: number;
   queueTracks?: string[];
   onAlbumClick?: (albumId: string) => void;
+  /** Optional 1-based number to render in the # column. Falls back to `index + 1`. */
+  displayIndex?: number;
 }
 
 function formatDuration(seconds?: number): string {
@@ -31,6 +33,7 @@ export const TrackRow = memo(function TrackRow({
   index,
   queueTracks,
   onAlbumClick,
+  displayIndex,
 }: TrackRowProps) {
   const dispatch = useAppDispatch();
   const { playQueue, play, togglePlay, player } = useAudioPlayer();
@@ -95,7 +98,7 @@ export const TrackRow = memo(function TrackRow({
             </div>
           ) : (
             <>
-              <span className="group-hover:hidden">{index + 1}</span>
+              <span className="group-hover:hidden">{displayIndex ?? index + 1}</span>
               <Play
                 size={14}
                 fill="currentColor"

@@ -266,6 +266,13 @@ export function CreateAlbumModal({ open, onClose, album }: CreateAlbumModalProps
 
   const handleSubmit = async () => {
     if (!pubkey || !title.trim()) return;
+    // Guard: non-owners editing would fork the album because the addressableId
+    // is derived from the signer pubkey. Nostr addressable events can only be
+    // updated by the original author; collaborators need to ask the owner.
+    if (isEditing && album && album.pubkey !== pubkey) {
+      setError("Only the project owner can edit this project.");
+      return;
+    }
     setError(null);
     setSubmitting(true);
 

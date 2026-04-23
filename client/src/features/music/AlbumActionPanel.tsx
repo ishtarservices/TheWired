@@ -433,8 +433,10 @@ export function AlbumActionPanel({ album, open, onClose, onEdit }: AlbumActionPa
                     </>
                   )}
 
-                  {/* ── Manage (owner or collaborator) ── */}
-                  {canManage && (
+                  {/* ── Manage (owner only — collaborator edits would fork
+                       the album under the collaborator's pubkey since the
+                       addressableId is derived from the signer). ── */}
+                  {isOwner && (
                     <>
                       <SectionDivider />
                       <SectionLabel>Manage</SectionLabel>
