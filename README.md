@@ -311,9 +311,7 @@ TheWiredV1/
 ├── tsconfig.base.json             # Shared TypeScript config
 ├── CLAUDE.md                      # Claude Code instructions
 ├── ARCHITECTURE.md                # Full design document
-├── BLOSSOM_IMPLEMENTATION.md      # Blossom blob store design notes
-├── VOICE_VIDEO_PLAN.md            # Voice/video implementation plan
-├── DISCOVER_REMAINING_PHASES.md   # Discover feature roadmap (phases 4-6)
+├── docs/                          # Design notes, plans, roadmaps, NIP drafts
 └── README.md
 ```
 
@@ -655,7 +653,7 @@ Expanded from basic upload/playback into a full artist + release workflow.
 
 ### Phase 10: Discovery UX & Polish -- TODO
 
-See [DISCOVER_REMAINING_PHASES.md](./DISCOVER_REMAINING_PHASES.md) for detail.
+See [DISCOVER_REMAINING_PHASES.md](./docs/DISCOVER_REMAINING_PHASES.md) for detail.
 
 - **Join from Discover:** Join button on `SpaceCard` with membership state
 - **Right panel preview:** Detailed space/relay preview when clicking a card

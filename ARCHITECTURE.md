@@ -1451,7 +1451,7 @@ Per-user recommendations based on listening history, genre preferences, and soci
 
 ### Phase 10: Discovery UX & Scale -- TODO
 
-See [DISCOVER_REMAINING_PHASES.md](./DISCOVER_REMAINING_PHASES.md).
+See [DISCOVER_REMAINING_PHASES.md](./docs/DISCOVER_REMAINING_PHASES.md).
 
 **Client:**
 - Join-from-Discover button + membership state on `SpaceCard`

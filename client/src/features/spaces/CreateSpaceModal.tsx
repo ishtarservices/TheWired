@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect } from "react";
-import { X, Search, Plus } from "lucide-react";
+import { X, Search, Plus, Rss } from "lucide-react";
 import { Button } from "../../components/ui/Button";
 import { Modal } from "../../components/ui/Modal";
 import { ImageUpload } from "../../components/ui/ImageUpload";
@@ -19,11 +19,41 @@ interface CreateSpaceModalProps {
 }
 
 const CHANNEL_TYPE_OPTIONS = [
-  { type: "chat", label: "Chat", description: "Real-time messaging" },
-  { type: "notes", label: "Notes", description: "Short-form posts" },
-  { type: "media", label: "Media", description: "Images and videos" },
-  { type: "articles", label: "Articles", description: "Long-form content" },
-  { type: "music", label: "Music", description: "Music sharing" },
+  {
+    type: "chat",
+    label: "Chat",
+    isFeed: false,
+    description: "Real-time messaging",
+    feedDescription: "Real-time messaging",
+  },
+  {
+    type: "notes",
+    label: "Notes",
+    isFeed: true,
+    description: "Short-form posts from members",
+    feedDescription: "Short-form posts from feed sources",
+  },
+  {
+    type: "media",
+    label: "Media",
+    isFeed: true,
+    description: "Images & videos from members",
+    feedDescription: "Images & videos from feed sources",
+  },
+  {
+    type: "articles",
+    label: "Articles",
+    isFeed: true,
+    description: "Long-form posts from members",
+    feedDescription: "Articles from feed sources",
+  },
+  {
+    type: "music",
+    label: "Music",
+    isFeed: true,
+    description: "Music shared by members",
+    feedDescription: "Music shared by feed sources",
+  },
 ] as const;
 
 function generateId(): string {
@@ -262,12 +292,14 @@ export function CreateSpaceModal({
               Channels
             </label>
             <p className="mb-2 text-[11px] text-muted">
-              Choose which channels to include. You can add more later in settings.
+              {mode === "read"
+                ? "Feed channels show content your feed sources publish in each format. You can add more later in settings."
+                : "Feed channels aggregate content members post in each format. You can add more later in settings."}
             </p>
             <div className="space-y-1">
               {CHANNEL_TYPE_OPTIONS.map((opt) => {
-                const isChat = opt.type === "chat";
-                const disabled = isChat && mode === "read";
+                const disabled = opt.type === "chat" && mode === "read";
+                const description = mode === "read" ? opt.feedDescription : opt.description;
                 return (
                   <label
                     key={opt.type}
@@ -283,11 +315,20 @@ export function CreateSpaceModal({
                       className="rounded border-border"
                     />
                     <span className="text-sm text-heading">{opt.label}</span>
-                    <span className="text-[11px] text-muted">{opt.description}</span>
+                    {opt.isFeed && (
+                      <span className="flex items-center gap-0.5 rounded-full bg-primary/10 px-1.5 py-0.5 text-[9px] font-medium text-primary">
+                        <Rss size={8} />
+                        Feed
+                      </span>
+                    )}
+                    <span className="text-[11px] text-muted">{description}</span>
                   </label>
                 );
               })}
             </div>
+            <p className="mt-2 text-[11px] text-muted/70">
+              Custom names, categories, voice/video, and multiple chats can be added after creation.
+            </p>
           </div>
 
           {/* Feed Sources -- shown only for feed mode */}
