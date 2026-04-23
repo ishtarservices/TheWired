@@ -11,13 +11,17 @@ RUN pnpm build
 
 FROM node:22-slim
 WORKDIR /app
-RUN corepack enable
+RUN corepack enable && \
+    apt-get update && \
+    apt-get install -y --no-install-recommends ffmpeg && \
+    rm -rf /var/lib/apt/lists/*
 COPY --from=builder /app/package.json /app/pnpm-lock.yaml /app/pnpm-workspace.yaml ./
 COPY --from=builder /app/packages/shared-types/package.json ./packages/shared-types/
 COPY --from=builder /app/services/backend/package.json ./services/backend/
 RUN pnpm install --frozen-lockfile --prod
 COPY --from=builder /app/services/backend/dist ./services/backend/dist
 COPY --from=builder /app/services/backend/src/db/migrations ./services/backend/dist/db/migrations
+RUN mkdir -p /app/services/backend/blobs && chown -R node:node /app/services/backend/blobs
 WORKDIR /app/services/backend
 USER node
 EXPOSE 3002

@@ -84,3 +84,5 @@ BLOSSOM_IMPLEMENTATION.md
 
 # Seed scripts (local demo data tooling)
 scripts/
+# ...but committed ops scripts under src/ ship with the backend (e.g. transcode backfill CLI)
+!services/backend/src/scripts/

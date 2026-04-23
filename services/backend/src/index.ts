@@ -8,6 +8,8 @@ import { startProfileRefresher } from "./workers/profileRefresher.js";
 import { startNotificationDispatcher } from "./workers/notificationDispatcher.js";
 import { startAnalyticsAggregator } from "./workers/analyticsAggregator.js";
 import { startDiscoveryScoreComputer } from "./workers/discoveryScoreComputer.js";
+import { startTranscodeWorker } from "./workers/transcodeWorker.js";
+import { closeTranscodeQueue } from "./lib/queue.js";
 import { musicService } from "./services/musicService.js";
 
 async function main() {
@@ -33,7 +35,7 @@ async function main() {
   });
 
   // Start background workers
-  const workers = [
+  const workers: Array<{ stop: () => void | Promise<void> }> = [
     startRelayIngester(),
     startTrendingComputer(),
     startProfileRefresher(),
@@ -42,14 +44,25 @@ async function main() {
     startDiscoveryScoreComputer(),
   ];
 
+  // BullMQ transcode worker is opt-in via env so we can scale producers and
+  // consumers independently. Flag off by default; flip `TRANSCODE_WORKER=true`
+  // to enable.
+  if (config.transcodeWorker) {
+    workers.push(startTranscodeWorker());
+    console.log(`[transcode] worker started (concurrency=${config.transcodeConcurrency})`);
+  }
+
   // Graceful shutdown
   const shutdown = async (signal: string) => {
     console.log(`[shutdown] ${signal} received, shutting down...`);
 
-    // Stop all workers
+    // Stop all workers — await any that return promises so BullMQ drains in-flight jobs
     for (const worker of workers) {
-      worker.stop();
+      await worker.stop();
     }
+
+    // Close the transcode queue connection (harmless no-op if never opened)
+    await closeTranscodeQueue().catch(() => {});
 
     // Close Fastify server (drains in-flight requests)
     try {

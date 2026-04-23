@@ -86,6 +86,37 @@ export async function getMyUploads(
   return res.json();
 }
 
+export type AudioVariantStatus =
+  | "pending"
+  | "processing"
+  | "ready"
+  | "failed"
+  | "skipped"
+  | "unknown";
+
+export interface AudioVariants {
+  status: AudioVariantStatus;
+  hlsMaster?: string;
+  loudnessI?: number | null;
+}
+
+/**
+ * Look up transcoded variants for a raw audio blob by its sha256.
+ * Returns null on network/server error — callers should fall back to the
+ * original URL. Never throws.
+ */
+export async function getAudioVariants(sha256: string): Promise<AudioVariants | null> {
+  if (!/^[0-9a-f]{64}$/.test(sha256)) return null;
+  try {
+    const res = await fetch(`${getApiBaseUrl()}/music/variants/${sha256}`);
+    if (!res.ok) return null;
+    const json = await res.json();
+    return json.data as AudioVariants;
+  } catch {
+    return null;
+  }
+}
+
 /**
  * Report a play event for a track (fire-and-forget).
  */

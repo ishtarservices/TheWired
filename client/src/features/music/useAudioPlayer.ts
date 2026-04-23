@@ -1,4 +1,5 @@
 import { useCallback, useEffect } from "react";
+import type HlsType from "hls.js";
 import { useAppDispatch, useAppSelector } from "@/store/hooks";
 import { store } from "@/store";
 import {
@@ -18,7 +19,7 @@ import {
   addRecentlyPlayed,
 } from "@/store/slices/musicSlice";
 import { selectAudioSource } from "./trackParser";
-import { reportPlay } from "@/lib/api/music";
+import { reportPlay, getAudioVariants } from "@/lib/api/music";
 import { getCachedAudio } from "@/lib/db/audioCache";
 import type { RepeatMode } from "@/types/music";
 
@@ -28,6 +29,123 @@ let audio: HTMLAudioElement | null = null;
 let loadedTrackId: string | null = null;
 // Track object URLs so we can revoke them to prevent memory leaks
 let currentObjectUrl: string | null = null;
+
+// HLS state — the constructor is loaded lazily the first time we actually
+// need MSE playback, so Safari / Tauri macOS never pays the hls.js download cost.
+type HlsInstance = InstanceType<typeof HlsType>;
+let hlsInstance: HlsInstance | null = null;
+let HlsCtor: typeof HlsType | null = null;
+
+// Feature flag — set VITE_PREFER_HLS=false to force playback to use the
+// original imeta URL (bypasses the /music/variants/:sha lookup entirely).
+const PREFER_HLS = import.meta.env.VITE_PREFER_HLS !== "false";
+
+async function getHlsCtor(): Promise<typeof HlsType> {
+  if (!HlsCtor) {
+    const mod = await import("hls.js");
+    HlsCtor = mod.default;
+  }
+  return HlsCtor;
+}
+
+function teardownHls() {
+  if (hlsInstance) {
+    try { hlsInstance.destroy(); } catch { /* noop */ }
+    hlsInstance = null;
+  }
+}
+
+// ── Next-track prefetch ──────────────────────────────────────────────────────
+// When the current track reaches `canplaythrough`, warm the HTTP cache for the
+// next queued track: its HLS manifest + init + first segment, or the first
+// ~128 KB of the progressive URL. Closes the silent gap between tracks without
+// spinning up a second <audio> element.
+let prefetchAbort: AbortController | null = null;
+let prefetchedNextId: string | null = null;
+
+function cancelPrefetch() {
+  if (prefetchAbort) {
+    prefetchAbort.abort();
+    prefetchAbort = null;
+  }
+  prefetchedNextId = null;
+}
+
+function resolveNextTrackId(state: ReturnType<typeof store.getState>): string | null {
+  const p = state.music.player;
+  // repeat=one: same element replays, browser buffer is already warm.
+  if (p.repeat === "one") return null;
+  if (p.queue.length === 0) return null;
+  let nextIdx = p.queueIndex + 1;
+  if (nextIdx >= p.queue.length) {
+    if (p.repeat === "all" && p.queue.length > 1) nextIdx = 0;
+    else return null;
+  }
+  return p.queue[nextIdx] ?? null;
+}
+
+async function prefetchNextTrack() {
+  const state = store.getState();
+  const nextId = resolveNextTrackId(state);
+  if (!nextId || nextId === prefetchedNextId) return;
+  const nextTrack = state.music.tracks[nextId];
+  if (!nextTrack) return;
+
+  cancelPrefetch();
+  prefetchedNextId = nextId;
+  const ctrl = new AbortController();
+  prefetchAbort = ctrl;
+  const { signal } = ctrl;
+  // `priority` is a recent fetch option — unsupported browsers silently ignore it.
+  const lowPri = { signal, priority: "low" } as RequestInit;
+
+  const primaryHash = nextTrack.variants[0]?.hash ?? null;
+  const remoteUrl = selectAudioSource(nextTrack.variants);
+
+  try {
+    if (PREFER_HLS && primaryHash) {
+      const variants = await getAudioVariants(primaryHash);
+      if (signal.aborted) return;
+      if (variants?.status === "ready" && variants.hlsMaster) {
+        const masterAbs = new URL(variants.hlsMaster, location.href);
+        const masterRes = await fetch(masterAbs, lowPri);
+        if (!masterRes.ok || signal.aborted) return;
+        const masterText = await masterRes.text();
+        if (signal.aborted) return;
+        const firstVariantRel = masterText
+          .split("\n")
+          .find((l) => l && !l.startsWith("#"));
+        if (!firstVariantRel) return;
+        const mediaAbs = new URL(firstVariantRel, masterAbs);
+        const mediaRes = await fetch(mediaAbs, lowPri);
+        if (!mediaRes.ok || signal.aborted) return;
+        const mediaText = await mediaRes.text();
+        if (signal.aborted) return;
+        const initMatch = mediaText.match(/#EXT-X-MAP:URI="([^"]+)"/);
+        const firstSegRel = mediaText
+          .split("\n")
+          .find((l) => l && !l.startsWith("#"));
+        const warm = (rel: string) =>
+          fetch(new URL(rel, mediaAbs), lowPri).catch(() => {});
+        if (initMatch?.[1]) await warm(initMatch[1]);
+        if (firstSegRel) await warm(firstSegRel);
+        return;
+      }
+    }
+    if (remoteUrl) {
+      // Progressive fallback — Range request for the first 128 KB. Enough to
+      // decode headers + start playback immediately on track advance.
+      await fetch(remoteUrl, {
+        ...lowPri,
+        headers: { Range: "bytes=0-131071" },
+      }).catch(() => {});
+    }
+  } catch {
+    // AbortError or network — silent by design.
+  } finally {
+    if (prefetchAbort === ctrl) prefetchAbort = null;
+  }
+}
 
 /** Expose the singleton audio element for direct access (e.g. waveform visualization) */
 export function getAudio(): HTMLAudioElement {
@@ -81,6 +199,13 @@ function setupAudioListeners() {
   el.addEventListener("play", () => {
     store.dispatch(setIsPlaying(true));
   });
+
+  el.addEventListener("canplaythrough", () => {
+    // Fires once the browser has buffered enough to play through. Use this as
+    // the trigger to prefetch the *next* track so its first segment is warm
+    // in the HTTP cache by the time the current track ends.
+    prefetchNextTrack();
+  });
 }
 
 export function useAudioPlayer() {
@@ -124,24 +249,74 @@ export function useAudioPlayer() {
         URL.revokeObjectURL(currentObjectUrl);
         currentObjectUrl = null;
       }
+      // Tear down any HLS instance from the previous track so buffers/workers
+      // don't linger in the background competing for bandwidth.
+      teardownHls();
+      // Abort any in-flight prefetch — if the user skipped past the prefetched
+      // track, the fetch is now dead weight; if they advanced into it, the
+      // real load is about to start and will hit the warm HTTP cache.
+      cancelPrefetch();
 
-      // Check offline cache first
-      const cached = await getCachedAudio(targetId).catch(() => null);
+      // Run offline cache and variants lookup in parallel. Variants are
+      // keyed by the raw blob sha256 from the event's imeta `x` tag; if a
+      // track has no hash we skip the lookup entirely.
+      const primaryHash = currentTrack.variants[0]?.hash ?? null;
+      const [cached, variants] = await Promise.all([
+        getCachedAudio(targetId).catch(() => null),
+        PREFER_HLS && primaryHash ? getAudioVariants(primaryHash) : Promise.resolve(null),
+      ]);
 
       // Guard: if user switched tracks during the async gap, abort
       if (loadedTrackId !== targetId) return;
 
-      let src: string;
+      const playFromOriginal = () => {
+        if (el.src !== remoteUrl) el.src = remoteUrl;
+      };
+
       if (cached) {
-        src = URL.createObjectURL(cached.blob);
+        // Offline cache hit — instant playback from IndexedDB blob.
+        const src = URL.createObjectURL(cached.blob);
         currentObjectUrl = src;
+        el.src = src;
+      } else if (variants?.status === "ready" && variants.hlsMaster) {
+        const hlsUrl = variants.hlsMaster;
+        const canNative = el.canPlayType("application/vnd.apple.mpegurl") !== "";
+        if (canNative) {
+          // Native HLS (Safari, Tauri macOS) — cheaper than hls.js.
+          if (el.src !== hlsUrl) el.src = hlsUrl;
+        } else {
+          try {
+            const Hls = await getHlsCtor();
+            if (loadedTrackId !== targetId) return;
+            if (Hls.isSupported()) {
+              const instance = new Hls({ lowLatencyMode: false });
+              instance.attachMedia(el);
+              instance.loadSource(hlsUrl);
+              hlsInstance = instance;
+              instance.on(Hls.Events.ERROR, (_evt, data) => {
+                // On fatal errors, silently degrade to the original URL so
+                // the listener never hears a stall. Ignore errors from a
+                // teardown that happened because the user skipped tracks.
+                if (data.fatal && loadedTrackId === targetId) {
+                  console.warn("[hls] fatal error, falling back:", data.type, data.details);
+                  teardownHls();
+                  playFromOriginal();
+                  el.play().catch(() => {});
+                }
+              });
+            } else {
+              playFromOriginal();
+            }
+          } catch (err) {
+            console.warn("[hls] module load failed, falling back:", err);
+            playFromOriginal();
+          }
+        }
       } else {
-        src = remoteUrl;
+        // No cache, no ready HLS — original imeta URL.
+        playFromOriginal();
       }
 
-      if (el.src !== src) {
-        el.src = src;
-      }
       el.currentTime = 0;
       try {
         await el.play();

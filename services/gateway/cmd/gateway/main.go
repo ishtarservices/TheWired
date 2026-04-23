@@ -52,6 +52,18 @@ func main() {
 	mux.Handle("/upload", blossomHandler)
 	mux.Handle("/list/", blossomHandler)
 
+	// HLS adaptive audio streams (public, GET-only, no auth, no rate limit).
+	// Segments are immutable + CDN-cached so rate-limiting would just burn
+	// Redis for no benefit. Same CORS policy as Blossom GETs.
+	hlsHandler := proxy.TrustedProxyMiddleware(cfg.TrustedProxies,
+		gmiddleware.LoggingMiddleware(
+			cors.BlossomCORSMiddleware(
+				proxy.NewBlossomHandler(cfg.BackendURL),
+			),
+		),
+	)
+	mux.Handle("/hls/", hlsHandler)
+
 	// API routes: trusted-proxy (strip spoofed headers) -> logging -> CORS -> auth -> rate limit -> proxy
 	apiHandler := proxy.TrustedProxyMiddleware(cfg.TrustedProxies,
 		gmiddleware.LoggingMiddleware(

@@ -1,7 +1,7 @@
 import { createHash } from "crypto";
 import { createWriteStream, existsSync } from "fs";
-import { mkdir, unlink, rename } from "fs/promises";
-import { join, extname } from "path";
+import { mkdir, unlink, rename, rm } from "fs/promises";
+import { join, resolve, extname } from "path";
 import { Readable } from "stream";
 import { eq, desc, sql, and } from "drizzle-orm";
 import { db } from "../db/connection.js";
@@ -10,8 +10,9 @@ import { blobs, blobOwners } from "../db/schema/blobs.js";
 import { nanoid } from "../lib/id.js";
 import { config } from "../config.js";
 import { mimeToExt } from "../lib/mimeToExt.js";
+import { getTranscodeQueue } from "../lib/queue.js";
 
-const BLOB_DIR = join(process.cwd(), config.blobDir);
+const BLOB_DIR = resolve(process.cwd(), config.blobDir);
 const MAX_AUDIO_SIZE = config.maxBlobSize;
 const MAX_COVER_SIZE = 10 * 1024 * 1024; // 10MB
 
@@ -25,6 +26,8 @@ const ALLOWED_AUDIO_TYPES = new Set([
   "audio/aac",
   "audio/mp4",
   "audio/webm",
+  "audio/aiff",
+  "audio/x-aiff",
 ]);
 
 const ALLOWED_IMAGE_TYPES = new Set([
@@ -112,6 +115,20 @@ export const musicService = {
       fileSize: size,
       duration: clientDuration ?? null,
     });
+
+    // Enqueue transcode job if the pipeline is enabled. `jobId: sha256` dedupes:
+    // re-uploads of the same audio by different users produce one job.
+    if (config.transcodeEnqueue) {
+      try {
+        await getTranscodeQueue().add(
+          "transcode",
+          { sha256, mimeType: file.mimetype, storagePath },
+          { jobId: sha256 },
+        );
+      } catch (err) {
+        console.warn("[transcode] enqueue failed:", (err as Error).message);
+      }
+    }
 
     return {
       url,
@@ -756,6 +773,9 @@ export const musicService = {
           if (blob) {
             const ext = mimeToExt(blob.type);
             await unlink(join(BLOB_DIR, `${sha256}${ext}`)).catch(() => {});
+            // Purge derived HLS output too — other owners' events can't reference
+            // derivatives once the source blob is gone.
+            await rm(join(BLOB_DIR, "hls", sha256), { recursive: true, force: true }).catch(() => {});
             await db.delete(blobs).where(eq(blobs.sha256, sha256));
           }
         }

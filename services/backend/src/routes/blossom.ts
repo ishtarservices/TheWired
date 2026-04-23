@@ -1,5 +1,5 @@
 import { FastifyInstance } from "fastify";
-import { join } from "node:path";
+import { join, resolve } from "node:path";
 import { mkdir, stat, unlink, rename } from "node:fs/promises";
 import { createReadStream, createWriteStream } from "node:fs";
 import { createHash } from "node:crypto";
@@ -12,7 +12,7 @@ import { mimeToExt } from "../lib/mimeToExt.js";
 import { nanoid } from "../lib/id.js";
 import { verifyBlossomAuth } from "../middleware/blossomAuth.js";
 
-const BLOB_DIR = join(process.cwd(), config.blobDir);
+const BLOB_DIR = resolve(process.cwd(), config.blobDir);
 const MAX_BLOB_SIZE = config.maxBlobSize;
 const SHA256_REGEX = /^([0-9a-f]{64})(?:\.\w+)?$/;
 

@@ -8,6 +8,7 @@ import { useAppSelector } from "@/store/hooks";
 import { uploadAudio, uploadCoverArt } from "@/lib/api/music";
 import { buildAlbumEvent, buildTrackEvent, buildPrivateAlbumEvent, buildPrivateTrackEvent } from "./musicEventBuilder";
 import { signAndPublish, signAndSaveLocally } from "@/lib/nostr/publish";
+import { runWithConcurrency } from "@/lib/concurrencyPool";
 import { FeaturedArtistsInput } from "./FeaturedArtistsInput";
 import { HashtagInput } from "./HashtagInput";
 import { GenrePicker } from "./GenrePicker";
@@ -251,36 +252,34 @@ export function CreateAlbumModal({ open, onClose, album }: CreateAlbumModalProps
       const resolvedArtistPubkeys = iAmArtist ? [pubkey] : artistPubkeys;
       const resolvedArtist = artist || myProfile?.display_name || myProfile?.name || pubkey;
 
-      // Upload new tracks sequentially with progress
+      // Upload new tracks with bounded concurrency. Order is preserved via
+      // a pre-allocated indexed buffer so album `a` tags match the user's
+      // on-screen track order regardless of completion order.
       const newTrackAddrIds: string[] = [];
       if (parsedTracks.length > 0) {
         setUploadPhase("uploading");
         setUploadProgress({ current: 0, total: parsedTracks.length });
 
-        for (let i = 0; i < parsedTracks.length; i++) {
-          const track = parsedTracks[i];
-          setUploadProgress({ current: i + 1, total: parsedTracks.length });
+        const indexedResults: (string | null)[] = new Array(parsedTracks.length).fill(null);
+        let completed = 0;
+
+        const tasks = parsedTracks.map((track, i) => async () => {
           updateTrack(track.key, { status: "uploading" });
 
           try {
-            const result = await uploadAudio(track.file, {
-              title: track.title,
-              artist: track.artist || resolvedArtist,
-            });
-
-            // Upload per-track cover art from embedded metadata
-            let trackImageUrl: string | undefined;
-            if (track.embeddedCover) {
-              try {
-                const coverResult = await uploadCoverArt(track.embeddedCover.file);
-                trackImageUrl = coverResult.url;
-              } catch {
-                // Non-fatal: track still gets published without its own cover
-              }
-            } else if (imageUrl) {
-              // Fall back to album cover for tracks without their own art
-              trackImageUrl = imageUrl;
-            }
+            // Audio + per-track cover upload in parallel. Cover failure is
+            // non-fatal: the track still gets published, falling back to the
+            // album cover if one was provided.
+            const [result, coverResult] = await Promise.all([
+              uploadAudio(track.file, {
+                title: track.title,
+                artist: track.artist || resolvedArtist,
+              }),
+              track.embeddedCover
+                ? uploadCoverArt(track.embeddedCover.file).catch(() => null)
+                : Promise.resolve(null),
+            ]);
+            const trackImageUrl = coverResult?.url ?? imageUrl;
 
             const trackSlug = track.title
               .toLowerCase()
@@ -309,20 +308,32 @@ export function CreateAlbumModal({ open, onClose, album }: CreateAlbumModalProps
               ? await buildPrivateTrackEvent(pubkey, { ...trackParams, collaborators })
               : buildTrackEvent(pubkey, trackParams);
 
+            // signAndPublish is internally serialized by the signer queue, so
+            // parallel calls here queue at the signer but parallelize the
+            // relay publish step.
             if (visibility === "local") {
               await signAndSaveLocally(trackUnsigned);
             } else {
               await signAndPublish(trackUnsigned);
             }
 
-            newTrackAddrIds.push(`31683:${pubkey}:${trackSlug}`);
+            indexedResults[i] = `31683:${pubkey}:${trackSlug}`;
             updateTrack(track.key, { status: "done", uploadProgress: 100 });
           } catch (err) {
             updateTrack(track.key, {
               status: "error",
               errorMsg: err instanceof Error ? err.message : "Upload failed",
             });
+          } finally {
+            completed++;
+            setUploadProgress({ current: completed, total: parsedTracks.length });
           }
+        });
+
+        await runWithConcurrency(tasks, 3);
+
+        for (const id of indexedResults) {
+          if (id !== null) newTrackAddrIds.push(id);
         }
       }
 
@@ -520,7 +531,7 @@ export function CreateAlbumModal({ open, onClose, album }: CreateAlbumModalProps
             <input
               ref={trackInputRef}
               type="file"
-              accept=".mp3,.ogg,.flac,.wav,.aac,.m4a,.webm,.mpeg"
+              accept=".mp3,.ogg,.flac,.wav,.aac,.m4a,.webm,.mpeg,.aif,.aiff"
               multiple
               className="hidden"
               onChange={handleNewTrackFiles}
@@ -536,7 +547,7 @@ export function CreateAlbumModal({ open, onClose, album }: CreateAlbumModalProps
                 <Upload size={20} />
                 <span>Drop audio files or click to browse</span>
                 <span className="text-[10px] text-muted">
-                  Supports MP3, FLAC, OGG, WAV, AAC, M4A, WebM
+                  Supports MP3, FLAC, OGG, WAV, AAC, M4A, WebM, AIFF
                 </span>
               </button>
             )}

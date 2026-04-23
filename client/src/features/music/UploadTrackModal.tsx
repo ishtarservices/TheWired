@@ -25,6 +25,8 @@ const ALLOWED_AUDIO_TYPES = new Set([
   "audio/aac",
   "audio/mp4",
   "audio/webm",
+  "audio/aiff",
+  "audio/x-aiff",
 ]);
 
 interface UploadTrackModalProps {
@@ -124,15 +126,11 @@ export function UploadTrackModal({ open, onClose, defaultAlbumRef, defaultVisibi
     setUploading(true);
 
     try {
-      // Upload audio
-      const audioResult = await uploadAudio(audioFile, { title, artist });
-
-      // Upload cover if provided
-      let imageUrl: string | undefined;
-      if (coverFile) {
-        const coverResult = await uploadCoverArt(coverFile);
-        imageUrl = coverResult.url;
-      }
+      const [audioResult, coverResult] = await Promise.all([
+        uploadAudio(audioFile, { title, artist }),
+        coverFile ? uploadCoverArt(coverFile) : Promise.resolve(undefined),
+      ]);
+      const imageUrl = coverResult?.url;
 
       // Build and publish the track event
       const slug = title.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
@@ -204,7 +202,7 @@ export function UploadTrackModal({ open, onClose, defaultAlbumRef, defaultVisibi
             <input
               ref={audioInputRef}
               type="file"
-              accept=".mp3,.ogg,.flac,.wav,.aac,.m4a,.webm,.mpeg"
+              accept=".mp3,.ogg,.flac,.wav,.aac,.m4a,.webm,.mpeg,.aif,.aiff"
               className="hidden"
               onChange={handleAudioChange}
             />
@@ -379,7 +377,7 @@ export function UploadTrackModal({ open, onClose, defaultAlbumRef, defaultVisibi
           <button
             onClick={handleSubmit}
             disabled={!audioFile || !title.trim() || uploading || (visibility === "space" && !spaceId)}
-            className="w-full rounded-xl bg-gradient-to-r from-primary to-primary-soft py-2 text-sm font-medium text-white transition-opacity hover:opacity-90 press-effect disabled:opacity-50"
+            className="w-full rounded-xl bg-linear-to-r from-primary to-primary-soft py-2 text-sm font-medium text-white transition-opacity hover:opacity-90 press-effect disabled:opacity-50"
           >
             {uploading
               ? "Uploading..."

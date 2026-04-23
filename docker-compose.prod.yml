@@ -110,6 +110,14 @@ services:
       GIF_API_KEY: ${GIF_API_KEY:-}
       BLOB_DIR: /app/blobs
       MAX_BLOB_SIZE: ${MAX_BLOB_SIZE:-104857600}
+      # Transcoding pipeline — both flags on by default. Roll back by setting
+      # either to "false" in .env and redeploying; the client falls back to the
+      # original blob URL when HLS variants are missing.
+      TRANSCODE_ENQUEUE: ${TRANSCODE_ENQUEUE:-true}
+      TRANSCODE_WORKER: ${TRANSCODE_WORKER:-true}
+      # Default 1 so one vCPU stays free for Fastify under steady load.
+      # Bump to 2 only during deliberate backfill windows (and watch CPU credits).
+      TRANSCODE_CONCURRENCY: ${TRANSCODE_CONCURRENCY:-1}
     volumes:
       - blobdata:/app/blobs
     depends_on:
@@ -132,7 +140,7 @@ services:
     deploy:
       resources:
         limits:
-          memory: 512m
+          memory: 1536m
 
   gateway:
     image: ghcr.io/ishtarservices/thewired-gateway:latest

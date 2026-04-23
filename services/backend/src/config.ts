@@ -26,4 +26,10 @@ export const config = {
   blobDir: process.env.BLOB_DIR ?? "blobs",
   /** Max blob upload size in bytes (default 100MB) */
   maxBlobSize: parseInt(process.env.MAX_BLOB_SIZE ?? String(100 * 1024 * 1024), 10),
+  /** When true, uploaded audio blobs are enqueued for transcoding. */
+  transcodeEnqueue: process.env.TRANSCODE_ENQUEUE === "true",
+  /** When true, this process runs the BullMQ transcoding consumer. */
+  transcodeWorker: process.env.TRANSCODE_WORKER === "true",
+  /** Max concurrent ffmpeg jobs per worker process. Default 1 keeps a vCPU free for API serving. */
+  transcodeConcurrency: parseInt(process.env.TRANSCODE_CONCURRENCY ?? "1", 10),
 } as const;

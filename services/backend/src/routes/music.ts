@@ -5,6 +5,9 @@ import { db } from "../db/connection.js";
 import { eq, and, sql } from "drizzle-orm";
 import { savedAlbumVersions } from "../db/schema/savedVersions.js";
 import { spaceMembers } from "../db/schema/members.js";
+import { musicUploads } from "../db/schema/music.js";
+import { config } from "../config.js";
+import { getTranscodeQueue } from "../lib/queue.js";
 import { validate, hexId, nonEmptyString, limitParam, offsetParam } from "../lib/validation.js";
 
 const pubkeySlugParams = z.object({
@@ -465,5 +468,80 @@ export const musicRoutes: FastifyPluginAsync = async (server) => {
 
     const result = await musicService.uploadCover(data, pubkey);
     return { data: result };
+  });
+
+  // GET /music/variants/:sha -- Lookup transcode variants by blob sha256.
+  // Client calls this at play-time using the imeta `x` hash to discover HLS
+  // URLs for old events that were published before transcoding existed.
+  server.get<{ Params: { sha: string } }>(
+    "/variants/:sha",
+    async (request, reply) => {
+      const { sha } = request.params;
+      if (!/^[0-9a-f]{64}$/.test(sha)) {
+        return reply.status(400).send({ error: "Invalid sha256", code: "BAD_REQUEST" });
+      }
+
+      const [row] = await db
+        .select({
+          status: musicUploads.transcodeStatus,
+          hlsMasterPath: musicUploads.hlsMasterPath,
+          loudnessI: musicUploads.loudnessI,
+        })
+        .from(musicUploads)
+        .where(eq(musicUploads.sha256, sha))
+        .limit(1);
+
+      if (!row) return { data: { status: "unknown" as const } };
+
+      if (row.status === "ready" && row.hlsMasterPath) {
+        return {
+          data: {
+            status: "ready" as const,
+            hlsMaster: `${config.publicUrl}/${row.hlsMasterPath}`,
+            loudnessI: row.loudnessI,
+          },
+        };
+      }
+
+      return { data: { status: row.status } };
+    },
+  );
+
+  // POST /music/admin/transcode-backfill -- Enqueue pending transcodes.
+  // Admin-gated (comma-separated hex pubkeys in ADMIN_PUBKEYS). Batched;
+  // re-run until `enqueued === 0`.
+  server.post("/admin/transcode-backfill", async (request, reply) => {
+    const pubkey = (request.headers["x-auth-pubkey"] as string) ?? null;
+    if (!pubkey || !config.adminPubkeys.includes(pubkey)) {
+      return reply.status(403).send({ error: "Admin only", code: "FORBIDDEN" });
+    }
+
+    const rows = await db
+      .select({
+        sha256: musicUploads.sha256,
+        storagePath: musicUploads.storagePath,
+        mimeType: musicUploads.mimeType,
+      })
+      .from(musicUploads)
+      .where(
+        and(
+          eq(musicUploads.transcodeStatus, "pending"),
+          eq(musicUploads.status, "active"),
+        ),
+      )
+      .limit(1000);
+
+    const queue = getTranscodeQueue();
+    let enqueued = 0;
+    for (const row of rows) {
+      await queue.add(
+        "transcode",
+        { sha256: row.sha256, mimeType: row.mimeType, storagePath: row.storagePath },
+        { jobId: row.sha256 },
+      );
+      enqueued++;
+    }
+
+    return { data: { enqueued, batchSize: rows.length } };
   });
 };

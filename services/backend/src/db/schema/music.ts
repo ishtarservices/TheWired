@@ -1,4 +1,4 @@
-import { text, bigint, timestamp } from "drizzle-orm/pg-core";
+import { text, bigint, timestamp, real } from "drizzle-orm/pg-core";
 import { appSchema } from "./spaces.js";
 
 export const musicUploads = appSchema.table("music_uploads", {
@@ -13,4 +13,10 @@ export const musicUploads = appSchema.table("music_uploads", {
   duration: bigint("duration", { mode: "number" }),
   status: text("status").notNull().default("active"),
   createdAt: timestamp("created_at").defaultNow(),
+  transcodeStatus: text("transcode_status").notNull().default("pending"),
+  hlsMasterPath: text("hls_master_path"),
+  loudnessI: real("loudness_i"),
+  loudnessTp: real("loudness_tp"),
+  transcodedAt: timestamp("transcoded_at", { withTimezone: true }),
+  transcodeError: text("transcode_error"),
 });

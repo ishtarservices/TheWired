@@ -19,6 +19,7 @@ import { musicRoutes } from "./routes/music.js";
 import { insightsRoutes } from "./routes/insights.js";
 import { revisionRoutes } from "./routes/revisions.js";
 import { proposalRoutes } from "./routes/proposals.js";
+import { hlsRoutes } from "./routes/hls.js";
 import { channelsRoutes } from "./routes/channels.js";
 import { rolesRoutes } from "./routes/roles.js";
 import { moderationRoutes } from "./routes/moderation.js";
@@ -88,6 +89,10 @@ export async function createServer() {
   await server.register(onboardingRoutes, { prefix: "/spaces" });
   await server.register(nip05Routes);
   await server.register(nip05ApiRoutes, { prefix: "/nip05" });
+
+  // HLS routes (must register before blossomRoutes so /hls/:sha/… doesn't get
+  // swallowed by the blob /:filename wildcard)
+  await server.register(hlsRoutes, { prefix: "/hls" });
 
   // Blossom routes (root-level: GET /<sha256>, PUT /upload, DELETE /<sha256>, GET /list/<pubkey>)
   // Registered last so /:filename catch-all doesn't shadow named routes
