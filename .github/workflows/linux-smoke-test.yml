@@ -25,8 +25,8 @@ jobs:
       fail-fast: false
       matrix:
         scenario:
-          - bare        # reproduce the user's break
-          - with-deps   # verify the recommended fix
+          - no-display    # deps installed but no X/Wayland → expect GTK init panic
+          - with-display  # deps installed + xvfb → expect clean launch
     steps:
       - name: Base packages
         run: |
@@ -36,7 +36,6 @@ jobs:
           pacman -S --noconfirm --needed curl jq xorg-server-xvfb
 
       - name: Install recommended runtime deps
-        if: matrix.scenario == 'with-deps'
         run: |
           pacman -S --noconfirm --needed \
             webkit2gtk-4.1 gtk3 libappindicator-gtk3 librsvg
@@ -79,8 +78,34 @@ jobs:
           ./app.AppImage --appimage-extract >/dev/null
           ls squashfs-root | head
 
-      - name: Launch under xvfb
-        id: launch
+      - name: Launch (no-display)
+        if: matrix.scenario == 'no-display'
+        id: launch_no_display
+        env:
+          RUST_BACKTRACE: "1"
+        run: |
+          set +e
+          unset DISPLAY WAYLAND_DISPLAY
+          timeout --preserve-status --signal=TERM 10s \
+            ./squashfs-root/AppRun > run.log 2>&1
+          EXIT=$?
+          echo "---- captured output ----"
+          cat run.log || true
+          echo "---- exit code: $EXIT ----"
+          if [ "$EXIT" = "143" ] || [ "$EXIT" = "124" ]; then
+            echo "survived=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "survived=false" >> "$GITHUB_OUTPUT"
+          fi
+          if grep -q "Failed to initialize GTK" run.log; then
+            echo "gtk_panic=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "gtk_panic=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Launch (with-display, under xvfb)
+        if: matrix.scenario == 'with-display'
+        id: launch_with_display
         env:
           RUST_BACKTRACE: "1"
         run: |
@@ -92,8 +117,6 @@ jobs:
           echo "---- captured output ----"
           cat run.log || true
           echo "---- exit code: $EXIT ----"
-          # timeout --preserve-status: survived full duration => 143 (SIGTERM) or 124.
-          # Any other exit => the binary died on its own (panic, dlopen failure, etc.).
           if [ "$EXIT" = "143" ] || [ "$EXIT" = "124" ]; then
             echo "survived=true" >> "$GITHUB_OUTPUT"
           else
@@ -114,24 +137,24 @@ jobs:
 
       - name: Assert expected outcome
         env:
-          SURVIVED: ${{ steps.launch.outputs.survived }}
-          GTK_PANIC: ${{ steps.launch.outputs.gtk_panic }}
+          SURVIVED: ${{ steps.launch_no_display.outputs.survived || steps.launch_with_display.outputs.survived }}
+          GTK_PANIC: ${{ steps.launch_no_display.outputs.gtk_panic || steps.launch_with_display.outputs.gtk_panic }}
         run: |
           case "${{ matrix.scenario }}" in
-            bare)
-              if [ "$SURVIVED" = "false" ]; then
-                echo "Reproduced the break on bare Arch (gtk_panic=$GTK_PANIC)"
+            no-display)
+              if [ "$GTK_PANIC" = "true" ] && [ "$SURVIVED" = "false" ]; then
+                echo "Reproduced 'Failed to initialize GTK' panic when no display is available"
                 exit 0
               fi
-              echo "::error::bare Arch ran the AppImage without crashing — repro failed"
+              echo "::error::Expected GTK init panic with no display; got survived=$SURVIVED gtk_panic=$GTK_PANIC"
               exit 1
               ;;
-            with-deps)
-              if [ "$SURVIVED" = "true" ]; then
-                echo "AppImage launched and stayed alive with recommended deps installed"
+            with-display)
+              if [ "$SURVIVED" = "true" ] && [ "$GTK_PANIC" = "false" ]; then
+                echo "AppImage launched cleanly under xvfb with recommended deps"
                 exit 0
               fi
-              echo "::error::Still failing after installing recommended deps (gtk_panic=$GTK_PANIC)"
+              echo "::error::AppImage failed under xvfb with deps (survived=$SURVIVED gtk_panic=$GTK_PANIC)"
               exit 1
               ;;
           esac
