@@ -1,0 +1,137 @@
+name: Linux AppImage smoke test
+
+on:
+  workflow_dispatch:
+    inputs:
+      appimage_url:
+        description: "AppImage URL (blank = latest release asset)"
+        required: false
+        default: ""
+      release_tag:
+        description: "Release tag to pull AppImage from (blank = latest)"
+        required: false
+        default: ""
+
+permissions:
+  contents: read
+
+jobs:
+  arch-launch:
+    name: Arch Linux launch (${{ matrix.scenario }})
+    runs-on: ubuntu-latest
+    container:
+      image: archlinux:latest
+    strategy:
+      fail-fast: false
+      matrix:
+        scenario:
+          - bare        # reproduce the user's break
+          - with-deps   # verify the recommended fix
+    steps:
+      - name: Base packages
+        run: |
+          pacman-key --init
+          pacman -Sy --noconfirm archlinux-keyring
+          pacman -Syu --noconfirm --needed
+          pacman -S --noconfirm --needed curl jq xorg-server-xvfb
+
+      - name: Install recommended runtime deps
+        if: matrix.scenario == 'with-deps'
+        run: |
+          pacman -S --noconfirm --needed \
+            webkit2gtk-4.1 gtk3 libappindicator-gtk3 librsvg
+
+      - name: Resolve AppImage URL
+        id: resolve
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          INPUT_URL: ${{ inputs.appimage_url }}
+          INPUT_TAG: ${{ inputs.release_tag }}
+          REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          if [ -n "$INPUT_URL" ]; then
+            URL="$INPUT_URL"
+          else
+            if [ -n "$INPUT_TAG" ]; then
+              API="https://api.github.com/repos/$REPO/releases/tags/$INPUT_TAG"
+            else
+              API="https://api.github.com/repos/$REPO/releases/latest"
+            fi
+            URL=$(curl -sSL -H "Authorization: Bearer $GH_TOKEN" \
+              -H "Accept: application/vnd.github+json" "$API" \
+              | jq -r '.assets[] | select(.name | test("\\.AppImage$")) | .browser_download_url' \
+              | head -1)
+          fi
+          if [ -z "$URL" ] || [ "$URL" = "null" ]; then
+            echo "::error::Could not resolve an AppImage URL"
+            exit 1
+          fi
+          echo "url=$URL" >> "$GITHUB_OUTPUT"
+          echo "Using AppImage: $URL"
+
+      - name: Download + extract AppImage
+        run: |
+          set -euo pipefail
+          curl -sSL -o app.AppImage "${{ steps.resolve.outputs.url }}"
+          chmod +x app.AppImage
+          # Extract to sidestep FUSE inside the container
+          ./app.AppImage --appimage-extract >/dev/null
+          ls squashfs-root | head
+
+      - name: Launch under xvfb
+        id: launch
+        env:
+          RUST_BACKTRACE: "1"
+        run: |
+          set +e
+          xvfb-run -a --server-args="-screen 0 1280x720x24" \
+            timeout --preserve-status --signal=TERM 10s \
+            ./squashfs-root/AppRun > run.log 2>&1
+          EXIT=$?
+          echo "---- captured output ----"
+          cat run.log || true
+          echo "---- exit code: $EXIT ----"
+          # timeout --preserve-status: survived full duration => 143 (SIGTERM) or 124.
+          # Any other exit => the binary died on its own (panic, dlopen failure, etc.).
+          if [ "$EXIT" = "143" ] || [ "$EXIT" = "124" ]; then
+            echo "survived=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "survived=false" >> "$GITHUB_OUTPUT"
+          fi
+          if grep -q "Failed to initialize GTK" run.log; then
+            echo "gtk_panic=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "gtk_panic=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Upload run log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: run-log-${{ matrix.scenario }}
+          path: run.log
+
+      - name: Assert expected outcome
+        env:
+          SURVIVED: ${{ steps.launch.outputs.survived }}
+          GTK_PANIC: ${{ steps.launch.outputs.gtk_panic }}
+        run: |
+          case "${{ matrix.scenario }}" in
+            bare)
+              if [ "$SURVIVED" = "false" ]; then
+                echo "Reproduced the break on bare Arch (gtk_panic=$GTK_PANIC)"
+                exit 0
+              fi
+              echo "::error::bare Arch ran the AppImage without crashing — repro failed"
+              exit 1
+              ;;
+            with-deps)
+              if [ "$SURVIVED" = "true" ]; then
+                echo "AppImage launched and stayed alive with recommended deps installed"
+                exit 0
+              fi
+              echo "::error::Still failing after installing recommended deps (gtk_panic=$GTK_PANIC)"
+              exit 1
+              ;;
+          esac
