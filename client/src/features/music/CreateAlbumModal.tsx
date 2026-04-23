@@ -69,6 +69,9 @@ export function CreateAlbumModal({ open, onClose, album }: CreateAlbumModalProps
   const [showTrackDetails, setShowTrackDetails] = useState(false);
   const [dragIndex, setDragIndex] = useState<number | null>(null);
   const [dragOverIndex, setDragOverIndex] = useState<number | null>(null);
+  const [existingDragIndex, setExistingDragIndex] = useState<number | null>(null);
+  const [existingDragOverIndex, setExistingDragOverIndex] = useState<number | null>(null);
+  const [showAddLibrary, setShowAddLibrary] = useState(false);
 
   const [submitting, setSubmitting] = useState(false);
   const [uploadProgress, setUploadProgress] = useState({ current: 0, total: 0 });
@@ -228,6 +231,37 @@ export function CreateAlbumModal({ open, onClose, album }: CreateAlbumModalProps
     setSelectedTrackRefs((prev) =>
       prev.includes(addrId) ? prev.filter((id) => id !== addrId) : [...prev, addrId],
     );
+  };
+
+  const moveExistingRef = (fromIdx: number, toIdx: number) => {
+    if (toIdx < 0 || toIdx >= selectedTrackRefs.length) return;
+    setSelectedTrackRefs((prev) => {
+      const next = [...prev];
+      const [moved] = next.splice(fromIdx, 1);
+      next.splice(toIdx, 0, moved);
+      return next;
+    });
+  };
+
+  const removeExistingRef = (addrId: string) => {
+    setSelectedTrackRefs((prev) => prev.filter((id) => id !== addrId));
+  };
+
+  const handleExistingDragStart = (idx: number) => setExistingDragIndex(idx);
+  const handleExistingDragOver = (e: React.DragEvent, idx: number) => {
+    e.preventDefault();
+    setExistingDragOverIndex(idx);
+  };
+  const handleExistingDrop = (idx: number) => {
+    if (existingDragIndex !== null && existingDragIndex !== idx) {
+      moveExistingRef(existingDragIndex, idx);
+    }
+    setExistingDragIndex(null);
+    setExistingDragOverIndex(null);
+  };
+  const handleExistingDragEnd = () => {
+    setExistingDragIndex(null);
+    setExistingDragOverIndex(null);
   };
 
   const handleSubmit = async () => {
@@ -722,29 +756,124 @@ export function CreateAlbumModal({ open, onClose, album }: CreateAlbumModalProps
             )}
           </div>
 
-          {/* Existing tracks selection */}
-          {userTracks.length > 0 && (
+          {/* Tracks already in this project (reorderable) */}
+          {selectedTrackRefs.length > 0 && (
             <div>
-              <label className="mb-1 block text-xs font-medium text-soft">Existing Tracks</label>
-              <div className="max-h-32 overflow-y-auto rounded-xl border border-border bg-field p-2">
-                {userTracks.map((track) => (
-                  <label
-                    key={track.addressableId}
-                    className="flex cursor-pointer items-center gap-2 rounded-lg px-2 py-1 text-sm text-heading hover:bg-surface-hover"
-                  >
-                    <input
-                      type="checkbox"
-                      checked={selectedTrackRefs.includes(track.addressableId)}
-                      onChange={() => toggleTrack(track.addressableId)}
-                      className="h-4 w-4 rounded border-2 border-border bg-field checked:bg-primary checked:border-primary accent-purple-400"
-                    />
-                    <span className="truncate">{track.title}</span>
-                    <span className="ml-auto text-xs text-muted"><ExistingTrackArtist track={track} /></span>
-                  </label>
-                ))}
+              <label className="mb-1 block text-xs font-medium text-soft">
+                In project
+                <span className="ml-1.5 text-muted">
+                  ({selectedTrackRefs.length} track{selectedTrackRefs.length !== 1 ? "s" : ""})
+                </span>
+              </label>
+              <div className="space-y-0.5 rounded-xl border border-border bg-field p-2">
+                {selectedTrackRefs.map((addrId, idx) => {
+                  const track = allTracks[addrId];
+                  const title = track?.title ?? addrId.split(":").slice(2).join(":") ?? addrId;
+                  const isDragOver = existingDragOverIndex === idx;
+                  return (
+                    <div
+                      key={addrId}
+                      draggable
+                      onDragStart={() => handleExistingDragStart(idx)}
+                      onDragOver={(e) => handleExistingDragOver(e, idx)}
+                      onDrop={() => handleExistingDrop(idx)}
+                      onDragEnd={handleExistingDragEnd}
+                      className={`group flex items-center gap-1.5 rounded-lg px-1 py-1 transition-colors ${
+                        isDragOver ? "bg-primary/10" : "hover:bg-surface-hover"
+                      }`}
+                    >
+                      <span className="w-5 shrink-0 cursor-grab text-muted opacity-0 group-hover:opacity-100">
+                        <GripVertical size={12} />
+                      </span>
+                      <span className="w-7 shrink-0 text-center text-xs text-muted">
+                        {idx + 1}
+                      </span>
+                      <div className="flex min-w-0 flex-1 flex-col">
+                        <span className="truncate px-1 text-xs text-heading">{title}</span>
+                        {track && (
+                          <span className="truncate px-1 text-[10px] text-muted">
+                            <ExistingTrackArtist track={track} />
+                          </span>
+                        )}
+                      </div>
+                      <div className="flex w-20 shrink-0 items-center justify-end gap-1">
+                        <button
+                          type="button"
+                          onClick={() => moveExistingRef(idx, idx - 1)}
+                          disabled={idx === 0}
+                          className="p-0.5 text-muted opacity-0 transition-opacity hover:text-heading group-hover:opacity-100 disabled:invisible"
+                          title="Move up"
+                        >
+                          <ArrowUp size={10} />
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => moveExistingRef(idx, idx + 1)}
+                          disabled={idx === selectedTrackRefs.length - 1}
+                          className="p-0.5 text-muted opacity-0 transition-opacity hover:text-heading group-hover:opacity-100 disabled:invisible"
+                          title="Move down"
+                        >
+                          <ArrowDown size={10} />
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => removeExistingRef(addrId)}
+                          className="p-0.5 text-muted opacity-0 transition-opacity hover:text-red-400 group-hover:opacity-100"
+                          title="Remove from project"
+                        >
+                          <Trash2 size={10} />
+                        </button>
+                      </div>
+                    </div>
+                  );
+                })}
               </div>
             </div>
           )}
+
+          {/* Add from library: user's other tracks not yet in the project */}
+          {(() => {
+            const available = userTracks.filter(
+              (t) => !selectedTrackRefs.includes(t.addressableId),
+            );
+            if (available.length === 0) return null;
+            return (
+              <div>
+                <button
+                  type="button"
+                  onClick={() => setShowAddLibrary((v) => !v)}
+                  className="flex w-full items-center justify-between rounded-lg px-1 py-1 text-xs font-medium text-soft transition-colors hover:text-heading"
+                >
+                  <span>
+                    Add from your library
+                    <span className="ml-1.5 text-muted">({available.length})</span>
+                  </span>
+                  {showAddLibrary ? <ChevronUp size={12} /> : <ChevronDown size={12} />}
+                </button>
+                {showAddLibrary && (
+                  <div className="max-h-32 overflow-y-auto rounded-xl border border-border bg-field p-2">
+                    {available.map((track) => (
+                      <label
+                        key={track.addressableId}
+                        className="flex cursor-pointer items-center gap-2 rounded-lg px-2 py-1 text-sm text-heading hover:bg-surface-hover"
+                      >
+                        <input
+                          type="checkbox"
+                          checked={false}
+                          onChange={() => toggleTrack(track.addressableId)}
+                          className="h-4 w-4 rounded border-2 border-border bg-field checked:bg-primary checked:border-primary accent-purple-400"
+                        />
+                        <span className="truncate">{track.title}</span>
+                        <span className="ml-auto text-xs text-muted">
+                          <ExistingTrackArtist track={track} />
+                        </span>
+                      </label>
+                    ))}
+                  </div>
+                )}
+              </div>
+            );
+          })()}
 
           {/* Visibility */}
           <VisibilityPicker

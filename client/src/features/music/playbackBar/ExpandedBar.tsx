@@ -17,13 +17,14 @@ import {
 } from "lucide-react";
 import { motion } from "motion/react";
 import { useState, useRef } from "react";
+import { useNavigate } from "react-router-dom";
 import { useAudioPlayer } from "../useAudioPlayer";
 import { useAppDispatch, useAppSelector } from "@/store/hooks";
-import { setBarMode, toggleNowPlaying } from "@/store/slices/musicSlice";
-import { openRightPanelToTab, toggleRightPanel } from "@/store/slices/uiSlice";
+import { setBarMode, toggleNowPlaying, setActiveDetailId } from "@/store/slices/musicSlice";
+import { openRightPanelToTab, toggleRightPanel, setSidebarMode } from "@/store/slices/uiSlice";
 import { useLibrary } from "../useLibrary";
 import { getTrackImage } from "../trackImage";
-import { useResolvedArtist } from "../useResolvedArtist";
+import { useResolvedArtist, resolveArtistDetailTarget } from "../useResolvedArtist";
 import { ProgressBar } from "./ProgressBar";
 import { ListenTogetherBadge } from "@/features/listenTogether/ListenTogetherBadge";
 import { MusicPostModal } from "../MusicPostModal";
@@ -37,6 +38,7 @@ function formatTime(seconds: number): string {
 
 export function ExpandedBar() {
   const dispatch = useAppDispatch();
+  const navigate = useNavigate();
   const {
     currentTrack,
     player,
@@ -139,9 +141,32 @@ export function ExpandedBar() {
               <p className="truncate text-sm font-medium text-heading leading-tight">
                 {currentTrack.title}
               </p>
-              <p className="truncate text-xs text-soft leading-tight">
-                {resolvedArtist}
-              </p>
+              {(() => {
+                const target = resolveArtistDetailTarget(
+                  currentTrack.artist,
+                  currentTrack.artistPubkeys,
+                );
+                if (!target) {
+                  return (
+                    <p className="truncate text-xs text-soft leading-tight">
+                      {resolvedArtist}
+                    </p>
+                  );
+                }
+                return (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      dispatch(setSidebarMode("music"));
+                      dispatch(setActiveDetailId(target));
+                      navigate("/");
+                    }}
+                    className="block max-w-full truncate text-xs text-soft leading-tight hover:text-heading hover:underline"
+                  >
+                    {resolvedArtist}
+                  </button>
+                );
+              })()}
             </div>
             <button
               onClick={handleFavoriteToggle}

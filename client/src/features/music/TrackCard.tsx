@@ -9,7 +9,7 @@ import { FeaturedArtistsDisplay } from "./FeaturedArtistsDisplay";
 import { TrackActionPanel } from "./TrackActionPanel";
 import { EditTrackModal } from "./EditTrackModal";
 import { getTrackImage } from "./trackImage";
-import { useResolvedArtist } from "./useResolvedArtist";
+import { useResolvedArtist, resolveArtistDetailTarget } from "./useResolvedArtist";
 import { publishExisting } from "@/lib/nostr/publish";
 import { getEvent } from "@/lib/db/eventStore";
 import { removeLocalEventId } from "@/lib/db/musicStore";
@@ -165,7 +165,22 @@ export const TrackCard = memo(function TrackCard({
         <div className="p-2 text-left">
           <p className="truncate text-sm font-medium text-heading">{track.title}</p>
           <p className="truncate text-xs text-soft">
-            {resolvedArtist}
+            {(() => {
+              const target = resolveArtistDetailTarget(track.artist, track.artistPubkeys);
+              if (!target) return <span>{resolvedArtist}</span>;
+              return (
+                <button
+                  type="button"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    dispatch(setActiveDetailId(target));
+                  }}
+                  className="hover:text-heading hover:underline"
+                >
+                  {resolvedArtist}
+                </button>
+              );
+            })()}
             <FeaturedArtistsDisplay pubkeys={track.featuredArtists} />
           </p>
           {albumName && (

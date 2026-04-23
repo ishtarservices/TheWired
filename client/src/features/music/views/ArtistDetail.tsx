@@ -1,11 +1,13 @@
-import { useMemo } from "react";
-import { ArrowLeft, Music, Camera } from "lucide-react";
+import { useMemo, useRef } from "react";
+import { ArrowLeft, Music, Camera, UserSquare2 } from "lucide-react";
+import { useNavigate } from "react-router-dom";
 import { useAppSelector, useAppDispatch } from "@/store/hooks";
 import { goBack, setActiveDetailId } from "@/store/slices/musicSlice";
 import { TrackRow } from "../TrackRow";
 import { AlbumCard } from "../AlbumCard";
 import { Avatar } from "@/components/ui/Avatar";
 import { useProfile } from "@/features/profile/useProfile";
+import { useUserPopover } from "@/features/profile/UserPopoverContext";
 import { useArtistImage } from "../useArtistImage";
 import { usePlaybackBarSpacing } from "@/hooks/usePlaybackBarSpacing";
 import {
@@ -77,6 +79,8 @@ function useGroupedTracks(
 
 function PubkeyArtistDetail({ pubkey }: { pubkey: string }) {
   const dispatch = useAppDispatch();
+  const navigate = useNavigate();
+  const { openUserPopover } = useUserPopover();
   const tracksSelector = useMemo(() => selectArtistTracks(pubkey), [pubkey]);
   const albumsSelector = useMemo(() => selectArtistAlbums(pubkey), [pubkey]);
   const artistTracks = useAppSelector(tracksSelector);
@@ -84,6 +88,8 @@ function PubkeyArtistDetail({ pubkey }: { pubkey: string }) {
   const { profile } = useProfile(pubkey);
   const { imageUrl: localImage, pickImage } = useArtistImage(pubkey);
   const { scrollPaddingClass } = usePlaybackBarSpacing();
+  const profileBtnRef = useRef<HTMLButtonElement>(null);
+  const avatarBtnRef = useRef<HTMLButtonElement>(null);
 
   const name =
     profile?.display_name || profile?.name || pubkey.slice(0, 8) + "...";
@@ -122,25 +128,70 @@ function PubkeyArtistDetail({ pubkey }: { pubkey: string }) {
           <ArrowLeft size={20} />
         </button>
         <div className="group relative">
-          <Avatar src={avatarSrc} alt={name} size="lg" />
-          {!profile?.picture && (
+          {profile?.picture ? (
             <button
-              onClick={pickImage}
-              className="absolute inset-0 flex items-center justify-center rounded-full bg-background/60 opacity-0 transition-opacity group-hover:opacity-100"
-              title="Set artist image"
+              ref={avatarBtnRef}
+              type="button"
+              onClick={() => {
+                if (avatarBtnRef.current) {
+                  openUserPopover(pubkey, avatarBtnRef.current);
+                }
+              }}
+              className="rounded-full focus:outline-none focus:ring-2 focus:ring-primary/40"
+              title="View profile"
             >
-              <Camera size={16} className="text-heading" />
+              <Avatar src={avatarSrc} alt={name} size="lg" />
             </button>
+          ) : (
+            <>
+              <Avatar src={avatarSrc} alt={name} size="lg" />
+              <button
+                onClick={pickImage}
+                className="absolute inset-0 flex items-center justify-center rounded-full bg-background/60 opacity-0 transition-opacity group-hover:opacity-100"
+                title="Set artist image"
+              >
+                <Camera size={16} className="text-heading" />
+              </button>
+            </>
           )}
         </div>
-        <div>
+        <div className="min-w-0 flex-1">
           <p className="text-xs uppercase tracking-wider text-soft">Artist</p>
-          <h1 className="text-2xl font-bold text-heading">{name}</h1>
+          <h1 className="truncate text-2xl font-bold text-heading">{name}</h1>
           <p className="text-sm text-soft">
             {artistTracks.length} track{artistTracks.length !== 1 ? "s" : ""}
             {artistAlbums.length > 0 &&
               ` \u00B7 ${artistAlbums.length} album${artistAlbums.length !== 1 ? "s" : ""}`}
           </p>
+          {profile?.nip05 && (
+            <p className="mt-0.5 truncate text-[11px] text-primary/70">
+              {profile.nip05}
+            </p>
+          )}
+          <div className="mt-3 flex flex-wrap gap-2">
+            <button
+              ref={profileBtnRef}
+              type="button"
+              onClick={() => {
+                if (profileBtnRef.current) {
+                  openUserPopover(pubkey, profileBtnRef.current);
+                }
+              }}
+              className="flex items-center gap-1.5 rounded-full border border-border px-3 py-1 text-xs text-soft transition-colors hover:border-border-light hover:text-heading press-effect"
+              title="Quick view with follow, message, and more"
+            >
+              <UserSquare2 size={12} />
+              View profile
+            </button>
+            <button
+              type="button"
+              onClick={() => navigate(`/profile/${pubkey}`)}
+              className="flex items-center gap-1.5 rounded-full border border-border px-3 py-1 text-xs text-soft transition-colors hover:border-border-light hover:text-heading press-effect"
+              title="Open full profile page"
+            >
+              Open full profile
+            </button>
+          </div>
         </div>
       </div>
 

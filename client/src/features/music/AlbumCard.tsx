@@ -7,7 +7,7 @@ import { CreateAlbumModal } from "./CreateAlbumModal";
 import { AlbumActionPanel } from "./AlbumActionPanel";
 import { useAudioPlayer } from "./useAudioPlayer";
 import { UpdateAvailableBadge } from "./UpdateAvailableBadge";
-import { useResolvedArtist } from "./useResolvedArtist";
+import { useResolvedArtist, resolveArtistDetailTarget } from "./useResolvedArtist";
 
 interface AlbumCardProps {
   album: MusicAlbum;
@@ -115,7 +115,24 @@ export const AlbumCard = memo(function AlbumCard({ album, onNavigate }: AlbumCar
         <div className="p-2">
           <p className="truncate text-sm font-medium text-heading">{album.title}</p>
           <div className="flex items-center gap-1.5">
-            <p className="truncate text-xs text-soft">{resolvedArtist}</p>
+            {(() => {
+              const target = resolveArtistDetailTarget(album.artist, album.artistPubkeys);
+              if (!target) {
+                return <p className="truncate text-xs text-soft">{resolvedArtist}</p>;
+              }
+              return (
+                <button
+                  type="button"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    dispatch(setActiveDetailId(target));
+                  }}
+                  className="truncate text-xs text-soft hover:text-heading hover:underline"
+                >
+                  {resolvedArtist}
+                </button>
+              );
+            })()}
             {album.projectType !== "album" && (
               <span className="shrink-0 rounded bg-card-hover/50 px-1.5 py-0.5 text-[10px] uppercase tracking-wider text-muted">
                 {album.projectType}

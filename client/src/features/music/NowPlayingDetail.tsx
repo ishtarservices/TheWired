@@ -1,10 +1,15 @@
 import { Music2 } from "lucide-react";
-import { useAppSelector } from "@/store/hooks";
+import { useNavigate } from "react-router-dom";
+import { useAppSelector, useAppDispatch } from "@/store/hooks";
+import { setActiveDetailId } from "@/store/slices/musicSlice";
+import { setSidebarMode } from "@/store/slices/uiSlice";
 import { getTrackImage } from "./trackImage";
 import { AnnotationsPanel } from "./AnnotationsPanel";
-import { useResolvedArtist } from "./useResolvedArtist";
+import { useResolvedArtist, resolveArtistDetailTarget } from "./useResolvedArtist";
 
 export function NowPlayingDetail() {
+  const dispatch = useAppDispatch();
+  const navigate = useNavigate();
   const currentTrackId = useAppSelector(
     (s) => s.music.player.currentTrackId,
   );
@@ -18,6 +23,10 @@ export function NowPlayingDetail() {
     track?.artist ?? "",
     track?.artistPubkeys,
   );
+  const artistTarget = track
+    ? resolveArtistDetailTarget(track.artist, track.artistPubkeys)
+    : null;
+  const albumTarget = album?.addressableId ?? null;
 
   if (!track) {
     return (
@@ -54,9 +63,35 @@ export function NowPlayingDetail() {
         <h3 className="text-sm font-semibold text-heading truncate">
           {track.title}
         </h3>
-        <p className="text-xs text-soft truncate">{artistName}</p>
-        {album && (
-          <p className="text-[11px] text-muted truncate">{album.title}</p>
+        {artistTarget ? (
+          <button
+            type="button"
+            onClick={() => {
+              dispatch(setSidebarMode("music"));
+              dispatch(setActiveDetailId(artistTarget));
+              navigate("/");
+            }}
+            className="block max-w-full truncate text-xs text-soft hover:text-heading hover:underline"
+          >
+            {artistName}
+          </button>
+        ) : (
+          <p className="text-xs text-soft truncate">{artistName}</p>
+        )}
+        {album && albumTarget && (
+          <button
+            type="button"
+            onClick={() => {
+              dispatch(setSidebarMode("music"));
+              dispatch(
+                setActiveDetailId({ view: "album-detail", id: albumTarget }),
+              );
+              navigate("/");
+            }}
+            className="block max-w-full truncate text-[11px] text-muted hover:text-heading hover:underline"
+          >
+            {album.title}
+          </button>
         )}
       </div>
 

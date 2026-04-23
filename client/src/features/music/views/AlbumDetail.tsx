@@ -17,7 +17,7 @@ import { ReleaseNotesModal } from "../ReleaseNotesModal";
 import { CreateAlbumModal } from "../CreateAlbumModal";
 import { AnnotationsPanel } from "../AnnotationsPanel";
 import { usePlaybackBarSpacing } from "@/hooks/usePlaybackBarSpacing";
-import { useResolvedArtist } from "../useResolvedArtist";
+import { useResolvedArtist, resolveArtistDetailTarget } from "../useResolvedArtist";
 
 function CollaboratorRow({
   pubkey,
@@ -28,13 +28,21 @@ function CollaboratorRow({
   isOwner: boolean;
   onRemove?: () => void;
 }) {
+  const dispatch = useAppDispatch();
   const { profile } = useProfile(pubkey);
   const name = profile?.display_name || profile?.name || pubkey.slice(0, 8) + "...";
 
   return (
     <div className="flex items-center gap-2 rounded-lg px-2 py-1.5 transition-colors hover:bg-surface">
-      <Avatar src={profile?.picture} alt={name} size="sm" />
-      <span className="flex-1 truncate text-sm text-body">{name}</span>
+      <button
+        type="button"
+        onClick={() => dispatch(setActiveDetailId({ view: "artist-detail", id: pubkey }))}
+        className="flex min-w-0 flex-1 items-center gap-2 text-left"
+        title="View artist"
+      >
+        <Avatar src={profile?.picture} alt={name} size="sm" />
+        <span className="flex-1 truncate text-sm text-body hover:text-heading">{name}</span>
+      </button>
       {isOwner && onRemove && (
         <button
           onClick={onRemove}
@@ -179,7 +187,20 @@ export function AlbumDetail() {
             <p className="text-xs uppercase tracking-wider text-soft">{album.projectType === "album" ? "Album" : album.projectType}</p>
             <h1 className="text-2xl font-bold text-heading">{album.title}</h1>
             <p className="text-sm text-soft">
-              {resolvedArtist} &middot; {album.trackCount} track
+              {(() => {
+                const target = resolveArtistDetailTarget(album.artist, album.artistPubkeys);
+                if (!target) return <span>{resolvedArtist}</span>;
+                return (
+                  <button
+                    type="button"
+                    onClick={() => dispatch(setActiveDetailId(target))}
+                    className="hover:text-heading hover:underline"
+                  >
+                    {resolvedArtist}
+                  </button>
+                );
+              })()}
+              {" "}&middot; {album.trackCount} track
               {album.trackCount !== 1 ? "s" : ""}
               {collaborators.length > 0 && (
                 <> &middot; {collaborators.length} collaborator{collaborators.length !== 1 ? "s" : ""}</>
