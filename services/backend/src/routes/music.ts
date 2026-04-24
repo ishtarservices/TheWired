@@ -481,6 +481,10 @@ export const musicRoutes: FastifyPluginAsync = async (server) => {
         return reply.status(400).send({ error: "Invalid sha256", code: "BAD_REQUEST" });
       }
 
+      // Prefer the most-advanced row when multiple music_uploads share a sha
+      // (e.g. two users uploaded the same file, or a retry created a duplicate).
+      // All rows for a sha point at the same on-disk blob and HLS output, so
+      // if any row is `ready`, the client should get HLS.
       const [row] = await db
         .select({
           status: musicUploads.transcodeStatus,
@@ -489,6 +493,12 @@ export const musicRoutes: FastifyPluginAsync = async (server) => {
         })
         .from(musicUploads)
         .where(eq(musicUploads.sha256, sha))
+        .orderBy(sql`CASE ${musicUploads.transcodeStatus}
+                       WHEN 'ready'      THEN 0
+                       WHEN 'processing' THEN 1
+                       WHEN 'pending'    THEN 2
+                       WHEN 'failed'     THEN 3
+                       ELSE 4 END`)
         .limit(1);
 
       if (!row) return { data: { status: "unknown" as const } };

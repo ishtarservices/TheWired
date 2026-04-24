@@ -216,7 +216,7 @@ The sections below are the **manual** checks that aren't worth automating (brows
 
 1. Delete a track that owns a unique blob (no other owners). Verify:
    - `music_uploads` row gone.
-   - `blobs/<sha>.<ext>` gone on disk.
+   - `blobs/<sha>` gone on disk.
    - `blobs/hls/<sha>/` tree gone on disk.
    - `GET /hls/<sha>/master.m3u8` → 404.
 2. Delete a track whose blob has another owner. Verify the raw blob and HLS output **stay** (still referenced).
