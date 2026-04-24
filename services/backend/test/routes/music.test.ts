@@ -150,8 +150,7 @@ describe("music upload + delete lifecycle", () => {
     expect(owner).toBeTruthy();
 
     // Verify file exists on disk
-    const ext = ".mp3";
-    expect(existsSync(join(BLOB_DIR, `${result.sha256}${ext}`))).toBe(true);
+    expect(existsSync(join(BLOB_DIR, result.sha256))).toBe(true);
   });
 
   it("delete cleans up music_uploads, blobs, blob_owners, and disk file", async () => {
@@ -203,7 +202,7 @@ describe("music upload + delete lifecycle", () => {
     expect(blobRows.length).toBe(0);
 
     // File should be removed from disk
-    expect(existsSync(join(BLOB_DIR, `${sha256}.mp3`))).toBe(false);
+    expect(existsSync(join(BLOB_DIR, sha256))).toBe(false);
   });
 
   it("delete with multiple owners only removes requesting user's ownership", async () => {
@@ -271,7 +270,7 @@ describe("music upload + delete lifecycle", () => {
     expect(marcusOwners.length).toBe(1);
 
     // File still on disk
-    expect(existsSync(join(BLOB_DIR, `${sha256}.mp3`))).toBe(true);
+    expect(existsSync(join(BLOB_DIR, sha256))).toBe(true);
   });
 
   it("re-upload after delete works (no orphan conflicts)", async () => {

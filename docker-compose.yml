@@ -26,7 +26,7 @@ services:
     image: redis:7-alpine
     ports:
       - "${REDIS_PORT:-6380}:6379"
-    command: redis-server --maxmemory 256mb --maxmemory-policy allkeys-lru --appendonly yes
+    command: redis-server --maxmemory 256mb --maxmemory-policy noeviction --appendonly yes
     volumes:
       - redisdata:/data
     healthcheck:

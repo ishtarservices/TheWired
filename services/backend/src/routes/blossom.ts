@@ -8,7 +8,6 @@ import { db } from "../db/connection.js";
 import { blobs, blobOwners } from "../db/schema/blobs.js";
 import { spaceMembers } from "../db/schema/members.js";
 import { config } from "../config.js";
-import { mimeToExt } from "../lib/mimeToExt.js";
 import { nanoid } from "../lib/id.js";
 import { verifyBlossomAuth } from "../middleware/blossomAuth.js";
 
@@ -100,8 +99,7 @@ export async function blossomRoutes(server: FastifyInstance) {
       }
     }
 
-    const ext = mimeToExt(blob.type);
-    const filePath = join(BLOB_DIR, `${sha256}${ext}`);
+    const filePath = join(BLOB_DIR, sha256);
 
     try {
       await stat(filePath);
@@ -155,8 +153,7 @@ export async function blossomRoutes(server: FastifyInstance) {
     if (remaining.length === 0) {
       const [blob] = await db.select().from(blobs).where(eq(blobs.sha256, sha256)).limit(1);
       if (blob) {
-        const ext = mimeToExt(blob.type);
-        await unlink(join(BLOB_DIR, `${sha256}${ext}`)).catch(() => {});
+        await unlink(join(BLOB_DIR, sha256)).catch(() => {});
         await db.delete(blobs).where(eq(blobs.sha256, sha256));
       }
     }
@@ -213,8 +210,6 @@ export async function blossomRoutes(server: FastifyInstance) {
       return reply.status(403).header("X-Reason", "Auth x-tag does not match blob hash").send();
     }
 
-    const ext = mimeToExt(contentType);
-
     // Dedup: check if blob already exists
     const [existing] = await db.select().from(blobs).where(eq(blobs.sha256, sha256)).limit(1);
     if (existing) {
@@ -222,7 +217,7 @@ export async function blossomRoutes(server: FastifyInstance) {
       await db.insert(blobOwners).values({ sha256, pubkey }).onConflictDoNothing();
 
       return reply.status(200).send({
-        url: `${config.publicUrl}/${sha256}${ext}`,
+        url: `${config.publicUrl}/${sha256}`,
         sha256,
         size: existing.size,
         type: existing.type ?? contentType,
@@ -231,7 +226,7 @@ export async function blossomRoutes(server: FastifyInstance) {
     }
 
     // Rename temp to final
-    const finalPath = join(BLOB_DIR, `${sha256}${ext}`);
+    const finalPath = join(BLOB_DIR, sha256);
     await rename(tempPath, finalPath);
 
     const uploaded = Math.floor(Date.now() / 1000);
@@ -240,7 +235,7 @@ export async function blossomRoutes(server: FastifyInstance) {
     await db.insert(blobOwners).values({ sha256, pubkey });
 
     return reply.status(201).send({
-      url: `${config.publicUrl}/${sha256}${ext}`,
+      url: `${config.publicUrl}/${sha256}`,
       sha256,
       size,
       type: contentType,
@@ -305,7 +300,7 @@ export async function blossomRoutes(server: FastifyInstance) {
       .orderBy(desc(blobs.uploaded))
       .limit(maxLimit);
     const descriptors = rows.map((row) => ({
-      url: `${config.publicUrl}/${row.sha256}${mimeToExt(row.type)}`,
+      url: `${config.publicUrl}/${row.sha256}`,
       sha256: row.sha256,
       size: row.size,
       type: row.type ?? "application/octet-stream",

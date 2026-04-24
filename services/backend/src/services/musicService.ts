@@ -1,7 +1,7 @@
 import { createHash } from "crypto";
 import { createWriteStream, existsSync } from "fs";
 import { mkdir, unlink, rename, rm } from "fs/promises";
-import { join, resolve, extname } from "path";
+import { join, resolve } from "path";
 import { Readable } from "stream";
 import { eq, desc, sql, and } from "drizzle-orm";
 import { db } from "../db/connection.js";
@@ -9,7 +9,6 @@ import { musicUploads } from "../db/schema/music.js";
 import { blobs, blobOwners } from "../db/schema/blobs.js";
 import { nanoid } from "../lib/id.js";
 import { config } from "../config.js";
-import { mimeToExt } from "../lib/mimeToExt.js";
 import { getTranscodeQueue } from "../lib/queue.js";
 
 const BLOB_DIR = resolve(process.cwd(), config.blobDir);
@@ -61,8 +60,7 @@ export const musicService = {
 
     // Stream to a temp file first (we can't name by hash until we know it)
     const tempId = nanoid(16);
-    const ext = mimeToExt(file.mimetype) || extname(file.filename) || ".mp3";
-    const tempPath = join(BLOB_DIR, `.tmp_${tempId}${ext}`);
+    const tempPath = join(BLOB_DIR, `.tmp_${tempId}`);
 
     let size = 0;
     const writeStream = createWriteStream(tempPath);
@@ -85,8 +83,7 @@ export const musicService = {
     });
 
     const sha256 = hash.digest("hex");
-    const storedName = `${sha256}${ext}`;
-    const storagePath = join(BLOB_DIR, storedName);
+    const storagePath = join(BLOB_DIR, sha256);
 
     // Dedup: if blob already exists on disk, skip the rename
     if (existsSync(storagePath)) {
@@ -95,7 +92,7 @@ export const musicService = {
       await rename(tempPath, storagePath);
     }
 
-    const url = `${config.publicUrl}/${sha256}${ext}`;
+    const url = `${config.publicUrl}/${sha256}`;
     const uploaded = Math.floor(Date.now() / 1000);
 
     // Insert into blobs table (dedup-safe)
@@ -150,8 +147,7 @@ export const musicService = {
     await ensureDir(BLOB_DIR);
 
     const tempId = nanoid(16);
-    const ext = mimeToExt(file.mimetype) || extname(file.filename) || ".jpg";
-    const tempPath = join(BLOB_DIR, `.tmp_${tempId}${ext}`);
+    const tempPath = join(BLOB_DIR, `.tmp_${tempId}`);
 
     let size = 0;
     const writeStream = createWriteStream(tempPath);
@@ -174,8 +170,7 @@ export const musicService = {
     });
 
     const sha256 = hash.digest("hex");
-    const storedName = `${sha256}${ext}`;
-    const storagePath = join(BLOB_DIR, storedName);
+    const storagePath = join(BLOB_DIR, sha256);
 
     if (existsSync(storagePath)) {
       await unlink(tempPath).catch(() => {});
@@ -183,7 +178,7 @@ export const musicService = {
       await rename(tempPath, storagePath);
     }
 
-    const url = `${config.publicUrl}/${sha256}${ext}`;
+    const url = `${config.publicUrl}/${sha256}`;
     const uploaded = Math.floor(Date.now() / 1000);
 
     // Insert into blobs table (covers now tracked in DB)
@@ -771,8 +766,7 @@ export const musicService = {
         if (remaining.length === 0) {
           const [blob] = await db.select().from(blobs).where(eq(blobs.sha256, sha256)).limit(1);
           if (blob) {
-            const ext = mimeToExt(blob.type);
-            await unlink(join(BLOB_DIR, `${sha256}${ext}`)).catch(() => {});
+            await unlink(join(BLOB_DIR, sha256)).catch(() => {});
             // Purge derived HLS output too — other owners' events can't reference
             // derivatives once the source blob is gone.
             await rm(join(BLOB_DIR, "hls", sha256), { recursive: true, force: true }).catch(() => {});
@@ -793,10 +787,10 @@ export const musicService = {
               LIMIT 1`,
         )) as unknown[];
         if (refs.length === 0) {
-          // Extract sha256 from the URL (format: /<sha256>.<ext>)
+          // Extract sha256 from the URL (accepts bare `/<sha>` and legacy `/<sha>.<ext>`)
           const urlPath = new URL(url, "http://localhost").pathname;
           const filename = urlPath.split("/").pop() ?? "";
-          const sha256Match = filename.match(/^([0-9a-f]{64})\.\w+$/);
+          const sha256Match = filename.match(/^([0-9a-f]{64})(?:\.[A-Za-z0-9]+)?$/);
           if (sha256Match) {
             const sha256 = sha256Match[1];
             await db.delete(blobOwners)
@@ -804,7 +798,7 @@ export const musicService = {
             const remaining = await db.select().from(blobOwners)
               .where(eq(blobOwners.sha256, sha256)).limit(1);
             if (remaining.length === 0) {
-              await unlink(join(BLOB_DIR, filename)).catch(() => {});
+              await unlink(join(BLOB_DIR, sha256)).catch(() => {});
               await db.delete(blobs).where(eq(blobs.sha256, sha256));
             }
           }

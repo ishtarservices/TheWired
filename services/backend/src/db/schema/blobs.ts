@@ -18,7 +18,7 @@ export const blobOwners = appSchema.table(
       .references(() => blobs.sha256, { onDelete: "cascade" }),
     pubkey: text("pubkey").notNull(),
   },
-  (t) => ({
-    pk: primaryKey({ columns: [t.sha256, t.pubkey] }),
-  }),
+  (t) => [
+    primaryKey({ columns: [t.sha256, t.pubkey] }),
+  ],
 );
