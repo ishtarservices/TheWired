@@ -78,7 +78,12 @@ export async function processIncomingEvent(
   relayUrl: string,
 ): Promise<void> {
   // Step 1: Structural validation (fast, sync)
-  if (!isValidEventStructure(event)) return;
+  if (!isValidEventStructure(event)) {
+    if ((event as { kind?: number })?.kind === 9) {
+      console.warn("[pipeline] kind:9 dropped — invalid structure", event);
+    }
+    return;
+  }
 
   // Step 2: Dedup
   if (dedup.isDuplicate(event.id)) return;
@@ -88,11 +93,13 @@ export async function processIncomingEvent(
   try {
     const valid = await verifyBridge.verify(event);
     if (!valid) {
+      if (event.kind === 9) console.warn("[pipeline] kind:9 verify FAIL", event.id.slice(0, 8));
       // Unmark so the event can be retried from another relay
       dedup.unmarkSeen(event.id);
       return;
     }
-  } catch {
+  } catch (err) {
+    if (event.kind === 9) console.warn("[pipeline] kind:9 verify ERROR", err);
     // Verification timeout or worker error — unmark so retry is possible
     dedup.unmarkSeen(event.id);
     return;

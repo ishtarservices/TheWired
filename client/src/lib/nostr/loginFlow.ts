@@ -127,6 +127,11 @@ const MUTE_TAG_MAP: Record<string, "pubkey" | "tag" | "word" | "event"> = {
 /** Wire relay status changes from relayManager → Redux store */
 function wireRelayStatusBridge(): void {
   relayManager.setGlobalCallbacks({
+    onOK: (eventId, success, message, relayUrl) => {
+      if (!success) {
+        console.warn(`[relay] ${relayUrl} rejected ${eventId.slice(0, 8)}: ${message}`);
+      }
+    },
     onStatusChange: (url, status, error) => {
       const state = store.getState().relays.connections[url];
       if (!state) {
@@ -311,6 +316,12 @@ export async function performLogin(
   const storeSignerType: SignerType =
     signerType === "nip07" ? "nip07" : "tauri_keystore";
   store.dispatch(login({ pubkey, signerType: storeSignerType }));
+
+  // Replay NIP-42 AUTH on any relay that connected (and challenged) before the
+  // signer was ready. Without this, a relay connection established pre-login
+  // stays unauthenticated forever — which silently filters out every h-tagged
+  // event (NIP-29 chat) on both query and broadcast paths.
+  relayManager.replayAuth();
 
   // Step 5: Load cached user data from IndexedDB for instant UI
   const cachedRelayList = await getUserState<RelayListEntry[]>("relay_list");

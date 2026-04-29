@@ -5,6 +5,7 @@ import { selectChatMessages } from "./chatSelectors";
 import { parseChannelIdPart } from "../spaces/spaceSelectors";
 import { buildChatMessage, buildDeletionEvent, buildModDeletionEvent, buildChatEditEvent, type AttachmentMeta } from "../../lib/nostr/eventBuilder";
 import { signAndPublish } from "../../lib/nostr/publish";
+import { relayManager } from "../../lib/nostr/relayManager";
 import { saveUserState, getUserState } from "../../lib/db/userStateStore";
 import type { NostrEvent } from "../../types/nostr";
 
@@ -23,7 +24,11 @@ export function useChat() {
   const pubkey = useAppSelector((s) => s.identity.pubkey);
   const activeSpaceId = useAppSelector((s) => s.spaces.activeSpaceId);
   const activeChannelId = useAppSelector((s) => s.spaces.activeChannelId);
+  const hostRelay = useAppSelector(
+    (s) => s.spaces.list.find((sp) => sp.id === s.spaces.activeSpaceId)?.hostRelay,
+  );
   const messages = useAppSelector(selectChatMessages);
+
   const [pendingMessages, setPendingMessages] = useState<PendingMessage[]>([]);
   const [replyTo, setReplyTo] = useState<{
     eventId: string;
@@ -69,7 +74,15 @@ export function useChat() {
           }
         }
 
-        const signed = await signAndPublish(unsigned);
+        // Ensure host relay is in the connection pool — `relayManager.publish`
+        // silently drops targets that aren't in `connections`, which would make
+        // the publish a no-op for any space whose host isn't a bootstrap relay
+        // or in the user's NIP-65 list.
+        if (hostRelay) {
+          relayManager.connect(hostRelay, "read+write");
+        }
+
+        const signed = await signAndPublish(unsigned, hostRelay ? [hostRelay] : undefined);
 
         // Add to store — index by channel composite key for per-channel scoping
         dispatch(addEvent(signed));
@@ -81,7 +94,8 @@ export function useChat() {
         setPendingMessages((prev) =>
           prev.filter((m) => m.tempId !== tempId),
         );
-      } catch {
+      } catch (err) {
+        console.error("[chat] sendMessage failed", err);
         // Mark as failed
         setPendingMessages((prev) =>
           prev.map((m) =>
@@ -92,7 +106,7 @@ export function useChat() {
 
       setReplyTo(null);
     },
-    [pubkey, activeSpaceId, activeChannelId, replyTo, dispatch],
+    [pubkey, activeSpaceId, activeChannelId, replyTo, hostRelay, dispatch],
   );
 
   const retryMessage = useCallback(
@@ -132,14 +146,14 @@ export function useChat() {
       );
       // Add h-tag so the deletion event matches the space's subscription filter
       unsigned.tags.push(["h", activeSpaceId]);
-      await signAndPublish(unsigned);
+      await signAndPublish(unsigned, hostRelay ? [hostRelay] : undefined);
       // Also hide locally
       dispatch(hideMessage(eventId));
       if (activeChannelId) {
         dispatch(removeChatMessage({ contextId: activeChannelId, eventId }));
       }
     },
-    [pubkey, activeSpaceId, dispatch, activeChannelId],
+    [pubkey, activeSpaceId, hostRelay, dispatch, activeChannelId],
   );
 
   /** Publish a kind:9005 moderator deletion event */
@@ -147,14 +161,14 @@ export function useChat() {
     async (eventId: string) => {
       if (!pubkey || !activeSpaceId) return;
       const unsigned = buildModDeletionEvent(pubkey, activeSpaceId, [eventId]);
-      await signAndPublish(unsigned);
+      await signAndPublish(unsigned, hostRelay ? [hostRelay] : undefined);
       // Also hide locally
       dispatch(hideMessage(eventId));
       if (activeChannelId) {
         dispatch(removeChatMessage({ contextId: activeChannelId, eventId }));
       }
     },
-    [pubkey, activeSpaceId, dispatch, activeChannelId],
+    [pubkey, activeSpaceId, hostRelay, dispatch, activeChannelId],
   );
 
   /** Edit a chat message (within 15-min window) */
@@ -175,12 +189,12 @@ export function useChat() {
         channelIdPart,
       );
 
-      const signed = await signAndPublish(unsigned);
+      const signed = await signAndPublish(unsigned, hostRelay ? [hostRelay] : undefined);
       dispatch(addEvent(signed));
       dispatch(indexEditedMessage({ originalId: originalEvent.id, editEventId: signed.id }));
       setEditingMessage(null);
     },
-    [pubkey, activeSpaceId, activeChannelId, dispatch],
+    [pubkey, activeSpaceId, activeChannelId, hostRelay, dispatch],
   );
 
   /** Check if an event is within the edit window */

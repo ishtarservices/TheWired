@@ -12,7 +12,7 @@ const tauriConf = JSON.parse(
   readFileSync(path.resolve(__dirname, "src-tauri/tauri.conf.json"), "utf-8"),
 );
 
-export default defineConfig(async () => ({
+export default defineConfig({
   plugins: [react(), tailwindcss()],
   define: {
     __APP_VERSION__: JSON.stringify(tauriConf.version),
@@ -27,7 +27,8 @@ export default defineConfig(async () => ({
     minify: 'terser',
     terserOptions: {
       compress: {
-        drop_console: true,
+        // Strip noisy logs but keep warn/error so production issues stay diagnosable.
+        pure_funcs: ['console.log', 'console.debug', 'console.info'],
         drop_debugger: true,
       },
     },
@@ -48,4 +49,4 @@ export default defineConfig(async () => ({
       ignored: ["**/src-tauri/**"],
     },
   },
-}));
+});

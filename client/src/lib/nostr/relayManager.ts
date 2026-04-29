@@ -72,9 +72,10 @@ class RelayManagerImpl {
         const { getSigner } = await import("./loginFlow");
         const { store } = await import("../../store");
         const signer = getSigner();
-        if (!signer) return null;
         const pubkey = store.getState().identity.pubkey;
-        if (!pubkey) return null;
+        // Silent: this is the expected state pre-login; replayAuth retries
+        // once login completes.
+        if (!signer || !pubkey) return null;
         const unsigned: UnsignedEvent = {
           pubkey,
           created_at: Math.floor(Date.now() / 1000),
@@ -87,7 +88,8 @@ class RelayManagerImpl {
         };
         try {
           return await signer.signEvent(unsigned);
-        } catch {
+        } catch (err) {
+          console.warn(`[auth] signEvent failed for ${relayUrl}`, err);
           return null;
         }
       },
@@ -193,6 +195,15 @@ class RelayManagerImpl {
   connectToBootstrap(): void {
     for (const url of BOOTSTRAP_RELAYS) {
       this.connect(url, "read+write");
+    }
+  }
+
+  /** Re-attempt NIP-42 AUTH on every connection that has a pending challenge.
+   *  Called after the user's signer/pubkey becomes available, to recover from
+   *  the race where a relay sent its AUTH challenge before login completed. */
+  replayAuth(): void {
+    for (const conn of this.connections.values()) {
+      conn.tryAuth();
     }
   }
 

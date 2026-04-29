@@ -15,7 +15,15 @@ export async function signAndPublish(
   if (!signer) throw new Error("No signer available");
 
   const signed = await signingQueue.enqueue(() => signer.signEvent(unsigned));
-  relayManager.publish(signed, targetRelays);
+  const sentTo = relayManager.publish(signed, targetRelays);
+
+  if (sentTo === 0) {
+    console.warn("[publish] event sent to 0 relays", {
+      kind: signed.kind,
+      id: signed.id,
+      targetRelays,
+    });
+  }
 
   // Persist to IndexedDB so events survive page refresh
   await putEvent(signed);

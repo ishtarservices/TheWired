@@ -67,6 +67,7 @@ services:
       RELAY_PORT: 7777
       RELAY_NAME: ${RELAY_NAME:-The Wired Relay}
       RELAY_SECRET_KEY: ${RELAY_SECRET_KEY:-}
+      RELAY_URL: ${RELAY_URL:-ws://localhost:7777}
       RUST_ENV: ${RUST_ENV:-development}
       RUST_LOG: ${RUST_LOG:-info,thewired_relay=debug}
     depends_on:

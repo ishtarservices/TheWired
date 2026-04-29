@@ -7,8 +7,10 @@ import { computeBackoff, StormDetector } from "./reconnect";
 type InternalEventCallback = (subId: string, event: NostrEvent, relayUrl: string) => void;
 
 /** Default subscription cap per relay if NIP-11 doesn't specify one.
- *  Conservative to stay under most public relays. */
-const DEFAULT_MAX_SUBS = 20;
+ *  Sized for users in many spaces: bg chat sub per joined space + a handful of
+ *  priority subs (relay list, DM, gift wrap, music, followers). 100 leaves
+ *  comfortable headroom; per-relay NIP-11 can still narrow this. */
+const DEFAULT_MAX_SUBS = 100;
 
 export class RelayConnection {
   readonly url: string;
@@ -37,6 +39,10 @@ export class RelayConnection {
   private onStatusChange: RelayStatusCallback | null = null;
   /** NIP-42 AUTH callback: receives (challenge, relayUrl) and should return a signed kind:22242 event */
   private onAuth: ((challenge: string, relayUrl: string) => Promise<NostrEvent | null>) | null = null;
+  /** Last AUTH challenge from this relay that hasn't been answered successfully yet.
+   *  Cached so we can replay AUTH after the user's signer becomes available
+   *  (when the relay connects before login completes). */
+  private pendingAuthChallenge: string | null = null;
   private stormDetector: StormDetector;
 
   /** Short relay name for logging (computed once). */
@@ -101,6 +107,9 @@ export class RelayConnection {
 
     this.ws.onclose = () => {
       this.ws = null;
+      // Old AUTH challenge is invalid for the next session; clear it so we
+      // don't replay a stale challenge that the relay will reject.
+      this.pendingAuthChallenge = null;
       if (this.status !== "disconnected") {
         this.stormDetector.recordDisconnect();
         this.setStatus("disconnected");
@@ -121,6 +130,39 @@ export class RelayConnection {
     this.pendingEOSE.clear();
     this.messageQueue = [];
     this.deferredSubs = [];
+    this.pendingAuthChallenge = null;
+  }
+
+  /** Attempt to answer the cached AUTH challenge. Safe to call multiple times.
+   *  Used both at challenge-receipt time and after login, to handle the case
+   *  where the relay connected before the user's signer was ready. */
+  tryAuth(): void {
+    const challenge = this.pendingAuthChallenge;
+    const wsOpen = this.ws?.readyState === WebSocket.OPEN;
+    // No challenge cached, callback not wired, or WS not open: caller will
+    // retry on the next replay. Silent — `replayAuth` already logs a summary.
+    if (!challenge || !this.onAuth || !wsOpen) return;
+
+    this.onAuth(challenge, this.url).then((signedEvent) => {
+      if (!signedEvent) {
+        // Common during cold-start: relay challenged before signer is ready.
+        // Subsequent replayAuth call (post-login) will succeed.
+        return;
+      }
+      if (this.ws?.readyState !== WebSocket.OPEN) {
+        console.warn(`[auth] ${this.shortUrl} WS closed between sign and send, dropping AUTH`);
+        return;
+      }
+      // Verify challenge hasn't been superseded between the await and now.
+      if (this.pendingAuthChallenge !== challenge) {
+        console.warn(`[auth] ${this.shortUrl} challenge superseded mid-sign, dropping`);
+        return;
+      }
+      this.ws.send(JSON.stringify(["AUTH", signedEvent]));
+      this.pendingAuthChallenge = null;
+    }).catch((err) => {
+      console.warn(`[auth] ${this.shortUrl} AUTH error`, err);
+    });
   }
 
   send(msg: ClientMessage): void {
@@ -140,9 +182,10 @@ export class RelayConnection {
     this.subscriptions.set(subId, filters);
     this.pendingEOSE.add(subId);
 
-    // Enforce per-relay subscription cap — defer if at limit
+    // Enforce per-relay subscription cap — defer if sending this one would exceed it.
+    // `activeSent` is post-set, so it represents the sent count *if* we send this sub.
     const activeSent = this.subscriptions.size - this.deferredSubs.length;
-    if (activeSent >= this.maxSubscriptions) {
+    if (activeSent > this.maxSubscriptions) {
       this.deferredSubs.push({ subId, filters });
       return;
     }
@@ -222,6 +265,12 @@ export class RelayConnection {
         break;
       }
       case "CLOSED": {
+        // Surface unexpected server-side closes (cap exceeded, rate-limited, etc.).
+        // An empty reason is the normal response to our own CLOSE — not noteworthy.
+        const reason = (msg[2] ?? "").toString();
+        if (reason) {
+          console.warn(`[relay] ${this.shortUrl} CLOSED ${msg[1]}: ${reason}`);
+        }
         this.subscriptions.delete(msg[1]);
         this.pendingEOSE.delete(msg[1]);
         break;
@@ -229,13 +278,10 @@ export class RelayConnection {
       case "AUTH": {
         // NIP-42 auth challenge — sign and respond with kind:22242
         const challenge = msg[1] as string;
-        if (challenge && this.onAuth) {
-          this.onAuth(challenge, this.url).then((signedEvent) => {
-            if (signedEvent && this.ws?.readyState === WebSocket.OPEN) {
-              this.ws.send(JSON.stringify(["AUTH", signedEvent]));
-            }
-          }).catch(() => {});
-        }
+        if (!challenge) break;
+        // Cache the challenge so we can replay AUTH if the signer isn't ready yet.
+        this.pendingAuthChallenge = challenge;
+        this.tryAuth();
         break;
       }
     }
@@ -254,17 +300,31 @@ export class RelayConnection {
     }
   }
 
-  /** Re-send all active subscriptions after reconnect, staggered in batches
-   *  to avoid overwhelming relays with concurrent REQs. */
+  /** Re-send active subscriptions after reconnect, staggered in batches
+   *  to avoid overwhelming relays with concurrent REQs. Respects the relay
+   *  subscription cap so the server doesn't reject overflow with CLOSED
+   *  (which would permanently delete those subs from this connection). */
   private resubscribe(): void {
     const entries = [...this.subscriptions.entries()];
     if (entries.length === 0) return;
 
+    // Server state is fresh after reconnect — re-decide what's deferred from scratch.
+    this.deferredSubs = [];
+
+    const toSend: Array<[string, NostrFilter[]]> = [];
+    for (const entry of entries) {
+      if (toSend.length < this.maxSubscriptions) {
+        toSend.push(entry);
+      } else {
+        this.deferredSubs.push({ subId: entry[0], filters: entry[1] });
+      }
+    }
+
     const BATCH_SIZE = 5;
     const BATCH_DELAY_MS = 150;
 
-    for (let i = 0; i < entries.length; i += BATCH_SIZE) {
-      const batch = entries.slice(i, i + BATCH_SIZE);
+    for (let i = 0; i < toSend.length; i += BATCH_SIZE) {
+      const batch = toSend.slice(i, i + BATCH_SIZE);
       const delay = (i / BATCH_SIZE) * BATCH_DELAY_MS;
 
       if (delay === 0) {

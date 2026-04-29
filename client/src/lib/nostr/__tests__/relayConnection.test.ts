@@ -315,4 +315,131 @@ describe("RelayConnection", () => {
       expect(statusSpy).toHaveBeenCalledWith("wss://test.relay", "connected", undefined);
     });
   });
+
+  // -------------------------------------------------------------------------
+  // Subscription cap (regression for the 9-Alpha "27 spaces, no chat" bug)
+  // -------------------------------------------------------------------------
+  describe("subscription cap", () => {
+    it("sends REQ for every sub up to the cap (catches off-by-one)", () => {
+      const conn = createConn();
+      conn.setMaxSubscriptions(3);
+      conn.connect();
+      latestWs().simulateOpen();
+
+      conn.subscribe("sub-1", [{ kinds: [9] }]);
+      conn.subscribe("sub-2", [{ kinds: [9] }]);
+      conn.subscribe("sub-3", [{ kinds: [9] }]);
+
+      // All three should be on the wire — was incorrectly capping at cap-1.
+      const ids = reqSubIds(latestWs());
+      expect(ids).toEqual(["sub-1", "sub-2", "sub-3"]);
+    });
+
+    it("defers REQ when adding a sub past the cap", () => {
+      const conn = createConn();
+      conn.setMaxSubscriptions(3);
+      conn.connect();
+      latestWs().simulateOpen();
+
+      conn.subscribe("sub-1", [{ kinds: [9] }]);
+      conn.subscribe("sub-2", [{ kinds: [9] }]);
+      conn.subscribe("sub-3", [{ kinds: [9] }]);
+      conn.subscribe("sub-4-overflow", [{ kinds: [9] }]);
+
+      // Cap is 3 → 4th sub deferred, not on the wire
+      const ids = reqSubIds(latestWs());
+      expect(ids).toEqual(["sub-1", "sub-2", "sub-3"]);
+      // But it's still tracked as "active" so close/restore work
+      expect(conn.hasSubscription("sub-4-overflow")).toBe(true);
+    });
+
+    it("drains a deferred sub onto the wire when a slot frees", () => {
+      const conn = createConn();
+      conn.setMaxSubscriptions(2);
+      conn.connect();
+      latestWs().simulateOpen();
+
+      conn.subscribe("sub-1", [{ kinds: [9] }]);
+      conn.subscribe("sub-2", [{ kinds: [9] }]);
+      conn.subscribe("sub-3-deferred", [{ kinds: [9] }]);
+
+      // sub-3 is deferred
+      expect(reqSubIds(latestWs())).toEqual(["sub-1", "sub-2"]);
+
+      // Close one — deferred should drain into the freed slot
+      conn.closeSubscription("sub-1");
+
+      const ids = reqSubIds(latestWs());
+      expect(ids).toContain("sub-3-deferred");
+    });
+  });
+
+  // -------------------------------------------------------------------------
+  // Resubscribe behavior on reconnect (must not exceed cap → relay would CLOSE
+  // overflow and we'd permanently lose those subs from this connection's state)
+  // -------------------------------------------------------------------------
+  describe("resubscribe respects cap", () => {
+    it("does not send more REQs than the cap allows after reconnect", () => {
+      const conn = createConn();
+      conn.setMaxSubscriptions(3);
+      conn.connect();
+      const ws1 = latestWs();
+      ws1.simulateOpen();
+
+      // Subscribe to 5 — three on the wire, two deferred.
+      conn.subscribe("sub-1", [{ kinds: [9] }]);
+      conn.subscribe("sub-2", [{ kinds: [9] }]);
+      conn.subscribe("sub-3", [{ kinds: [9] }]);
+      conn.subscribe("sub-4", [{ kinds: [9] }]);
+      conn.subscribe("sub-5", [{ kinds: [9] }]);
+      expect(reqSubIds(ws1)).toEqual(["sub-1", "sub-2", "sub-3"]);
+
+      // Drop and reconnect.
+      ws1.simulateClose();
+      vi.advanceTimersByTime(60_000);
+      const ws2 = latestWs();
+      expect(ws2).not.toBe(ws1);
+      ws2.simulateOpen();
+
+      // Resubscribe must send AT MOST cap subs immediately. Run timers so that
+      // any later batches (staggered by 150ms) also fire and we count them all.
+      vi.runAllTimers();
+      const reqs = reqSubIds(ws2);
+      expect(reqs.length).toBeLessThanOrEqual(3);
+
+      // None of the subs should have been lost from the connection's tracking
+      // (they're either on the wire or in the deferred queue).
+      for (const id of ["sub-1", "sub-2", "sub-3", "sub-4", "sub-5"]) {
+        expect(conn.hasSubscription(id)).toBe(true);
+      }
+    });
+
+    it("deferred queue is rebuilt fresh on reconnect (not carried stale)", () => {
+      const conn = createConn();
+      conn.setMaxSubscriptions(2);
+      conn.connect();
+      const ws1 = latestWs();
+      ws1.simulateOpen();
+
+      conn.subscribe("sub-1", [{ kinds: [9] }]);
+      conn.subscribe("sub-2", [{ kinds: [9] }]);
+      conn.subscribe("sub-3-deferred", [{ kinds: [9] }]);
+      // Drop. The pre-reconnect deferred state ("sub-3-deferred is the deferred one")
+      // is irrelevant after reconnect — server has no record of any sub.
+      ws1.simulateClose();
+      vi.advanceTimersByTime(60_000);
+      latestWs().simulateOpen();
+      vi.runAllTimers();
+
+      // Whatever ends up on the wire must not exceed cap, and total tracked
+      // subs (sent + deferred) must equal what we subscribed to.
+      const ws2 = latestWs();
+      const reqs = reqSubIds(ws2);
+      expect(reqs.length).toBeLessThanOrEqual(2);
+      // All three are still tracked (none should be lost across reconnect)
+      expect(conn.hasSubscription("sub-1")).toBe(true);
+      expect(conn.hasSubscription("sub-2")).toBe(true);
+      expect(conn.hasSubscription("sub-3-deferred")).toBe(true);
+    });
+  });
 });

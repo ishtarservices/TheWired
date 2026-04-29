@@ -25,9 +25,14 @@ ON CONFLICT (slug) DO NOTHING;
 
 DO $$
 DECLARE
-  -- CONFIGURATION: Replace these for production
+  -- CONFIGURATION: admin_pk is fixed; host is read from a session GUC so prod
+  -- deployments don't bake `ws://localhost:7777` into seed rows. Set it before
+  -- running migrations:
+  --   SET app.relay_host = 'wss://relay.thewired.app';
+  -- (Or pass `-c app.relay_host=...` when invoking psql.) Falls back to
+  -- localhost for dev where the GUC isn't set.
   admin_pk TEXT := 'bf3fe8879851cc80e3f223be5fa7e5774454a15ec1227bba7418256f488d53f6';
-  host     TEXT := 'ws://localhost:7777';
+  host     TEXT := COALESCE(NULLIF(current_setting('app.relay_host', true), ''), 'ws://localhost:7777');
 
   ts BIGINT := (EXTRACT(EPOCH FROM NOW()) * 1000)::BIGINT;
 
