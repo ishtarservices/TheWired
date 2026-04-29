@@ -214,23 +214,14 @@ tokio::spawn(async move {
 
 ---
 
-### 10. NIP-42 AUTH Integration
+### 10. NIP-42 AUTH — wired; remaining gaps tracked separately
 
-**Why:** The stub exists (`src/protocol/nip42.rs`) with `generate_challenge()` and `verify_auth_event()`, but it's not wired into the handler. Needed for private relays, paid tiers, and anti-spam.
-
-**Where:** `src/protocol/handler.rs`, `src/connection.rs`
-
-**Current state:**
-- `nip42.rs` can generate challenges and verify AUTH events
-- `handler.rs` has an unused `_authed_pubkey` parameter
-- No AUTH message routing in `handle_message()`
-
-**Implementation steps:**
-1. Add `authed_pubkey: Option<String>` to connection state
-2. Send challenge on WebSocket connect
-3. Handle `["AUTH", <event>]` message in `handle_message()`
-4. Gate write operations behind auth when configured
-5. Support `auth-required: true` relay info document (NIP-11)
+> Status: **largely complete.** The original "stub exists but isn't wired" gap has been fixed: `connection.rs` sends a challenge on connect, `handler.rs:34` routes `["AUTH", ...]` messages to `handle_auth`, the per-connection `authed_pubkey` is plumbed through to `query_events`, and `event_store.rs:208-228` filters protected/h-tagged events by membership for authenticated clients. NIP-11 advertises NIP-42 support.
+>
+> **Remaining gaps** are documented in [`NIP29_CHAT.md`](./NIP29_CHAT.md):
+> - Broadcast filter (`connection.rs::is_event_visible_to`) doesn't check `app.space_members`, so live kind:9 events from other members never reach a subscriber even after AUTH.
+> - REQ-AUTH timing race: clients send REQs in their `onopen` handler before receiving / responding to the AUTH challenge, so initial historical fetches return zero h-tagged events.
+> - No `auth-required: true` mode for fully private relays (we only enforce membership-based filtering on h-tagged events).
 
 ---
 

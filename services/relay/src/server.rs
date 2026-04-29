@@ -109,7 +109,7 @@ fn nip11_response(state: &AppState) -> impl IntoResponse {
         "software": "thewired-relay",
         "version": env!("CARGO_PKG_VERSION"),
         "limitation": {
-            "max_subscriptions": 20,
+            "max_subscriptions": 100,
             "max_filters": 10,
             "max_event_tags": 2500,
             "max_content_length": 102400
