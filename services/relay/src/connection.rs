@@ -1,5 +1,6 @@
 use axum::extract::ws::{Message, WebSocket};
 use futures::{SinkExt, StreamExt};
+use std::collections::HashSet;
 use std::net::SocketAddr;
 use std::sync::atomic::Ordering;
 use std::sync::Arc;
@@ -14,25 +15,34 @@ use crate::server::AppState;
 /// Maximum incoming WebSocket message size (128 KiB)
 const MAX_MESSAGE_SIZE: usize = 128 * 1024;
 
-/// Lightweight visibility check for broadcast events (no DB query).
-/// Checks if the event is protected and whether the client is the author
-/// or a p-tagged collaborator. Space membership is NOT checked here
-/// (would require async DB query per broadcast per connection — too expensive).
-/// Space-scoped events will be filtered by the initial REQ query;
-/// broadcast leaks are a lower-priority gap covered by h-tag matching
-/// in the subscription filter.
-fn is_event_visible_to(event: &Event, authed_pubkey: &Option<String>) -> bool {
+/// Visibility check for broadcast events (no per-broadcast DB query).
+/// Order:
+///   1. Public events (no visibility, no h-tag) → visible to everyone.
+///   2. Unauthenticated clients → never see protected events.
+///   3. Author always sees own events.
+///   4. Explicit p-tagged collaborators always see the event.
+///   5. h-tagged (space-scoped) events: visible if the authed pubkey is a
+///      member of that space, per the cached set populated on AUTH from
+///      `app.space_members`. Without this, members of a space never receive
+///      live broadcasts of kind:9 from other members — only history via
+///      REQ — so chat appears frozen until you switch and re-enter.
+fn is_event_visible_to(
+    event: &Event,
+    authed_pubkey: &Option<String>,
+    space_memberships: &HashSet<String>,
+) -> bool {
     let visibility = event.get_tag_value("visibility");
+    let h_tag = event.get_tag_value("h");
 
-    // Public events (no visibility tag): always visible
-    if visibility.is_none() && event.get_tag_value("h").is_none() {
+    // Public events: always visible
+    if visibility.is_none() && h_tag.is_none() {
         return true;
     }
 
-    // Protected event — check if client is authenticated
+    // Protected event — must be authenticated
     let pk = match authed_pubkey {
         Some(pk) => pk,
-        None => return false, // Unauthenticated: hide all protected events
+        None => return false,
     };
 
     // Author always sees own events
@@ -40,10 +50,22 @@ fn is_event_visible_to(event: &Event, authed_pubkey: &Option<String>) -> bool {
         return true;
     }
 
-    // Check p-tag for collaborator access
-    event.tags.iter().any(|t| {
+    // p-tag: collaborator access
+    let p_tagged = event.tags.iter().any(|t| {
         t.first().is_some_and(|k| k == "p") && t.get(1).is_some_and(|v| v == pk)
-    })
+    });
+    if p_tagged {
+        return true;
+    }
+
+    // h-tag: space membership
+    if let Some(h) = h_tag {
+        if space_memberships.contains(&h) {
+            return true;
+        }
+    }
+
+    false
 }
 
 /// Per-client WebSocket connection handler
@@ -69,6 +91,7 @@ pub async fn handle_connection(
         crate::protocol::subscription::SubscriptionManager::new(),
     ));
     let mut authed_pubkey: Option<String> = None;
+    let mut space_memberships: HashSet<String> = HashSet::new();
     let auth_challenge = nip42::generate_challenge();
 
     // Send NIP-42 AUTH challenge on connect
@@ -95,6 +118,7 @@ pub async fn handle_connection(
                             &state,
                             &subscriptions,
                             &mut authed_pubkey,
+                            &mut space_memberships,
                             &auth_challenge,
                             &state.broadcast_tx,
                         )
@@ -116,7 +140,7 @@ pub async fn handle_connection(
                 match broadcast_result {
                     Ok(event) => {
                         // Visibility check: don't send protected events to unauthorized clients
-                        if !is_event_visible_to(&event, &authed_pubkey) {
+                        if !is_event_visible_to(&event, &authed_pubkey, &space_memberships) {
                             continue;
                         }
 
@@ -152,4 +176,135 @@ pub async fn handle_connection(
         events_sent,
         "Client disconnected"
     );
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn event_with(kind: i32, pubkey: &str, tags: Vec<Vec<String>>) -> Event {
+        Event {
+            id: "test_id".to_string(),
+            pubkey: pubkey.to_string(),
+            created_at: 1_000_000,
+            kind,
+            tags,
+            content: String::new(),
+            sig: "test_sig".to_string(),
+        }
+    }
+
+    fn empty_set() -> HashSet<String> {
+        HashSet::new()
+    }
+
+    fn set_with(spaces: &[&str]) -> HashSet<String> {
+        spaces.iter().map(|s| s.to_string()).collect()
+    }
+
+    /// Public events (no visibility tag, no h-tag) are always visible,
+    /// even to anonymous clients.
+    #[test]
+    fn public_events_visible_to_anonymous() {
+        let evt = event_with(1, "alice", vec![]);
+        assert!(is_event_visible_to(&evt, &None, &empty_set()));
+    }
+
+    /// Anonymous clients never see protected events (h-tagged or visibility-tagged).
+    #[test]
+    fn anonymous_blocked_from_protected_events() {
+        let h_tagged = event_with(9, "alice", vec![vec!["h".into(), "space_x".into()]]);
+        let visibility_tagged = event_with(
+            1,
+            "alice",
+            vec![vec!["visibility".into(), "private".into()]],
+        );
+        assert!(!is_event_visible_to(&h_tagged, &None, &empty_set()));
+        assert!(!is_event_visible_to(&visibility_tagged, &None, &empty_set()));
+    }
+
+    /// Authors always see their own protected events even if not space-members.
+    #[test]
+    fn author_always_sees_own_event() {
+        let evt = event_with(9, "alice", vec![vec!["h".into(), "space_x".into()]]);
+        assert!(is_event_visible_to(
+            &evt,
+            &Some("alice".into()),
+            &empty_set()
+        ));
+    }
+
+    /// p-tagged collaborators see protected events even if not space-members.
+    #[test]
+    fn p_tagged_sees_event() {
+        let evt = event_with(
+            9,
+            "alice",
+            vec![
+                vec!["h".into(), "space_x".into()],
+                vec!["p".into(), "bob".into()],
+            ],
+        );
+        assert!(is_event_visible_to(&evt, &Some("bob".into()), &empty_set()));
+    }
+
+    /// THE PHASE 2 FIX: h-tagged events reach members of the space via broadcast.
+    /// Before this fix, only authors and p-tagged users received broadcasts —
+    /// space members never saw live messages from other members.
+    #[test]
+    fn space_member_sees_h_tagged_broadcast() {
+        let evt = event_with(9, "alice", vec![vec!["h".into(), "space_x".into()]]);
+        let memberships = set_with(&["space_x"]);
+        assert!(is_event_visible_to(
+            &evt,
+            &Some("bob".into()),
+            &memberships
+        ));
+    }
+
+    /// Non-members of a space do NOT receive its broadcasts.
+    #[test]
+    fn non_member_blocked_from_h_tagged_broadcast() {
+        let evt = event_with(9, "alice", vec![vec!["h".into(), "space_x".into()]]);
+        let memberships = set_with(&["space_y"]); // bob is in space_y, not space_x
+        assert!(!is_event_visible_to(
+            &evt,
+            &Some("bob".into()),
+            &memberships
+        ));
+    }
+
+    /// Empty membership set → h-tagged events from others are hidden.
+    /// Guards against the cache failing to populate (e.g., DB error on AUTH).
+    #[test]
+    fn empty_memberships_blocks_other_authors_h_tagged() {
+        let evt = event_with(9, "alice", vec![vec!["h".into(), "space_x".into()]]);
+        assert!(!is_event_visible_to(
+            &evt,
+            &Some("bob".into()),
+            &empty_set()
+        ));
+    }
+
+    /// Visibility-tagged events without an h-tag still respect author / p-tag.
+    /// Membership cache doesn't apply when there's no h-tag.
+    #[test]
+    fn visibility_tagged_uses_author_and_p_tag_only() {
+        let evt = event_with(
+            1,
+            "alice",
+            vec![
+                vec!["visibility".into(), "private".into()],
+                vec!["p".into(), "bob".into()],
+            ],
+        );
+        // Bob is p-tagged → visible
+        assert!(is_event_visible_to(&evt, &Some("bob".into()), &empty_set()));
+        // Carol is not author, not p-tagged, no h-tag to fall back to → hidden
+        assert!(!is_event_visible_to(
+            &evt,
+            &Some("carol".into()),
+            &set_with(&["any_space"])
+        ));
+    }
 }

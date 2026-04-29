@@ -1,8 +1,10 @@
+use std::collections::HashSet;
 use std::sync::Arc;
 use tokio::sync::broadcast;
 use tokio::sync::Mutex;
 
 use crate::db::event_store;
+use crate::db::space_membership;
 use crate::nostr::event::Event;
 use crate::nostr::filter::Filter;
 use crate::nostr::verify::verify_event;
@@ -15,6 +17,7 @@ pub async fn handle_message(
     state: &Arc<AppState>,
     subscriptions: &Arc<Mutex<SubscriptionManager>>,
     authed_pubkey: &mut Option<String>,
+    space_memberships: &mut HashSet<String>,
     auth_challenge: &str,
     broadcast_tx: &broadcast::Sender<Event>,
 ) -> Vec<String> {
@@ -31,7 +34,7 @@ pub async fn handle_message(
         "EVENT" => handle_event(msg, state, broadcast_tx).await,
         "REQ" => handle_req(msg, state, subscriptions, authed_pubkey).await,
         "CLOSE" => handle_close(msg, subscriptions).await,
-        "AUTH" => handle_auth(msg, state, authed_pubkey, auth_challenge).await,
+        "AUTH" => handle_auth(msg, state, authed_pubkey, space_memberships, auth_challenge).await,
         _ => {
             tracing::debug!(msg_type, "Unknown message type");
             vec![format!(r#"["NOTICE","unknown message type: {msg_type}"]"#)]
@@ -249,11 +252,13 @@ async fn handle_close(
     }
 }
 
-/// Handle NIP-42 AUTH message: verify kind:22242 event and set authenticated pubkey
+/// Handle NIP-42 AUTH message: verify kind:22242 event, set authenticated pubkey,
+/// and warm the per-connection space membership cache used by the broadcast filter.
 async fn handle_auth(
     msg: serde_json::Value,
     state: &Arc<AppState>,
     authed_pubkey: &mut Option<String>,
+    space_memberships: &mut HashSet<String>,
     challenge: &str,
 ) -> Vec<String> {
     let event: Event = match serde_json::from_value(msg.get(1).cloned().unwrap_or_default()) {
@@ -279,6 +284,28 @@ async fn handle_auth(
         "Client authenticated (NIP-42)"
     );
     *authed_pubkey = Some(event.pubkey.clone());
+
+    // Populate the broadcast-path membership cache from `app.space_members`.
+    // Failures are logged but non-fatal — the cache stays empty and h-tagged
+    // broadcasts will be hidden, which is the safe default. Initial REQs still
+    // honour membership via the SQL filter in event_store.
+    match space_membership::query_for_pubkey(&state.pool, &event.pubkey).await {
+        Ok(set) => {
+            tracing::debug!(
+                pubkey = &event.pubkey[..12],
+                space_count = set.len(),
+                "Loaded space memberships for broadcast filter"
+            );
+            *space_memberships = set;
+        }
+        Err(e) => {
+            tracing::warn!(
+                pubkey = &event.pubkey[..12],
+                error = %e,
+                "Failed to load space memberships (h-tagged broadcasts will be hidden until reconnect)"
+            );
+        }
+    }
 
     vec![format!(r#"["OK","{}",true,""]"#, event.id)]
 }

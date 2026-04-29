@@ -91,46 +91,44 @@ The other two hypotheses from the investigation are still real and tracked below
 
 ---
 
-## Phase 2 — Broadcast filter doesn't check space membership (NOT shipped)
+## Phase 2 — Broadcast filter checks space membership (shipped)
 
 ### Problem
 
-`services/relay/src/connection.rs:24-47` `is_event_visible_to()` is the gate every broadcast event passes through before subscription matching. For an h-tagged event, the function keeps the event only if:
+`services/relay/src/connection.rs::is_event_visible_to()` is the gate every broadcast event passes through before subscription matching. Originally, for an h-tagged event the function kept the event only if the client was the author or p-tagged. It did **not** check `app.space_members` — so when a member of `seed0000001b` published a kind:9 with `["h", "seed0000001b"]`, the broadcast filter dropped it for every other space member who wasn't explicitly @-mentioned. Other members **never saw live messages** — only history via REQ (which uses the proper member-aware query at `event_store.rs:208-228`).
 
-- the client is the author, OR
-- the client is p-tagged in the event.
+This is why "switch spaces and back" had a chance of recovering: switching forces a new REQ, and the REQ path correctly consulted `app.space_members`.
 
-It does **not** check `app.space_members`. So when a member of `seed0000001b` publishes a kind:9 with `["h", "seed0000001b"]`, that event is broadcast to every connection, but `is_event_visible_to` filters it out for every other space member who isn't explicitly @-mentioned. Other members **never see live messages** — they only see history when they trigger a fresh REQ (which uses the proper member-aware query at `event_store.rs:208-228`).
+The original author's note "broadcast leaks are a lower-priority gap covered by h-tag matching in the subscription filter" was a misunderstanding — `is_event_visible_to` runs **before** `subs.matching_subs()`, so the filter never saw the event.
 
-This explains the "switch spaces and back" workaround: switching forces a new REQ.
+### Fix
 
-The author's comment "broadcast leaks are a lower-priority gap covered by h-tag matching in the subscription filter" is a misunderstanding — `is_event_visible_to` runs **before** `subs.matching_subs()`, so the filter never sees the event.
+Per-connection cache populated from `app.space_members` on AUTH success, consulted by `is_event_visible_to` for h-tagged events.
 
-### Fix sketch
+| File | Change |
+|---|---|
+| `services/relay/src/db/space_membership.rs` (new) | `query_for_pubkey(pool, pubkey) -> HashSet<String>` reads from `app.space_members` |
+| `services/relay/src/db/mod.rs` | Registers the new module |
+| `services/relay/src/connection.rs` | Adds `space_memberships: HashSet<String>` per-connection. `is_event_visible_to` takes the set as parameter. For h-tagged events, returns true when `space_memberships.contains(h_tag)`, after the existing author / p-tag checks. Threads the cache through to `handler::handle_message`. |
+| `services/relay/src/protocol/handler.rs` | `handle_message` and `handle_auth` take `&mut HashSet<String>`. On AUTH success, calls `space_membership::query_for_pubkey` and replaces the cache. DB failures are logged at warn level and the cache stays empty (h-tagged broadcasts hide, which is the safe default; REQ history still works because the SQL filter is independent of this cache). |
 
-Cache the user's space membership set in per-connection state:
+### Cost
 
-1. Add `space_memberships: HashSet<String>` to connection-local state in `connection.rs`.
-2. On AUTH success in `handle_auth`: query `SELECT space_id FROM app.space_members WHERE pubkey = $1`, populate the set.
-3. Refresh on inbound NIP-29 membership-change events targeting the authed pubkey:
-   - kind:9000 (put-user) → add space
-   - kind:9001 (remove-user) → remove space
-   - kind:9021 (join request acceptance) → add
-   - kind:9022 (leave) → remove
-4. `is_event_visible_to` consults the set: keep h-tagged events when `space_memberships.contains(h_tag)`.
+One indexed DB query per AUTH (fast — `app.space_members` has a `(pubkey)` index). Constant-time set lookups on every broadcast. No per-broadcast DB calls.
 
-Cost: one indexed DB query per AUTH (fast), then constant-time set lookups on every broadcast. Cache invalidation only when relevant events arrive.
+### Cache freshness limitation
 
-Membership changes initiated by other admins (kind:9000 with the affected user being someone else) need to broadcast to the affected user's connection. The simplest approach: make `handle_put_user` / `handle_remove_user` notify any connection whose `authed_pubkey` matches the targeted user. A `tokio::sync::broadcast` channel keyed on pubkey works; or just let the connection re-query on receipt of any kind:9000/9001 with `["p", self_pubkey]`.
+V1 only refreshes the cache on AUTH (so on initial connect and on every reconnect). Live membership changes during a session don't invalidate the cache. In practice:
 
-### Tests to add (write alongside fix)
+- For users with stable membership (the 9-Alpha case — 27 fixed seed spaces), this is fully correct.
+- For users who join/leave a space mid-session, broadcasts in the new/old space won't reach them until they reconnect. Tauri WebSocket flap means reconnects happen often anyway, so this self-heals within seconds-to-minutes.
 
-- `broadcast_reaches_space_members` — two AUTHed conns, both in `app.space_members`. conn1 publishes kind:9 with h-tag. conn2 receives via broadcast.
-- `broadcast_blocked_for_non_member` — same, but conn2 not in members. conn2 does NOT receive.
-- `membership_change_invalidates_cache` — admin kind:9001 removes a user from a space; user's subsequent broadcasts in that space are blocked.
-- `broadcast_reaches_p_tagged_non_member` — backward-compat: someone @-mentioned in a kind:9 still receives it even if not a space member (current behavior; should be preserved).
+A future refinement is to refresh on inbound NIP-29 membership events (`kind:9000/9001/9021/9022`) targeting the authed pubkey. The complication is propagation timing: the relay broadcasts the membership event before the backend `relayIngester` worker has updated `app.space_members`, so an immediate re-query reads stale data. Either delay the re-query (~1-2s) or directly mutate the local cache on event receipt (skip DB round-trip but accept divergence from `app.space_members` for closed-group join requests until ingester catches up).
 
-These can be added to `services/relay/tests/stress_subs.rs` (or split into a separate `tests/broadcast_visibility.rs`).
+### Tests
+
+- **Unit tests** in `services/relay/src/connection.rs::tests` — eight tests covering: public events visible to anonymous, anonymous blocked from protected, author always sees own, p-tagged sees event, **space member sees h-tagged broadcast (the fix)**, **non-member blocked from h-tagged broadcast**, **empty memberships block other authors' h-tagged events**, visibility-tagged falls back to author/p-tag without h-tag.
+- **Integration tests to add** (when the harness for stress_subs is upgraded to spawn the relay in-process): `broadcast_reaches_space_members`, `broadcast_blocked_for_non_member`, `cache_persists_across_broadcasts`.
 
 ---
 
