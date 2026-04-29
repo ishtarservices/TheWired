@@ -31,6 +31,10 @@ export class RelayConnection {
   private maxSubscriptions = DEFAULT_MAX_SUBS;
   /** Overflow queue: subs that couldn't be sent because we're at the cap. */
   private deferredSubs: Array<{ subId: string; filters: NostrFilter[] }> = [];
+  /** Warn once per connection lifetime when the cap is first hit. Silent
+   *  deferral was the failure mode that hid the original NIP-29 chat bug —
+   *  surface it so future regressions don't quietly queue forever. */
+  private hasWarnedDeferral = false;
 
   // Callbacks
   private onEvent: InternalEventCallback | null = null;
@@ -187,6 +191,7 @@ export class RelayConnection {
     const activeSent = this.subscriptions.size - this.deferredSubs.length;
     if (activeSent > this.maxSubscriptions) {
       this.deferredSubs.push({ subId, filters });
+      this.warnIfFirstDeferral();
       return;
     }
 
@@ -205,6 +210,18 @@ export class RelayConnection {
     this.send(["CLOSE", subId]);
     // A slot opened — drain the next deferred sub
     this.drainDeferred();
+  }
+
+  /** Warn once per connection lifetime when the subscription cap is hit.
+   *  The original NIP-29 chat bug presented as "messages don't show up" because
+   *  the channel REQ silently sat in `deferredSubs` after the cap was reached.
+   *  Surfacing this makes that class of failure self-diagnosing in console. */
+  private warnIfFirstDeferral(): void {
+    if (this.hasWarnedDeferral) return;
+    this.hasWarnedDeferral = true;
+    console.warn(
+      `[relay] ${this.shortUrl} subscription cap (${this.maxSubscriptions}) reached — new subs deferred until a slot opens`,
+    );
   }
 
   /** Send the next deferred subscription if a slot is available. */
@@ -318,6 +335,9 @@ export class RelayConnection {
       } else {
         this.deferredSubs.push({ subId: entry[0], filters: entry[1] });
       }
+    }
+    if (this.deferredSubs.length > 0) {
+      this.warnIfFirstDeferral();
     }
 
     const BATCH_SIZE = 5;

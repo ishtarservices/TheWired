@@ -372,6 +372,29 @@ describe("RelayConnection", () => {
       const ids = reqSubIds(latestWs());
       expect(ids).toContain("sub-3-deferred");
     });
+
+    it("warns once when the cap is first hit, not on every subsequent deferral", () => {
+      const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+      const conn = createConn();
+      conn.setMaxSubscriptions(2);
+      conn.connect();
+      latestWs().simulateOpen();
+
+      conn.subscribe("sub-1", [{ kinds: [9] }]);
+      conn.subscribe("sub-2", [{ kinds: [9] }]);
+      // First deferral → warn
+      conn.subscribe("sub-3-overflow", [{ kinds: [9] }]);
+      // Second deferral → silent (cap warning already fired)
+      conn.subscribe("sub-4-overflow", [{ kinds: [9] }]);
+
+      const capWarns = warnSpy.mock.calls
+        .map((c) => String(c[0]))
+        .filter((m) => m.includes("subscription cap"));
+      expect(capWarns).toHaveLength(1);
+      expect(capWarns[0]).toContain("(2)");
+
+      warnSpy.mockRestore();
+    });
   });
 
   // -------------------------------------------------------------------------
