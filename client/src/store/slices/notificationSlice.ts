@@ -19,6 +19,9 @@ export interface InAppNotification {
   actionType?: "follow_back" | "accept_friend";
   /** Target pubkey for the action */
   actionTarget?: string;
+  /** Set once the toast has surfaced this notification.
+   *  Prevents the toast from re-firing on app restart for persisted items. */
+  toastShown?: boolean;
 }
 
 export interface SpaceMute {
@@ -208,6 +211,11 @@ export const notificationSlice = createSlice({
       if (n) n.read = true;
     },
 
+    markNotificationToastShown(state, action: PayloadAction<string>) {
+      const n = state.notifications.find((n) => n.id === action.payload);
+      if (n) n.toastShown = true;
+    },
+
     /** Mark all DM notifications from a given pubkey as read.
      *  Called when the user opens a DM conversation directly. */
     markDMNotificationsRead(state, action: PayloadAction<string>) {
@@ -346,6 +354,7 @@ export const {
   addNotification,
   removeNotification,
   markNotificationRead,
+  markNotificationToastShown,
   markDMNotificationsRead,
   markChannelNotificationsRead,
   markAllNotificationsRead,

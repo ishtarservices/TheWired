@@ -62,7 +62,11 @@ export async function loadNotificationState(): Promise<void> {
   const savedDismissed = await getUserState<string[]>("notification_dismissed_ids");
 
   if (savedNotifs?.length) {
-    payload.notifications = savedNotifs;
+    // Treat all persisted notifications as already-toasted so the toast stack
+    // doesn't re-fire them on app open.
+    payload.notifications = savedNotifs.map((n) =>
+      n.toastShown ? n : { ...n, toastShown: true },
+    );
   }
   if (savedDismissed?.length) {
     (payload as Record<string, unknown>).dismissedNotifIds = savedDismissed;

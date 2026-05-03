@@ -3,7 +3,7 @@ import { useNavigate } from "react-router-dom";
 import { X, AtSign, MessageCircle, UserPlus, Link2, HeartHandshake } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useAppDispatch, useAppSelector } from "@/store/hooks";
-import { removeNotification, markNotificationRead, type InAppNotification, type NotificationType } from "@/store/slices/notificationSlice";
+import { removeNotification, markNotificationRead, markNotificationToastShown, type InAppNotification, type NotificationType } from "@/store/slices/notificationSlice";
 import { useInAppNotifications } from "./useNotifications";
 import { showBrowserNotification } from "./browserNotify";
 import { navigateToNotification } from "./navigateToNotification";
@@ -33,17 +33,33 @@ const TYPE_COLORS: Record<NotificationType, string> = {
 
 export function NotificationToastStack() {
   const notifications = useInAppNotifications();
-  // Track IDs that have been dismissed from the toast view only.
-  // This lets actionable notifications stay in the bell dropdown
-  // even after the toast is closed.
-  const [hiddenIds, setHiddenIds] = useState<Set<string>>(new Set());
+  const dispatch = useAppDispatch();
+  // Toasts that are currently on screen. Driven by local state, not the
+  // Redux filter, so marking a notification as toast-shown (for persistence)
+  // doesn't immediately unmount it.
+  const [displaying, setDisplaying] = useState<InAppNotification[]>([]);
+  const seenIdsRef = useRef<Set<string>>(new Set());
+
+  // Pick up any notification that hasn't already surfaced as a toast.
+  useEffect(() => {
+    for (const n of notifications) {
+      if (n.toastShown) continue;
+      if (seenIdsRef.current.has(n.id)) continue;
+      seenIdsRef.current.add(n.id);
+      setDisplaying((prev) => [...prev, n]);
+      // Persist so it won't re-fire on app restart.
+      dispatch(markNotificationToastShown(n.id));
+    }
+  }, [notifications, dispatch]);
 
   const hideToast = useCallback((id: string) => {
-    setHiddenIds((prev) => new Set(prev).add(id));
+    setDisplaying((prev) => prev.filter((n) => n.id !== id));
   }, []);
 
-  const visible = notifications
-    .filter((n) => !hiddenIds.has(n.id))
+  // If a notification is removed from Redux (clear-all, dismiss on ephemeral),
+  // drop the corresponding toast too.
+  const visible = displaying
+    .filter((d) => notifications.some((n) => n.id === d.id))
     .slice(-MAX_VISIBLE);
 
   if (visible.length === 0) return null;
