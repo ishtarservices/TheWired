@@ -4,9 +4,10 @@ import { useProfile } from "./useProfile";
 
 interface FollowCardProps {
   pubkey: string;
+  onNavigate?: () => void;
 }
 
-export function FollowCard({ pubkey }: FollowCardProps) {
+export function FollowCard({ pubkey, onNavigate }: FollowCardProps) {
   const navigate = useNavigate();
   const { profile } = useProfile(pubkey);
 
@@ -15,7 +16,10 @@ export function FollowCard({ pubkey }: FollowCardProps) {
 
   return (
     <button
-      onClick={() => navigate(`/profile/${pubkey}`)}
+      onClick={() => {
+        navigate(`/profile/${pubkey}`);
+        onNavigate?.();
+      }}
       className="flex w-full items-center gap-3.5 card-glass p-4 rounded-xl text-left transition-all duration-150 hover-lift"
     >
       <Avatar src={profile?.picture} alt={displayName} size="sm" />

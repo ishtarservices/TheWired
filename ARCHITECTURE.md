@@ -303,7 +303,7 @@ RelayManager
 ```
 
 **Relay Discovery Flow:**
-1. On login, fetch user's kind:10002 event from bootstrap relays (hardcoded: `wss://relay.damus.io`, `wss://nos.lol`, `wss://relay.nostr.band`)
+1. On login, fetch user's kind:10002 event from bootstrap relays (hardcoded: `wss://relay.damus.io`, `wss://nos.lol`)
 2. Parse `r` tags, categorize into read/write sets
 3. Open WebSocket connections to all listed relays (typically 4-8)
 4. For publishing: send to all `write` relays

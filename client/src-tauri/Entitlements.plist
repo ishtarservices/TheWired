@@ -21,5 +21,12 @@
 	<!-- Allow incoming network connections (P2P WebRTC) -->
 	<key>com.apple.security.network.server</key>
 	<true/>
+
+	<!-- Note: keychain-access-groups is intentionally NOT set. It's a profile- -->
+	<!-- allowlisted entitlement; without an embedded.provisionprofile AMFI -->
+	<!-- rejects the launch with POSIX 163 / RBS Code 5 via Launch Services. -->
+	<!-- Developer ID-signed apps get a default access group = Team ID, which -->
+	<!-- is sufficient for kSecUseDataProtectionKeychain access to the app's -->
+	<!-- own keychain items (see src/keystore.rs, SERVICE_NAME). -->
 </dict>
 </plist>

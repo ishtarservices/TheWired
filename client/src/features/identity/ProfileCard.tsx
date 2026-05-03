@@ -1,5 +1,5 @@
 import { useState, useCallback } from "react";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, useLocation } from "react-router-dom";
 import { ChevronUp, Pencil, User, Settings, LogOut, Plus, Check } from "lucide-react";
 import { Avatar } from "../../components/ui/Avatar";
 import {
@@ -15,6 +15,7 @@ import { useProfile } from "../profile/useProfile";
 export function ProfileCard() {
   const { pubkey, profile, accounts, logOut, logOutAll, switchTo } = useIdentity();
   const navigate = useNavigate();
+  const location = useLocation();
   const [menuOpen, setMenuOpen] = useState(false);
   const [editOpen, setEditOpen] = useState(false);
   const [addAccountOpen, setAddAccountOpen] = useState(false);
@@ -62,6 +63,9 @@ export function ProfileCard() {
               onSwitch={(pk) => {
                 closeMenu();
                 switchTo(pk);
+                if (location.pathname.startsWith("/profile/")) {
+                  navigate(`/profile/${pk}`, { replace: true });
+                }
               }}
             />
             <PopoverMenuSeparator />

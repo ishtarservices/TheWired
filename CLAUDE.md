@@ -195,7 +195,7 @@ Defined in `client/src-tauri/src/keystore.rs`, registered in `client/src-tauri/s
 
 - Use the `mcp__nostrbook` tools to look up NIP specs, event kinds, and tag definitions
 - Event kinds used: 0, 1, 3, 9, 22, 34236, 30023, 30311, 1311, 10000, 10002, 39000-39002
-- Bootstrap relays: `wss://relay.damus.io`, `wss://nos.lol`, `wss://relay.nostr.band`
+- Bootstrap relays: `wss://relay.damus.io`, `wss://nos.lol`
 - Channel routing is defined in `client/src/lib/nostr/channelRoutes.ts`
 
 ## Dependencies of Note

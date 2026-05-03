@@ -4,6 +4,8 @@ import { profileCache } from "@/lib/nostr/profileCache";
 import { relayManager } from "@/lib/nostr/relayManager";
 import type { Kind0Profile } from "@/types/profile";
 
+// relay.nostr.band: free, full-network NIP-50 index. nostr.wine was paywalled
+// and was rejecting all our search subs with "auth-required: private notes only".
 const SEARCH_RELAY = "wss://relay.nostr.band";
 
 export interface UserSearchResult {
@@ -51,12 +53,19 @@ export function useUserSearch() {
       } else {
         setResults([{ pubkey: directPubkey, profile: {} }]);
         setIsSearching(true);
+        let resolved = false;
         const unsub = profileCache.subscribe(directPubkey, (profile) => {
+          resolved = true;
           setResults([{ pubkey: directPubkey, profile }]);
           setIsSearching(false);
         });
         // Auto-cleanup after 5s
         const timeout = setTimeout(() => {
+          if (!resolved) {
+            console.warn(
+              `[useUserSearch] direct pubkey lookup timed out after 5s — no kind:0 found on PROFILE_RELAYS for ${directPubkey.slice(0, 16)}…`,
+            );
+          }
           unsub();
           setIsSearching(false);
         }, 5000);
@@ -77,7 +86,6 @@ export function useUserSearch() {
       cleanup();
       setIsSearching(true);
 
-      // Ensure relay.nostr.band is connected
       relayManager.connect(SEARCH_RELAY, "read");
 
       relayManager.waitForConnection(SEARCH_RELAY, 5000).then((connected) => {

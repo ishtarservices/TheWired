@@ -1,22 +1,32 @@
 /** The Wired's own relay — guaranteed to accept all event kinds including gift wraps */
 export const APP_RELAY = import.meta.env.VITE_RELAY_URL ?? "ws://localhost:7777";
 
-/** Bootstrap relays used before user's relay list is loaded */
+/** General-purpose writable relays used before the user's relay list is loaded.
+ *  Safe for PUBLISH of any kind (gift wraps, kind:10002, etc) and for SUBSCRIBE.
+ *  Dropped nostr.wine (paywalled, rejected writes with "restricted: sign up") and
+ *  offchain.pub (20-sub cap with low payoff). */
 export const BOOTSTRAP_RELAYS = [
   APP_RELAY,
   "wss://relay.damus.io",
   "wss://relay.primal.net",
   "wss://nos.lol",
-  "wss://relay.nostr.band",
-  "wss://offchain.pub",
-  "wss://nostr.wine",
 ];
 
-/** Targeted relays for profile data lookups (kind:0, kind:1, kind:3, kind:6, kind:30023) */
+/** READ-ONLY profile/relay-list indexer relays. They specialize in kind:0/3/10002 and
+ *  reject most other kinds, so NEVER publish arbitrary events to them. Use them for
+ *  fetching any pubkey's profile or NIP-65 relay list reliably. */
+export const INDEXER_RELAYS = [
+  "wss://purplepag.es",
+  "wss://user.kindpag.es",
+];
+
+/** Targeted relays for profile data lookups (kind:0, kind:1, kind:3, kind:6, kind:30023).
+ *  Combines the indexer specialists with damus.io (300-sub cap absorbs traffic that
+ *  20-cap relays like primal/nos.lol would defer). */
 export const PROFILE_RELAYS = [
   APP_RELAY,
+  ...INDEXER_RELAYS,
   "wss://relay.damus.io",
-  "wss://relay.primal.net",
 ];
 
 /** Reconnection backoff parameters */

@@ -214,24 +214,40 @@ class ProfileCacheImpl {
     this.pendingBatch.clear();
 
     let closed = false;
+    let timedOut = false;
+    const resolved = new Set<string>();
+
     const close = () => {
       if (closed) return;
       closed = true;
       clearTimeout(timer);
       relayManager.closeSubscription(subId);
+      if (timedOut) {
+        const missing = pubkeys.filter((pk) => !this.cache.has(pk));
+        if (missing.length > 0) {
+          console.warn(
+            `[profileCache] timeout: ${missing.length}/${pubkeys.length} pubkeys unresolved after 10s from ${PROFILE_RELAYS.join(", ")}`,
+            missing.slice(0, 5),
+          );
+        }
+      }
     };
 
     const subId = relayManager.subscribe({
       filters: [{ kinds: [0], authors: pubkeys }],
       relayUrls: PROFILE_RELAYS,
       onEvent: (event) => {
+        resolved.add(event.pubkey);
         this.handleProfileEvent(event);
       },
       onEOSE: close,
     });
 
     // Safety: close subscription if no relay responds
-    const timer = setTimeout(close, 10_000);
+    const timer = setTimeout(() => {
+      timedOut = true;
+      close();
+    }, 10_000);
   }
 }
 

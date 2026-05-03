@@ -2,7 +2,7 @@ import type { NostrEvent } from "../../types/nostr";
 import type { RelayListEntry } from "../../types/relay";
 import type { RelayMode } from "../../types/relay";
 import { relayManager } from "./relayManager";
-import { BOOTSTRAP_RELAYS } from "./constants";
+import { BOOTSTRAP_RELAYS, INDEXER_RELAYS } from "./constants";
 
 /** Parse a kind:10002 relay list event into relay entries */
 export function parseRelayList(event: NostrEvent): RelayListEntry[] {
@@ -33,7 +33,9 @@ export function fetchRelayList(
 ): string {
   return relayManager.subscribe({
     filters: [{ kinds: [10002], authors: [pubkey], limit: 1 }],
-    relayUrls: BOOTSTRAP_RELAYS,
+    // Indexers (purplepag.es / user.kindpag.es) specialize in kind:10002 — query them
+    // alongside bootstrap so we get the relay list even if bootstrap relays don't have it.
+    relayUrls: [...INDEXER_RELAYS, ...BOOTSTRAP_RELAYS],
     onEvent: (event) => {
       const entries = parseRelayList(event);
       if (entries.length > 0) {

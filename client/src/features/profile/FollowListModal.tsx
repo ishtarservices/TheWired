@@ -86,7 +86,7 @@ export function FollowListModal({ pubkeys, loading, mode, onClose }: FollowListM
                   className="animate-fade-in-up"
                   style={{ animationDelay: `${Math.min(i, 15) * 30}ms` }}
                 >
-                  <FollowCard pubkey={pk} />
+                  <FollowCard pubkey={pk} onNavigate={onClose} />
                 </div>
               ))}
               {hasMore && (
