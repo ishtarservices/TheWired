@@ -21,8 +21,10 @@ import { tryRestoreSession } from "../lib/nostr/loginFlow";
 import { ProfileWizard } from "../features/onboarding/ProfileWizard";
 import { AppTour } from "../features/onboarding/AppTour";
 import { UpdateOverlay } from "../components/UpdateOverlay";
+import { ZoomIndicator } from "../components/ZoomIndicator";
 import { getAutoUpdatesEnabled } from "../features/settings/AppSettingsTab";
 import { useAppUpdater } from "../hooks/useAppUpdater";
+import { useZoomShortcuts } from "../hooks/useZoomShortcuts";
 
 /** Restores session + guards all routes behind login */
 function AuthGate() {
@@ -151,6 +153,7 @@ function AutoUpdateGate({ children }: { children: React.ReactNode }) {
 }
 
 export default function App() {
+  useZoomShortcuts();
   return (
     <ThemeProvider>
       <BrowserRouter>
@@ -161,6 +164,7 @@ export default function App() {
         ) : (
           <AppRoutes />
         )}
+        <ZoomIndicator />
       </BrowserRouter>
     </ThemeProvider>
   );

@@ -9,7 +9,19 @@ import { useProfile } from "../profile/useProfile";
 import { AddAccountModal } from "../identity/AddAccountModal";
 import { Avatar } from "../../components/ui/Avatar";
 import { useAppUpdater } from "../../hooks/useAppUpdater";
-import { RefreshCw, Download, RotateCcw, Check, AlertCircle, Map, Plus, Trash2, Users } from "lucide-react";
+import { RefreshCw, Download, RotateCcw, Check, AlertCircle, Map, Plus, Trash2, Users, Minus, Plus as PlusIcon, ZoomIn } from "lucide-react";
+import {
+  ZOOM_DEFAULT,
+  ZOOM_MAX,
+  ZOOM_MIN,
+  ZOOM_STEP,
+  decreaseZoom,
+  getZoom,
+  increaseZoom,
+  resetZoom,
+  setZoom,
+  subscribeZoom,
+} from "../../lib/zoom";
 
 const isTauri =
   typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
@@ -139,6 +151,9 @@ export function AppSettingsTab() {
         </div>
       </div>
 
+      {/* Display / accessibility */}
+      <ZoomSection />
+
       {/* Accounts */}
       {isTauri && <AccountsSection />}
 
@@ -176,6 +191,90 @@ export function AppSettingsTab() {
 }
 
 declare const __APP_VERSION__: string;
+
+function ZoomSection() {
+  const [zoom, setLocalZoom] = useState(getZoom);
+
+  useEffect(() => subscribeZoom(setLocalZoom), []);
+
+  const isMac =
+    typeof navigator !== "undefined" &&
+    /mac|iphone|ipad|ipod/i.test(navigator.platform || navigator.userAgent);
+  const mod = isMac ? "⌘" : "Ctrl";
+  const atMin = zoom <= ZOOM_MIN + 1e-6;
+  const atMax = zoom >= ZOOM_MAX - 1e-6;
+  const atDefault = Math.abs(zoom - ZOOM_DEFAULT) < 1e-6;
+
+  return (
+    <div className="rounded-lg border border-border bg-panel p-4">
+      <div className="mb-1 flex items-center gap-2">
+        <ZoomIn size={14} className="text-primary" />
+        <h3 className="text-sm font-semibold text-heading">Display Zoom</h3>
+      </div>
+      <p className="mb-3 text-xs text-muted">
+        Scale the entire interface for readability. Shortcut:{" "}
+        <kbd className="rounded border border-border bg-card px-1 font-mono text-[10px]">
+          {mod}
+        </kbd>{" "}
+        +{" "}
+        <kbd className="rounded border border-border bg-card px-1 font-mono text-[10px]">
+          +
+        </kbd>{" "}
+        /{" "}
+        <kbd className="rounded border border-border bg-card px-1 font-mono text-[10px]">
+          −
+        </kbd>{" "}
+        /{" "}
+        <kbd className="rounded border border-border bg-card px-1 font-mono text-[10px]">
+          0
+        </kbd>
+      </p>
+
+      <div className="flex items-center gap-3">
+        <button
+          onClick={decreaseZoom}
+          disabled={atMin}
+          aria-label="Decrease zoom"
+          className="flex h-8 w-8 items-center justify-center rounded-md border border-border bg-card text-heading transition-colors hover:bg-faint disabled:cursor-not-allowed disabled:opacity-40"
+        >
+          <Minus size={14} />
+        </button>
+
+        <input
+          type="range"
+          min={ZOOM_MIN}
+          max={ZOOM_MAX}
+          step={ZOOM_STEP}
+          value={zoom}
+          onChange={(e) => setZoom(parseFloat(e.target.value))}
+          aria-label="Zoom level"
+          className="flex-1 accent-primary"
+        />
+
+        <button
+          onClick={increaseZoom}
+          disabled={atMax}
+          aria-label="Increase zoom"
+          className="flex h-8 w-8 items-center justify-center rounded-md border border-border bg-card text-heading transition-colors hover:bg-faint disabled:cursor-not-allowed disabled:opacity-40"
+        >
+          <PlusIcon size={14} />
+        </button>
+
+        <span className="w-12 text-right text-sm font-medium tabular-nums text-heading">
+          {Math.round(zoom * 100)}%
+        </span>
+
+        <button
+          onClick={resetZoom}
+          disabled={atDefault}
+          className="rounded-md border border-border bg-card px-2.5 py-1 text-xs font-medium text-heading transition-colors hover:bg-faint disabled:cursor-not-allowed disabled:opacity-40"
+        >
+          Reset
+        </button>
+      </div>
+    </div>
+  );
+}
 
 function AccountsSection() {
   const { pubkey, accounts, switchTo, removeAccount } = useIdentity();
