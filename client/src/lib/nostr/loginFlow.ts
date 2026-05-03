@@ -19,11 +19,16 @@ import type { RelayListEntry } from "../../types/relay";
 import { detectSigner, createSigner, type NostrSigner } from "./signer";
 import { relayManager } from "./relayManager";
 import { subscriptionManager } from "./subscriptionManager";
+import { handlePotentialKick } from "./kickHandler";
 import { parseRelayList } from "./nip65";
 import { parseDMRelayList, clearDMRelayCache } from "./dmRelayList";
 import { EVENT_KINDS } from "../../types/nostr";
 import { saveUserState, getUserState } from "../db/userStateStore";
 import { loadSpaces, saveSpaces } from "../db/spaceStore";
+import { loadAllMembers } from "../db/spaceMembersStore";
+import { setMembers } from "../../store/slices/spaceConfigSlice";
+import { updateSpaceMembers } from "../../store/slices/spacesSlice";
+import { syncSpaceMembers } from "../../store/thunks/spaceMembers";
 import { loadMusicLibrary } from "../db/musicStore";
 import { getEventsByKind } from "../db/eventStore";
 import { setSpaces, removeSpace, setChannels, setActiveSpace } from "../../store/slices/spacesSlice";
@@ -130,6 +135,10 @@ function wireRelayStatusBridge(): void {
     onOK: (eventId, success, message, relayUrl) => {
       if (!success) {
         console.warn(`[relay] ${relayUrl} rejected ${eventId.slice(0, 8)}: ${message}`);
+        // Reactive kick detection: if the relay rejected this event because
+        // we're no longer a member, sync membership and clean up locally.
+        // No-op for any other rejection.
+        void handlePotentialKick(eventId, success, message);
       }
     },
     onStatusChange: (url, status, error) => {
@@ -471,6 +480,25 @@ export async function performLogin(
 
   if (savedSpaces.length > 0) {
     store.dispatch(setSpaces(savedSpaces));
+
+    // Hydrate members + roles from IndexedDB so MemberList paints correctly
+    // on first render (no admin-as-member flicker). Then fire a background
+    // revalidation per space — corrects any drift (kicks/bans/role changes
+    // that happened while the app was closed) within seconds.
+    try {
+      const cachedMembers = await loadAllMembers();
+      for (const [spaceId, members] of cachedMembers) {
+        store.dispatch(setMembers({ spaceId, members }));
+        store.dispatch(
+          updateSpaceMembers({ spaceId, members: members.map((m) => m.pubkey) }),
+        );
+      }
+    } catch {
+      // IDB read failed — refresh below will populate state from backend
+    }
+    for (const space of savedSpaces) {
+      void store.dispatch(syncSpaceMembers(space.id));
+    }
 
     // Non-blocking: validate cached spaces against backend and purge stale ones
     validateAndPurgeStaleSpaces(savedSpaces.map((s) => s.id)).catch(() => {});

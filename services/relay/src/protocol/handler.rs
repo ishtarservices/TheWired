@@ -7,6 +7,7 @@ use crate::db::event_store;
 use crate::db::space_membership;
 use crate::nostr::event::Event;
 use crate::nostr::filter::Filter;
+use crate::nostr::membership_gate::{evaluate_publish_gate, PublishVerdict};
 use crate::nostr::verify::verify_event;
 use crate::protocol::subscription::SubscriptionManager;
 use crate::server::AppState;
@@ -151,6 +152,42 @@ async fn handle_event(
             return result;
         }
         _ => {}
+    }
+
+    // Publish-side membership gate. NIP-29 management kinds matched above and
+    // returned early; everything reaching here is regular content. If it's
+    // h-tagged (space-scoped) and the kind is subject to the gate, we must
+    // verify the author is a current member of `app.space_members` — otherwise
+    // a kicked user keeps posting via the same WebSocket (the per-connection
+    // membership cache is read-side only and stale post-kick).
+    if let Some(h) = event.get_tag_value("h") {
+        if crate::nostr::membership_gate::requires_h_membership_check(event.kind) {
+            let is_member = space_membership::is_space_member(&state.pool, &h, &event.pubkey)
+                .await
+                .unwrap_or_else(|e| {
+                    // Fail closed: a DB error during the gate check rejects
+                    // the publish rather than leaking it past the kick.
+                    tracing::error!(
+                        error = %e,
+                        space_id = %h,
+                        pubkey = &event.pubkey[..12],
+                        "Membership lookup failed; rejecting publish",
+                    );
+                    false
+                });
+            if let PublishVerdict::Reject(reason) = evaluate_publish_gate(&event, is_member) {
+                tracing::info!(
+                    pubkey = &event.pubkey[..12],
+                    space_id = %h,
+                    kind = event.kind,
+                    "Rejected publish: not a member of group",
+                );
+                return vec![format!(
+                    r#"["OK","{}",false,"{}"]"#,
+                    event.id, reason
+                )];
+            }
+        }
     }
 
     // Store regular events

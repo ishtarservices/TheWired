@@ -1,0 +1,6 @@
+# Serialize integration tests. The DB-backed tests in `tests/` share a single
+# `thewired_relay_test` Postgres database with a global TRUNCATE between cases,
+# so parallel test threads race on the rows. Forcing one thread keeps `cargo test`
+# correct without a per-test Mutex everywhere.
+[env]
+RUST_TEST_THREADS = "1"

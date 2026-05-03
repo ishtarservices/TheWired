@@ -5,7 +5,6 @@ import {
   setActiveSpace,
   setActiveChannel,
   addSpace,
-  removeSpace,
   updateSpace,
 } from "../../store/slices/spacesSlice";
 import {
@@ -13,34 +12,31 @@ import {
   leaveClientSpace,
   switchSpaceChannel,
   openBgChatSub,
-  closeBgChatSub,
   enterFriendsFeed,
   leaveFriendsFeed,
   switchFriendsFeedChannel,
 } from "../../lib/nostr/groupSubscriptions";
 import {
   addSpaceToStore,
-  removeSpaceFromStore,
   updateSpaceInStore,
 } from "../../lib/db/spaceStore";
 import {
   clearChannelUnread,
-  clearSpaceUnread,
   updateLastRead,
   addNotification,
   markChannelNotificationsRead,
   setUnreadDivider,
 } from "../../store/slices/notificationSlice";
-import { clearFeedMeta } from "../../store/slices/feedSlice";
-import { fetchMembers, getSpace, fetchFeedSources } from "../../lib/api/spaces";
+import { getSpace, fetchFeedSources } from "../../lib/api/spaces";
+import { syncSpaceMembers } from "../../store/thunks/spaceMembers";
 import { fetchMyOnboardingState, fetchOnboardingPreview } from "../../lib/api/onboarding";
 import { ApiRequestError } from "../../lib/api/client";
 import { updateSpaceFeedSources } from "../../store/slices/spacesSlice";
 import { setOnboardingPending } from "../../store/slices/spaceConfigSlice";
 import { selectActiveSpace, parseChannelIdPart } from "./spaceSelectors";
-import { clearSpaceFeed } from "../../store/slices/eventsSlice";
+import { cleanupSpaceState } from "./spaceCleanup";
 import type { Space, SpaceChannel } from "../../types/space";
-import { getLastChannel, setLastChannel, removeLastChannel } from "../../lib/db/lastChannelCache";
+import { getLastChannel, setLastChannel } from "../../lib/db/lastChannelCache";
 import { FRIENDS_FEED_ID, FRIENDS_FEED_CHANNELS } from "../friends/friendsFeedConstants";
 
 /** Pick the best default channel for a space, respecting position and isDefault flag */
@@ -73,35 +69,6 @@ function activateChannel(channelId: string, dispatch: ReturnType<typeof useAppDi
   dispatch(updateLastRead({ contextId: channelId, timestamp: Math.floor(Date.now() / 1000) }));
 }
 
-/**
- * Unified cleanup for all slices when a space is removed/deleted.
- * Ensures no stale data lingers in notifications, feed metadata,
- * events indices, or spaceConfig.
- */
-function cleanupSpaceState(spaceId: string, dispatch: ReturnType<typeof useAppDispatch>) {
-  leaveClientSpace(spaceId);
-  closeBgChatSub(spaceId);
-
-  // Clear feed meta for all channels (by ID and legacy type keys)
-  const spaceChannels = store.getState().spaces.channels[spaceId];
-  if (spaceChannels) {
-    for (const ch of spaceChannels) {
-      dispatch(clearFeedMeta(`${spaceId}:${ch.id}`));
-    }
-  }
-  // Also clear legacy type-based keys
-  dispatch(clearFeedMeta(`${spaceId}:notes`));
-  dispatch(clearFeedMeta(`${spaceId}:media`));
-  dispatch(clearFeedMeta(`${spaceId}:articles`));
-  dispatch(clearFeedMeta(`${spaceId}:music`));
-
-  dispatch(removeSpace(spaceId));
-  dispatch(clearSpaceUnread(spaceId));
-  dispatch(clearSpaceFeed(spaceId));
-  removeSpaceFromStore(spaceId);
-  removeLastChannel(spaceId);
-}
-
 export function useSpace() {
   const dispatch = useAppDispatch();
   const spaces = useAppSelector((s) => s.spaces.list);
@@ -112,39 +79,17 @@ export function useSpace() {
   const activeSpace = useAppSelector(selectActiveSpace);
   const deferTimerRef = useRef<ReturnType<typeof setTimeout>>(undefined);
 
-  /** Fetch members from backend and merge into Redux + IndexedDB */
+  /**
+   * Fetch members from backend (authoritative) into both Redux slices + IndexedDB
+   * via the `syncSpaceMembers` thunk. Also re-subscribes the active channel when
+   * the membership changes, so feed content reflects the current author list.
+   */
   const syncMembers = useCallback(
     async (spaceId: string) => {
+      const before = store.getState().spaces.list.find((s) => s.id === spaceId)?.memberPubkeys ?? [];
+
       try {
-        const res = await fetchMembers(spaceId);
-        const backendPubkeys = res.data.map((m) => m.pubkey);
-        if (backendPubkeys.length === 0) return;
-
-        // Read from store directly — the `spaces` closure may be stale when
-        // called right after addSpace() in joinSpace().
-        const space = store.getState().spaces.list.find((s) => s.id === spaceId);
-        if (!space) return;
-
-        // Merge: union of local + backend members (local may have members
-        // the backend doesn't know about yet, e.g. from NIP-29 metadata)
-        const merged = [...new Set([...space.memberPubkeys, ...backendPubkeys])];
-        if (merged.length !== space.memberPubkeys.length || !merged.every((pk) => space.memberPubkeys.includes(pk))) {
-          const updated: Space = { ...space, memberPubkeys: merged };
-          dispatch(updateSpace(updated));
-          updateSpaceInStore(updated);
-
-          // Re-subscribe the active channel with updated member list so feed
-          // content from all members is fetched (not just the joining user).
-          const state = store.getState();
-          if (state.spaces.activeSpaceId === spaceId && state.spaces.activeChannelId) {
-            const spaceChannels = state.spaces.channels[spaceId];
-            const channelIdPart = parseChannelIdPart(state.spaces.activeChannelId);
-            const channel = spaceChannels?.find((c) => c.id === channelIdPart);
-            if (channel) {
-              switchSpaceChannel(updated, channel.type, channel.id);
-            }
-          }
-        }
+        await dispatch(syncSpaceMembers(spaceId));
       } catch (err) {
         // Space deleted on backend — clean up locally
         if (err instanceof ApiRequestError && err.status === 404) {
@@ -160,7 +105,31 @@ export function useSpace() {
           );
           return;
         }
-        // Backend unavailable — keep local members
+        // Other errors: thunk has already kept existing state.
+        return;
+      }
+
+      // After the thunk resolves, mirror memberPubkeys into IndexedDB and re-subscribe
+      // the active channel if membership changed. The thunk already wrote spaceConfig.members
+      // to IDB — here we keep the legacy `spaceStore` row in sync as well.
+      const state = store.getState();
+      const updated = state.spaces.list.find((s) => s.id === spaceId);
+      if (!updated) return;
+
+      const same =
+        updated.memberPubkeys.length === before.length &&
+        updated.memberPubkeys.every((pk) => before.includes(pk));
+      if (same) return;
+
+      updateSpaceInStore(updated);
+
+      if (state.spaces.activeSpaceId === spaceId && state.spaces.activeChannelId) {
+        const spaceChannels = state.spaces.channels[spaceId];
+        const channelIdPart = parseChannelIdPart(state.spaces.activeChannelId);
+        const channel = spaceChannels?.find((c) => c.id === channelIdPart);
+        if (channel) {
+          switchSpaceChannel(updated, channel.type, channel.id);
+        }
       }
     },
     [dispatch],

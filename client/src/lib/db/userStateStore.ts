@@ -104,11 +104,14 @@ export async function migrateUnprefixedState(pubkey: string): Promise<void> {
     await store.delete(key);
   }
 
-  // Also migrate space_channels:* keys
+  // Also migrate space_channels:* and space_members:* keys
   let cursor = await store.openCursor();
   while (cursor) {
     const k = cursor.key as string;
-    if (k.startsWith("space_channels:") && !k.startsWith(`${pubkey}:`)) {
+    const isWildcard =
+      (k.startsWith("space_channels:") || k.startsWith("space_members:")) &&
+      !k.startsWith(`${pubkey}:`);
+    if (isWildcard) {
       const prefixed = `${pubkey}:${k}`;
       const already = await store.get(prefixed);
       if (!already) {

@@ -7,7 +7,6 @@ import { useSpace } from "./useSpace";
 import { useAppSelector, useAppDispatch } from "../../store/hooks";
 import { usePermissions } from "./usePermissions";
 import { useRoles } from "./useRoles";
-import { useMemberRoles } from "./useMemberRoles";
 import { selectActiveSpace } from "./spaceSelectors";
 import { MemberContextMenu } from "./moderation/MemberContextMenu";
 import { InviteGenerateModal } from "./InviteGenerateModal";
@@ -16,52 +15,24 @@ import { addFeedSources, removeFeedSource as removeFeedSourceApi } from "../../l
 import { updateSpaceFeedSources } from "../../store/slices/spacesSlice";
 import { updateSpaceInStore } from "../../lib/db/spaceStore";
 import { switchSpaceChannel } from "../../lib/nostr/groupSubscriptions";
-import type { Space } from "../../types/space";
+import { buildRoleGroups } from "./buildRoleGroups";
+import type { Space, SpaceMember } from "../../types/space";
 
-interface RoleGroup {
-  roleId: string;
-  label: string;
-  color?: string;
-  position: number;
-  pubkeys: string[];
-}
+const EMPTY_MEMBERS: SpaceMember[] = [];
 
-/** Build Discord-style role groups from member data */
-function useRoleGroups(spaceId: string | null, allPubkeys: string[]) {
+/** Build Discord-style role groups from spaceConfig.members (single source of truth). */
+function useRoleGroups(
+  spaceId: string | null,
+  members: SpaceMember[],
+  adminPubkeys: string[],
+  creatorPubkey: string,
+) {
   const { roles } = useRoles(spaceId ?? "");
-  const { members: memberData } = useMemberRoles(spaceId);
 
-  return useMemo(() => {
-    const memberRolesMap = new Map(memberData.map((m) => [m.pubkey, m.roles]));
-
-    // Find the default role for the fallback group label
-    const defaultRole = roles.find((r) => r.isDefault);
-
-    const groupMap = new Map<string, RoleGroup>();
-
-    for (const pubkey of allPubkeys) {
-      const mRoles = memberRolesMap.get(pubkey) ?? [];
-      // Highest role = lowest position
-      const topRole = mRoles.length > 0
-        ? [...mRoles].sort((a, b) => a.position - b.position)[0]
-        : undefined;
-
-      const groupKey = topRole?.id ?? "__default__";
-
-      if (!groupMap.has(groupKey)) {
-        groupMap.set(groupKey, {
-          roleId: groupKey,
-          label: topRole?.name ?? defaultRole?.name ?? "Members",
-          color: topRole?.color,
-          position: topRole?.position ?? 999,
-          pubkeys: [],
-        });
-      }
-      groupMap.get(groupKey)!.pubkeys.push(pubkey);
-    }
-
-    return [...groupMap.values()].sort((a, b) => a.position - b.position);
-  }, [allPubkeys, memberData, roles]);
+  return useMemo(
+    () => buildRoleGroups(members, roles, adminPubkeys, creatorPubkey),
+    [members, roles, adminPubkeys, creatorPubkey],
+  );
 }
 
 const MemberItem = memo(function MemberItem({
@@ -267,8 +238,15 @@ export function MemberList() {
   const [spectatorsOpen, setSpectatorsOpen] = useState(false);
 
   // Must call all hooks before any early returns
-  const communityMembers = activeSpace?.memberPubkeys ?? [];
-  const roleGroups = useRoleGroups(activeSpaceId, communityMembers);
+  const memberData = useAppSelector(
+    (s) => (activeSpaceId ? s.spaceConfig.members[activeSpaceId] : undefined) ?? EMPTY_MEMBERS,
+  );
+  const roleGroups = useRoleGroups(
+    activeSpaceId,
+    memberData,
+    activeSpace?.adminPubkeys ?? [],
+    activeSpace?.creatorPubkey ?? "",
+  );
 
   if (!activeSpace || !activeSpaceId || !space) return null;
 
@@ -385,9 +363,9 @@ export function MemberList() {
 
   return (
     <div className="p-3 space-y-3">
-      {roleGroups.length === 0 && communityMembers.length === 0 ? (
+      {roleGroups.length === 0 ? (
         <div className="px-2 py-4 text-center text-xs text-muted">
-          No members loaded
+          {activeSpace.memberPubkeys.length > 0 ? "Loading members…" : "No members yet"}
         </div>
       ) : (
         roleGroups.map((group) => (

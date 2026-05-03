@@ -132,7 +132,17 @@ export const moderationService = {
       .where(and(eq(timedMutes.spaceId, spaceId), gt(timedMutes.expiresAt, now)));
   },
 
-  /** Kick a member (remove without banning) */
+  /**
+   * Kick a member (remove without banning).
+   *
+   * Note: rows in `app.member_roles` are intentionally NOT cascade-deleted here.
+   * `getAllMembersWithRoles` (the data source for `/spaces/:id/member-roles`)
+   * JOINs through `app.space_members`, so orphaned `member_roles` rows are
+   * filtered out at read time and invisible to clients. Leaving them in place
+   * means a re-invite restores the user's prior role assignments without an
+   * audit-log gap. If you ever expose `member_roles` directly (e.g. an admin
+   * report endpoint), revisit this and add an explicit cascade.
+   */
   async kickMember(spaceId: string, pubkey: string, actorPubkey?: string) {
     await db
       .delete(spaceMembers)

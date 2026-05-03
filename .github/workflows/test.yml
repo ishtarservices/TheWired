@@ -50,10 +50,24 @@ jobs:
         working-directory: services/gateway
         run: go test ./... -v -count=1
 
-  # ── Relay Tests (Rust) ─────────────────────────
+  # ── Relay Tests (Rust + PostgreSQL) ────────────
   relay:
     name: Relay Tests
     runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: thewired
+          POSTGRES_PASSWORD: thewired
+          POSTGRES_DB: thewired_relay_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
     steps:
       - uses: actions/checkout@v4
 
@@ -66,6 +80,8 @@ jobs:
       - name: Run relay tests
         working-directory: services/relay
         run: cargo test
+        env:
+          TEST_DATABASE_URL: postgres://thewired:thewired@localhost:5432/thewired_relay_test
 
   # ── Backend Tests (Vitest + PostgreSQL) ─────────
   backend:

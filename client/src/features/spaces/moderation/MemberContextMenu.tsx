@@ -41,13 +41,33 @@ export function MemberContextMenu({
   // Role hierarchy: hide moderation options if target outranks or equals actor
   const currentPubkey = useAppSelector((s) => s.identity.pubkey);
   const members = useAppSelector((s) => s.spaceConfig.members[spaceId] ?? EMPTY_MEMBERS);
+  const space = useAppSelector((s) => s.spaces.list.find((sp) => sp.id === spaceId));
 
   const canModerate = useMemo(() => {
     if (!currentPubkey || currentPubkey === pubkey) return false;
+
+    // Admin/creator fallback: if the actor is in adminPubkeys or is the creator
+    // (e.g. they don't have an explicit role row, or roles haven't loaded yet),
+    // and the target is NOT also an admin, allow moderation. This prevents the
+    // "creator without explicit role row can't kick anyone" failure mode.
+    const actorIsAdminFallback =
+      !!space &&
+      (space.adminPubkeys.includes(currentPubkey) || space.creatorPubkey === currentPubkey);
+    const targetIsAdminFallback =
+      !!space &&
+      (space.adminPubkeys.includes(pubkey) || space.creatorPubkey === pubkey);
+
     // Get actor's best (lowest) role position
     const actorMember = members.find((m) => m.pubkey === currentPubkey);
     const targetMember = members.find((m) => m.pubkey === pubkey);
-    if (!actorMember?.roles.length) return false;
+
+    if (!actorMember?.roles.length) {
+      // Actor has no explicit roles — fall back to adminPubkeys/creator
+      if (!actorIsAdminFallback) return false;
+      // Admin fallback: can moderate non-admins. Two admins can't act on each other
+      // through this UI; that requires explicit role hierarchy.
+      return !targetIsAdminFallback;
+    }
 
     const actorBest = Math.min(...actorMember.roles.map((r) => r.position));
     const targetBest = targetMember?.roles.length
@@ -55,7 +75,7 @@ export function MemberContextMenu({
       : Infinity; // No roles = lowest rank
 
     return actorBest < targetBest; // Actor must strictly outrank
-  }, [currentPubkey, pubkey, members]);
+  }, [currentPubkey, pubkey, members, space]);
 
   function handleViewProfile() {
     navigate(`/profile/${pubkey}`);

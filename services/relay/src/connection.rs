@@ -4,13 +4,58 @@ use std::collections::HashSet;
 use std::net::SocketAddr;
 use std::sync::atomic::Ordering;
 use std::sync::Arc;
+use std::time::{Duration, Instant};
 use tokio::sync::broadcast;
 use tokio::sync::Mutex;
 
+use crate::db::space_membership;
 use crate::nostr::event::Event;
 use crate::protocol::handler;
 use crate::protocol::nip42;
 use crate::server::AppState;
+
+/// How long the per-connection membership cache is trusted before we re-query
+/// `app.space_members`. The publish-side gate (handler.rs) enforces membership
+/// authoritatively per-EVENT, so this cache only governs *receiving*. A 30 s
+/// staleness window means a kicked user keeps reading their old channels for
+/// at most 30 s before they're cut off, even if they hold an open WebSocket.
+/// Refresh is *lazy* — only triggered when an h-tagged event is about to be
+/// forwarded — so idle connections do not poll the DB.
+const MEMBERSHIP_TTL: Duration = Duration::from_secs(30);
+
+/// If `last_refresh` is older than [`MEMBERSHIP_TTL`], re-query the membership
+/// set from `app.space_members`. Failures are logged and leave the cache
+/// untouched (and the timestamp un-bumped, so we'll retry on the next call).
+/// Returns `true` if a refresh happened.
+async fn maybe_refresh_memberships(
+    state: &Arc<AppState>,
+    authed_pubkey: &Option<String>,
+    space_memberships: &mut HashSet<String>,
+    last_refresh: &mut Instant,
+) -> bool {
+    let pk = match authed_pubkey {
+        Some(pk) => pk,
+        None => return false,
+    };
+    if last_refresh.elapsed() < MEMBERSHIP_TTL {
+        return false;
+    }
+    match space_membership::query_for_pubkey(&state.pool, pk).await {
+        Ok(set) => {
+            *space_memberships = set;
+            *last_refresh = Instant::now();
+            true
+        }
+        Err(e) => {
+            tracing::warn!(
+                pubkey = &pk[..12.min(pk.len())],
+                error = %e,
+                "Membership refresh failed; keeping stale cache"
+            );
+            false
+        }
+    }
+}
 
 /// Maximum incoming WebSocket message size (128 KiB)
 const MAX_MESSAGE_SIZE: usize = 128 * 1024;
@@ -92,6 +137,9 @@ pub async fn handle_connection(
     ));
     let mut authed_pubkey: Option<String> = None;
     let mut space_memberships: HashSet<String> = HashSet::new();
+    // Last time `space_memberships` was refreshed from the DB. AUTH populates
+    // the cache and stamps this; lazy refresh in the broadcast path bumps it.
+    let mut memberships_refreshed_at: Instant = Instant::now();
     let auth_challenge = nip42::generate_challenge();
 
     // Send NIP-42 AUTH challenge on connect
@@ -113,6 +161,7 @@ pub async fn handle_connection(
                             continue;
                         }
                         events_received += 1;
+                        let was_authed = authed_pubkey.is_some();
                         let responses = handler::handle_message(
                             &text,
                             &state,
@@ -123,6 +172,13 @@ pub async fn handle_connection(
                             &state.broadcast_tx,
                         )
                         .await;
+                        // AUTH success transitions None → Some(pubkey) AND
+                        // populates `space_memberships` from the DB. Bump the
+                        // refresh timestamp so the lazy refresh logic doesn't
+                        // immediately re-query the row we just fetched.
+                        if !was_authed && authed_pubkey.is_some() {
+                            memberships_refreshed_at = Instant::now();
+                        }
 
                         for response in responses {
                             if sender.send(Message::Text(response.into())).await.is_err() {
@@ -139,6 +195,19 @@ pub async fn handle_connection(
             broadcast_result = broadcast_rx.recv() => {
                 match broadcast_result {
                     Ok(event) => {
+                        // For h-tagged (space-scoped) events, lazily refresh the
+                        // membership cache if it's older than MEMBERSHIP_TTL —
+                        // otherwise a kicked user holding this socket keeps
+                        // receiving the channel until they reconnect.
+                        if event.get_tag_value("h").is_some() {
+                            maybe_refresh_memberships(
+                                &state,
+                                &authed_pubkey,
+                                &mut space_memberships,
+                                &mut memberships_refreshed_at,
+                            ).await;
+                        }
+
                         // Visibility check: don't send protected events to unauthorized clients
                         if !is_event_visible_to(&event, &authed_pubkey, &space_memberships) {
                             continue;
@@ -284,6 +353,20 @@ mod tests {
             &Some("bob".into()),
             &empty_set()
         ));
+    }
+
+    /// TTL guard: the lazy refresh should only fire when the cache exceeds
+    /// `MEMBERSHIP_TTL`. We can't drive the actual `maybe_refresh_memberships`
+    /// here without a DB, but we can sanity-check the arithmetic that decides
+    /// whether to skip vs. refresh.
+    #[test]
+    fn ttl_guard_skips_recent_refresh() {
+        let recent = Instant::now();
+        assert!(
+            recent.elapsed() < MEMBERSHIP_TTL,
+            "a just-stamped Instant must be considered fresh — \
+             otherwise we'd refresh on every broadcast event after AUTH"
+        );
     }
 
     /// Visibility-tagged events without an h-tag still respect author / p-tag.

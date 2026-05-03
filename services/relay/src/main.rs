@@ -1,13 +1,5 @@
+use thewired_relay::{config, db, server};
 use tracing_subscriber::EnvFilter;
-
-mod config;
-mod connection;
-mod db;
-mod nostr;
-mod protocol;
-mod music;
-mod relay_identity;
-mod server;
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {

@@ -268,10 +268,11 @@ export function MembersTab({ spaceId }: MembersTabProps) {
 
   if (!space) return null;
 
-  // Merge relay-known members and backend-known members (deduplicated)
-  const relayMembers = space.memberPubkeys;
-  const backendPubkeys = memberData.map((m) => m.pubkey);
-  const allPubkeys = [...new Set([...relayMembers, ...backendPubkeys])];
+  // Single source of truth: spaceConfig.members (the SpaceMember[] superset).
+  // memberPubkeys is kept atomically in sync via syncSpaceMembers, so we don't
+  // need to consult both anymore — that union merge was the cause of the
+  // "two member lists / split members" bug.
+  const allPubkeys = memberData.map((m) => m.pubkey);
   const memberRolesMap = new Map(memberData.map((m) => [m.pubkey, m.roles]));
   const filteredMembers = memberFilter
     ? allPubkeys.filter((pk) => pk.includes(memberFilter.toLowerCase()))

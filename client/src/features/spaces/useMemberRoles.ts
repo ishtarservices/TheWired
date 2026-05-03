@@ -1,11 +1,19 @@
-import { useCallback, useEffect } from "react";
+import { useCallback } from "react";
 import { useAppSelector, useAppDispatch } from "../../store/hooks";
-import { setMembers, updateMemberRoles } from "../../store/slices/spaceConfigSlice";
-import type { SpaceRole } from "../../types/space";
+import { syncSpaceMembers } from "../../store/thunks/spaceMembers";
 import * as rolesApi from "../../lib/api/roles";
 
-/** Track which spaces have been bulk-fetched to avoid redundant requests across hook instances */
-const fetchedSpaces = new Set<string>();
+/**
+ * Read-side hook for member-role data plus role-mutation helpers.
+ *
+ * Membership fetching is owned by the `syncSpaceMembers` thunk (called from
+ * `useSpace.syncMembers` on space activation, from `loginFlow` on hydrate, and
+ * debounced from `eventPipeline` on kind:39002 nudges). This hook no longer
+ * triggers fetches on mount — the previous module-level cache `fetchedSpaces`
+ * never refreshed during a session, which left admins bucketed as "Members"
+ * after any role change. Single-source-of-truth lives in the thunk now.
+ */
+
 const EMPTY_MEMBERS: never[] = [];
 
 export function useMemberRoles(spaceId: string | null) {
@@ -14,25 +22,10 @@ export function useMemberRoles(spaceId: string | null) {
     (s) => (spaceId ? s.spaceConfig.members[spaceId] : undefined) ?? EMPTY_MEMBERS,
   );
 
-  // Auto-fetch all members with roles on first mount per space
-  useEffect(() => {
-    if (!spaceId || fetchedSpaces.has(spaceId)) return;
-    fetchedSpaces.add(spaceId); // Mark immediately to deduplicate concurrent mounts
-    rolesApi.fetchAllMemberRoles(spaceId)
-      .then((data) => {
-        dispatch(setMembers({ spaceId, members: data }));
-      })
-      .catch((err) => {
-        fetchedSpaces.delete(spaceId); // Allow retry on error
-        console.error("[useMemberRoles] Failed to fetch member roles:", err);
-      });
-  }, [spaceId, dispatch]);
-
   const refetchAll = useCallback(
     async () => {
       if (!spaceId) return;
-      const data = await rolesApi.fetchAllMemberRoles(spaceId);
-      dispatch(setMembers({ spaceId, members: data }));
+      await dispatch(syncSpaceMembers(spaceId));
     },
     [spaceId, dispatch],
   );
@@ -41,8 +34,8 @@ export function useMemberRoles(spaceId: string | null) {
     async (pubkey: string, roleId: string) => {
       if (!spaceId) return;
       await rolesApi.assignRole(spaceId, pubkey, roleId);
-      const roles = await rolesApi.fetchMemberRoles(spaceId, pubkey);
-      dispatch(updateMemberRoles({ spaceId, pubkey, roles: roles as SpaceRole[] }));
+      // Refresh the whole roster (one fetch) so both slices stay consistent.
+      await dispatch(syncSpaceMembers(spaceId));
     },
     [spaceId, dispatch],
   );
@@ -51,8 +44,7 @@ export function useMemberRoles(spaceId: string | null) {
     async (pubkey: string, roleId: string) => {
       if (!spaceId) return;
       await rolesApi.removeRoleFromMember(spaceId, pubkey, roleId);
-      const roles = await rolesApi.fetchMemberRoles(spaceId, pubkey);
-      dispatch(updateMemberRoles({ spaceId, pubkey, roles: roles as SpaceRole[] }));
+      await dispatch(syncSpaceMembers(spaceId));
     },
     [spaceId, dispatch],
   );

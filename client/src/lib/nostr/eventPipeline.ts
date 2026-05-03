@@ -29,6 +29,7 @@ import { addEmojiSet, setUserEmojis, setSpaceEmojiSets } from "../../store/slice
 import { parseEmojiSetEvent, parseUserEmojiListEvent } from "../../features/emoji/emojiSetParser";
 import { parseRTCSignal } from "./callSignaling";
 import type { CallType } from "../../types/calling";
+import { scheduleMemberSync } from "../../store/thunks/spaceMembers";
 
 const dedup = new EventDeduplicator();
 
@@ -510,6 +511,16 @@ async function indexEvent(event: NostrEvent): Promise<void> {
       if (event.pubkey === myPubkey) {
         const { emojis } = parseUserEmojiListEvent(event);
         store.dispatch(setUserEmojis(emojis));
+      }
+      break;
+    }
+    case EVENT_KINDS.GROUP_MEMBERS: {
+      // NIP-29 kind:39002 (replaceable group members list).
+      // Backend stays authoritative — relay only signals that membership changed.
+      // Debounced refetch coalesces bursts (relay re-emits 39002 on every join/leave).
+      const dTag = event.tags.find((t) => t[0] === "d")?.[1];
+      if (dTag && store.getState().spaces.list.some((s) => s.id === dTag)) {
+        scheduleMemberSync(dTag, store.dispatch);
       }
       break;
     }
