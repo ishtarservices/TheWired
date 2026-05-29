@@ -54,6 +54,9 @@ pub fn run() {
             keystore::keystore_clear_active,
             keystore::keystore_nip44_encrypt,
             keystore::keystore_nip44_decrypt,
+            keystore::keystore_set_secret,
+            keystore::keystore_get_secret,
+            keystore::keystore_delete_secret,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

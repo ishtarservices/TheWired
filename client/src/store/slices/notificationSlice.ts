@@ -2,7 +2,7 @@ import { createSlice, type PayloadAction } from "@reduxjs/toolkit";
 
 // ── Types ───────────────────────────────────────────────────────
 
-export type NotificationType = "mention" | "dm" | "follow" | "chat" | "invite" | "friend_request";
+export type NotificationType = "mention" | "dm" | "follow" | "chat" | "invite" | "friend_request" | "zap";
 
 export interface InAppNotification {
   id: string;

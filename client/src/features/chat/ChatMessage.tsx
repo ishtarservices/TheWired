@@ -1,6 +1,6 @@
 import { useRef, useState, useCallback, useMemo } from "react";
 import { formatDistanceToNow } from "date-fns";
-import { SmilePlus } from "lucide-react";
+import { SmilePlus, Zap } from "lucide-react";
 import { Avatar } from "../../components/ui/Avatar";
 import { RichContent } from "../../components/content/RichContent";
 import { BlockedMessage } from "../../components/ui/BlockedMessage";
@@ -11,7 +11,9 @@ import { useIsBlocked } from "../../hooks/useIsBlocked";
 import { useUnblock } from "../../hooks/useUnblock";
 import { useAppSelector } from "../../store/hooks";
 import { eventsSelectors } from "../../store/slices/eventsSlice";
+import { aggregateReactions } from "../../store/slices/reactionsSlice";
 import type { NostrEvent } from "../../types/nostr";
+import { useZap } from "../wallet/WalletProvider";
 
 interface ChatMessageProps {
   event: NostrEvent;
@@ -51,6 +53,7 @@ export function ChatMessage({
   const isBlocked = useIsBlocked(event.pubkey);
   const avatarRef = useRef<HTMLButtonElement>(null);
   const reactionBtnRef = useRef<HTMLButtonElement>(null);
+  const { openZap } = useZap();
   const displayName =
     profile?.display_name || profile?.name || event.pubkey.slice(0, 8) + "...";
   const timeAgo = formatDistanceToNow(event.created_at * 1000, {
@@ -61,21 +64,11 @@ export function ChatMessage({
   const [ctxMenu, setCtxMenu] = useState<{ x: number; y: number } | null>(null);
   const [showReactionPicker, setShowReactionPicker] = useState(false);
 
-  // Aggregate reactions for this message
-  const reactionIds = useAppSelector((s) => s.events.reactions[event.id]);
-  const entities = useAppSelector((s) => s.events.entities);
-  const reactions = useMemo(() => {
-    if (!reactionIds || reactionIds.length === 0) return [];
-    const grouped: Record<string, number> = {};
-    for (const id of reactionIds) {
-      const ev = entities[id];
-      if (ev) {
-        const key = ev.content || "+";
-        grouped[key] = (grouped[key] ?? 0) + 1;
-      }
-    }
-    return Object.entries(grouped).map(([content, count]) => ({ content, count }));
-  }, [reactionIds, entities]);
+  // Aggregate reactions for this message from the reaction-aggregate slice.
+  // Subscribes only to this message's reactor map (a stable reference unless
+  // this message's reactions change) — no longer the whole entity store.
+  const reactionMap = useAppSelector((s) => s.reactions.byTarget[event.id]);
+  const reactions = useMemo(() => aggregateReactions(reactionMap), [reactionMap]);
 
   const handleContextMenu = useCallback((e: React.MouseEvent) => {
     e.preventDefault();
@@ -151,6 +144,13 @@ export function ChatMessage({
               title="React"
             >
               <SmilePlus size={14} />
+            </button>
+            <button
+              onClick={() => openZap({ recipientPubkey: event.pubkey, event })}
+              className="text-xs text-muted hover:text-yellow-400"
+              title="Zap"
+            >
+              <Zap size={14} />
             </button>
             {showReactionPicker && (
               <ReactionPicker

@@ -48,6 +48,18 @@ export const feedSlice = createSlice({
       if (meta.oldestAt === 0 || ts < meta.oldestAt) meta.oldestAt = ts;
     },
 
+    /** Batched variant of trackFeedTimestamp (eventPipeline flush) */
+    trackFeedTimestamps(
+      state,
+      action: PayloadAction<{ contextId: string; createdAt: number }[]>,
+    ) {
+      for (const { contextId, createdAt } of action.payload) {
+        const meta = ensureMeta(state, contextId);
+        if (createdAt > meta.newestAt) meta.newestAt = createdAt;
+        if (meta.oldestAt === 0 || createdAt < meta.oldestAt) meta.oldestAt = createdAt;
+      }
+    },
+
     setRefreshing(
       state,
       action: PayloadAction<{ contextId: string; value: boolean }>,
@@ -89,6 +101,7 @@ export const feedSlice = createSlice({
 
 export const {
   trackFeedTimestamp,
+  trackFeedTimestamps,
   setRefreshing,
   setLoadingMore,
   setHasMore,

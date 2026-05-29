@@ -1,8 +1,20 @@
 import { nanoid } from "nanoid";
 import type { NostrFilter } from "../../types/nostr";
-import { relayManager } from "./relayManager";
+import { relayManager, isIndexerSafe, INDEXER_URL_SET } from "./relayManager";
 import { processIncomingEvent } from "./eventPipeline";
 import { SUBSCRIPTION } from "./constants";
+import { createLogger } from "../debug/logger";
+
+const log = createLogger("sub");
+
+/** Backstop for the all-EOSE wait: if some relay never EOSEs (was stripped by
+ *  the indexer guard, disconnected mid-flight, etc.), fire onEOSE anyway so the
+ *  UI's "loading" state can clear. Mirrors profileCache.flushBatch's BATCH_TIMEOUT_MS. */
+const EOSE_TIMEOUT_MS = 5_000;
+/** When a sub closes, log its lifetime event count if it exceeded this — flags
+ *  the high-volume subs (engagement broadcasts, big feeds) that drive event-storm
+ *  main-thread saturation, even if individual lines stayed quiet. */
+const HIGH_VOLUME_THRESHOLD = 100;
 
 interface ManagedSubscription {
   id: string;
@@ -14,6 +26,13 @@ interface ManagedSubscription {
   createdAt: number;
   /** Most recent event created_at we've seen on this sub */
   latestEventAt: number;
+  /** Backstop timer to fire onEOSE if the all-relays-EOSE quorum never resolves. */
+  eoseTimer: ReturnType<typeof setTimeout> | null;
+  /** Whether onEOSE has already been invoked (idempotent). */
+  eoseFired: boolean;
+  /** Total events delivered to this sub since open — used to flag high-volume
+   *  subs in close logs and surfaced via wiredDebug.session(). */
+  eventCount: number;
 }
 
 class SubscriptionManagerImpl {
@@ -25,34 +44,67 @@ class SubscriptionManagerImpl {
     onEOSE?: () => void;
   }): string {
     const id = nanoid(SUBSCRIPTION.MAX_SUB_ID_LENGTH);
-    const relayUrls =
+    const requestedUrls =
       opts.relayUrls ??
       relayManager.getReadRelays().map((c) => c.url);
 
+    // Mirror relayManager's indexer strip: if the filters aren't all in indexer
+    // kinds {0,3,10002}, the indexer relays will never be subscribed AND therefore
+    // never EOSE — tracking them in eoseReceived would wedge `allEose` permanently.
+    const indexerSafe = isIndexerSafe(opts.filters);
+    const trackedUrls = indexerSafe
+      ? requestedUrls
+      : requestedUrls.filter((u) => !INDEXER_URL_SET.has(u));
+
     const eoseReceived = new Map<string, boolean>();
-    for (const url of relayUrls) {
+    for (const url of trackedUrls) {
       eoseReceived.set(url, false);
     }
+
+    const fireEose = () => {
+      if (!sub.isActive || sub.eoseFired) return;
+      sub.eoseFired = true;
+      if (sub.eoseTimer !== null) {
+        clearTimeout(sub.eoseTimer);
+        sub.eoseTimer = null;
+      }
+      sub.onEOSE?.();
+    };
 
     const sub: ManagedSubscription = {
       id,
       filters: opts.filters,
-      relayUrls,
+      relayUrls: trackedUrls,
       eoseReceived,
       onEOSE: opts.onEOSE,
       isActive: true,
       createdAt: Date.now(),
       latestEventAt: 0,
+      eoseTimer: null,
+      eoseFired: false,
+      eventCount: 0,
     };
+
+    // Backstop: if a tracked relay disconnects mid-sub or otherwise never EOSEs,
+    // surface "done loading" anyway so the UI doesn't hang. Fast relays' EOSE
+    // still wins by firing fireEose() early.
+    if (opts.onEOSE && trackedUrls.length > 0) {
+      sub.eoseTimer = setTimeout(fireEose, EOSE_TIMEOUT_MS);
+    } else if (opts.onEOSE && trackedUrls.length === 0) {
+      // Nothing to wait on (every relay was stripped) → fire immediately.
+      queueMicrotask(fireEose);
+    }
 
     this.subscriptions.set(id, sub);
 
-    // Open via relayManager
+    // Open via relayManager — pass the ORIGINAL requested URLs (relayManager
+    // does its own strip). The tracking map only governs the EOSE quorum.
     relayManager.subscribe({
       filters: opts.filters,
-      relayUrls,
+      relayUrls: requestedUrls,
       onEvent: (event, relayUrl) => {
         if (!sub.isActive) return;
+        sub.eventCount++;
         // Track latest event time for reconnect `since`
         if (event.created_at > sub.latestEventAt) {
           sub.latestEventAt = event.created_at;
@@ -61,13 +113,13 @@ class SubscriptionManagerImpl {
       },
       onEOSE: (_subId, relayUrl) => {
         if (!sub.isActive) return;
+        // Untracked (indexer) relays don't count — guard so a forwarded sub
+        // doesn't accidentally flip the quorum.
+        if (!sub.eoseReceived.has(relayUrl)) return;
         sub.eoseReceived.set(relayUrl, true);
 
-        // Check if all relays sent EOSE
         const allEose = [...sub.eoseReceived.values()].every(Boolean);
-        if (allEose) {
-          sub.onEOSE?.();
-        }
+        if (allEose) fireEose();
       },
     });
 
@@ -78,6 +130,17 @@ class SubscriptionManagerImpl {
     const sub = this.subscriptions.get(subId);
     if (sub) {
       sub.isActive = false;
+      if (sub.eoseTimer !== null) {
+        clearTimeout(sub.eoseTimer);
+        sub.eoseTimer = null;
+      }
+      if (sub.eventCount >= HIGH_VOLUME_THRESHOLD) {
+        const lifetimeSec = ((Date.now() - sub.createdAt) / 1000).toFixed(1);
+        const kinds = [...new Set(sub.filters.flatMap((f) => f.kinds ?? []))].join(",");
+        log.info(
+          `high-volume sub ${subId} closed — ${sub.eventCount} events over ${lifetimeSec}s  kinds=[${kinds}]`,
+        );
+      }
       relayManager.closeSubscription(subId);
       this.subscriptions.delete(subId);
     }

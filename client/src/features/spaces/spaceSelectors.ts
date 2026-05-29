@@ -1,5 +1,11 @@
 import { createSelector } from "@reduxjs/toolkit";
+import { shallowEqual } from "react-redux";
 import type { RootState } from "../../store";
+
+// Returning a stable array reference when the resolved set is unchanged stops
+// feed components from re-rendering on every unrelated event (the entity map
+// gets a new reference on each add). Applied to the list selectors below.
+const stableArray = { memoizeOptions: { resultEqualityCheck: shallowEqual } };
 import type { NostrEvent } from "../../types/nostr";
 import type { Space, SpaceChannel, SpaceChannelType } from "../../types/space";
 
@@ -54,6 +60,7 @@ export const selectSpaceFeedEvents = createSelector(
     eventIds
       .map((id) => entities[id])
       .filter((e): e is NostrEvent => !!e),
+  stableArray,
 );
 
 /** Memoized: notes for active space, sorted desc */
@@ -67,6 +74,7 @@ export const selectSpaceNotes = createSelector(
       .filter((e): e is NostrEvent => !!e)
       .sort((a, b) => b.created_at - a.created_at);
   },
+  stableArray,
 );
 
 /** Memoized: root notes only (no replies) for active space, sorted desc.
@@ -84,12 +92,14 @@ export const selectSpaceRootNotes = createSelector(
     // Deprecated positional: any e-tag means it's a reply
     return false;
   }),
+  stableArray,
 );
 
 /** Memoized: just the IDs of root notes (for engagement subscription) */
 export const selectSpaceRootNoteIds = createSelector(
   [selectSpaceRootNotes],
   (notes) => notes.map((n) => n.id),
+  stableArray,
 );
 
 /** Input selector: raw media event IDs for the active space */
@@ -99,6 +109,7 @@ const selectMediaEventIds = createSelector(
     if (!activeSpaceId) return [];
     return spaceFeeds[`${activeSpaceId}:media`] ?? [];
   },
+  stableArray,
 );
 
 /** Memoized: media events for active space (unsorted -- caller sorts).
@@ -110,6 +121,7 @@ export const selectSpaceMediaEvents = createSelector(
     ids
       .map((id) => entities[id])
       .filter((e): e is NostrEvent => !!e),
+  stableArray,
 );
 
 /** Memoized: articles for active space */
@@ -126,4 +138,5 @@ export const selectSpaceArticles = createSelector(
       .map((id) => entities[id])
       .filter((e): e is NostrEvent => !!e);
   },
+  stableArray,
 );

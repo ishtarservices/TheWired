@@ -22,6 +22,7 @@ import { ProfileWizard } from "../features/onboarding/ProfileWizard";
 import { AppTour } from "../features/onboarding/AppTour";
 import { UpdateOverlay } from "../components/UpdateOverlay";
 import { ZoomIndicator } from "../components/ZoomIndicator";
+import { NavigationLogger } from "../lib/debug/NavigationLogger";
 import { getAutoUpdatesEnabled } from "../features/settings/AppSettingsTab";
 import { useAppUpdater } from "../hooks/useAppUpdater";
 import { useZoomShortcuts } from "../hooks/useZoomShortcuts";
@@ -157,6 +158,7 @@ export default function App() {
   return (
     <ThemeProvider>
       <BrowserRouter>
+        <NavigationLogger />
         {shouldAutoUpdate ? (
           <AutoUpdateGate>
             <AppRoutes />

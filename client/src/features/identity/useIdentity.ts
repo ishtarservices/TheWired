@@ -62,6 +62,25 @@ export function useIdentity() {
     }
   }, [dispatch]);
 
+  const connectBunker = useCallback(async (uri: string) => {
+    const trimmed = uri.trim();
+    if (!trimmed) return;
+    setLoading(true);
+    setError(null);
+    try {
+      dispatch(setLoginMethod("nip46"));
+      // Generate a fresh, disposable client key for this bunker connection.
+      const { generateSecretKey } = await import("nostr-tools/pure");
+      const { bytesToHex } = await import("@noble/hashes/utils");
+      const clientSecretHex = bytesToHex(generateSecretKey());
+      await performLogin("nip46", undefined, { bunkerUri: trimmed, clientSecretHex });
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Bunker connection failed");
+    } finally {
+      setLoading(false);
+    }
+  }, [dispatch]);
+
   const logOut = useCallback(async () => {
     const currentPubkey = pubkey;
     if (!currentPubkey) return;
@@ -108,6 +127,7 @@ export function useIdentity() {
     logOutAll,
     importNsec,
     generateNew,
+    connectBunker,
     switchTo,
     removeAccount: removeAccountByPubkey,
   };

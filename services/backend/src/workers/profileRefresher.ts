@@ -1,6 +1,7 @@
 import { db } from "../db/connection.js";
 import { cachedProfiles } from "../db/schema/profiles.js";
 import { getMeilisearchClient } from "../lib/meilisearch.js";
+import { profileCacheService } from "../services/profileCacheService.js";
 import { config } from "../config.js";
 import { lte } from "drizzle-orm";
 
@@ -81,48 +82,26 @@ export function startProfileRefresher(): { stop: () => void } {
   }
 
   async function upsertProfile(event: { pubkey: string; content: string; created_at: number }) {
-    try {
-      const profile = JSON.parse(event.content);
-      const data = {
+    // Version-guarded upsert: never regress to an older kind:0.
+    const result = await profileCacheService.upsert({
+      pubkey: event.pubkey,
+      createdAt: event.created_at,
+      content: event.content,
+    });
+    if (!result || !result.applied) return; // bad JSON, or stale (older) event
+
+    const { profile } = result;
+    const ms = getMeilisearchClient();
+    await ms.index("profiles").addDocuments([
+      {
         pubkey: event.pubkey,
-        name: profile.name ?? null,
-        displayName: profile.display_name ?? null,
-        picture: profile.picture ?? null,
-        about: profile.about ?? null,
-        nip05: profile.nip05 ?? null,
-        fetchedAt: Date.now(),
-      };
-
-      await db
-        .insert(cachedProfiles)
-        .values(data)
-        .onConflictDoUpdate({
-          target: cachedProfiles.pubkey,
-          set: {
-            name: data.name,
-            displayName: data.displayName,
-            picture: data.picture,
-            about: data.about,
-            nip05: data.nip05,
-            fetchedAt: data.fetchedAt,
-          },
-        });
-
-      // Update Meilisearch
-      const ms = getMeilisearchClient();
-      await ms.index("profiles").addDocuments([
-        {
-          pubkey: event.pubkey,
-          name: profile.name,
-          display_name: profile.display_name,
-          about: profile.about,
-          nip05: profile.nip05,
-          picture: profile.picture,
-        },
-      ]);
-    } catch {
-      // invalid profile JSON
-    }
+        name: profile.name,
+        display_name: profile.displayName,
+        about: profile.about,
+        nip05: profile.nip05,
+        picture: profile.picture,
+      },
+    ]);
   }
 
   // Run every hour

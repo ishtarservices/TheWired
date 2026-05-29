@@ -1,0 +1,99 @@
+version: "0.5"
+
+# Centralized local dev orchestration for The Wired backend stack.
+#   pnpm dev            -> launch this (TUI, one scrollable pane per process)
+#   pnpm dev:down       -> stop the managed app processes (infra is left running)
+#   pnpm dev:down:infra -> explicitly stop Docker infra
+#
+# The frontend is intentionally NOT managed here -- run it separately:
+#   pnpm dev:client                 (web, Vite :1420)
+#   cd client && pnpm tauri dev     (desktop)
+
+# Global fallback log; per-process logs are written under ./logs/ too, so you can
+# tail a single service: `process-compose process logs backend` or `tail -f logs/backend.log`.
+log_location: ./logs/process-compose.log
+
+processes:
+  # Detached one-shot: brings infra up (idempotent), waits for healthchecks, then exits 0.
+  # Because it's `-d`, the containers are NOT process-compose's children and survive teardown.
+  # LiveKit is deliberately omitted here -- it runs natively (see the `livekit` process below).
+  infra:
+    command: "docker compose up postgres redis meilisearch -d --wait"
+    working_dir: "."
+    availability:
+      restart: "no"
+
+  livekit:
+    command: "livekit-server --dev"
+    readiness_probe:
+      exec:
+        command: "bash -c 'echo > /dev/tcp/127.0.0.1/7880'"
+      initial_delay_seconds: 1
+      period_seconds: 3
+      failure_threshold: 20
+    log_location: ./logs/livekit.log
+
+  relay:
+    command: "cargo run"
+    working_dir: "services/relay"
+    is_tty: true
+    environment:
+      - "RUST_LOG=debug"
+    depends_on:
+      infra:
+        condition: process_completed_successfully
+    readiness_probe:
+      exec:
+        command: "bash -c 'echo > /dev/tcp/127.0.0.1/7777'"
+      initial_delay_seconds: 5
+      period_seconds: 5
+      failure_threshold: 30 # ~2.5 min budget for a cold cargo compile
+    availability:
+      restart: "on_failure"
+      max_restarts: 3
+    log_location: ./logs/relay.log
+
+  backend:
+    command: "pnpm --filter @thewired/backend dev"
+    working_dir: "."
+    is_tty: true
+    environment:
+      - "TRANSCODE_WORKER=true"
+      - "TRANSCODE_ENQUEUE=true"
+    depends_on:
+      infra:
+        condition: process_completed_successfully
+      relay:
+        condition: process_healthy
+      livekit:
+        condition: process_started
+    readiness_probe:
+      http_get:
+        host: "127.0.0.1"
+        scheme: "http"
+        path: "/health"
+        port: 3002
+      initial_delay_seconds: 3
+      period_seconds: 3
+      failure_threshold: 30
+    availability:
+      restart: "on_failure"
+      max_restarts: 3
+    log_location: ./logs/backend.log
+
+  gateway:
+    command: "go run cmd/gateway/main.go"
+    working_dir: "services/gateway"
+    depends_on:
+      backend:
+        condition: process_healthy
+    readiness_probe:
+      exec:
+        command: "bash -c 'echo > /dev/tcp/127.0.0.1/9080'"
+      initial_delay_seconds: 2
+      period_seconds: 3
+      failure_threshold: 20
+    availability:
+      restart: "on_failure"
+      max_restarts: 3
+    log_location: ./logs/gateway.log

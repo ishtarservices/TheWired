@@ -1,0 +1,14 @@
+# Custom TUI shortcuts for `pnpm dev` (layered over process-compose defaults).
+# Loaded via the --shortcuts flag in the root `dev` script.
+# Only the actions listed here are overridden; everything else keeps its default.
+#
+#   Ctrl-S  Stop the selected process   (default was F9; "S" = Stop)
+#   Ctrl-Y  Log select on/off           (relocated from Ctrl-S so it isn't lost)
+#
+# Unchanged defaults worth knowing: F7 Start, Ctrl-R Restart, Ctrl-X Send Signal,
+# F10 / Ctrl-C Quit. Press F1 in the TUI for the full, live list.
+shortcuts:
+  process_stop:
+    shortcut: "Ctrl-S"
+  log_select:
+    shortcut: "Ctrl-Y"

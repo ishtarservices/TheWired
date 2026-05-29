@@ -1,5 +1,5 @@
 import { memo } from "react";
-import { MessageCircle, Repeat2, Heart, Quote, Share, Pin } from "lucide-react";
+import { MessageCircle, Repeat2, Heart, Quote, Share, Pin, Zap } from "lucide-react";
 import type { NoteEngagement } from "../useNoteEngagement";
 
 interface NoteActionBarProps {
@@ -11,6 +11,8 @@ interface NoteActionBarProps {
   onLike: () => void;
   onQuote: () => void;
   onShare?: () => void;
+  /** Zap action — sends a NIP-57 lightning zap to the note author */
+  onZap?: () => void;
   /** Pin action — only shown on the user's own root notes */
   showPin?: boolean;
   isPinned?: boolean;
@@ -32,6 +34,7 @@ export const NoteActionBar = memo(function NoteActionBar({
   onLike,
   onQuote,
   onShare,
+  onZap,
   showPin,
   isPinned,
   onPin,
@@ -88,6 +91,18 @@ export const NoteActionBar = memo(function NoteActionBar({
         <Quote size={16} className="group-hover:text-primary" />
         <span>{formatCount(engagement.quoteCount)}</span>
       </button>
+
+      {/* Zap */}
+      {onZap && (
+        <button
+          onClick={onZap}
+          disabled={!canInteract}
+          className="group flex items-center gap-1.5 text-xs text-muted transition-colors hover:text-yellow-400 disabled:cursor-not-allowed disabled:opacity-40"
+          title="Zap"
+        >
+          <Zap size={16} className="group-hover:text-yellow-400" />
+        </button>
+      )}
 
       {/* Share */}
       {onShare && (

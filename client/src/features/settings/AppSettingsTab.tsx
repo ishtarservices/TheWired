@@ -342,7 +342,11 @@ function AccountRow({
           {displayName}
         </div>
         <div className="text-[10px] text-muted">
-          {signerType === "nip07" ? "Extension" : "Keystore"}
+          {signerType === "nip07"
+            ? "Extension"
+            : signerType === "nip46"
+              ? "Bunker"
+              : "Keystore"}
           {isActive && (
             <span className="ml-1.5 text-primary font-medium">Active</span>
           )}

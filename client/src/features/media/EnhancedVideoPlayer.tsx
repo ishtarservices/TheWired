@@ -13,6 +13,7 @@ import {
   Bookmark,
   ThumbsUp,
   ThumbsDown,
+  Zap,
 } from "lucide-react";
 import { usePlaybackSpeed, VALID_SPEEDS } from "@/hooks/usePlaybackSpeed";
 
@@ -23,6 +24,8 @@ interface EnhancedVideoPlayerProps {
   authorName?: string;
   onClose?: () => void;
   className?: string;
+  /** When provided, shows a ⚡ button that zaps the video author. */
+  onZap?: () => void;
 }
 
 const PLAYBACK_SPEEDS = VALID_SPEEDS;
@@ -41,6 +44,7 @@ export function EnhancedVideoPlayer({
   authorName,
   onClose,
   className,
+  onZap,
 }: EnhancedVideoPlayerProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const videoRef = useRef<HTMLVideoElement>(null);
@@ -308,6 +312,15 @@ export function EnhancedVideoPlayer({
           >
             <Bookmark size={15} fill={bookmarked ? "currentColor" : "none"} />
           </button>
+          {onZap && (
+            <button
+              onClick={onZap}
+              className="text-white/60 transition-colors hover:text-yellow-400"
+              title="Zap author"
+            >
+              <Zap size={15} />
+            </button>
+          )}
 
           {/* Speed */}
           <div className="relative">

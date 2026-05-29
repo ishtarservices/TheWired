@@ -85,4 +85,19 @@ export class TauriSigner implements NostrSigner {
 
     return invoke<string>("keystore_import_key", { secretHex });
   }
+
+  /** Store an arbitrary secret (NIP-46 bunker connection, NWC URI) in the OS keychain. */
+  static async setSecret(key: string, value: string): Promise<void> {
+    await invoke("keystore_set_secret", { key, value });
+  }
+
+  /** Read a secret stored via setSecret. Returns null if absent. */
+  static async getSecret(key: string): Promise<string | null> {
+    return invoke<string | null>("keystore_get_secret", { key });
+  }
+
+  /** Delete a secret stored via setSecret. */
+  static async deleteSecret(key: string): Promise<void> {
+    await invoke("keystore_delete_secret", { key });
+  }
 }

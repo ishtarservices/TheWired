@@ -28,6 +28,8 @@ See [ARCHITECTURE.md](./ARCHITECTURE.md) for the full design document.
 - **Rust** >= 1.77.2 (with cargo)
 - **Go** >= 1.22 (for gateway)
 - **Docker** + **Docker Compose** (for infrastructure services)
+- **LiveKit server** (`brew install livekit`) -- runs natively in dev for voice/video
+- **process-compose** -- one-command dev orchestration. Install with `brew install f1bonacc1/tap/process-compose`, or drop a binary from the [releases page](https://github.com/F1bonacc1/process-compose/releases) onto your PATH (it's a single self-contained binary)
 
 ### Platform-specific (for Tauri client)
 - **macOS**: Xcode Command Line Tools
@@ -47,73 +49,86 @@ cp .env.example .env   # Edit .env with your credentials
 pnpm install
 ```
 
-### 2. Start infrastructure
+### 2. Start the backend stack
 
-Start PostgreSQL, Redis, and Meilisearch via Docker:
+One command brings up the whole backend stack in a single terminal, with one scrollable log pane per
+process and health-gated startup ordering (via [process-compose](https://github.com/F1bonacc1/process-compose)):
 
 ```bash
-pnpm dev:infra
+pnpm dev
 ```
 
-This runs `docker compose up postgres redis meilisearch -d`. Wait a few seconds for services to become healthy.
+This opens the process-compose TUI and starts everything in dependency order:
 
-### 3. Start the relay
+1. **infra** -- ensures PostgreSQL + Redis + Meilisearch are up (idempotent; a fast no-op if already
+   running). Runs detached, so infra **persists when you stop the stack**.
+2. **livekit** -- `livekit-server --dev` (native; the SFU for voice/video).
+3. **relay** -- Rust NIP-29 relay on 7777 (`RUST_LOG=debug`). Waits for infra.
+4. **backend** -- Fastify backend on 3002 with the transcode worker enabled
+   (`TRANSCODE_WORKER`/`TRANSCODE_ENQUEUE`). Waits for the relay's `/` to be listening and LiveKit to start.
+5. **gateway** -- Go API gateway on 9080. Waits for the backend's `/health` to pass.
 
-```bash
-pnpm dev:relay
-```
+**TUI cheatsheet** — arrow keys to switch panes, scroll within a pane. For the selected process:
+`F7` start · `Ctrl-S` stop · `Ctrl-R` restart · `Ctrl-X` send signal. `F10` or `Ctrl-C` stops the
+whole stack (infra is left running). `F1` shows the full live shortcut list.
 
-This starts the custom Rust NIP-29 relay on port 7777. It will run migrations against PostgreSQL on first start.
+> Stop is rebound from the default `F9` to `Ctrl-S` via `process-compose-shortcuts.yaml` (the `dev`
+> script passes `--shortcuts`); log-select moves to `Ctrl-Y`. Edit that file to change the bindings.
 
-### 4. Start the backend
+From another terminal you can bounce or tail one service: `process-compose process stop|start|restart <name>` /
+`process-compose process logs <name>` (or `tail -f logs/<name>.log`).
 
-```bash
-pnpm dev:backend
-```
+### 3. Start the client
 
-This starts the Fastify backend service on port 3002 with hot reload. The backend connects to PostgreSQL, Redis, Meilisearch, and the relay.
-
-### 5. Start the gateway
-
-```bash
-pnpm dev:gateway
-```
-
-This starts the Go API gateway on port 9080. It handles NIP-98 authentication and proxies requests to the backend.
-
-### 6. Start the client
+The frontend runs in its own terminal (it's the thing you restart most, and Tauri has its own window):
 
 ```bash
-pnpm dev:client
-```
-
-This starts the Vite dev server on port 1420. For the full Tauri desktop app with hot reload:
-
-```bash
+pnpm dev:client                # Vite dev server on port 1420
+# or, for the full Tauri desktop app with hot reload:
 cd client && pnpm tauri dev
+```
+
+### Stopping
+
+- `q` / Ctrl-C in the TUI stops the app processes but **leaves infra running** (fast restarts later).
+- `pnpm dev:down:infra` stops Postgres/Redis/Meilisearch when you actually want them down.
+
+### Running services individually
+
+The stack is the recommended path, but each service still has its own script for one-off runs:
+
+```bash
+pnpm dev:infra      # PostgreSQL + Redis + Meilisearch + LiveKit (Docker, detached)
+pnpm dev:relay      # Rust NIP-29 relay (7777); runs migrations on first start
+pnpm dev:backend    # Fastify backend (3002, hot reload)
+pnpm dev:gateway    # Go API gateway (9080; NIP-98 auth + proxy)
 ```
 
 ### Alternative: Start everything via Docker
 
-To start all services (infrastructure + relay + backend + gateway) in Docker:
+To run all services (infrastructure + relay + backend + gateway) in containers instead:
 
 ```bash
 pnpm dev:services
 ```
 
-Then start the client separately with `pnpm dev:client`.
+Then start the client separately with `pnpm dev:client`. Note this trades away cargo/tsx/go hot-reload
+DX, so `pnpm dev` is preferred for active development.
 
 ## Scripts
 
 | Command | Description |
 |---------|-------------|
 | `pnpm install` | Install all workspace dependencies |
+| `pnpm dev` | **Start the full backend stack** (process-compose TUI: infra + LiveKit + relay + backend + gateway) |
 | `pnpm dev:client` | Vite dev server (web only, port 1420) |
 | `pnpm dev:backend` | Backend service with hot reload (port 3002) |
 | `pnpm dev:gateway` | Go API gateway (port 9080) |
 | `pnpm dev:relay` | Rust NIP-29 relay (port 7777) |
 | `pnpm dev:infra` | Start PostgreSQL + Redis + Meilisearch (Docker) |
 | `pnpm dev:services` | Start all Docker services |
+| `pnpm dev:down` | Stop the managed app processes (infra stays up) |
+| `pnpm dev:down:infra` | Stop Postgres + Redis + Meilisearch |
 | `pnpm build` | Build all packages |
 | `pnpm typecheck` | TypeScript check all packages |
 | `cd client && pnpm tauri dev` | Full Tauri desktop app with hot reload |

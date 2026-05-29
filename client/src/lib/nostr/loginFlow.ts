@@ -24,6 +24,7 @@ import { parseRelayList } from "./nip65";
 import { parseDMRelayList, clearDMRelayCache } from "./dmRelayList";
 import { EVENT_KINDS } from "../../types/nostr";
 import { saveUserState, getUserState } from "../db/userStateStore";
+import { getProfile } from "../db/profileStore";
 import { loadSpaces, saveSpaces } from "../db/spaceStore";
 import { loadAllMembers } from "../db/spaceMembersStore";
 import { setMembers } from "../../store/slices/spaceConfigSlice";
@@ -85,11 +86,24 @@ import {
 } from "../../store/slices/identitySlice";
 import { setActivePubkey, clearAccountState, migrateUnprefixedState } from "../db/userStateStore";
 import { TauriSigner } from "./tauriSigner";
+import { setSecret, getSecret, deleteSecret, nip46SecretKey } from "./secretStore";
 import {
   restoreOnboardingState,
   setShowProfileWizard,
 } from "../../features/onboarding/onboardingSlice";
 import { loadOnboardingState } from "../../features/onboarding/onboardingPersistence";
+import { createLogger, shortKey } from "../debug/logger";
+
+const startupLog = createLogger("startup");
+const idLog = createLogger("identity");
+
+/** Set at the start of performLogin so subscribeUserData can report own-profile latency. */
+let loginStartedAt = 0;
+
+/** Dedup concurrent session restores. React StrictMode mounts AuthGate twice in
+ *  dev, firing tryRestoreSession twice; without this guard two full logins race,
+ *  doubling all subscriptions + IDB work. Concurrent callers share one promise. */
+let restoreInFlight: Promise<boolean> | null = null;
 
 let currentSigner: NostrSigner | null = null;
 
@@ -103,6 +117,63 @@ let cleanupActiveSpacePersistence: (() => void) | null = null;
 
 export function getSigner(): NostrSigner | null {
   return currentSigner;
+}
+
+/** Signing timeout budget. NIP-46 bunkers may require manual approval, so give them longer. */
+export function getSignerTimeoutMs(): number {
+  return store.getState().identity.signerType === "nip46" ? 90_000 : 12_000;
+}
+
+/** A saved NIP-46 bunker connection: the ephemeral client key + the bunker URI. */
+interface Nip46Connection {
+  bunkerUri: string;
+  clientSecretHex: string;
+}
+
+async function saveNip46Connection(pubkey: string, conn: Nip46Connection): Promise<void> {
+  await setSecret(nip46SecretKey(pubkey), JSON.stringify(conn));
+}
+
+async function loadNip46Connection(pubkey?: string): Promise<Nip46Connection | null> {
+  if (!pubkey) return null;
+  const raw = await getSecret(nip46SecretKey(pubkey));
+  if (!raw) return null;
+  try {
+    const parsed = JSON.parse(raw) as Nip46Connection;
+    if (parsed?.bunkerUri && parsed?.clientSecretHex) return parsed;
+  } catch {
+    /* corrupt blob */
+  }
+  return null;
+}
+
+/** Close a signer that owns external resources (the NIP-46 bunker relay pool) without
+ *  importing Nip46Signer here — keeps nostr-tools/nip46 out of this chunk. */
+function closeSignerIfRemote(signer: NostrSigner | null): void {
+  const maybe = signer as { close?: () => Promise<void> } | null;
+  if (maybe && typeof maybe.close === "function") {
+    void maybe.close().catch(() => {});
+  }
+}
+
+/** Open a bunker auth-challenge URL and nudge the user to approve it. */
+function handleBunkerAuthUrl(url: string): void {
+  store.dispatch(
+    addNotification({
+      id: `bunker-auth-${Date.now()}`,
+      type: "chat",
+      title: "Approve in your signer",
+      body: "Your remote signer needs you to approve this request.",
+      timestamp: Date.now(),
+    }),
+  );
+  if (typeof window !== "undefined" && "__TAURI_INTERNALS__" in window) {
+    import("@tauri-apps/plugin-opener")
+      .then((m) => m.openUrl(url))
+      .catch((e) => console.error("[nip46] failed to open auth url", e));
+  } else if (typeof window !== "undefined") {
+    window.open(url, "_blank", "noopener,noreferrer");
+  }
 }
 
 /** Multi-account session format */
@@ -192,11 +263,16 @@ function subscribeUserData(
           try {
             const profile = JSON.parse(event.content) as Kind0Profile;
             profile.created_at = event.created_at;
+            const latency = loginStartedAt ? `${(performance.now() - loginStartedAt).toFixed(0)}ms after login` : "";
+            idLog.info(
+              `own kind:0 received → "${profile.display_name || profile.name || "unnamed"}" ${latency} — dispatching to identity slice`,
+            );
             store.dispatch(setProfile({ profile, createdAt: event.created_at }));
             // Keep profile cache in sync
             profileCache.handleProfileEvent(event);
           } catch {
             // Invalid profile JSON
+            idLog.warn(`own kind:0 had invalid JSON content — profile not updated`);
           }
           break;
         }
@@ -262,7 +338,7 @@ async function validateAndPurgeStaleSpaces(spaceIds: string[]): Promise<void> {
       type: "chat",
       title: "Space removed",
       body: `${names} no longer exist and have been removed.`,
-      timestamp: Math.floor(Date.now() / 1000),
+      timestamp: Date.now(),
     }),
   );
 }
@@ -274,14 +350,21 @@ async function validateAndPurgeStaleSpaces(spaceIds: string[]): Promise<void> {
  *                      (avoids extra keychain reads on macOS)
  */
 export async function performLogin(
-  signerTypeOverride?: "nip07" | "tauri",
+  signerTypeOverride?: "nip07" | "tauri" | "nip46",
   knownPubkey?: string,
+  nip46Connect?: Nip46Connection,
 ): Promise<void> {
+  loginStartedAt = performance.now();
+  startupLog.info(
+    `performLogin start (signerType=${signerTypeOverride ?? "auto"}, knownPubkey=${knownPubkey ? shortKey(knownPubkey) : "none"})`,
+  );
+
   // Step 1: Wire relay → Redux status bridge
   wireRelayStatusBridge();
 
   // Step 2: Connect to bootstrap relays and WAIT for at least one
   await relayManager.connectToBootstrapAndWait();
+  startupLog.info(`bootstrap relays ready after ${(performance.now() - loginStartedAt).toFixed(0)}ms`);
 
   // Step 3: Detect/create signer and get pubkey
   const signerType = signerTypeOverride ?? (await detectSigner());
@@ -291,20 +374,37 @@ export async function performLogin(
     );
   }
 
-  // For Tauri with a known pubkey (session restore / account switch), set the
-  // Rust-side ACTIVE_PUBKEY BEFORE creating the signer. Without this, the Rust
-  // keystore's get_active_secret_key sees ACTIVE_PUBKEY=None on fresh app start
-  // and may fall through to generating a brand-new keypair instead of loading
-  // the stored one.
-  if (signerType === "tauri" && knownPubkey) {
-    try {
-      await TauriSigner.switchAccount(knownPubkey);
-    } catch {
-      // Key may not exist yet (first login / import) — getPublicKey will handle it
+  if (signerType === "nip46") {
+    // Remote signer: build directly (it needs the bunker URI + ephemeral client key,
+    // not a keychain pubkey, so it bypasses createSigner and the Rust active-pubkey
+    // dance). The connection comes from the caller (fresh login / restore / switch),
+    // falling back to the stored blob for knownPubkey.
+    const connect = nip46Connect ?? (await loadNip46Connection(knownPubkey));
+    if (!connect) {
+      throw new Error("No saved bunker connection. Reconnect with your bunker URI.");
     }
+    const { Nip46Signer } = await import("./nip46Signer");
+    const { hexToBytes } = await import("@noble/hashes/utils");
+    currentSigner = await Nip46Signer.connect(
+      connect.bunkerUri,
+      hexToBytes(connect.clientSecretHex),
+      { onAuthUrl: handleBunkerAuthUrl, knownUserPubkey: knownPubkey },
+    );
+  } else {
+    // For Tauri with a known pubkey (session restore / account switch), set the
+    // Rust-side ACTIVE_PUBKEY BEFORE creating the signer. Without this, the Rust
+    // keystore's get_active_secret_key sees ACTIVE_PUBKEY=None on fresh app start
+    // and may fall through to generating a brand-new keypair instead of loading
+    // the stored one.
+    if (signerType === "tauri" && knownPubkey) {
+      try {
+        await TauriSigner.switchAccount(knownPubkey);
+      } catch {
+        // Key may not exist yet (first login / import) — getPublicKey will handle it
+      }
+    }
+    currentSigner = await createSigner(signerType);
   }
-
-  currentSigner = await createSigner(signerType);
   const signerPubkey = await currentSigner.getPublicKey();
   if (knownPubkey && knownPubkey !== signerPubkey) {
     // The signer returned a different key than the session expected. This means
@@ -323,8 +423,38 @@ export async function performLogin(
 
   // Step 4: Dispatch login to Redux
   const storeSignerType: SignerType =
-    signerType === "nip07" ? "nip07" : "tauri_keystore";
+    signerType === "nip07"
+      ? "nip07"
+      : signerType === "nip46"
+        ? "nip46"
+        : "tauri_keystore";
   store.dispatch(login({ pubkey, signerType: storeSignerType }));
+
+  // Fix #5: hydrate the logged-in user's own profile from IndexedDB immediately,
+  // so their name (ProfileCard, composer, etc.) renders instead of a hash while the
+  // kind:0 relay subscription below is still in flight. `identity.profile` was
+  // previously ONLY ever set from that relay event — never from cache — so on every
+  // cold start the user's own name was a hash for as long as the relay round-trip took
+  // (worse in prod, where there's no local relay). createdAt comes from the stored
+  // event, so a fresher relay kind:0 still wins via setProfile's freshness guard.
+  getProfile(pubkey)
+    .then((stored) => {
+      if (!stored) {
+        idLog.debug(`own profile not in IDB cache — name shows hash until own kind:0 arrives`);
+        return;
+      }
+      if (store.getState().identity.profile) return; // relay already populated it
+      idLog.info(
+        `hydrated own profile from IDB → "${stored.display_name || stored.name || "unnamed"}" (instant, before relay round-trip)`,
+      );
+      store.dispatch(setProfile({ profile: stored, createdAt: stored.created_at ?? 0 }));
+    })
+    .catch(() => {/* best-effort */});
+
+  // Persist the bunker connection (ephemeral key + URI) so we can reconnect on restart.
+  if (signerType === "nip46" && nip46Connect) {
+    await saveNip46Connection(pubkey, nip46Connect);
+  }
 
   // Replay NIP-42 AUTH on any relay that connected (and challenged) before the
   // signer was ready. Without this, a relay connection established pre-login
@@ -408,7 +538,9 @@ export async function performLogin(
       dmRelayEoseReceived = true;
       // If no kind:10050 found and no cache, auto-publish defaults
       const currentDMRelays = store.getState().identity.dmRelayList;
-      if (currentDMRelays.length === 0) {
+      // Don't auto-publish on a remote signer's behalf — it fires an unprompted
+      // bunker approval at login. Bunker users can set DM relays manually.
+      if (currentDMRelays.length === 0 && signerType !== "nip46") {
         const defaults = [APP_RELAY, "wss://relay.damus.io", "wss://nos.lol"];
         const unsigned = buildDMRelayListEvent(pubkey, defaults);
         signAndPublish(unsigned, BOOTSTRAP_RELAYS).then(() => {
@@ -942,8 +1074,20 @@ export async function performLogin(
   }
 }
 
-/** Try to restore a previous session from IndexedDB */
-export async function tryRestoreSession(): Promise<boolean> {
+/** Try to restore a previous session from IndexedDB. Re-entrant-safe: concurrent
+ *  callers share one in-flight restore (see restoreInFlight). */
+export function tryRestoreSession(): Promise<boolean> {
+  if (restoreInFlight) {
+    startupLog.debug("tryRestoreSession: already in flight — reusing existing restore");
+    return restoreInFlight;
+  }
+  restoreInFlight = doRestoreSession().finally(() => {
+    restoreInFlight = null;
+  });
+  return restoreInFlight;
+}
+
+async function doRestoreSession(): Promise<boolean> {
   const raw = await getUserState<MultiAccountSession | LegacySession>("session");
   if (!raw) return false;
 
@@ -980,14 +1124,20 @@ export async function tryRestoreSession(): Promise<boolean> {
   // Set active pubkey for IndexedDB key prefixing
   setActivePubkey(pubkey);
 
-  const factoryType: "nip07" | "tauri" =
-    signerType === "nip07" ? "nip07" : "tauri";
+  const factoryType: "nip07" | "tauri" | "nip46" =
+    signerType === "nip07" ? "nip07" : signerType === "nip46" ? "nip46" : "tauri";
 
   // Verify the signer is still available
+  let nip46Connect: Nip46Connection | undefined;
   if (factoryType === "nip07") {
     if (typeof window === "undefined" || !("nostr" in window) || !window.nostr) {
       return false;
     }
+  } else if (factoryType === "nip46") {
+    // NIP-46 works in both web and desktop builds — gate on a stored connection.
+    const conn = await loadNip46Connection(pubkey);
+    if (!conn) return false;
+    nip46Connect = conn;
   } else {
     if (typeof window === "undefined" || !("__TAURI_INTERNALS__" in window)) {
       return false;
@@ -995,9 +1145,21 @@ export async function tryRestoreSession(): Promise<boolean> {
   }
 
   try {
-    await performLogin(factoryType, pubkey);
+    await performLogin(factoryType, pubkey, nip46Connect);
     return true;
   } catch {
+    if (factoryType === "nip46") {
+      // Transient bunker offline — keep the account + secret, prompt to reconnect.
+      store.dispatch(
+        addNotification({
+          id: `bunker-offline-${Date.now()}`,
+          type: "chat",
+          title: "Remote signer unavailable",
+          body: "Couldn't reach your bunker. Reconnect when it's online.",
+          timestamp: Date.now(),
+        }),
+      );
+    }
     return false;
   }
 }
@@ -1033,9 +1195,18 @@ export async function switchAccount(targetPubkey: string): Promise<void> {
     await saveUserState("session", session);
 
     // 6. Login as the new account
-    const factoryType: "nip07" | "tauri" =
-      account.signerType === "nip07" ? "nip07" : "tauri";
-    await performLogin(factoryType, targetPubkey);
+    const factoryType: "nip07" | "tauri" | "nip46" =
+      account.signerType === "nip07"
+        ? "nip07"
+        : account.signerType === "nip46"
+          ? "nip46"
+          : "tauri";
+    let nip46Connect: Nip46Connection | undefined;
+    if (factoryType === "nip46") {
+      nip46Connect = (await loadNip46Connection(targetPubkey)) ?? undefined;
+      if (!nip46Connect) throw new Error("No saved bunker connection for this account.");
+    }
+    await performLogin(factoryType, targetPubkey, nip46Connect);
   } finally {
     store.dispatch(setSwitchingAccount(false));
   }
@@ -1060,6 +1231,9 @@ export async function removeAccount(pubkeyToRemove: string): Promise<void> {
     } catch {
       // Key may already be deleted
     }
+  } else if (account?.signerType === "nip46") {
+    // Ephemeral key is disposable — delete the stored bunker connection.
+    await deleteSecret(nip46SecretKey(pubkeyToRemove)).catch(() => {});
   }
 
   if (remaining.length === 0) {
@@ -1115,6 +1289,7 @@ export function performCleanup(): void {
   stopAllBgChatSubs();
 
   // 4. Clear module-level caches (signer, profile, DM relay, channel, dedup, authorSet)
+  closeSignerIfRemote(currentSigner);
   currentSigner = null;
   profileCache.clear();
   clearDMRelayCache();
@@ -1157,6 +1332,7 @@ export async function performLogout(): Promise<void> {
   stopAllBgChatSubs();
 
   // 4. Clear signer and module-level caches
+  closeSignerIfRemote(currentSigner);
   currentSigner = null;
   profileCache.clear();
   clearDMRelayCache();

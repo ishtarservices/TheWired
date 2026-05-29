@@ -3,7 +3,28 @@ import type { RelayMode } from "../../types/relay";
 import type { RelayEventCallback, RelayEOSECallback, RelayOKCallback, RelayStatusCallback, SubscribeOptions, RelayConfig } from "./types";
 import { RelayConnection } from "./relayConnection";
 import { StormDetector } from "./reconnect";
-import { BOOTSTRAP_RELAYS } from "./constants";
+import { BOOTSTRAP_RELAYS, INDEXER_RELAYS } from "./constants";
+import { createLogger, shortRelay } from "../debug/logger";
+
+const log = createLogger("sub");
+
+/** Kinds the indexer-only relays (purplepag.es / user.kindpag.es) actually serve:
+ *  metadata, contacts, relay list. They reject everything else and have strict
+ *  concurrent-REQ caps, so we must never send them chat/engagement/note subs. */
+const INDEXER_KINDS = new Set([0, 3, 10002]);
+
+const INDEXER_SET = new Set<string>(INDEXER_RELAYS);
+
+/** True if every filter is limited to indexer-served kinds (so it's safe to send
+ *  to an indexer relay). A filter with no `kinds` matches everything → not safe.
+ *  Exported so layers above (subscriptionManager) can mirror the same strip and
+ *  not wait on EOSE from a relay that was never actually subscribed. */
+export function isIndexerSafe(filters: NostrFilter[]): boolean {
+  return filters.every((f) => f.kinds != null && f.kinds.every((k) => INDEXER_KINDS.has(k)));
+}
+
+/** Indexer-relay URL set (frozen — used by callers to mirror the strip). */
+export const INDEXER_URL_SET = INDEXER_SET;
 
 let subIdCounter = 0;
 function nextSubId(): string {
@@ -18,6 +39,12 @@ class RelayManagerImpl {
   private globalOnOK: RelayOKCallback | null = null;
   private globalOnStatusChange: RelayStatusCallback | null = null;
 
+  /** Transient one-shot status listeners used by waitForConnection /
+   *  connectToBootstrapAndWait. Additive (a Set) so concurrent waiters — e.g.
+   *  two logins racing, or an account switch — don't clobber each other's
+   *  callback the way overwriting a single field did. */
+  private statusWaiters = new Set<RelayStatusCallback>();
+
   /** Tracks active subscriptions that targeted specific relay URLs.
    *  When a relay connects for the first time, pending subs are forwarded to it. */
   private pendingSubscriptions = new Map<string, {
@@ -28,12 +55,26 @@ class RelayManagerImpl {
   /** Per-event-id callbacks for publish confirmation (used by publishWithConfirmation) */
   private publishOKCallbacks = new Map<string, (relayUrl: string, success: boolean, message: string) => void>();
 
+  /** Relays that have reached "connected" at least once this session — lets us
+   *  tell a reconnect apart from a first connect. */
+  private everConnected = new Set<string>();
+  /** Listeners fired when a relay reconnects (connected after a prior connect). */
+  private reconnectListeners = new Set<(relayUrl: string) => void>();
+
   setGlobalCallbacks(cbs: {
     onOK?: RelayOKCallback;
     onStatusChange?: RelayStatusCallback;
   }) {
     if (cbs.onOK) this.globalOnOK = cbs.onOK;
     if (cbs.onStatusChange) this.globalOnStatusChange = cbs.onStatusChange;
+  }
+
+  /** Register a listener fired when a relay reconnects (reaches "connected"
+   *  after a previous connect this session). Returns an unsubscribe fn.
+   *  Additive so multiple subsystems can listen without clobbering. */
+  onReconnect(cb: (relayUrl: string) => void): () => void {
+    this.reconnectListeners.add(cb);
+    return () => this.reconnectListeners.delete(cb);
   }
 
   connect(url: string, mode: RelayMode = "read+write"): RelayConnection {
@@ -63,8 +104,16 @@ class RelayManagerImpl {
       },
       onStatusChange: (relayUrl, status, error) => {
         this.globalOnStatusChange?.(relayUrl, status, error);
+        for (const waiter of this.statusWaiters) waiter(relayUrl, status, error);
         if (status === "connected") {
+          const isReconnect = this.everConnected.has(relayUrl);
+          this.everConnected.add(relayUrl);
           this.forwardPendingSubscriptions(relayUrl, conn);
+          // Fire reconnect listeners only on a genuine reconnect, not the first
+          // connect (avoids needless bg-sub rebuilds during cold start).
+          if (isReconnect) {
+            for (const cb of this.reconnectListeners) cb(relayUrl);
+          }
         }
       },
       onAuth: async (challenge: string, relayUrl: string): Promise<NostrEvent | null> => {
@@ -113,6 +162,7 @@ class RelayManagerImpl {
     }
     this.pendingSubscriptions.clear();
     this.publishOKCallbacks.clear();
+    this.everConnected.clear();
   }
 
   /** Publish an event to write relays. Returns the number of relays it was sent to. */
@@ -141,21 +191,50 @@ class RelayManagerImpl {
       this.onEOSECallbacks.set(subId, onEOSE);
     }
 
-    if (relayUrls) {
-      // Track intended URLs so deferred relays get the subscription when they connect
-      this.pendingSubscriptions.set(subId, { filters, intendedUrls: relayUrls });
+    // Indexer-only relays serve just kind:0/3/10002 and cap concurrent REQs hard.
+    // Drop them from any subscription carrying other kinds — otherwise engagement
+    // (kind 7/6/1), chat, and note subs flood them with "too many concurrent REQs"
+    // and they reject the profile queries too. This guard applies even when a caller
+    // explicitly targets PROFILE_RELAYS (e.g. NoteCard's reaction sub).
+    const indexerSafe = isIndexerSafe(filters);
 
-      for (const url of relayUrls) {
-        const conn = this.connections.get(url);
-        if (conn) {
+    if (relayUrls) {
+      const urls = indexerSafe ? relayUrls : relayUrls.filter((u) => !INDEXER_SET.has(u));
+      // Track intended URLs so deferred relays get the subscription when they connect
+      this.pendingSubscriptions.set(subId, { filters, intendedUrls: urls });
+
+      let sentNow = 0;
+      const notConnected: string[] = [];
+      for (const url of urls) {
+        let conn = this.connections.get(url);
+        if (!conn) {
+          // The relay was targeted but never dialed. This is the bug behind
+          // profiles stuck as hashes: PROFILE_RELAYS includes indexer-only relays
+          // (purplepag.es / user.kindpag.es) that nothing else connects, so kind:0
+          // REQs had nowhere to go. Dial it read-only now; forwardPendingSubscriptions
+          // (re)sends the REQ once the socket opens.
+          conn = this.connect(url, "read");
+        }
+        if (conn.getStatus() === "connected") {
           conn.subscribe(subId, filters);
+          sentNow++;
+        } else {
+          conn.subscribe(subId, filters); // queues internally until WS opens
+          notConnected.push(`${shortRelay(url)}:${conn.getStatus()}`);
         }
       }
+      const kinds = [...new Set(filters.flatMap((f) => f.kinds ?? []))].join(",");
+      log.debug(
+        `${subId} kinds=[${kinds}] → sent to ${sentNow}/${urls.length} connected${notConnected.length ? `; waiting on: ${notConnected.join(", ")}` : ""}`,
+      );
     } else {
-      // No specific URLs: send to all current read relays
-      for (const conn of this.getReadRelays()) {
+      // No specific URLs: send to all current read relays (minus indexers unless safe)
+      const reads = this.getReadRelays().filter((c) => indexerSafe || !INDEXER_SET.has(c.url));
+      for (const conn of reads) {
         conn.subscribe(subId, filters);
       }
+      const kinds = [...new Set(filters.flatMap((f) => f.kinds ?? []))].join(",");
+      log.debug(`${subId} kinds=[${kinds}] → broadcast to ${reads.length} read relays`);
     }
 
     return subId;
@@ -214,20 +293,16 @@ class RelayManagerImpl {
     if (conn.getStatus() === "connected") return Promise.resolve(true);
 
     return new Promise((resolve) => {
-      const timer = setTimeout(() => {
-        resolve(false);
-      }, timeout);
-
-      const prevOnStatusChange = this.globalOnStatusChange;
-      const check: RelayStatusCallback = (relayUrl, status) => {
-        prevOnStatusChange?.(relayUrl, status);
-        if (relayUrl === url && status === "connected") {
-          clearTimeout(timer);
-          this.globalOnStatusChange = prevOnStatusChange;
-          resolve(true);
-        }
+      const done = (val: boolean) => {
+        clearTimeout(timer);
+        this.statusWaiters.delete(waiter);
+        resolve(val);
       };
-      this.globalOnStatusChange = check;
+      const timer = setTimeout(() => done(false), timeout);
+      const waiter: RelayStatusCallback = (relayUrl, status) => {
+        if (relayUrl === url && status === "connected") done(true);
+      };
+      this.statusWaiters.add(waiter);
     });
   }
 
@@ -243,21 +318,17 @@ class RelayManagerImpl {
 
     // Wait for any one to connect
     return new Promise<void>((resolve) => {
-      const timer = setTimeout(() => {
-        // Resolve even on timeout -- subscriptions will queue in messageQueue
+      const done = () => {
+        clearTimeout(timer);
+        this.statusWaiters.delete(waiter);
         resolve();
-      }, timeout);
-
-      const prevOnStatusChange = this.globalOnStatusChange;
-      const check: RelayStatusCallback = (relayUrl, status, error) => {
-        prevOnStatusChange?.(relayUrl, status, error);
-        if (status === "connected" && BOOTSTRAP_RELAYS.includes(relayUrl)) {
-          clearTimeout(timer);
-          this.globalOnStatusChange = prevOnStatusChange;
-          resolve();
-        }
       };
-      this.globalOnStatusChange = check;
+      // Resolve even on timeout -- subscriptions will queue in messageQueue
+      const timer = setTimeout(done, timeout);
+      const waiter: RelayStatusCallback = (relayUrl, status) => {
+        if (status === "connected" && BOOTSTRAP_RELAYS.includes(relayUrl)) done();
+      };
+      this.statusWaiters.add(waiter);
     });
   }
 
@@ -344,8 +415,9 @@ class RelayManagerImpl {
       conn.subscribe(subId, pending.filters);
       forwarded++;
     }
-    // forwarded count unused but kept for future diagnostics if needed
-    void forwarded;
+    if (forwarded > 0) {
+      log.debug(`forwarded ${forwarded} pending subs to ${shortRelay(relayUrl)} on connect`);
+    }
   }
 }
 

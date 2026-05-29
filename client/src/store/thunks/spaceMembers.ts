@@ -4,6 +4,10 @@ import { updateSpaceMembers } from "../slices/spacesSlice";
 import { fetchAllMemberRoles } from "../../lib/api/roles";
 import { saveMembers } from "../../lib/db/spaceMembersStore";
 import { ApiRequestError } from "../../lib/api/client";
+import { profileCache } from "../../lib/nostr/profileCache";
+import { createLogger } from "../../lib/debug/logger";
+
+const log = createLogger("spaces");
 
 /**
  * Single source of truth for space membership + roles.
@@ -53,6 +57,11 @@ export function syncSpaceMembers(spaceId: string) {
         if (members.length === 0) return;
 
         const pubkeys = members.map((m) => m.pubkey);
+
+        const named = pubkeys.filter((pk) => profileCache.getCached(pk) != null).length;
+        log.info(
+          `members synced for ${spaceId.slice(0, 8)}…: ${members.length} members, ${named}/${members.length} have a cached name (rest will render a hash until their kind:0 loads)`,
+        );
 
         dispatch(setMembers({ spaceId, members }));
         dispatch(updateSpaceMembers({ spaceId, members: pubkeys }));

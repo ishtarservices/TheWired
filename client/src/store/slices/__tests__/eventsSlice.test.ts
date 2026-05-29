@@ -10,7 +10,6 @@ const {
   indexChatMessage,
   indexSpaceFeed,
   indexNote,
-  indexReaction,
   indexReply,
   indexRepost,
   indexQuote,
@@ -20,6 +19,13 @@ const {
   trackDeletedNote,
   trackDeletedAddr,
   clearSpaceFeed,
+  indexNotes,
+  indexReplies,
+  indexReposts,
+  indexRepostsByAuthor,
+  indexQuotes,
+  indexChatMessages,
+  indexSpaceFeeds,
 } = eventsSlice.actions;
 
 function makeEvent(overrides: Partial<NostrEvent> = {}): NostrEvent {
@@ -126,15 +132,7 @@ describe("eventsSlice", () => {
     expect(store.getState().events.notesByAuthor["pk-1"]).toEqual(["evt-1"]);
   });
 
-  // ─── indexReaction / indexReply / indexRepost ───
-
-  it("indexes reactions by target event", () => {
-    const store = createTestStore();
-    store.dispatch(
-      indexReaction({ targetEventId: "target-1", eventId: "rxn-1" }),
-    );
-    expect(store.getState().events.reactions["target-1"]).toEqual(["rxn-1"]);
-  });
+  // ─── indexReply / indexRepost / indexQuote ───
 
   it("indexes replies by parent event", () => {
     const store = createTestStore();
@@ -215,5 +213,87 @@ describe("eventsSlice", () => {
       indexEditedMessage({ originalId: "orig-1", editEventId: "edit-2" }),
     );
     expect(store.getState().events.editedMessages["orig-1"]).toBe("edit-2");
+  });
+});
+
+describe("eventsSlice — batched index reducers", () => {
+  it("indexNotes applies many entries in one dispatch", () => {
+    const store = createTestStore();
+    store.dispatch(
+      indexNotes([
+        { pubkey: "pk-1", eventId: "e1" },
+        { pubkey: "pk-1", eventId: "e2" },
+        { pubkey: "pk-2", eventId: "e3" },
+      ]),
+    );
+    expect(store.getState().events.notesByAuthor["pk-1"]).toEqual(["e1", "e2"]);
+    expect(store.getState().events.notesByAuthor["pk-2"]).toEqual(["e3"]);
+  });
+
+  it("batched index matches repeated single dispatches", () => {
+    const single = createTestStore();
+    single.dispatch(indexReply({ parentEventId: "t", eventId: "r1" }));
+    single.dispatch(indexReply({ parentEventId: "t", eventId: "r2" }));
+
+    const batched = createTestStore();
+    batched.dispatch(
+      indexReplies([
+        { parentEventId: "t", eventId: "r1" },
+        { parentEventId: "t", eventId: "r2" },
+      ]),
+    );
+
+    expect(batched.getState().events.replies).toEqual(
+      single.getState().events.replies,
+    );
+  });
+
+  it("deduplicates within a single batch (same id twice)", () => {
+    const store = createTestStore();
+    store.dispatch(
+      indexReplies([
+        { parentEventId: "p", eventId: "dup" },
+        { parentEventId: "p", eventId: "dup" },
+        { parentEventId: "p", eventId: "other" },
+      ]),
+    );
+    expect(store.getState().events.replies["p"]).toEqual(["dup", "other"]);
+  });
+
+  it("batches reposts / repostsByAuthor / quotes", () => {
+    const store = createTestStore();
+    store.dispatch(indexReposts([{ targetEventId: "t", eventId: "rp" }]));
+    store.dispatch(indexRepostsByAuthor([{ pubkey: "pk", eventId: "rp" }]));
+    store.dispatch(indexQuotes([{ targetEventId: "t", eventId: "q" }]));
+    expect(store.getState().events.reposts["t"]).toEqual(["rp"]);
+    expect(store.getState().events.repostsByAuthor["pk"]).toEqual(["rp"]);
+    expect(store.getState().events.quotes["t"]).toEqual(["q"]);
+  });
+
+  it("indexChatMessages batches multiple groups in one dispatch", () => {
+    const store = createTestStore();
+    store.dispatch(
+      indexChatMessages([
+        { groupId: "g1", eventId: "m1" },
+        { groupId: "g2", eventId: "m2" },
+        { groupId: "g1", eventId: "m3" },
+      ]),
+    );
+    expect(store.getState().events.chatMessages["g1"]).toEqual(["m1", "m3"]);
+    expect(store.getState().events.chatMessages["g2"]).toEqual(["m2"]);
+  });
+
+  it("indexSpaceFeeds enforces the 500-cap within a single batch", () => {
+    const store = createTestStore();
+    const items = Array.from({ length: 501 }, (_, i) => ({
+      contextId: "space:notes",
+      eventId: `e${i}`,
+    }));
+    store.dispatch(indexSpaceFeeds(items));
+    const feed = store.getState().events.spaceFeeds["space:notes"];
+    expect(feed).toHaveLength(500);
+    // Oldest trimmed, newest kept
+    expect(feed[feed.length - 1]).toBe("e500");
+    expect(feed).not.toContain("e0");
   });
 });

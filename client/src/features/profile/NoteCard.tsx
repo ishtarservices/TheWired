@@ -13,9 +13,11 @@ import { useProfile } from "./useProfile";
 import { useProfileNoteActions } from "./useProfileNoteActions";
 import { useNoteEngagement } from "../spaces/useNoteEngagement";
 import { useRepostedEvent } from "./useRepostedEvent";
+import { useEngagementReporter } from "./engagementCollector";
 import { parseThreadRef, parseQuoteRef } from "../spaces/noteParser";
 import { extractMediaUrls, stripMediaUrls } from "../../lib/media/mediaUrlParser";
 import { UserPopoverCard } from "./UserPopoverCard";
+import { useZap } from "../wallet/WalletProvider";
 import { useClickOutside } from "../../hooks/useClickOutside";
 import { useAppSelector, useAppDispatch } from "../../store/hooks";
 import { eventsSelectors, removeEvent, removeRepost } from "../../store/slices/eventsSlice";
@@ -38,6 +40,8 @@ function formatRelativeTime(unixSeconds: number): string {
 
 interface NoteCardProps {
   item: ProfileFeedItem;
+  /** Feed position — used to fetch engagement in document order */
+  index?: number;
   /** Show "View thread" context for replies */
   showThreadContext?: boolean;
   /** Stagger animation delay in ms */
@@ -46,6 +50,7 @@ interface NoteCardProps {
 
 export const ProfileNoteCard = memo(function ProfileNoteCard({
   item,
+  index = 0,
   showThreadContext,
   animationDelay,
 }: NoteCardProps) {
@@ -71,10 +76,14 @@ export const ProfileNoteCard = memo(function ProfileNoteCard({
     await signAndPublish(unsigned);
   }, [myPubkey, item.event.id, item.reposterPubkey, dispatch]);
 
+  // Fetch engagement for this card when it scrolls into view (see collector).
+  const engagementRef = useEngagementReporter(item.event.id, index);
+
   if (item.repostedEventId) {
     const isOwnRepost = item.reposterPubkey === myPubkey;
     return (
       <div
+        ref={engagementRef}
         className="animate-fade-in-up"
         style={animationDelay ? { animationDelay: `${animationDelay}ms` } : undefined}
       >
@@ -89,6 +98,7 @@ export const ProfileNoteCard = memo(function ProfileNoteCard({
 
   return (
     <div
+      ref={engagementRef}
       className="animate-fade-in-up"
       style={animationDelay ? { animationDelay: `${animationDelay}ms` } : undefined}
     >
@@ -144,6 +154,7 @@ function NoteCardInner({
   const { profile } = useProfile(event.pubkey);
   const engagement = useNoteEngagement(event.id);
   const actions = useProfileNoteActions(event);
+  const { openZap } = useZap();
   const myPubkey = useAppSelector((s) => s.identity.pubkey);
   const pinnedNoteIds = useAppSelector((s) => s.identity.pinnedNoteIds);
   const [showReplyComposer, setShowReplyComposer] = useState(false);
@@ -366,6 +377,7 @@ function NoteCardInner({
           const content = prompt("Quote this note:");
           if (content) actions.quote(content);
         }}
+        onZap={() => openZap({ recipientPubkey: event.pubkey, event })}
         showPin={showPin}
         isPinned={isPinned}
         onPin={() => actions.togglePin(event.id)}

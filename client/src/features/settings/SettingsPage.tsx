@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, useSearchParams } from "react-router-dom";
 import { Settings, ArrowLeft } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { usePlaybackBarSpacing } from "@/hooks/usePlaybackBarSpacing";
@@ -9,8 +9,9 @@ import { AppSettingsTab } from "./AppSettingsTab";
 import { NotificationSettingsTab } from "./NotificationSettingsTab";
 import { SecuritySettingsTab } from "./SecuritySettingsTab";
 import { ThemeSettingsTab } from "./ThemeSettingsTab";
+import { WalletSettingsTab } from "./WalletSettingsTab";
 
-type Tab = "profile" | "appearance" | "relays" | "notifications" | "security" | "app";
+type Tab = "profile" | "appearance" | "relays" | "notifications" | "security" | "wallet" | "app";
 
 const tabs: { id: Tab; label: string }[] = [
   { id: "profile", label: "Profile" },
@@ -18,11 +19,16 @@ const tabs: { id: Tab; label: string }[] = [
   { id: "relays", label: "Relays" },
   { id: "notifications", label: "Notifications" },
   { id: "security", label: "Security" },
+  { id: "wallet", label: "Wallet" },
   { id: "app", label: "App" },
 ];
 
 export function SettingsPage() {
-  const [activeTab, setActiveTab] = useState<Tab>("profile");
+  const [searchParams] = useSearchParams();
+  const requestedTab = searchParams.get("tab");
+  const [activeTab, setActiveTab] = useState<Tab>(() =>
+    tabs.some((t) => t.id === requestedTab) ? (requestedTab as Tab) : "profile",
+  );
   const navigate = useNavigate();
   const { scrollPaddingClass } = usePlaybackBarSpacing();
 
@@ -62,6 +68,7 @@ export function SettingsPage() {
       {activeTab === "relays" && <RelaySettingsTab />}
       {activeTab === "notifications" && <NotificationSettingsTab />}
       {activeTab === "security" && <SecuritySettingsTab />}
+      {activeTab === "wallet" && <WalletSettingsTab />}
       {activeTab === "app" && <AppSettingsTab />}
     </div>
   );

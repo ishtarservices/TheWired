@@ -29,6 +29,20 @@ export async function nip44Encrypt(
     return signingQueue.enqueue(() => signer.nip44Encrypt(recipientPubkey, plaintext));
   }
 
+  if (signerType === "nip46") {
+    const { getSigner } = await import("./loginFlow");
+    const signer = getSigner() as {
+      nip44Encrypt?(p: string, t: string): Promise<string>;
+    } | null;
+    if (!signer?.nip44Encrypt) {
+      throw new Error("Your remote signer doesn't support NIP-44 encryption.");
+    }
+    return signingQueue.enqueue(
+      () => signer.nip44Encrypt!(recipientPubkey, plaintext),
+      90_000,
+    );
+  }
+
   throw new Error("No signer available for NIP-44 encryption");
 }
 
@@ -51,6 +65,20 @@ export async function nip44Decrypt(
     const { TauriSigner } = await import("./tauriSigner");
     const signer = new TauriSigner();
     return signingQueue.enqueue(() => signer.nip44Decrypt(senderPubkey, ciphertext));
+  }
+
+  if (signerType === "nip46") {
+    const { getSigner } = await import("./loginFlow");
+    const signer = getSigner() as {
+      nip44Decrypt?(p: string, c: string): Promise<string>;
+    } | null;
+    if (!signer?.nip44Decrypt) {
+      throw new Error("Your remote signer doesn't support NIP-44 decryption.");
+    }
+    return signingQueue.enqueue(
+      () => signer.nip44Decrypt!(senderPubkey, ciphertext),
+      90_000,
+    );
   }
 
   throw new Error("No signer available for NIP-44 decryption");

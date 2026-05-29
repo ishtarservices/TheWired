@@ -3,17 +3,19 @@ import { EVENT_KINDS } from "../../types/nostr";
 import { EventDeduplicator } from "./dedup";
 import { isValidEventStructure } from "./validation";
 import { verifyBridge } from "./verifyWorkerBridge";
+import type { UnknownAction } from "@reduxjs/toolkit";
 import { store } from "../../store";
 import { putEvent, deleteEvent, deleteAddressableEvent } from "../db/eventStore";
-import { addEvent, indexChatMessage, indexReel, indexLongForm, indexLiveStream, indexNote, indexSpaceFeed, removeEventFromAllSpaceFeeds, indexMusicTrack, indexMusicAlbum, indexReaction, indexReply, indexRepost, indexRepostByAuthor, indexQuote, removeChatMessage, hideMessage, removeEvent, removeNote, removeRepost, trackDeletedNote, trackDeletedAddr, indexEditedMessage } from "../../store/slices/eventsSlice";
+import { addEvent, addEvents, indexChatMessage, indexReel, indexLongForm, indexLiveStream, indexNote, indexSpaceFeed, removeEventFromAllSpaceFeeds, indexMusicTrack, indexMusicAlbum, indexReply, indexRepost, indexRepostByAuthor, indexQuote, removeChatMessage, hideMessage, removeEvent, removeNote, removeRepost, trackDeletedNote, trackDeletedAddr, indexEditedMessage, indexNotes, indexReplies, indexReposts, indexRepostsByAuthor, indexQuotes, indexChatMessages, indexReels, indexLongForms, indexLiveStreams, indexMusicTracks, indexMusicAlbums, indexSpaceFeeds } from "../../store/slices/eventsSlice";
+import { addReaction, addReactions, removeReactionByEventId, type ReactionInput } from "../../store/slices/reactionsSlice";
 import { addTrack, indexTrackByArtist, indexTrackByAlbum, indexTrackByArtistName, indexAlbumByArtist, indexAlbumByArtistName, addAlbum, addPlaylist, addAnnotation, removeAnnotation, removeTrack, removeAlbum, removePlaylist } from "../../store/slices/musicSlice";
 import { addDMMessage, editDMMessage, remoteDeleteDMMessage } from "../../store/slices/dmSlice";
 import { parseTrackEvent, parsePrivateTrackEvent } from "../../features/music/trackParser";
 import { parseAlbumEvent, parsePrivateAlbumEvent } from "../../features/music/albumParser";
 import { parsePlaylistEvent } from "../../features/music/playlistParser";
 import { parseAnnotationEvent } from "../../features/music/annotationParser";
-import { incrementEventCount } from "../../store/slices/relaysSlice";
-import { trackFeedTimestamp } from "../../store/slices/feedSlice";
+import { incrementEventCount, incrementCounts } from "../../store/slices/relaysSlice";
+import { trackFeedTimestamp, trackFeedTimestamps } from "../../store/slices/feedSlice";
 import { SPACE_CHANNEL_ROUTES } from "../../features/spaces/spaceChannelRoutes";
 import { hasMediaUrls, hasEmbedUrls } from "../media/mediaUrlParser";
 import { parseThreadRef, parseQuoteRef } from "../../features/spaces/noteParser";
@@ -30,14 +32,157 @@ import { parseEmojiSetEvent, parseUserEmojiListEvent } from "../../features/emoj
 import { parseRTCSignal } from "./callSignaling";
 import type { CallType } from "../../types/calling";
 import { scheduleMemberSync } from "../../store/thunks/spaceMembers";
+import { createLogger, shortKey, shortRelay } from "../debug/logger";
+
+const log = createLogger("pipeline");
 
 const dedup = new EventDeduplicator();
 
 // Cached Set for space author lookups (O(1) instead of O(n) per check)
 const authorSetCache = new Map<string, { set: Set<string>; fingerprint: string }>();
 
+// ── Burst-path dispatch batching ──────────────────────────────────────
+// At ~600 events/sec, dispatching addEvent + index actions individually pegs
+// the main thread (every store.dispatch re-runs every mounted selector). We
+// buffer the burst path (events from real relays) and flush coalesced
+// array-dispatches on a short timer. Synthetic sources (optimistic sends,
+// resolvers) flush synchronously so callers that await still read fresh state.
+const FLUSH_MS = 50;
+const FLUSH_CHAT_MS = 16; // chat is perceptibly live — flush within ~one frame
+const MAX_BUFFER = 256; // hard cap: flush early on backfill / background-tab bursts
+
+interface PipelineBuffer {
+  events: NostrEvent[];
+  counts: Record<string, number>;
+  notes: { pubkey: string; eventId: string }[];
+  reactions: ReactionInput[];
+  replies: { parentEventId: string; eventId: string }[];
+  reposts: { targetEventId: string; eventId: string }[];
+  repostsByAuthor: { pubkey: string; eventId: string }[];
+  quotes: { targetEventId: string; eventId: string }[];
+  chatMessages: { groupId: string; eventId: string }[];
+  reels: { contextId: string; eventId: string }[];
+  longform: { contextId: string; eventId: string }[];
+  liveStreams: { contextId: string; eventId: string }[];
+  musicTracks: { contextId: string; eventId: string }[];
+  musicAlbums: { contextId: string; eventId: string }[];
+  spaceFeeds: { contextId: string; eventId: string }[];
+  feedTimestamps: { contextId: string; createdAt: number }[];
+}
+
+function emptyBuffer(): PipelineBuffer {
+  return {
+    events: [], counts: {}, notes: [], reactions: [], replies: [], reposts: [],
+    repostsByAuthor: [], quotes: [], chatMessages: [], reels: [], longform: [],
+    liveStreams: [], musicTracks: [], musicAlbums: [], spaceFeeds: [], feedTimestamps: [],
+  };
+}
+
+let buf: PipelineBuffer = emptyBuffer();
+let flushTimer: ReturnType<typeof setTimeout> | null = null;
+let scheduledDelay = FLUSH_MS;
+
+/** True when the event arrived from a real relay (ws://) rather than a synthetic
+ *  source: "local" (optimistic sends) or "resolve"/"search"/"browse"/"embedded". */
+function isBurstSource(relayUrl: string): boolean {
+  return relayUrl.startsWith("ws://") || relayUrl.startsWith("wss://");
+}
+
+/** Route a Redux action through the burst buffer when batchable, else dispatch
+ *  immediately. RTK `.match` keeps each payload strongly typed. */
+function emit(action: UnknownAction): void {
+  if (addEvent.match(action)) { buf.events.push(action.payload); return; }
+  if (incrementEventCount.match(action)) {
+    const url = action.payload;
+    buf.counts[url] = (buf.counts[url] ?? 0) + 1;
+    return;
+  }
+  if (indexNote.match(action)) { buf.notes.push(action.payload); return; }
+  if (addReaction.match(action)) { buf.reactions.push(action.payload); return; }
+  if (indexReply.match(action)) { buf.replies.push(action.payload); return; }
+  if (indexRepost.match(action)) { buf.reposts.push(action.payload); return; }
+  if (indexRepostByAuthor.match(action)) { buf.repostsByAuthor.push(action.payload); return; }
+  if (indexQuote.match(action)) { buf.quotes.push(action.payload); return; }
+  if (indexChatMessage.match(action)) { buf.chatMessages.push(action.payload); return; }
+  if (indexReel.match(action)) { buf.reels.push(action.payload); return; }
+  if (indexLongForm.match(action)) { buf.longform.push(action.payload); return; }
+  if (indexLiveStream.match(action)) { buf.liveStreams.push(action.payload); return; }
+  if (indexMusicTrack.match(action)) { buf.musicTracks.push(action.payload); return; }
+  if (indexMusicAlbum.match(action)) { buf.musicAlbums.push(action.payload); return; }
+  if (indexSpaceFeed.match(action)) { buf.spaceFeeds.push(action.payload); return; }
+  if (trackFeedTimestamp.match(action)) { buf.feedTimestamps.push(action.payload); return; }
+  store.dispatch(action); // not batchable → immediate
+}
+
+function bufferHasData(b: PipelineBuffer): boolean {
+  return (
+    b.events.length > 0 || b.notes.length > 0 || b.reactions.length > 0 ||
+    b.replies.length > 0 || b.reposts.length > 0 || b.repostsByAuthor.length > 0 ||
+    b.quotes.length > 0 || b.chatMessages.length > 0 || b.reels.length > 0 ||
+    b.longform.length > 0 || b.liveStreams.length > 0 || b.musicTracks.length > 0 ||
+    b.musicAlbums.length > 0 || b.spaceFeeds.length > 0 || b.feedTimestamps.length > 0 ||
+    Object.keys(b.counts).length > 0
+  );
+}
+
+/** Schedule a coalesced flush of the burst buffer. Chat flushes within ~a frame;
+ *  everything else within FLUSH_MS. A full buffer flushes immediately. */
+function scheduleFlush(kind: number): void {
+  if (buf.events.length >= MAX_BUFFER) {
+    flushEventPipeline();
+    return;
+  }
+  const delay = kind === EVENT_KINDS.CHAT_MESSAGE ? FLUSH_CHAT_MS : FLUSH_MS;
+  if (flushTimer !== null) {
+    if (delay >= scheduledDelay) return; // already scheduled at least this soon
+    clearTimeout(flushTimer);
+    flushTimer = null;
+  }
+  scheduledDelay = delay;
+  flushTimer = setTimeout(flushEventPipeline, delay);
+}
+
+/** Apply all buffered burst-path ops in one batch — events first, then indices,
+ *  so every index entry's event is already in the adapter. Exported for tests
+ *  and for synchronous flushing on logout / account switch. */
+export function flushEventPipeline(): void {
+  if (flushTimer !== null) {
+    clearTimeout(flushTimer);
+    flushTimer = null;
+  }
+  scheduledDelay = FLUSH_MS;
+  if (!bufferHasData(buf)) return;
+  const b = buf;
+  buf = emptyBuffer();
+  // Entities first — indices reference them.
+  if (b.events.length) store.dispatch(addEvents(b.events));
+  if (Object.keys(b.counts).length) store.dispatch(incrementCounts(b.counts));
+  if (b.notes.length) store.dispatch(indexNotes(b.notes));
+  if (b.reactions.length) store.dispatch(addReactions(b.reactions));
+  if (b.replies.length) store.dispatch(indexReplies(b.replies));
+  if (b.reposts.length) store.dispatch(indexReposts(b.reposts));
+  if (b.repostsByAuthor.length) store.dispatch(indexRepostsByAuthor(b.repostsByAuthor));
+  if (b.quotes.length) store.dispatch(indexQuotes(b.quotes));
+  if (b.chatMessages.length) store.dispatch(indexChatMessages(b.chatMessages));
+  if (b.reels.length) store.dispatch(indexReels(b.reels));
+  if (b.longform.length) store.dispatch(indexLongForms(b.longform));
+  if (b.liveStreams.length) store.dispatch(indexLiveStreams(b.liveStreams));
+  if (b.musicTracks.length) store.dispatch(indexMusicTracks(b.musicTracks));
+  if (b.musicAlbums.length) store.dispatch(indexMusicAlbums(b.musicAlbums));
+  if (b.spaceFeeds.length) store.dispatch(indexSpaceFeeds(b.spaceFeeds));
+  if (b.feedTimestamps.length) store.dispatch(trackFeedTimestamps(b.feedTimestamps));
+}
+
 /** Clear all module-level caches (used during account switch) */
 export function resetEventPipelineCaches(): void {
+  // Drop any pending burst buffer so a stray timer can't repopulate the store
+  // after RESET_ALL wipes it on account switch.
+  if (flushTimer !== null) {
+    clearTimeout(flushTimer);
+    flushTimer = null;
+  }
+  buf = emptyBuffer();
+  scheduledDelay = FLUSH_MS;
   dedup.clear();
   authorSetCache.clear();
 }
@@ -69,8 +214,8 @@ spaceFeedKinds.add(EVENT_KINDS.SHORT_TEXT);
 
 /**
  * Main event processing pipeline:
- * 1. Dedup check (bloom + LRU)
- * 2. Structural validation
+ * 1. Structural validation
+ * 2. Dedup check (LRU)
  * 3. Signature verification (Web Worker)
  * 4. Dispatch to Redux + index
  */
@@ -87,7 +232,12 @@ export async function processIncomingEvent(
   }
 
   // Step 2: Dedup
-  if (dedup.isDuplicate(event.id)) return;
+  if (dedup.isDuplicate(event.id)) {
+    if (event.kind === EVENT_KINDS.METADATA) {
+      log.debug(`kind:0 ${shortKey(event.pubkey)} dropped as duplicate (already processed) from ${shortRelay(relayUrl)}`);
+    }
+    return;
+  }
   dedup.markSeen(event.id);
 
   // Step 3: Signature verification (Web Worker, async)
@@ -95,12 +245,14 @@ export async function processIncomingEvent(
     const valid = await verifyBridge.verify(event);
     if (!valid) {
       if (event.kind === 9) console.warn("[pipeline] kind:9 verify FAIL", event.id.slice(0, 8));
+      if (event.kind === EVENT_KINDS.METADATA) log.warn(`kind:0 ${shortKey(event.pubkey)} verify FAIL from ${shortRelay(relayUrl)} — profile rejected`);
       // Unmark so the event can be retried from another relay
       dedup.unmarkSeen(event.id);
       return;
     }
   } catch (err) {
     if (event.kind === 9) console.warn("[pipeline] kind:9 verify ERROR", err);
+    if (event.kind === EVENT_KINDS.METADATA) log.warn(`kind:0 ${shortKey(event.pubkey)} verify ERROR from ${shortRelay(relayUrl)}`, err);
     // Verification timeout or worker error — unmark so retry is possible
     dedup.unmarkSeen(event.id);
     return;
@@ -142,13 +294,16 @@ export async function processIncomingEvent(
     }
   }
 
-  // Step 4: Dispatch to store
-  store.dispatch(addEvent(event));
-  store.dispatch(incrementEventCount(relayUrl));
+  // Step 4: Dispatch to store (buffered on the burst path — see flushEventPipeline).
+  // Reactions (kind:7) are NOT stored as full events — they fold into the
+  // reaction aggregate (reactionsSlice) in indexEvent, saving memory on hot notes.
+  if (event.kind !== EVENT_KINDS.REACTION) emit(addEvent(event));
+  emit(incrementEventCount(relayUrl));
 
   // Step 4b: Wire kind:0 events into the profile cache
   if (event.kind === EVENT_KINDS.METADATA) {
-    profileCache.handleProfileEvent(event);
+    log.debug(`kind:0 ${shortKey(event.pubkey)} reached pipeline from ${shortRelay(relayUrl)} → handing to profile cache`);
+    profileCache.handleProfileEvent(event, relayUrl);
   }
 
   // Step 4c: Persist addressable events to IndexedDB (music, longform, etc.)
@@ -162,6 +317,11 @@ export async function processIncomingEvent(
 
   // Step 6: Evaluate for notifications (unread badges, toasts)
   evaluateNotification(event);
+
+  // Step 7: Flush. Synthetic sources (optimistic sends, resolvers) flush now so
+  // awaiting callers read fresh state; real-relay bursts coalesce on a timer.
+  if (isBurstSource(relayUrl)) scheduleFlush(event.kind);
+  else flushEventPipeline();
 }
 
 async function indexEvent(event: NostrEvent): Promise<void> {
@@ -169,38 +329,42 @@ async function indexEvent(event: NostrEvent): Promise<void> {
 
   switch (event.kind) {
     case EVENT_KINDS.SHORT_TEXT: {
-      store.dispatch(
-        indexNote({ pubkey: event.pubkey, eventId: event.id }),
-      );
+      emit(indexNote({ pubkey: event.pubkey, eventId: event.id }));
       // Index as reply if it has thread references
       const threadRef = parseThreadRef(event);
       if (threadRef.rootId) {
-        store.dispatch(indexReply({ parentEventId: threadRef.rootId, eventId: event.id }));
+        emit(indexReply({ parentEventId: threadRef.rootId, eventId: event.id }));
         if (threadRef.replyId && threadRef.replyId !== threadRef.rootId) {
-          store.dispatch(indexReply({ parentEventId: threadRef.replyId, eventId: event.id }));
+          emit(indexReply({ parentEventId: threadRef.replyId, eventId: event.id }));
         }
       }
       // Index as quote if it has a "q" tag
       const quoteRef = parseQuoteRef(event);
       if (quoteRef) {
-        store.dispatch(indexQuote({ targetEventId: quoteRef.eventId, eventId: event.id }));
+        emit(indexQuote({ targetEventId: quoteRef.eventId, eventId: event.id }));
       }
       break;
     }
     case EVENT_KINDS.REACTION: {
-      // NIP-25: last "e" tag is the target event
+      // NIP-25: last "e" tag is the target event. Fold into the reaction
+      // aggregate (count + emoji + who reacted) rather than storing the event.
       const lastETag = [...event.tags].reverse().find((t) => t[0] === "e");
       if (lastETag?.[1]) {
-        store.dispatch(indexReaction({ targetEventId: lastETag[1], eventId: event.id }));
+        emit(addReaction({
+          targetEventId: lastETag[1],
+          reactor: event.pubkey,
+          content: event.content,
+          eventId: event.id,
+        }));
       }
       break;
     }
     case EVENT_KINDS.REPOST: {
       const eTag = event.tags.find((t) => t[0] === "e");
       if (eTag?.[1]) {
-        store.dispatch(indexRepost({ targetEventId: eTag[1], eventId: event.id }));
+        emit(indexRepost({ targetEventId: eTag[1], eventId: event.id }));
       }
-      store.dispatch(indexRepostByAuthor({ pubkey: event.pubkey, eventId: event.id }));
+      emit(indexRepostByAuthor({ pubkey: event.pubkey, eventId: event.id }));
       break;
     }
     case EVENT_KINDS.CHAT_MESSAGE: {
@@ -208,6 +372,8 @@ async function indexEvent(event: NostrEvent): Promise<void> {
       const editTag = event.tags.find((t) => t[0] === "e" && t[3] === "edit");
       if (editTag?.[1]) {
         const originalId = editTag[1];
+        // Apply buffered adds so a same-burst original message resolves.
+        flushEventPipeline();
         const state = store.getState();
         const originalEvent = state.events.entities[originalId];
         // Only accept edits from the same author
@@ -224,8 +390,8 @@ async function indexEvent(event: NostrEvent): Promise<void> {
         if (channelTag) {
           // New-style: explicit channel tag → index per-channel
           const indexKey = `${hTag}:${channelTag}`;
-          store.dispatch(indexChatMessage({ groupId: indexKey, eventId: event.id }));
-          store.dispatch(trackFeedTimestamp({ contextId: indexKey, createdAt: event.created_at }));
+          emit(indexChatMessage({ groupId: indexKey, eventId: event.id }));
+          emit(trackFeedTimestamp({ contextId: indexKey, createdAt: event.created_at }));
         } else {
           // Legacy: no channel tag → route to default chat channel if known
           const state = store.getState();
@@ -235,12 +401,12 @@ async function indexEvent(event: NostrEvent): Promise<void> {
 
           if (defaultChat) {
             const indexKey = `${hTag}:${defaultChat.id}`;
-            store.dispatch(indexChatMessage({ groupId: indexKey, eventId: event.id }));
-            store.dispatch(trackFeedTimestamp({ contextId: indexKey, createdAt: event.created_at }));
+            emit(indexChatMessage({ groupId: indexKey, eventId: event.id }));
+            emit(trackFeedTimestamp({ contextId: indexKey, createdAt: event.created_at }));
           } else {
             // Channels not loaded yet — fall back to space-level indexing
-            store.dispatch(indexChatMessage({ groupId: hTag, eventId: event.id }));
-            store.dispatch(trackFeedTimestamp({ contextId: hTag, createdAt: event.created_at }));
+            emit(indexChatMessage({ groupId: hTag, eventId: event.id }));
+            emit(trackFeedTimestamp({ contextId: hTag, createdAt: event.created_at }));
           }
         }
       }
@@ -249,21 +415,21 @@ async function indexEvent(event: NostrEvent): Promise<void> {
     case EVENT_KINDS.VIDEO_VERTICAL:
     case EVENT_KINDS.VIDEO_VERTICAL_ADDR: {
       const contextId = hTag ?? "global";
-      store.dispatch(indexReel({ contextId, eventId: event.id }));
+      emit(indexReel({ contextId, eventId: event.id }));
       break;
     }
     case EVENT_KINDS.LONG_FORM: {
       const contextId = hTag ?? "global";
-      store.dispatch(indexLongForm({ contextId, eventId: event.id }));
+      emit(indexLongForm({ contextId, eventId: event.id }));
       break;
     }
     case EVENT_KINDS.LIVE_STREAM: {
       const contextId = hTag ?? "global";
-      store.dispatch(indexLiveStream({ contextId, eventId: event.id }));
+      emit(indexLiveStream({ contextId, eventId: event.id }));
       break;
     }
     case EVENT_KINDS.MUSIC_TRACK: {
-      store.dispatch(indexMusicTrack({ contextId: hTag ?? "global", eventId: event.id }));
+      emit(indexMusicTrack({ contextId: hTag ?? "global", eventId: event.id }));
 
       // Helper to dispatch track into Redux + artist/collaborator indices
       const dispatchTrack = (track: import("../../types/music").MusicTrack) => {
@@ -328,7 +494,7 @@ async function indexEvent(event: NostrEvent): Promise<void> {
       break;
     }
     case EVENT_KINDS.MUSIC_ALBUM: {
-      store.dispatch(indexMusicAlbum({ contextId: hTag ?? "global", eventId: event.id }));
+      emit(indexMusicAlbum({ contextId: hTag ?? "global", eventId: event.id }));
 
       const dispatchAlbum = (album: import("../../types/music").MusicAlbum) => {
         store.dispatch(addAlbum(album));
@@ -402,6 +568,8 @@ async function indexEvent(event: NostrEvent): Promise<void> {
       // Crucially, a deletion only applies to events created BEFORE the deletion.
       // Re-published addressable events (same kind:pubkey:d-tag but newer created_at)
       // supersede the deletion and must NOT be removed.
+      // Apply any buffered adds first so same-burst deletion targets resolve.
+      flushEventPipeline();
       const state = store.getState();
       for (const tag of event.tags) {
         if (tag[0] === "a" && tag[1]) {
@@ -445,6 +613,9 @@ async function indexEvent(event: NostrEvent): Promise<void> {
         // Handle "e" tag deletions (by event ID) — only if the referenced
         // event is authored by the deletion event's author.
         if (tag[0] === "e" && tag[1]) {
+          // Reactions aren't stored as entities — clear them from the aggregate
+          // via its reverse index (no-op if the id isn't a known reaction).
+          store.dispatch(removeReactionByEventId({ eventId: tag[1], byPubkey: event.pubkey }));
           const refEvent = state.events.entities[tag[1]];
           if (!refEvent || refEvent.pubkey === event.pubkey) {
             // Safety: don't let "e" tag deletions cascade to addressable music
@@ -528,6 +699,8 @@ async function indexEvent(event: NostrEvent): Promise<void> {
       // NIP-29 kind:9005: moderator delete — admin removes a message from the group
       const groupId = event.tags.find((t) => t[0] === "h")?.[1];
       if (!groupId) break;
+      // Apply buffered adds first so refs to same-burst messages resolve.
+      flushEventPipeline();
       for (const tag of event.tags) {
         if (tag[0] === "e" && tag[1]) {
           const refEvent = store.getState().events.entities[tag[1]];
@@ -588,13 +761,13 @@ function indexEventIntoSpaceFeeds(event: NostrEvent): void {
           if (route.filterMode === "htag") continue;
           if (!route.kinds.includes(event.kind)) continue;
           const contextId = `__friends_feed__:${channelType}`;
-          store.dispatch(indexSpaceFeed({ contextId, eventId: event.id }));
-          store.dispatch(trackFeedTimestamp({ contextId, createdAt: event.created_at }));
+          emit(indexSpaceFeed({ contextId, eventId: event.id }));
+          emit(trackFeedTimestamp({ contextId, createdAt: event.created_at }));
         }
         // Cross-index notes with media into media feed
         if (event.kind === EVENT_KINDS.SHORT_TEXT && (hasMediaUrls(event.content) || hasEmbedUrls(event.content))) {
-          store.dispatch(indexSpaceFeed({ contextId: "__friends_feed__:media", eventId: event.id }));
-          store.dispatch(trackFeedTimestamp({ contextId: "__friends_feed__:media", createdAt: event.created_at }));
+          emit(indexSpaceFeed({ contextId: "__friends_feed__:media", eventId: event.id }));
+          emit(trackFeedTimestamp({ contextId: "__friends_feed__:media", createdAt: event.created_at }));
         }
       }
     }
@@ -645,15 +818,15 @@ function indexEventIntoSpaceFeeds(event: NostrEvent): void {
           }
           // All-mode channels with no channel tag on the event: accept (default behavior)
           const contextId = `${space.id}:${ch.id}`;
-          store.dispatch(indexSpaceFeed({ contextId, eventId: event.id }));
-          store.dispatch(trackFeedTimestamp({ contextId, createdAt: event.created_at }));
+          emit(indexSpaceFeed({ contextId, eventId: event.id }));
+          emit(trackFeedTimestamp({ contextId, createdAt: event.created_at }));
         }
       }
 
       // Also index with legacy type-based format for selectors that use it
       const legacyContextId = `${space.id}:${channelType}`;
-      store.dispatch(indexSpaceFeed({ contextId: legacyContextId, eventId: event.id }));
-      store.dispatch(trackFeedTimestamp({ contextId: legacyContextId, createdAt: event.created_at }));
+      emit(indexSpaceFeed({ contextId: legacyContextId, eventId: event.id }));
+      emit(trackFeedTimestamp({ contextId: legacyContextId, createdAt: event.created_at }));
     }
 
     // Cross-index: kind:1 notes that contain media URLs or embed links also go into the media feed
@@ -662,13 +835,13 @@ function indexEventIntoSpaceFeeds(event: NostrEvent): void {
       const mediaChannel = spaceChannels?.find((c) => c.type === "media");
       if (mediaChannel) {
         const contextId = `${space.id}:${mediaChannel.id}`;
-        store.dispatch(indexSpaceFeed({ contextId, eventId: event.id }));
-        store.dispatch(trackFeedTimestamp({ contextId, createdAt: event.created_at }));
+        emit(indexSpaceFeed({ contextId, eventId: event.id }));
+        emit(trackFeedTimestamp({ contextId, createdAt: event.created_at }));
       }
       // Also legacy format
       const legacyMediaContextId = `${space.id}:media`;
-      store.dispatch(indexSpaceFeed({ contextId: legacyMediaContextId, eventId: event.id }));
-      store.dispatch(trackFeedTimestamp({ contextId: legacyMediaContextId, createdAt: event.created_at }));
+      emit(indexSpaceFeed({ contextId: legacyMediaContextId, eventId: event.id }));
+      emit(trackFeedTimestamp({ contextId: legacyMediaContextId, createdAt: event.created_at }));
     }
   }
 }

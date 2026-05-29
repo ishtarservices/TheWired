@@ -13,6 +13,7 @@ import {
   Copy,
   HeartHandshake,
   Clock,
+  Zap,
 } from "lucide-react";
 import { npubEncode } from "nostr-tools/nip19";
 import { Avatar } from "@/components/ui/Avatar";
@@ -27,6 +28,7 @@ import { useAppSelector, useAppDispatch } from "@/store/hooks";
 import { setMuteList } from "@/store/slices/identitySlice";
 import { buildMuteListEvent } from "@/lib/nostr/eventBuilder";
 import { signAndPublish } from "@/lib/nostr/publish";
+import { useZap } from "../wallet/WalletProvider";
 
 const CARD_WIDTH = 320;
 const GAP = 8;
@@ -90,6 +92,7 @@ export function UserPopoverCard({
 }: UserPopoverCardProps) {
   const cardRef = useRef<HTMLDivElement>(null);
   const navigate = useNavigate();
+  const { openZap } = useZap();
   const dispatch = useAppDispatch();
   const { profile } = useProfile(pubkey);
   const mutualSpaces = useMutualSpaces(pubkey);
@@ -274,6 +277,15 @@ export function UserPopoverCard({
                 >
                   <button
                     onClick={() => {
+                      // navigate() is urgent: the URL changes immediately and the
+                      // old route unmounts synchronously, so its useEffect cleanups
+                      // run and close their subscriptions BEFORE the new route's
+                      // subs open. Wrapping this in startTransition was tempting
+                      // (kept the popover responsive during mount) but caused
+                      // sub-overlap across routes → cumulative cap saturation that
+                      // made every navigation after the first slower than the one
+                      // before. onClose() is its own sync state update, so the
+                      // popover still closes immediately.
                       navigate(`/profile/${pubkey}`);
                       onClose();
                     }}
@@ -413,14 +425,14 @@ export function UserPopoverCard({
 
         {/* Actions */}
         <div className="px-4 py-3 mt-2 border-t border-border space-y-2">
-          {/* Row 1: Profile, Message, Follow */}
-          <div className="flex items-center gap-2">
+          {/* Row 1: Profile, Message, Zap, Follow */}
+          <div className="flex flex-wrap items-center gap-1.5">
             <button
               onClick={() => {
                 navigate(`/profile/${pubkey}`);
                 onClose();
               }}
-              className="flex items-center gap-1.5 rounded-lg bg-surface-hover px-3 py-1.5 text-xs font-medium text-heading hover:bg-surface-hover/80 transition-colors"
+              className="flex items-center gap-1.5 rounded-lg bg-surface-hover px-2.5 py-1.5 text-xs font-medium text-heading hover:bg-surface-hover/80 transition-colors"
             >
               <ExternalLink size={12} />
               Profile
@@ -431,20 +443,34 @@ export function UserPopoverCard({
                 {onMessage && (
                   <button
                     onClick={() => {
+                      // Sync nav (see comment on "View Full Profile" above) — keeps
+                      // the old route's sub cleanups from overlapping with DMView's
+                      // mount subs.
                       onMessage(pubkey);
                       onClose();
                     }}
-                    className="flex items-center gap-1.5 rounded-lg bg-surface-hover px-3 py-1.5 text-xs font-medium text-heading hover:bg-surface-hover/80 transition-colors"
+                    className="flex items-center justify-center rounded-lg bg-surface-hover px-2.5 py-1.5 text-heading hover:bg-surface-hover/80 transition-colors"
+                    title="Message"
                   >
-                    <MessageCircle size={12} />
-                    Message
+                    <MessageCircle size={14} />
                   </button>
                 )}
 
                 <button
+                  onClick={() => {
+                    openZap({ recipientPubkey: pubkey });
+                    onClose();
+                  }}
+                  className="flex items-center justify-center rounded-lg bg-yellow-400/10 px-2.5 py-1.5 text-yellow-400 hover:bg-yellow-400/20 transition-colors"
+                  title="Zap"
+                >
+                  <Zap size={14} />
+                </button>
+
+                <button
                   onClick={handleFollow}
                   disabled={!followListLoaded}
-                  className={`flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-medium transition-colors ml-auto ${
+                  className={`flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-xs font-medium transition-colors ${
                     iFollow
                       ? "bg-surface-hover text-muted hover:bg-red-500/10 hover:text-red-400"
                       : "bg-primary/20 text-primary hover:bg-primary/30"

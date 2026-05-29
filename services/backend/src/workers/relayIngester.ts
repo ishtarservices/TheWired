@@ -1,6 +1,6 @@
 import { config } from "../config.js";
 import { db } from "../db/connection.js";
-import { cachedProfiles } from "../db/schema/profiles.js";
+import { profileCacheService } from "../services/profileCacheService.js";
 import { spaceMembers } from "../db/schema/members.js";
 import { spaces } from "../db/schema/spaces.js";
 import { spaceActivityDaily, memberEngagement } from "../db/schema/analytics.js";
@@ -169,48 +169,27 @@ export function startRelayIngester(): { stop: () => void } {
   }
 
   async function indexProfile(event: NostrEvent) {
-    try {
-      const profile = JSON.parse(event.content);
-      const data = {
+    // Version-guarded upsert: an older replayed kind:0 won't clobber a newer one.
+    const result = await profileCacheService.upsert({
+      pubkey: event.pubkey,
+      createdAt: event.created_at,
+      content: event.content,
+    });
+    if (!result || !result.applied) return; // bad JSON, or stale (older) event
+
+    // Keep Meilisearch consistent with the DB — only index the version we accepted.
+    const { profile } = result;
+    const ms = getMeilisearchClient();
+    await ms.index("profiles").addDocuments([
+      {
         pubkey: event.pubkey,
-        name: profile.name ?? null,
-        displayName: profile.display_name ?? null,
-        picture: profile.picture ?? null,
-        about: profile.about ?? null,
-        nip05: profile.nip05 ?? null,
-        fetchedAt: Date.now(),
-      };
-
-      await db
-        .insert(cachedProfiles)
-        .values(data)
-        .onConflictDoUpdate({
-          target: cachedProfiles.pubkey,
-          set: {
-            name: data.name,
-            displayName: data.displayName,
-            picture: data.picture,
-            about: data.about,
-            nip05: data.nip05,
-            fetchedAt: data.fetchedAt,
-          },
-        });
-
-      // Push to Meilisearch profiles index
-      const ms = getMeilisearchClient();
-      await ms.index("profiles").addDocuments([
-        {
-          pubkey: event.pubkey,
-          name: profile.name,
-          display_name: profile.display_name,
-          about: profile.about,
-          nip05: profile.nip05,
-          picture: profile.picture,
-        },
-      ]);
-    } catch {
-      // invalid profile JSON
-    }
+        name: profile.name,
+        display_name: profile.displayName,
+        about: profile.about,
+        nip05: profile.nip05,
+        picture: profile.picture,
+      },
+    ]);
   }
 
   async function indexChatMessage(event: NostrEvent) {

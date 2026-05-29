@@ -2,7 +2,10 @@ import { useEffect, useState, useMemo, useCallback, useRef } from "react";
 import { shallowEqual } from "react-redux";
 import { useAppSelector } from "../../store/hooks";
 import { subscriptionManager } from "../../lib/nostr/subscriptionManager";
+import { relayManager } from "../../lib/nostr/relayManager";
+import { fetchRelayList } from "../../lib/nostr/nip65";
 import { PROFILE_RELAYS } from "../../lib/nostr/constants";
+import type { RelayListEntry } from "../../types/relay";
 import { parseThreadRef } from "../spaces/noteParser";
 import { hasMediaUrls } from "../../lib/media/mediaUrlParser";
 import { matchEmbed } from "../../lib/content/embedPatterns";
@@ -28,6 +31,53 @@ function hasEmbedUrls(content: string): boolean {
     if (matchEmbed(match[0])) return true;
   }
   return false;
+}
+
+/** Stable empty array so own-profile renders don't churn the relay set. */
+const NO_RELAYS: string[] = [];
+/** Cache of pubkey → write relay URLs (NIP-65), to avoid refetching per visit. */
+const writeRelayCache = new Map<string, string[]>();
+
+/**
+ * Outbox routing: fetch a pubkey's kind:10002 write relays so their notes load
+ * even when they don't publish to PROFILE_RELAYS (federated/sparse authors).
+ * Returns [] until loaded; cached across navigations. Pass null to disable
+ * (e.g. own profile, which uses the logged-in relay list instead).
+ * Scope: open-Nostr profile feeds only — NIP-29 space content stays on its host.
+ */
+export function useAuthorWriteRelays(pubkey: string | null): string[] {
+  const [urls, setUrls] = useState<string[]>(
+    () => (pubkey ? writeRelayCache.get(pubkey) ?? NO_RELAYS : NO_RELAYS),
+  );
+
+  useEffect(() => {
+    if (!pubkey) {
+      setUrls(NO_RELAYS);
+      return;
+    }
+    const cached = writeRelayCache.get(pubkey);
+    if (cached) {
+      setUrls(cached);
+      return;
+    }
+    let active = true;
+    const subId = fetchRelayList(pubkey, (entries) => {
+      const writeUrls = entries
+        .filter((r) => r.mode === "write" || r.mode === "read+write")
+        .map((r) => r.url);
+      writeRelayCache.set(pubkey, writeUrls);
+      if (active) setUrls(writeUrls);
+    });
+    // One-shot lookup — close after a short window even if no list ever arrives.
+    const timer = setTimeout(() => relayManager.closeSubscription(subId), 5000);
+    return () => {
+      active = false;
+      clearTimeout(timer);
+      relayManager.closeSubscription(subId);
+    };
+  }, [pubkey]);
+
+  return urls;
 }
 
 /**
@@ -59,19 +109,38 @@ export function useProfileFeed(pubkey: string) {
     oldestTimestampRef.current = 0;
   }, [pubkey]);
 
+  // For OWN profile, also query the user's own write relays (kind:10002) — their
+  // notes live wherever they publish, which isn't necessarily in PROFILE_RELAYS.
+  // For other users, we don't yet have their relay list cached (outbox routing
+  // is the long-term fix), so we stick to PROFILE_RELAYS + the read-relay hedge.
+  const myPubkey = useAppSelector((s) => s.identity.pubkey);
+  const myRelayList = useAppSelector((s) => s.identity.relayList, shallowEqual);
+  const isMe = pubkey === myPubkey;
+  // Outbox: for other users, add their NIP-65 write relays to the target set so
+  // their notes load even if they don't publish to PROFILE_RELAYS.
+  const authorWriteRelays = useAuthorWriteRelays(isMe ? null : pubkey);
+  const targetRelays = useMemo(() => {
+    const extra = isMe
+      ? myRelayList
+          .filter((r: RelayListEntry) => r.mode === "write" || r.mode === "read+write")
+          .map((r: RelayListEntry) => r.url)
+      : authorWriteRelays;
+    return [...new Set([...PROFILE_RELAYS, ...extra])];
+  }, [isMe, myRelayList, authorWriteRelays]);
+
   useEffect(() => {
     setEoseReceived(false);
     setArticlesEose(false);
 
     const feedSubId = subscriptionManager.subscribe({
       filters: [{ kinds: [1, 6], authors: [pubkey], limit: 50 }],
-      relayUrls: PROFILE_RELAYS,
+      relayUrls: targetRelays,
       onEOSE: () => setEoseReceived(true),
     });
 
     const articlesSubId = subscriptionManager.subscribe({
       filters: [{ kinds: [30023], authors: [pubkey], limit: 20 }],
-      relayUrls: PROFILE_RELAYS,
+      relayUrls: targetRelays,
       onEOSE: () => setArticlesEose(true),
     });
 
@@ -79,7 +148,7 @@ export function useProfileFeed(pubkey: string) {
       subscriptionManager.close(feedSubId);
       subscriptionManager.close(articlesSubId);
     };
-  }, [pubkey]);
+  }, [pubkey, targetRelays]);
 
   // --- Targeted selectors (avoid selecting entire entities dict) ---
   const noteIds = useAppSelector(
@@ -236,13 +305,13 @@ export function useProfileFeed(pubkey: string) {
         until: oldestTimestampRef.current,
         limit: 50,
       }],
-      relayUrls: PROFILE_RELAYS,
+      relayUrls: targetRelays,
       onEOSE: () => {
         setFetchingMore(false);
         subscriptionManager.close(subId);
       },
     });
-  }, [pubkey, eoseReceived, fetchingMore]);
+  }, [pubkey, eoseReceived, fetchingMore, targetRelays]);
 
   const loading = allItems.length === 0 && !eoseReceived;
 

@@ -1,13 +1,15 @@
 import { useState } from "react";
-import { LogIn, Key, AlertCircle, Plus, Download } from "lucide-react";
+import { LogIn, Key, AlertCircle, Plus, Download, Radio } from "lucide-react";
 import { Button } from "../../components/ui/Button";
 import { ShimmerButton } from "@/components/ui/ShimmerButton";
 import { Spinner } from "../../components/ui/Spinner";
 import { useIdentity } from "./useIdentity";
 
 export function LoginScreen() {
-  const { logIn, importNsec, generateNew, loading, error } = useIdentity();
+  const { logIn, importNsec, generateNew, connectBunker, loading, error } =
+    useIdentity();
   const [nsecInput, setNsecInput] = useState("");
+  const [bunkerInput, setBunkerInput] = useState("");
   const hasNip07 =
     typeof window !== "undefined" && "nostr" in window && !!window.nostr;
   const hasTauri =
@@ -17,6 +19,12 @@ export function LoginScreen() {
     const trimmed = nsecInput.trim();
     if (!trimmed) return;
     importNsec(trimmed);
+  };
+
+  const handleBunker = () => {
+    const trimmed = bunkerInput.trim();
+    if (!trimmed) return;
+    connectBunker(trimmed);
   };
 
   return (
@@ -102,6 +110,38 @@ export function LoginScreen() {
               Generate New Identity
             </Button>
           )}
+
+          {/* NIP-46 remote signer — available on both web and desktop builds */}
+          {(hasNip07 || hasTauri) && (
+            <div className="flex items-center gap-3">
+              <div className="h-px flex-1 bg-border-light" />
+              <span className="text-xs text-muted">or</span>
+              <div className="h-px flex-1 bg-border-light" />
+            </div>
+          )}
+
+          <div className="flex gap-2">
+            <input
+              type="text"
+              value={bunkerInput}
+              onChange={(e) => setBunkerInput(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") handleBunker();
+              }}
+              placeholder="bunker://..."
+              disabled={loading}
+              className="flex-1 rounded-xl bg-field ring-1 ring-border px-3 py-2 text-sm text-heading placeholder-muted focus:ring-primary/30 focus:shadow-[0_0_12px_var(--focus-glow-color)] focus:outline-none"
+            />
+            <Button
+              onClick={handleBunker}
+              disabled={loading || !bunkerInput.trim()}
+              variant="secondary"
+              className="gap-1.5 whitespace-nowrap"
+            >
+              <Radio size={14} />
+              Connect
+            </Button>
+          </div>
         </div>
 
         <p className="mt-4 text-xs text-muted">

@@ -62,7 +62,12 @@ function IdentityInfoSection() {
 
   if (!pubkey) return null;
 
-  const signerLabel = signerType === "nip07" ? "Browser Extension (NIP-07)" : "Tauri Keystore";
+  const signerLabel =
+    signerType === "nip07"
+      ? "Browser Extension (NIP-07)"
+      : signerType === "nip46"
+        ? "Remote Signer (NIP-46 / Bunker)"
+        : "Tauri Keystore";
 
   return (
     <div className="space-y-3">

@@ -40,6 +40,12 @@ fn get_account_list_account() -> String {
     format!("nostr_account_list{}", instance_suffix())
 }
 
+/// Generic secret keychain account name (NIP-46 bunker connection, NWC URI).
+/// `key` is a caller-namespaced id like `nip46_<pubkey>` or `nwc_<pubkey>`.
+fn get_secret_account_for(key: &str) -> String {
+    format!("nostr_secret_{}{}", key, instance_suffix())
+}
+
 /// Multi-key in-memory cache: pubkey → SecretKey
 static CACHED_SECRETS: Mutex<Option<HashMap<String, SecretKey>>> = Mutex::new(None);
 
@@ -180,6 +186,40 @@ mod platform {
         Ok(())
     }
 
+    /// Store an arbitrary secret WITHOUT biometric protection, so it can be read on every
+    /// launch (NIP-46 reconnect) and every use (zap) with no Touch ID prompt. For low-value
+    /// transport secrets only — never the identity key.
+    pub fn store_secret(
+        service: &str,
+        account: &str,
+        marker_account: &str,
+        data: &[u8],
+    ) -> Result<(), String> {
+        // Avoid errSecDuplicateItem
+        let _ = delete_items(service, account, marker_account);
+
+        // Try 1: Data Protection keychain WITHOUT biometric
+        {
+            let mut opts = PasswordOptions::new_generic_password(service, account);
+            opts.use_protected_keychain();
+            if let Ok(()) = set_generic_password_options(data, opts) {
+                let mut marker_opts =
+                    PasswordOptions::new_generic_password(service, marker_account);
+                marker_opts.use_protected_keychain();
+                let _ = set_generic_password_options(b"1", marker_opts);
+                return Ok(());
+            }
+        }
+
+        // Try 2: Legacy keychain
+        let opts = PasswordOptions::new_generic_password(service, account);
+        set_generic_password_options(data, opts)
+            .map_err(|e| format!("Failed to store secret in any keychain: {e}"))?;
+        let marker_opts = PasswordOptions::new_generic_password(service, marker_account);
+        let _ = set_generic_password_options(b"1", marker_opts);
+        Ok(())
+    }
+
     /// Delete key and marker from Data Protection keychain.
     pub fn delete_items(
         service: &str,
@@ -260,6 +300,16 @@ mod platform {
         marker.set_password("1").map_err(|e| e.to_string())?;
 
         Ok(())
+    }
+
+    pub fn store_secret(
+        service: &str,
+        account: &str,
+        marker_account: &str,
+        data: &[u8],
+    ) -> Result<(), String> {
+        // keyring storage is already non-biometric
+        store_key(service, account, marker_account, data)
     }
 
     pub fn delete_items(
@@ -442,6 +492,48 @@ fn delete_fallback_key_for(pubkey: &str) {
 
 fn delete_legacy_fallback_key() {
     if let Some(path) = legacy_fallback_key_path() {
+        let _ = std::fs::remove_file(path);
+    }
+}
+
+/// File-based fallback path for a generic secret (mirrors the per-account key fallback files).
+fn secret_fallback_path(key: &str) -> Option<std::path::PathBuf> {
+    let home = std::env::var("HOME").ok()?;
+    let mut dir = std::path::PathBuf::from(home);
+    #[cfg(target_os = "macos")]
+    dir.push("Library/Application Support");
+    #[cfg(target_os = "linux")]
+    dir.push(".local/share");
+    #[cfg(target_os = "windows")]
+    dir.push("AppData/Roaming");
+    dir.push(SERVICE_NAME);
+    dir.push(format!("{}.secret", get_secret_account_for(key)));
+    Some(dir)
+}
+
+fn write_secret_fallback(key: &str, value: &str) {
+    if let Some(path) = secret_fallback_path(key) {
+        if let Some(parent) = path.parent() {
+            let _ = std::fs::create_dir_all(parent);
+        }
+        if let Err(e) = std::fs::write(&path, value) {
+            log::warn!("Failed to write secret fallback file: {e}");
+        }
+    }
+}
+
+fn read_secret_fallback(key: &str) -> Option<String> {
+    let path = secret_fallback_path(key)?;
+    let s = std::fs::read_to_string(&path).ok()?;
+    if s.is_empty() {
+        None
+    } else {
+        Some(s)
+    }
+}
+
+fn delete_secret_fallback(key: &str) {
+    if let Some(path) = secret_fallback_path(key) {
         let _ = std::fs::remove_file(path);
     }
 }
@@ -893,8 +985,75 @@ pub fn keystore_nip44_decrypt(
     crate::nip44::decrypt(&ciphertext, &conversation_key)
 }
 
+/// Store an arbitrary secret string (NIP-46 bunker connection, NWC URI) WITHOUT biometric
+/// protection, keyed by a caller-namespaced id. Best-effort keychain + plaintext file fallback
+/// (consistent with the existing per-account key fallback).
+#[tauri::command]
+pub fn keystore_set_secret(key: String, value: String) -> Result<(), String> {
+    let account = get_secret_account_for(&key);
+    let marker = format!("{}_marker", account);
+    let _ = platform::store_secret(SERVICE_NAME, &account, &marker, value.as_bytes());
+    write_secret_fallback(&key, &value);
+    Ok(())
+}
+
+/// Read a secret stored via keystore_set_secret. Returns None if absent.
+#[tauri::command]
+pub fn keystore_get_secret(key: String) -> Result<Option<String>, String> {
+    let account = get_secret_account_for(&key);
+    if let Ok(Some(data)) = platform::read_key(SERVICE_NAME, &account) {
+        if let Ok(s) = String::from_utf8(data) {
+            if !s.is_empty() {
+                return Ok(Some(s));
+            }
+        }
+    }
+    Ok(read_secret_fallback(&key))
+}
+
+/// Delete a secret stored via keystore_set_secret.
+#[tauri::command]
+pub fn keystore_delete_secret(key: String) -> Result<(), String> {
+    let account = get_secret_account_for(&key);
+    let marker = format!("{}_marker", account);
+    let _ = platform::delete_items(SERVICE_NAME, &account, &marker);
+    delete_secret_fallback(&key);
+    Ok(())
+}
+
 #[derive(serde::Serialize)]
 pub struct SignedEventResult {
     pub id: String,
     pub sig: String,
+}
+
+#[cfg(test)]
+mod secret_tests {
+    use super::*;
+
+    #[test]
+    fn secret_account_name_is_namespaced() {
+        let acct = get_secret_account_for("nwc_abc");
+        assert!(acct.starts_with("nostr_secret_nwc_abc"));
+    }
+
+    #[test]
+    fn secret_file_fallback_roundtrip() {
+        let key = "__wired_secret_test_roundtrip__";
+        // Skip when there's no HOME (no fallback path available in this env).
+        if secret_fallback_path(key).is_none() {
+            return;
+        }
+        delete_secret_fallback(key);
+        assert_eq!(read_secret_fallback(key), None);
+
+        write_secret_fallback(key, "nostr+walletconnect://example");
+        assert_eq!(
+            read_secret_fallback(key),
+            Some("nostr+walletconnect://example".to_string())
+        );
+
+        delete_secret_fallback(key);
+        assert_eq!(read_secret_fallback(key), None);
+    }
 }

@@ -31,10 +31,12 @@ import { npubEncode } from "nostr-tools/nip19";
 import { Avatar } from "../../components/ui/Avatar";
 import { Spinner } from "../../components/ui/Spinner";
 import { useProfile } from "./useProfile";
+import { useZap } from "../wallet/WalletProvider";
 import { useProfileFeed } from "./useProfileNotes";
 import { useFollowData } from "./useFollowData";
 import { useMutualFollow } from "./useMutualFollow";
-import { useProfileEngagementSub } from "./useProfileEngagementSub";
+import { EngagementCollectorProvider } from "./engagementCollector";
+import { PROFILE_RELAYS } from "../../lib/nostr/constants";
 import { ProfileNoteCard } from "./NoteCard";
 import { FollowListModal } from "./FollowListModal";
 import { ArticleCard } from "../longform/ArticleCard";
@@ -55,6 +57,9 @@ import { useProfileSettings } from "./useProfileSettings";
 import type { ProfileTab } from "./profileSettings";
 import type { ProfileFeedItem } from "./useProfileNotes";
 import type { LongFormArticle } from "../../types/media";
+import { createLogger, shortKey } from "../../lib/debug/logger";
+
+const feedLog = createLogger("feed");
 
 type Tab = "notes" | "reposts" | "replies" | "media" | "reads" | "music" | "showcase";
 
@@ -64,6 +69,7 @@ interface ProfilePageProps {
 
 export function ProfilePage({ pubkey }: ProfilePageProps) {
   const { profile } = useProfile(pubkey);
+  const { openZap } = useZap();
   const [activeTab, setActiveTab] = useState<Tab>("notes");
   const [followModal, setFollowModal] = useState<"following" | "followers" | null>(null);
   const feed = useProfileFeed(pubkey);
@@ -88,6 +94,38 @@ export function ProfilePage({ pubkey }: ProfilePageProps) {
     }
   }, [profileDisplaySettings.visibleTabs, activeTab, isMe]);
 
+  // Mount/unmount tracking — pairs with NavigationLogger to show how long the
+  // user actually stayed on a profile page, and whose profile it was. Also
+  // captures who the logged-in account was at mount time.
+  useEffect(() => {
+    const mountedAt = performance.now();
+    feedLog.info(
+      `ProfilePage mounted  pubkey=${shortKey(pubkey)}${isMe ? " (own)" : ""}  acct=${shortKey(myPubkey)}`,
+    );
+    return () => {
+      const ms = Math.round(performance.now() - mountedAt);
+      feedLog.info(
+        `ProfilePage unmounted  pubkey=${shortKey(pubkey)}  after ${ms}ms`,
+      );
+    };
+  }, [pubkey, isMe, myPubkey]);
+
+  // Note-count milestones — fires when the feed crosses 20/50/100/200/500 visible
+  // items. Lets us spot accounts whose feed balloons and confirm whether the
+  // app-wide slowdown correlates with note volume.
+  const milestoneRef = useRef(0);
+  useEffect(() => {
+    const n = feed.allItems.length;
+    const MILESTONES = [20, 50, 100, 200, 500, 1000];
+    const crossed = MILESTONES.find((m) => n >= m && milestoneRef.current < m);
+    if (crossed) {
+      milestoneRef.current = crossed;
+      feedLog.info(
+        `feed milestone  pubkey=${shortKey(pubkey)}  ${n} items  (notes=${feed.totalNotes} reposts=${feed.totalReposts} replies=${feed.totalReplies} media=${feed.totalMedia})`,
+      );
+    }
+  }, [feed.allItems.length, pubkey, feed.totalNotes, feed.totalReposts, feed.totalReplies, feed.totalMedia]);
+
   // Per-tab scroll position persistence
   const scrollRef = useRef<HTMLDivElement>(null);
   const scrollPositions = useRef<Record<Tab, number>>({
@@ -95,12 +133,13 @@ export function ProfilePage({ pubkey }: ProfilePageProps) {
   });
 
   const handleTabChange = useCallback((newTab: Tab) => {
+    feedLog.debug(`tab change  ${activeTab} → ${newTab}  pubkey=${shortKey(pubkey)}`);
     // Save current scroll position
     if (scrollRef.current) {
       scrollPositions.current[activeTab] = scrollRef.current.scrollTop;
     }
     setActiveTab(newTab);
-  }, [activeTab]);
+  }, [activeTab, pubkey]);
 
   // Restore scroll position when tab changes
   useEffect(() => {
@@ -109,16 +148,8 @@ export function ProfilePage({ pubkey }: ProfilePageProps) {
     }
   }, [activeTab]);
 
-  // Engagement subscriptions — scoped to only the currently visible page's note IDs
-  const visibleNoteIds = useMemo(() => {
-    const items = activeTab === "notes" ? feed.rootNotes
-      : activeTab === "reposts" ? feed.reposts
-      : activeTab === "replies" ? feed.replies
-      : activeTab === "media" ? feed.mediaItems
-      : [];
-    return items.map((item) => item.event.id).filter(Boolean);
-  }, [activeTab, feed.rootNotes, feed.reposts, feed.replies, feed.mediaItems]);
-  useProfileEngagementSub(visibleNoteIds);
+  // Engagement is fetched per-card as notes scroll into view — see FeedTab's
+  // EngagementCollectorProvider + ProfileNoteCard's useEngagementReporter.
 
   // Derive friend request status for this user
   const friendStatus = useMemo(() => {
@@ -262,6 +293,15 @@ export function ProfilePage({ pubkey }: ProfilePageProps) {
               >
                 <MessageCircle size={14} />
                 Message
+              </button>
+
+              <button
+                onClick={() => openZap({ recipientPubkey: pubkey })}
+                className="flex items-center gap-1.5 rounded-lg bg-yellow-400/10 px-4 py-2 text-sm font-medium text-yellow-400 hover:bg-yellow-400/20 transition-colors"
+                title="Zap"
+              >
+                <Zap size={14} />
+                Zap
               </button>
 
               {/* Add Friend / Request Status */}
@@ -634,6 +674,7 @@ export function ProfilePage({ pubkey }: ProfilePageProps) {
               onFetchOlder={feed.fetchOlderFromRelay}
               emptyIcon={<FileText size={32} className="text-faint" />}
               emptyText="No notes yet"
+              label="notes"
             />
           </>
         )}
@@ -646,6 +687,7 @@ export function ProfilePage({ pubkey }: ProfilePageProps) {
             onLoadMore={feed.loadMoreReposts}
             emptyIcon={<Repeat2 size={32} className="text-faint" />}
             emptyText="No reposts yet"
+            label="reposts"
           />
         )}
         {activeTab === "replies" && (
@@ -658,6 +700,7 @@ export function ProfilePage({ pubkey }: ProfilePageProps) {
             showThreadContext
             emptyIcon={<MessageSquare size={32} className="text-faint" />}
             emptyText="No replies yet"
+            label="replies"
           />
         )}
         {activeTab === "media" && (
@@ -669,6 +712,7 @@ export function ProfilePage({ pubkey }: ProfilePageProps) {
             onLoadMore={feed.loadMoreMedia}
             emptyIcon={<ImageIcon size={32} className="text-faint" />}
             emptyText="No media posts yet"
+            label="media"
           />
         )}
         {activeTab === "reads" && (
@@ -707,8 +751,9 @@ export function ProfilePage({ pubkey }: ProfilePageProps) {
 }
 
 /** IntersectionObserver sentinel for auto-loading next page */
-function LoadMoreSentinel({ onIntersect }: { onIntersect: () => void }) {
+function LoadMoreSentinel({ onIntersect, label }: { onIntersect: () => void; label?: string }) {
   const sentinelRef = useRef<HTMLDivElement>(null);
+  const fireCount = useRef(0);
 
   useEffect(() => {
     const el = sentinelRef.current;
@@ -717,6 +762,12 @@ function LoadMoreSentinel({ onIntersect }: { onIntersect: () => void }) {
     const observer = new IntersectionObserver(
       (entries) => {
         if (entries[0]?.isIntersecting) {
+          fireCount.current++;
+          // Log the trigger — confirms the infinite-scroll behaviour the user
+          // suspects. The count makes it obvious if the sentinel is firing
+          // rapidly (e.g., during a heavy render the observer can re-fire
+          // while the new page bumps the scroll height).
+          feedLog.debug(`LoadMoreSentinel triggered  ${label ?? "(unlabeled)"} fire#${fireCount.current}`);
           onIntersect();
         }
       },
@@ -725,7 +776,7 @@ function LoadMoreSentinel({ onIntersect }: { onIntersect: () => void }) {
 
     observer.observe(el);
     return () => observer.disconnect();
-  }, [onIntersect]);
+  }, [onIntersect, label]);
 
   return <div ref={sentinelRef} className="h-1" />;
 }
@@ -742,6 +793,7 @@ function FeedTab({
   onFetchOlder,
   emptyIcon,
   emptyText,
+  label,
 }: {
   items: ProfileFeedItem[];
   loading: boolean;
@@ -753,6 +805,7 @@ function FeedTab({
   onFetchOlder?: () => void;
   emptyIcon: React.ReactNode;
   emptyText: string;
+  label?: string;
 }) {
   if (loading && items.length === 0) {
     return (
@@ -772,11 +825,13 @@ function FeedTab({
   }
 
   return (
+    <EngagementCollectorProvider relayUrls={PROFILE_RELAYS}>
     <div className="flex flex-col gap-3">
       {items.map((item, i) => (
         <ProfileNoteCard
           key={item.event.id}
           item={item}
+          index={i}
           showThreadContext={showThreadContext}
           animationDelay={i < 15 ? i * 40 : undefined}
         />
@@ -784,7 +839,7 @@ function FeedTab({
 
       {/* Auto-load next page when sentinel is visible */}
       {hasMore && onLoadMore && (
-        <LoadMoreSentinel onIntersect={onLoadMore} />
+        <LoadMoreSentinel onIntersect={onLoadMore} label={label} />
       )}
 
       {/* Fetching more from relay indicator */}
@@ -812,6 +867,7 @@ function FeedTab({
         </div>
       )}
     </div>
+    </EngagementCollectorProvider>
   );
 }
 
@@ -862,7 +918,7 @@ function ReadsTab({
       ))}
 
       {hasMore && onLoadMore && (
-        <LoadMoreSentinel onIntersect={onLoadMore} />
+        <LoadMoreSentinel onIntersect={onLoadMore} label="reads" />
       )}
     </div>
   );

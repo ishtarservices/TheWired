@@ -34,7 +34,7 @@ function AttachmentItem({
 
   return (
     <div
-      className={`group/att relative flex-shrink-0 rounded-lg border transition-colors ${
+      className={`group/att relative shrink-0 rounded-lg border transition-colors ${
         isError
           ? "border-red-500/30 bg-red-500/5"
           : "border-border-light bg-surface"
@@ -51,14 +51,14 @@ function AttachmentItem({
 
       {/* Upload overlay */}
       {isUploading && (
-        <div className="absolute inset-0 z-[5] flex items-center justify-center rounded-lg bg-black/40 backdrop-blur-[1px]">
+        <div className="absolute inset-0 z-5 flex items-center justify-center rounded-lg bg-black/40 backdrop-blur-[1px]">
           <Spinner size="sm" />
         </div>
       )}
 
       {/* Error overlay */}
       {isError && (
-        <div className="absolute inset-0 z-[5] flex items-center justify-center rounded-lg bg-black/40">
+        <div className="absolute inset-0 z-5 flex items-center justify-center rounded-lg bg-black/40">
           <AlertCircle size={16} className="text-red-400" />
         </div>
       )}

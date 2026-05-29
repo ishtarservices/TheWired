@@ -44,6 +44,7 @@ Desktop.ini
 .settings/
 
 # Logs
+logs/
 *.log
 npm-debug.log*
 yarn-debug.log*
@@ -81,6 +82,7 @@ coverage/
 
 PRODUCTION.md
 BLOSSOM_IMPLEMENTATION.md
+PACKAGES_DESIGN.md
 spaces.json
 
 # Seed scripts (local demo data tooling)

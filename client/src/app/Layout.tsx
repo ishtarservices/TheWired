@@ -7,6 +7,7 @@ import { ThemeBackground } from "../components/layout/ThemeBackground";
 import { FloatingPlaybackBar } from "../features/music/playbackBar/FloatingPlaybackBar";
 import { UserPopoverProvider } from "../features/profile/UserPopoverContext";
 import { NotificationToastStack } from "../features/notifications/NotificationToast";
+import { WalletProvider } from "../features/wallet/WalletProvider";
 import { CallController } from "../features/calling/CallController";
 import { IncomingCallModal } from "../features/calling/IncomingCallModal";
 import { useAppSelector } from "../store/hooks";
@@ -20,7 +21,8 @@ export function Layout() {
   const hasIncomingCall = useAppSelector((s) => !!s.call.incomingCall);
 
   return (
-    <UserPopoverProvider>
+    <WalletProvider>
+      <UserPopoverProvider>
       <ThemeBackground />
       <div className="flex h-screen flex-col overflow-hidden bg-background">
         <TopBar
@@ -37,6 +39,7 @@ export function Layout() {
         {hasIncomingCall && <IncomingCallModal />}
         <NotificationToastStack />
       </div>
-    </UserPopoverProvider>
+      </UserPopoverProvider>
+    </WalletProvider>
   );
 }

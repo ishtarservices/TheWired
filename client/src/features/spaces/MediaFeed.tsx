@@ -6,6 +6,7 @@ import { selectSpaceMediaEvents } from "./spaceSelectors";
 import { EVENT_KINDS } from "../../types/nostr";
 import type { NostrEvent } from "../../types/nostr";
 import { EnhancedVideoPlayer } from "../media/EnhancedVideoPlayer";
+import { useZap } from "../wallet/WalletProvider";
 import { parseVideoEvent, selectVideoSource } from "../media/imetaParser";
 import { Avatar } from "../../components/ui/Avatar";
 import { RichContent } from "../../components/content/RichContent";
@@ -424,6 +425,7 @@ function ExpandedVideoView({
   onClose: () => void;
 }) {
   const { profile } = useProfile(item.event.pubkey);
+  const { openZap } = useZap();
   const authorName =
     profile?.display_name ||
     profile?.name ||
@@ -450,6 +452,7 @@ function ExpandedVideoView({
           authorName={authorName}
           onClose={onClose}
           className="aspect-video w-full"
+          onZap={() => openZap({ recipientPubkey: item.event.pubkey, event: item.event })}
         />
       </div>
       {text && (

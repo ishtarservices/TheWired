@@ -48,10 +48,13 @@ services:
     volumes:
       - meilidata:/meili_data
     healthcheck:
-      test: ["CMD", "wget", "--spider", "-q", "http://localhost:7700/health"]
+      # Use 127.0.0.1, not "localhost": inside the container "localhost" resolves to
+      # IPv6 [::1] first, where Meilisearch (IPv4, 0.0.0.0:7700) isn't listening -> refused.
+      test: ["CMD", "wget", "--spider", "-q", "http://127.0.0.1:7700/health"]
       interval: 10s
       timeout: 5s
       retries: 3
+      start_period: 10s
     restart: unless-stopped
     networks:
       - backend

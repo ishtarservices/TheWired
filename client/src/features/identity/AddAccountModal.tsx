@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Download, Plus, X } from "lucide-react";
+import { Download, Plus, X, Radio } from "lucide-react";
 import { Modal } from "../../components/ui/Modal";
 import { Button } from "../../components/ui/Button";
 import { Spinner } from "../../components/ui/Spinner";
@@ -18,6 +18,7 @@ interface AddAccountModalProps {
 export function AddAccountModal({ open, onClose }: AddAccountModalProps) {
   const dispatch = useAppDispatch();
   const [nsecInput, setNsecInput] = useState("");
+  const [bunkerInput, setBunkerInput] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -38,6 +39,30 @@ export function AddAccountModal({ open, onClose }: AddAccountModalProps) {
       onClose();
     } catch (e) {
       setError(e instanceof Error ? e.message : "Import failed");
+    } finally {
+      setLoading(false);
+      dispatch(setSwitchingAccount(false));
+    }
+  };
+
+  const handleBunker = async () => {
+    const trimmed = bunkerInput.trim();
+    if (!trimmed) return;
+    setLoading(true);
+    setError(null);
+    dispatch(setSwitchingAccount(true));
+    try {
+      dispatch(setLoginMethod("nip46"));
+      const { generateSecretKey } = await import("nostr-tools/pure");
+      const { bytesToHex } = await import("@noble/hashes/utils");
+      const clientSecretHex = bytesToHex(generateSecretKey());
+      performCleanup();
+      dispatch(resetAll());
+      await performLogin("nip46", undefined, { bunkerUri: trimmed, clientSecretHex });
+      setBunkerInput("");
+      onClose();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Bunker connection failed");
     } finally {
       setLoading(false);
       dispatch(setSwitchingAccount(false));
@@ -128,6 +153,35 @@ export function AddAccountModal({ open, onClose }: AddAccountModalProps) {
             {loading ? <Spinner size="sm" /> : <Plus size={16} />}
             Generate New Identity
           </Button>
+
+          <div className="flex items-center gap-3">
+            <div className="h-px flex-1 bg-border-light" />
+            <span className="text-xs text-muted">or</span>
+            <div className="h-px flex-1 bg-border-light" />
+          </div>
+
+          <div className="flex gap-2">
+            <input
+              type="text"
+              value={bunkerInput}
+              onChange={(e) => setBunkerInput(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") handleBunker();
+              }}
+              placeholder="bunker://..."
+              disabled={loading}
+              className="flex-1 rounded-xl bg-field ring-1 ring-border px-3 py-2 text-sm text-heading placeholder-muted focus:ring-primary/30 focus:outline-none"
+            />
+            <Button
+              onClick={handleBunker}
+              disabled={loading || !bunkerInput.trim()}
+              variant="secondary"
+              className="gap-1.5 whitespace-nowrap"
+            >
+              <Radio size={14} />
+              Connect
+            </Button>
+          </div>
         </div>
       </div>
     </Modal>

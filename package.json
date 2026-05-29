@@ -2,6 +2,7 @@
   "name": "thewired-monorepo",
   "private": true,
   "scripts": {
+    "dev": "process-compose up --shortcuts process-compose-shortcuts.yaml",
     "dev:client": "pnpm --filter @thewired/client dev",
     "dev:backend": "pnpm --filter @thewired/backend dev",
     "dev:gateway": "cd services/gateway && go run cmd/gateway/main.go",
@@ -12,6 +13,8 @@
     "dev:tauri:3": "cd client && WIRED_INSTANCE=2 TAURI_CONFIG='{\"build\":{\"devUrl\":\"http://localhost:1424\",\"beforeDevCommand\":\"pnpm dev\"}}' pnpm tauri dev",
     "dev:infra": "docker compose up postgres redis meilisearch livekit -d",
     "dev:services": "docker compose up -d",
+    "dev:down": "process-compose down",
+    "dev:down:infra": "docker compose stop postgres redis meilisearch",
     "build": "pnpm -r build",
     "typecheck": "pnpm -r typecheck",
     "seed:demo": "tsx --env-file=services/backend/.env scripts/seed-demo.ts",

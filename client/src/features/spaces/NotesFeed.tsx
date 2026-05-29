@@ -29,6 +29,7 @@ import { FRIENDS_FEED_ID } from "../friends/friendsFeedConstants";
 import { BlockedMessage } from "../../components/ui/BlockedMessage";
 import { usePlaybackSpeed, VALID_SPEEDS } from "@/hooks/usePlaybackSpeed";
 import { NoteActionBar } from "./notes/NoteActionBar";
+import { useZap } from "../wallet/WalletProvider";
 import { QuotedNote } from "./notes/QuotedNote";
 import { ReplyComposer } from "./notes/ReplyComposer";
 import { ThreadView } from "./notes/ThreadView";
@@ -171,6 +172,7 @@ const NoteCard = memo(function NoteCard({ event }: { event: NostrEvent }) {
 
   const engagement = useNoteEngagement(event.id);
   const actions = useNoteActions(event);
+  const { openZap } = useZap();
 
   const quoteRef = useMemo(() => parseQuoteRef(event), [event]);
 
@@ -320,6 +322,7 @@ const NoteCard = memo(function NoteCard({ event }: { event: NostrEvent }) {
         onLike={handleLike}
         onQuote={handleQuote}
         onShare={handleShare}
+        onZap={() => openZap({ recipientPubkey: event.pubkey, event })}
       />
 
       {showReplyComposer && (

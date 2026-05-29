@@ -8,6 +8,7 @@ const TIMEOUT_MS = 12_000;
 
 type QueueEntry<T> = {
   fn: () => Promise<T>;
+  timeoutMs: number;
   resolve: (value: T) => void;
   reject: (reason: unknown) => void;
 };
@@ -17,10 +18,14 @@ class SigningQueue {
   private queue: QueueEntry<any>[] = [];
   private running = false;
 
-  /** Enqueue an async signer operation. Resolves when it completes. */
-  enqueue<T>(fn: () => Promise<T>): Promise<T> {
+  /**
+   * Enqueue an async signer operation. Resolves when it completes.
+   * `timeoutMs` lets slow signers (e.g. a NIP-46 bunker awaiting manual approval)
+   * use a longer budget than the fast local-signer default.
+   */
+  enqueue<T>(fn: () => Promise<T>, timeoutMs: number = TIMEOUT_MS): Promise<T> {
     return new Promise<T>((resolve, reject) => {
-      this.queue.push({ fn, resolve, reject });
+      this.queue.push({ fn, timeoutMs, resolve, reject });
       if (!this.running) this.drain();
     });
   }
@@ -33,7 +38,7 @@ class SigningQueue {
         const result = await Promise.race([
           entry.fn(),
           new Promise<never>((_, reject) =>
-            setTimeout(() => reject(new Error("Signing operation timed out")), TIMEOUT_MS),
+            setTimeout(() => reject(new Error("Signing operation timed out")), entry.timeoutMs),
           ),
         ]);
         entry.resolve(result);

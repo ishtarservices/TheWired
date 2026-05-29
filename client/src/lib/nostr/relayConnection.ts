@@ -2,6 +2,29 @@ import type { NostrEvent, NostrFilter, RelayMessage, ClientMessage } from "../..
 import type { RelayMode, RelayStatus } from "../../types/relay";
 import type { RelayEOSECallback, RelayOKCallback, RelayStatusCallback } from "./types";
 import { computeBackoff, StormDetector } from "./reconnect";
+import { createLogger } from "../debug/logger";
+
+const log = createLogger("relay");
+
+/** Compact filter description for logs: "kinds=[0] authors=42 #p=1". */
+function summarizeFilters(filters: NostrFilter[]): string {
+  return filters
+    .map((f) => {
+      const parts: string[] = [];
+      if (f.kinds) parts.push(`kinds=[${f.kinds.join(",")}]`);
+      if (f.authors) parts.push(`authors=${f.authors.length}`);
+      for (const key of Object.keys(f)) {
+        if (key.startsWith("#")) {
+          const v = (f as Record<string, unknown>)[key];
+          if (Array.isArray(v)) parts.push(`${key}=${v.length}`);
+        }
+      }
+      if (f.limit != null) parts.push(`limit=${f.limit}`);
+      if (f.since != null) parts.push(`since=${f.since}`);
+      return parts.join(" ");
+    })
+    .join(" | ");
+}
 
 /** Internal callback that includes the subscription ID for routing */
 type InternalEventCallback = (subId: string, event: NostrEvent, relayUrl: string) => void;
@@ -198,7 +221,12 @@ export class RelayConnection {
     // Send REQ directly if connected; otherwise resubscribe() handles it on connect.
     // Do NOT queue REQs — that causes double-sends when flushQueue + resubscribe both fire.
     if (this.ws && this.ws.readyState === WebSocket.OPEN) {
+      log.debug(`${this.shortUrl} REQ ${subId} ${summarizeFilters(filters)}`);
       this.ws.send(JSON.stringify(["REQ", subId, ...filters]));
+    } else {
+      log.debug(
+        `${this.shortUrl} REQ ${subId} deferred — not connected (status=${this.status}); will send on connect`,
+      );
     }
   }
 
@@ -305,7 +333,20 @@ export class RelayConnection {
   }
 
   private setStatus(status: RelayStatus, error?: string): void {
+    const prev = this.status;
     this.status = status;
+    if (prev !== status) {
+      const subCount = this.subscriptions.size;
+      if (status === "connected") {
+        log.info(`${this.shortUrl} connected (${this.latencyMs}ms, ${subCount} subs to resend)`);
+      } else if (status === "error") {
+        log.warn(`${this.shortUrl} error${error ? `: ${error}` : ""}`);
+      } else if (status === "disconnected") {
+        log.info(`${this.shortUrl} disconnected (had ${subCount} subs)`);
+      } else {
+        log.debug(`${this.shortUrl} → ${status}`);
+      }
+    }
     this.onStatusChange?.(this.url, status, error);
   }
 

@@ -1,6 +1,7 @@
 import { useMemo } from "react";
 import { shallowEqual } from "react-redux";
 import { useAppSelector } from "../../store/hooks";
+import { selectReactionCount, selectMyReaction } from "../../store/slices/reactionsSlice";
 
 export interface NoteEngagement {
   replyCount: number;
@@ -15,10 +16,11 @@ export interface NoteEngagement {
 export function useNoteEngagement(eventId: string): NoteEngagement {
   const myPubkey = useAppSelector((s) => s.identity.pubkey);
 
-  const reactionIds = useAppSelector(
-    (s) => s.events.reactions[eventId],
-    shallowEqual,
-  );
+  // Reactions come from the aggregate slice (count + my-reaction), not the
+  // entity store — no full kind:7 events are kept.
+  const reactionCount = useAppSelector((s) => selectReactionCount(s, eventId));
+  const myReaction = useAppSelector((s) => selectMyReaction(s, eventId, myPubkey));
+
   const replyIds = useAppSelector(
     (s) => s.events.replies[eventId],
     shallowEqual,
@@ -32,23 +34,20 @@ export function useNoteEngagement(eventId: string): NoteEngagement {
     shallowEqual,
   );
 
-  // Only select the pubkeys we need for liked/reposted checks, not all entities
-  const liked = useAppSelector((s) => {
-    if (!myPubkey || !reactionIds) return false;
-    return reactionIds.some((id) => s.events.entities[id]?.pubkey === myPubkey);
-  });
-
+  // Only select the pubkeys we need for the reposted check, not all entities
   const reposted = useAppSelector((s) => {
     if (!myPubkey || !repostIds) return false;
     return repostIds.some((id) => s.events.entities[id]?.pubkey === myPubkey);
   });
 
+  const liked = myReaction !== undefined;
+
   return useMemo(() => ({
     replyCount: replyIds?.length ?? 0,
-    reactionCount: reactionIds?.length ?? 0,
+    reactionCount,
     repostCount: repostIds?.length ?? 0,
     quoteCount: quoteIds?.length ?? 0,
     liked,
     reposted,
-  }), [reactionIds, replyIds, repostIds, quoteIds, liked, reposted]);
+  }), [reactionCount, replyIds, repostIds, quoteIds, liked, reposted]);
 }

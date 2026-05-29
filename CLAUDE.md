@@ -105,7 +105,7 @@ cd client/src-tauri && cargo build   # Build Rust binary
   - `relayConnection.ts` -- Single WebSocket wrapper per relay
   - `subscriptionManager.ts` -- REQ/CLOSE/EOSE lifecycle (singleton)
   - `eventPipeline.ts` -- Dedup + validate + verify + dispatch
-  - `dedup.ts` -- Bloom filter + LRU deduplication
+  - `dedup.ts` -- LRU deduplication (100k-entry `lru-cache`, zero false positives, supports `unmarkSeen` for retry)
   - `verifyWorkerBridge.ts` -- Main-thread bridge to Web Worker
   - `signer.ts` -- NostrSigner interface + factory
   - `nip65.ts` -- Relay list discovery
@@ -151,7 +151,7 @@ cd client/src-tauri && cargo build   # Build Rust binary
 `relayManager`, `subscriptionManager`, and `verifyBridge` are module-level singletons. Import and use them directly -- do not instantiate new instances.
 
 ### Client Event Flow
-Relay message -> `relayConnection` -> `relayManager` routes to callbacks -> `subscriptionManager.onEvent` -> `eventPipeline.processIncomingEvent` (dedup -> validate -> Web Worker verify -> Redux dispatch + index)
+Relay message -> `relayConnection` -> `relayManager` routes to callbacks -> `subscriptionManager.onEvent` -> `eventPipeline.processIncomingEvent` (validate -> dedup -> Web Worker verify -> Redux dispatch + index)
 
 ### Signer Abstraction (Client)
 `NostrSigner` interface with two backends:
@@ -200,7 +200,7 @@ Defined in `client/src-tauri/src/keystore.rs`, registered in `client/src-tauri/s
 
 ## Dependencies of Note
 
-- `bloom-filters` -- uses `BloomFilter.create(capacity, fpr)` static method
+- `lru-cache` -- event dedup (`dedup.ts`) and other bounded caches; construct with `new LRUCache({ max })`
 - `hls.js` -- check `Hls.isSupported()` before use; Safari has native HLS
 - `idb` -- typed IndexedDB wrapper; schema in `client/src/lib/db/database.ts`
 - Tailwind v4 -- uses `@import "tailwindcss"` in CSS, NOT `@tailwind` directives

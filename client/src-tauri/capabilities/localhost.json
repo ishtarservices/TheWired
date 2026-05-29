@@ -18,7 +18,8 @@
         { "url": "https://blossom.primal.net/**" },
         { "url": "https://cdn.satellite.earth/**" },
         { "url": "https://blossom.oxtr.dev/**" },
-        { "url": "https://files.v0l.io/**" }
+        { "url": "https://files.v0l.io/**" },
+        { "url": "https://**" }
       ]
     }
   ]

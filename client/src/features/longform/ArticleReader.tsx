@@ -1,10 +1,11 @@
 import Markdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import rehypeHighlight from "rehype-highlight";
-import { ArrowLeft } from "lucide-react";
+import { ArrowLeft, Zap } from "lucide-react";
 import { Button } from "../../components/ui/Button";
 import { Avatar } from "../../components/ui/Avatar";
 import { useProfile } from "../profile/useProfile";
+import { useZap } from "../wallet/WalletProvider";
 import type { LongFormArticle } from "../../types/media";
 
 interface ArticleReaderProps {
@@ -14,6 +15,7 @@ interface ArticleReaderProps {
 
 export function ArticleReader({ article, onBack }: ArticleReaderProps) {
   const { profile } = useProfile(article.pubkey);
+  const { openZap } = useZap();
   const authorName =
     profile?.display_name ||
     profile?.name ||
@@ -51,6 +53,14 @@ export function ArticleReader({ article, onBack }: ArticleReaderProps) {
               </div>
             )}
           </div>
+          <button
+            onClick={() => openZap({ recipientPubkey: article.pubkey })}
+            className="ml-auto flex items-center gap-1.5 rounded-lg bg-yellow-400/10 px-3 py-1.5 text-xs font-medium text-yellow-400 transition-colors hover:bg-yellow-400/20"
+            title="Zap author"
+          >
+            <Zap size={14} />
+            Zap
+          </button>
         </div>
 
         {article.hashtags.length > 0 && (

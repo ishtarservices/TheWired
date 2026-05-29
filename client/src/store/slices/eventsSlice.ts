@@ -19,7 +19,6 @@ interface EventsExtraState {
   spaceFeeds: Record<string, string[]>; // `${spaceId}:${channelType}` -> eventId[]
   musicTracks: Record<string, string[]>; // contextId -> eventId[]
   musicAlbums: Record<string, string[]>; // contextId -> eventId[]
-  reactions: Record<string, string[]>; // targetEventId -> reaction eventIds
   replies: Record<string, string[]>; // parentEventId -> reply eventIds
   reposts: Record<string, string[]>; // targetEventId -> repost eventIds
   repostsByAuthor: Record<string, string[]>; // pubkey -> repost eventIds
@@ -44,7 +43,6 @@ const initialState = eventsAdapter.getInitialState<EventsExtraState>({
   spaceFeeds: {},
   musicTracks: {},
   musicAlbums: {},
-  reactions: {},
   replies: {},
   reposts: {},
   repostsByAuthor: {},
@@ -186,16 +184,6 @@ export const eventsSlice = createSlice({
         action.payload.eventId,
       );
     },
-    indexReaction(
-      state,
-      action: PayloadAction<{ targetEventId: string; eventId: string }>,
-    ) {
-      pushToIndex(
-        state.reactions,
-        action.payload.targetEventId,
-        action.payload.eventId,
-      );
-    },
     indexReply(
       state,
       action: PayloadAction<{ parentEventId: string; eventId: string }>,
@@ -235,6 +223,46 @@ export const eventsSlice = createSlice({
         action.payload.targetEventId,
         action.payload.eventId,
       );
+    },
+    // ── Batched index reducers (eventPipeline flush) ──────────────────
+    // One dispatch applies many index entries, collapsing burst-path
+    // dispatch density. Each mirrors its single-item counterpart above
+    // and reuses pushToIndex, so cap/dedup behaviour is identical.
+    indexNotes(state, action: PayloadAction<{ pubkey: string; eventId: string }[]>) {
+      for (const it of action.payload) pushToIndex(state.notesByAuthor, it.pubkey, it.eventId);
+    },
+    indexReplies(state, action: PayloadAction<{ parentEventId: string; eventId: string }[]>) {
+      for (const it of action.payload) pushToIndex(state.replies, it.parentEventId, it.eventId);
+    },
+    indexReposts(state, action: PayloadAction<{ targetEventId: string; eventId: string }[]>) {
+      for (const it of action.payload) pushToIndex(state.reposts, it.targetEventId, it.eventId);
+    },
+    indexRepostsByAuthor(state, action: PayloadAction<{ pubkey: string; eventId: string }[]>) {
+      for (const it of action.payload) pushToIndex(state.repostsByAuthor, it.pubkey, it.eventId);
+    },
+    indexQuotes(state, action: PayloadAction<{ targetEventId: string; eventId: string }[]>) {
+      for (const it of action.payload) pushToIndex(state.quotes, it.targetEventId, it.eventId);
+    },
+    indexChatMessages(state, action: PayloadAction<{ groupId: string; eventId: string }[]>) {
+      for (const it of action.payload) pushToIndex(state.chatMessages, it.groupId, it.eventId);
+    },
+    indexReels(state, action: PayloadAction<{ contextId: string; eventId: string }[]>) {
+      for (const it of action.payload) pushToIndex(state.reels, it.contextId, it.eventId);
+    },
+    indexLongForms(state, action: PayloadAction<{ contextId: string; eventId: string }[]>) {
+      for (const it of action.payload) pushToIndex(state.longform, it.contextId, it.eventId);
+    },
+    indexLiveStreams(state, action: PayloadAction<{ contextId: string; eventId: string }[]>) {
+      for (const it of action.payload) pushToIndex(state.liveStreams, it.contextId, it.eventId);
+    },
+    indexMusicTracks(state, action: PayloadAction<{ contextId: string; eventId: string }[]>) {
+      for (const it of action.payload) pushToIndex(state.musicTracks, it.contextId, it.eventId);
+    },
+    indexMusicAlbums(state, action: PayloadAction<{ contextId: string; eventId: string }[]>) {
+      for (const it of action.payload) pushToIndex(state.musicAlbums, it.contextId, it.eventId);
+    },
+    indexSpaceFeeds(state, action: PayloadAction<{ contextId: string; eventId: string }[]>) {
+      for (const it of action.payload) pushToIndex(state.spaceFeeds, it.contextId, it.eventId, FEED_INDEX_CAP);
     },
     /** Locally hide a message (delete for me) */
     hideMessage(state, action: PayloadAction<string>) {
@@ -320,11 +348,22 @@ export const {
   removeEventFromAllSpaceFeeds,
   indexMusicTrack,
   indexMusicAlbum,
-  indexReaction,
   indexReply,
   indexRepost,
   indexRepostByAuthor,
   indexQuote,
+  indexNotes,
+  indexReplies,
+  indexReposts,
+  indexRepostsByAuthor,
+  indexQuotes,
+  indexChatMessages,
+  indexReels,
+  indexLongForms,
+  indexLiveStreams,
+  indexMusicTracks,
+  indexMusicAlbums,
+  indexSpaceFeeds,
   hideMessage,
   restoreDeletedMessageIds,
   removeChatMessage,

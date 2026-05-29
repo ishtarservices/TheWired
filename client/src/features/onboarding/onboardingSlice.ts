@@ -6,7 +6,7 @@ export interface OnboardingState {
   profileWizardCompleted: boolean;
   appTourCompleted: boolean;
   tourStepIndex: number;
-  loginMethod: "generate" | "import" | "nip07" | null;
+  loginMethod: "generate" | "import" | "nip07" | "nip46" | null;
 }
 
 const initialState: OnboardingState = {

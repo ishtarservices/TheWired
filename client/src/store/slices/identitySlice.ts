@@ -2,7 +2,7 @@ import { createSlice, type PayloadAction } from "@reduxjs/toolkit";
 import type { Kind0Profile } from "../../types/profile";
 import type { RelayListEntry } from "../../types/relay";
 
-export type SignerType = "nip07" | "tauri_keystore" | null;
+export type SignerType = "nip07" | "tauri_keystore" | "nip46" | null;
 
 export interface AccountEntry {
   pubkey: string;

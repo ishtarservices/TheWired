@@ -1,4 +1,5 @@
 import { subscriptionManager } from "./subscriptionManager";
+import { relayManager } from "./relayManager";
 import { buildChannelFilter, buildSpaceFeedFilter } from "./filterBuilder";
 import { getChannelRoute } from "./channelRoutes";
 import { getSpaceChannelRoute } from "../../features/spaces/spaceChannelRoutes";
@@ -10,57 +11,129 @@ import { setChannelSubscription, removeChannelSubscription } from "../../store/s
 import { setRefreshing, setLoadingMore, setHasMore } from "../../store/slices/feedSlice";
 
 // ── Background chat subscriptions ────────────────────────────────
-// Always-on lightweight subs for all joined spaces so notifications
-// fire even when the user is viewing a different space.
-// Mirrors how DMs use a global gift-wrap subscription.
+// Always-on lightweight subs so notifications fire even when the user is
+// viewing a different space (mirrors the global DM gift-wrap subscription).
+//
+// Collapsed by HOST RELAY: one sub per distinct hostRelay carries every joined
+// space's id in a single multi-value `#h` filter (NIP-01 OR semantics) instead
+// of one sub per space — 27 spaces on one relay → 1 sub, not 27. Grouping by
+// hostRelay stays correct under federation (spaces on different relays each get
+// their own combined sub). Notifications are unaffected: each event is matched
+// to its space by its own `#h` tag, not by which sub delivered it.
 
-/** Map of spaceId → background chat subscription ID */
-const bgChatSubs = new Map<string, string>();
+/** hostRelay → background chat subscription ID */
+const hostRelaySubs = new Map<string, string>();
+/** hostRelay → set of joined space ids fed by that host's sub */
+const spacesByHost = new Map<string, Set<string>>();
+/** spaceId → hostRelay (reverse lookup so closeBgChatSub resolves the host
+ *  before the space is removed from Redux) */
+const spaceHost = new Map<string, string>();
 
-/**
- * Open background chat subscriptions for all joined spaces.
- * Called once at login after spaces are loaded from IndexedDB.
- */
-export function startBackgroundChatSubs(spaces: Space[]): void {
-  for (const space of spaces) {
-    openBgChatSub(space);
-  }
+/** Recent-only window for the always-on sub (full history loads on entering). */
+function defaultSince(): number {
+  return Math.floor(Date.now() / 1000) - 60;
 }
 
-/** Open a single background chat sub for a space (idempotent) */
-export function openBgChatSub(space: Space): void {
-  if (bgChatSubs.has(space.id)) return;
+/** (Re)open the single bg chat sub for a host with its current space-id set.
+ *  Closes any existing sub for that host first — NIP-01 has no "edit REQ". */
+function openHostSub(host: string, since: number = defaultSince()): void {
+  const existing = hostRelaySubs.get(host);
+  if (existing) {
+    subscriptionManager.close(existing);
+    hostRelaySubs.delete(host);
+  }
+  const ids = [...(spacesByHost.get(host) ?? [])].filter(Boolean);
+  if (ids.length === 0) return;
 
   const subId = subscriptionManager.subscribe({
     filters: [
       {
         kinds: [EVENT_KINDS.CHAT_MESSAGE, EVENT_KINDS.DELETION, EVENT_KINDS.MOD_DELETE_EVENT],
-        "#h": [space.id],
-        // Only fetch recent — historical messages loaded when entering space
-        since: Math.floor(Date.now() / 1000) - 60,
+        "#h": ids,
+        since,
       },
     ],
-    relayUrls: [space.hostRelay],
+    relayUrls: [host],
   });
-
-  bgChatSubs.set(space.id, subId);
+  hostRelaySubs.set(host, subId);
 }
 
-/** Close a single background chat sub (when leaving/deleting a space) */
+/**
+ * Open background chat subscriptions for all joined spaces — one per host relay.
+ * Called once at login after spaces are loaded from IndexedDB.
+ */
+export function startBackgroundChatSubs(spaces: Space[]): void {
+  // Build the per-host id sets first, then open one sub per host (avoids N
+  // close+reopen cycles when many spaces share a host).
+  for (const space of spaces) {
+    if (!space.hostRelay) continue;
+    const set = spacesByHost.get(space.hostRelay) ?? new Set<string>();
+    set.add(space.id);
+    spacesByHost.set(space.hostRelay, set);
+    spaceHost.set(space.id, space.hostRelay);
+  }
+  for (const host of spacesByHost.keys()) {
+    openHostSub(host);
+  }
+}
+
+/** Add a space to its host's background chat sub (idempotent). */
+export function openBgChatSub(space: Space): void {
+  if (!space.hostRelay) return;
+  const set = spacesByHost.get(space.hostRelay) ?? new Set<string>();
+  if (set.has(space.id)) return;
+  set.add(space.id);
+  spacesByHost.set(space.hostRelay, set);
+  spaceHost.set(space.id, space.hostRelay);
+  openHostSub(space.hostRelay);
+}
+
+/** Remove a space from its host's background chat sub (leave/kick/delete).
+ *  Closes the host sub entirely once its last space leaves. */
 export function closeBgChatSub(spaceId: string): void {
-  const subId = bgChatSubs.get(spaceId);
-  if (subId) {
-    subscriptionManager.close(subId);
-    bgChatSubs.delete(spaceId);
+  const host = spaceHost.get(spaceId);
+  if (!host) return;
+  spaceHost.delete(spaceId);
+
+  const set = spacesByHost.get(host);
+  if (!set) return;
+  set.delete(spaceId);
+
+  if (set.size === 0) {
+    const subId = hostRelaySubs.get(host);
+    if (subId) subscriptionManager.close(subId);
+    hostRelaySubs.delete(host);
+    spacesByHost.delete(host);
+  } else {
+    openHostSub(host);
   }
 }
 
-/** Close all background chat subs (logout) */
+/** Close all background chat subs (logout). */
 export function stopAllBgChatSubs(): void {
-  for (const [, subId] of bgChatSubs) {
+  for (const subId of hostRelaySubs.values()) {
     subscriptionManager.close(subId);
   }
-  bgChatSubs.clear();
+  hostRelaySubs.clear();
+  spacesByHost.clear();
+  spaceHost.clear();
+}
+
+// On reconnect, RelayConnection.resubscribe() re-sends the bg sub's original
+// (now-stale) `since`, replaying the whole backlog since login. Rebuild that
+// host's sub with a fresh `since` instead. Deferred to a microtask so it runs
+// AFTER resubscribe(); we then CLOSE the stale sub and re-open from the last
+// event we actually saw (minus a small buffer).
+relayManager.onReconnect((relayUrl) => {
+  if (!hostRelaySubs.has(relayUrl)) return;
+  queueMicrotask(() => rebuildHostSub(relayUrl));
+});
+
+function rebuildHostSub(host: string): void {
+  const oldSubId = hostRelaySubs.get(host);
+  if (!oldSubId) return;
+  const since = subscriptionManager.getReconnectSince(oldSubId) ?? defaultSince();
+  openHostSub(host, since);
 }
 
 /** Active subscriptions per space for metadata */

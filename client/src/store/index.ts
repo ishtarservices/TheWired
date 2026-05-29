@@ -3,6 +3,7 @@ import { identitySlice } from "./slices/identitySlice";
 import { relaysSlice } from "./slices/relaysSlice";
 import { spacesSlice } from "./slices/spacesSlice";
 import { eventsSlice } from "./slices/eventsSlice";
+import { reactionsSlice } from "./slices/reactionsSlice";
 import { uiSlice } from "./slices/uiSlice";
 import { feedSlice } from "./slices/feedSlice";
 import { musicSlice } from "./slices/musicSlice";
@@ -15,6 +16,7 @@ import { callSlice } from "./slices/callSlice";
 import { listenTogetherSlice } from "./slices/listenTogetherSlice";
 import { emojiSlice } from "./slices/emojiSlice";
 import { gifSlice } from "./slices/gifSlice";
+import { walletSlice } from "./slices/walletSlice";
 import { onboardingSlice } from "../features/onboarding/onboardingSlice";
 import { listenTogetherMiddleware } from "@/features/listenTogether/listenTogetherMiddleware";
 
@@ -27,6 +29,7 @@ const appReducer = combineReducers({
   relays: relaysSlice.reducer,
   spaces: spacesSlice.reducer,
   events: eventsSlice.reducer,
+  reactions: reactionsSlice.reducer,
   ui: uiSlice.reducer,
   feed: feedSlice.reducer,
   music: musicSlice.reducer,
@@ -39,6 +42,7 @@ const appReducer = combineReducers({
   listenTogether: listenTogetherSlice.reducer,
   emoji: emojiSlice.reducer,
   gif: gifSlice.reducer,
+  wallet: walletSlice.reducer,
   onboarding: onboardingSlice.reducer,
 });
 

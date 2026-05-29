@@ -45,6 +45,14 @@ export const relaysSlice = createSlice({
         state.connections[action.payload].eventCount++;
       }
     },
+    /** Batched variant of incrementEventCount: url -> delta (eventPipeline flush) */
+    incrementCounts(state, action: PayloadAction<Record<string, number>>) {
+      for (const [url, n] of Object.entries(action.payload)) {
+        if (state.connections[url]) {
+          state.connections[url].eventCount += n;
+        }
+      }
+    },
     setRelayError(
       state,
       action: PayloadAction<{ url: string; error: string }>,
@@ -63,5 +71,6 @@ export const {
   removeRelay,
   updateLatency,
   incrementEventCount,
+  incrementCounts,
   setRelayError,
 } = relaysSlice.actions;

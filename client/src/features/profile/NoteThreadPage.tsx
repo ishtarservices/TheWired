@@ -6,12 +6,13 @@ import { Avatar } from "../../components/ui/Avatar";
 import { Spinner } from "../../components/ui/Spinner";
 import { RichContent } from "../../components/content/RichContent";
 import { NoteActionBar } from "../spaces/notes/NoteActionBar";
+import { useZap } from "../wallet/WalletProvider";
 import { QuotedNote } from "../spaces/notes/QuotedNote";
 import { ReplyComposer } from "../spaces/notes/ReplyComposer";
 import { useProfile } from "./useProfile";
 import { useProfileNoteActions } from "./useProfileNoteActions";
 import { useNoteEngagement } from "../spaces/useNoteEngagement";
-import { useProfileEngagementSub } from "./useProfileEngagementSub";
+import { EngagementCollectorProvider, useEngagementReporter } from "./engagementCollector";
 import { parseQuoteRef } from "../spaces/noteParser";
 import { extractMediaUrls, stripMediaUrls } from "../../lib/media/mediaUrlParser";
 import { MediaLightbox } from "../../components/ui/MediaLightbox";
@@ -85,12 +86,8 @@ export function NoteThreadPage({ noteId }: NoteThreadPageProps) {
       .sort((a, b) => a.created_at - b.created_at);
   }, [replyIds, entities]);
 
-  // Subscribe for engagement data on the root note + replies
-  const allNoteIds = useMemo(() => {
-    const ids = [noteId, ...replies.map((r) => r.id)];
-    return ids;
-  }, [noteId, replies]);
-  useProfileEngagementSub(allNoteIds);
+  // Engagement is fetched per-card (root + each reply) as it scrolls into view
+  // via the EngagementCollectorProvider below — no longer truncated at 20.
 
   if (fetching) {
     return (
@@ -126,6 +123,7 @@ export function NoteThreadPage({ noteId }: NoteThreadPageProps) {
   }
 
   return (
+    <EngagementCollectorProvider relayUrls={PROFILE_RELAYS}>
     <div className={`flex min-h-0 flex-1 flex-col overflow-y-auto ${scrollPaddingClass}`}>
       {/* Header */}
       <div className="flex items-center gap-3 border-b border-border px-4 py-3 shrink-0">
@@ -155,6 +153,7 @@ export function NoteThreadPage({ noteId }: NoteThreadPageProps) {
             <ReplyCard
               key={reply.id}
               event={reply}
+              index={i + 1}
               animationDelay={i < 15 ? i * 40 : undefined}
             />
           ))}
@@ -164,6 +163,7 @@ export function NoteThreadPage({ noteId }: NoteThreadPageProps) {
         )}
       </div>
     </div>
+    </EngagementCollectorProvider>
   );
 }
 
@@ -172,6 +172,7 @@ function RootNoteExpanded({ event }: { event: NostrEvent }) {
   const { profile } = useProfile(event.pubkey);
   const engagement = useNoteEngagement(event.id);
   const actions = useProfileNoteActions(event);
+  const { openZap } = useZap();
   const navigate = useNavigate();
   const [showReplyComposer, setShowReplyComposer] = useState(false);
   const [lightboxSrc, setLightboxSrc] = useState<string | null>(null);
@@ -184,8 +185,10 @@ function RootNoteExpanded({ event }: { event: NostrEvent }) {
     [event.content, media],
   );
 
+  const engagementRef = useEngagementReporter(event.id, 0);
+
   return (
-    <div>
+    <div ref={engagementRef}>
       {/* Author row */}
       <div className="mb-4 flex items-center gap-3">
         <button
@@ -262,6 +265,7 @@ function RootNoteExpanded({ event }: { event: NostrEvent }) {
           const content = prompt("Quote this note:");
           if (content) actions.quote(content);
         }}
+        onZap={() => openZap({ recipientPubkey: event.pubkey, event })}
       />
 
       {showReplyComposer && (
@@ -279,10 +283,11 @@ function RootNoteExpanded({ event }: { event: NostrEvent }) {
 }
 
 /** Individual reply card */
-function ReplyCard({ event, animationDelay }: { event: NostrEvent; animationDelay?: number }) {
+function ReplyCard({ event, index, animationDelay }: { event: NostrEvent; index: number; animationDelay?: number }) {
   const { profile } = useProfile(event.pubkey);
   const engagement = useNoteEngagement(event.id);
   const actions = useProfileNoteActions(event);
+  const { openZap } = useZap();
   const navigate = useNavigate();
   const [showReplyComposer, setShowReplyComposer] = useState(false);
 
@@ -294,8 +299,11 @@ function ReplyCard({ event, animationDelay }: { event: NostrEvent; animationDela
     [event.content, media],
   );
 
+  const engagementRef = useEngagementReporter(event.id, index);
+
   return (
     <div
+      ref={engagementRef}
       className="animate-fade-in-up border-l-2 border-border pl-4 py-3"
       style={animationDelay ? { animationDelay: `${animationDelay}ms` } : undefined}
     >
@@ -350,6 +358,7 @@ function ReplyCard({ event, animationDelay }: { event: NostrEvent; animationDela
           const content = prompt("Quote this note:");
           if (content) actions.quote(content);
         }}
+        onZap={() => openZap({ recipientPubkey: event.pubkey, event })}
       />
 
       {showReplyComposer && (
