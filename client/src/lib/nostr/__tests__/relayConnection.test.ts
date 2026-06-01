@@ -465,4 +465,104 @@ describe("RelayConnection", () => {
       expect(conn.hasSubscription("sub-3-deferred")).toBe(true);
     });
   });
+
+  // -------------------------------------------------------------------------
+  // REQ-AUTH cold-start race gate (NIP29_CHAT Phase 3). A relay that requires
+  // NIP-42 returns zero h-tagged history to a REQ sent before AUTH completes;
+  // once a relay has challenged us, hold REQs on reconnect until AUTH succeeds.
+  // -------------------------------------------------------------------------
+  describe("AUTH req-gate", () => {
+    const AUTH_EVENT = { id: "auth-evt-id", pubkey: "pk", kind: 22242, content: "", tags: [], created_at: 1, sig: "s" };
+    const flush = () => vi.advanceTimersByTimeAsync(1); // flush onAuth microtasks
+
+    function authConn() {
+      const conn = createConn();
+      conn.setCallbacks({ onAuth: async () => AUTH_EVENT });
+      return conn;
+    }
+
+    it("does NOT hold REQs on the first connect (relay hasn't challenged yet)", () => {
+      const conn = authConn();
+      conn.connect();
+      latestWs().simulateOpen();
+      conn.subscribe("sub-1", [{ kinds: [9] }]);
+      // No prior challenge → gate disabled → REQ goes out immediately.
+      expect(countREQs(latestWs())).toBe(1);
+    });
+
+    it("does NOT hold REQs for a relay that never challenges (no onAuth penalty)", () => {
+      const conn = createConn(); // no onAuth at all
+      conn.connect();
+      latestWs().simulateOpen();
+      conn.subscribe("sub-1", [{ kinds: [9] }]);
+      expect(countREQs(latestWs())).toBe(1);
+    });
+
+    it("holds REQs on reconnect after a challenge, releasing on AUTH OK", async () => {
+      const conn = authConn();
+      conn.connect();
+      const ws1 = latestWs();
+      ws1.simulateOpen();
+      // Relay challenges → marks the relay as AUTH-requiring + sends AUTH.
+      ws1.simulateMessage(["AUTH", "challenge-1"]);
+      await flush();
+      expect(parseSent(ws1).some((m) => m[0] === "AUTH")).toBe(true);
+
+      // Reconnect.
+      ws1.simulateClose();
+      vi.advanceTimersByTime(60_000);
+      const ws2 = latestWs();
+      expect(ws2).not.toBe(ws1);
+
+      conn.subscribe("sub-2", [{ kinds: [9] }]); // queued while connecting
+      ws2.simulateOpen(); // resubscribe runs, but the gate holds the REQ
+      expect(countREQs(ws2)).toBe(0);
+
+      // Re-challenge → AUTH → OK releases the held REQ.
+      ws2.simulateMessage(["AUTH", "challenge-2"]);
+      await flush();
+      ws2.simulateMessage(["OK", "auth-evt-id", true, ""]);
+      expect(reqSubIds(ws2)).toContain("sub-2");
+    });
+
+    it("releases held REQs via the wedge timeout if AUTH never completes", async () => {
+      const conn = authConn();
+      conn.connect();
+      const ws1 = latestWs();
+      ws1.simulateOpen();
+      ws1.simulateMessage(["AUTH", "c1"]);
+      await flush();
+
+      ws1.simulateClose();
+      vi.advanceTimersByTime(60_000);
+      const ws2 = latestWs();
+      conn.subscribe("sub-3", [{ kinds: [9] }]);
+      ws2.simulateOpen();
+      expect(countREQs(ws2)).toBe(0); // held
+
+      // No AUTH OK ever arrives → the 3s wedge timer flushes the held REQs.
+      await vi.advanceTimersByTimeAsync(3100);
+      expect(reqSubIds(ws2)).toContain("sub-3");
+    });
+
+    it("does not resurrect a sub closed while held", async () => {
+      const conn = authConn();
+      conn.connect();
+      const ws1 = latestWs();
+      ws1.simulateOpen();
+      ws1.simulateMessage(["AUTH", "c1"]);
+      await flush();
+      ws1.simulateClose();
+      vi.advanceTimersByTime(60_000);
+      const ws2 = latestWs();
+      conn.subscribe("sub-4", [{ kinds: [9] }]);
+      ws2.simulateOpen(); // held
+      conn.closeSubscription("sub-4"); // closed while held
+
+      ws2.simulateMessage(["AUTH", "c2"]);
+      await flush();
+      ws2.simulateMessage(["OK", "auth-evt-id", true, ""]); // release
+      expect(reqSubIds(ws2)).not.toContain("sub-4");
+    });
+  });
 });

@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { X, Settings, Hash, Shield, Users, Gavel, Bell, Rss, UserPlus } from "lucide-react";
+import { X, Settings, Hash, Shield, Users, Gavel, Bell, Rss, UserPlus, Server } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Modal } from "../../../components/ui/Modal";
 import { GeneralTab } from "./GeneralTab";
@@ -8,11 +8,12 @@ import { RolesTab } from "./RolesTab";
 import { MembersTab } from "./MembersTab";
 import { NotificationsTab } from "./NotificationsTab";
 import { OnboardingTab } from "./OnboardingTab";
+import { RelaysTab } from "./RelaysTab";
 import { ModerationTab } from "../moderation/ModerationTab";
 import { usePermissions } from "../usePermissions";
 import { useAppSelector } from "../../../store/hooks";
 
-type TabId = "general" | "channels" | "roles" | "members" | "notifications" | "moderation" | "onboarding";
+type TabId = "general" | "channels" | "roles" | "members" | "notifications" | "moderation" | "onboarding" | "relays";
 
 interface Tab {
   id: TabId;
@@ -50,10 +51,16 @@ export function SpaceSettingsModal({ open, onClose, spaceId }: SpaceSettingsModa
   const space = useAppSelector((s) => s.spaces.list.find((sp) => sp.id === spaceId));
   const isFeedMode = space?.mode === "read";
 
+  // Mirror relays apply to decentralized spaces (a creator-chosen host relay
+  // that can have mirrors); platform spaces are pinned to the Wired relay. M9.
+  const isDecentralized = !!space?.spaceType && space.spaceType !== "platform";
   const baseTabs = isFeedMode ? FEED_TABS : COMMUNITY_TABS;
-  const visibleTabs = baseTabs.filter(
-    (tab) => !tab.permission || can(tab.permission),
-  );
+  const visibleTabs = [
+    ...baseTabs,
+    ...(isDecentralized
+      ? [{ id: "relays" as TabId, label: "Relays", icon: Server, permission: "MANAGE_SPACE" }]
+      : []),
+  ].filter((tab) => !tab.permission || can(tab.permission));
 
   return (
     <Modal open={open} onClose={onClose}>
@@ -96,6 +103,7 @@ export function SpaceSettingsModal({ open, onClose, spaceId }: SpaceSettingsModa
           {activeTab === "members" && <MembersTab spaceId={spaceId} />}
           {activeTab === "notifications" && <NotificationsTab spaceId={spaceId} />}
           {activeTab === "onboarding" && <OnboardingTab spaceId={spaceId} />}
+          {activeTab === "relays" && <RelaysTab spaceId={spaceId} />}
           {activeTab === "moderation" && <ModerationTab spaceId={spaceId} />}
         </div>
       </div>

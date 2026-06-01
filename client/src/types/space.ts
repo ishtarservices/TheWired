@@ -1,3 +1,33 @@
+/**
+ * How a space is governed and where its source of truth lives.
+ * - `platform`            — backend-authoritative (default; today's spaces).
+ * - `decentralized-alite` — backend still owns metadata/channels/roles, but the
+ *                           creator picks an arbitrary `hostRelay` (BYO relay).
+ * - `nip29-native`        — the space IS a standard NIP-29 group; metadata/members
+ *                           come from relay events (39000/39001/39002), no backend.
+ *
+ * Absent on legacy/cached spaces → treat as `platform` (see `getSpaceType`).
+ */
+export type SpaceType = "platform" | "decentralized-alite" | "nip29-native";
+
+/**
+ * Canonical NIP-29 identity for decentralized spaces: the `<host>'<groupId>`
+ * group address. For platform/A-lite this is derived from `hostRelay` + `id`
+ * and is optional; for nip29-native it is the local identity key.
+ */
+export interface GroupRef {
+  /** Bare relay host, e.g. "groups.0xchat.com" (no ws/wss scheme). */
+  host: string;
+  /** NIP-29 group id (the 39000 d-tag); equals `space.id` for native spaces. */
+  groupId: string;
+}
+
+/** Where a space's channel list comes from. */
+export type ChannelSource = "backend" | "layout-event" | "synthesized";
+
+/** Which kind:30078 channel-layout convention a native space follows. */
+export type LayoutConvention = "wired" | "obelisk" | null;
+
 /** NIP-29 group metadata */
 export interface Space {
   id: string;
@@ -13,6 +43,31 @@ export interface Space {
   mode: "read" | "read-write";
   creatorPubkey: string;
   createdAt: number;
+
+  // ── Decentralized Spaces (optional; absent ⇒ legacy "platform") ──
+  /** Governance/source-of-truth mode. Defaults to `platform` when absent. */
+  spaceType?: SpaceType;
+  /** NIP-29 `<host>'<groupId>` identity (decentralized modes). */
+  groupRef?: GroupRef;
+  /** Where channels come from (defaults to `backend` for platform/A-lite). */
+  channelSource?: ChannelSource;
+  /** Layout convention for native spaces (detected at import). */
+  layoutConvention?: LayoutConvention;
+  /**
+   * For nip29-native spaces: the host relay's master pubkey (NIP-11 `pubkey`),
+   * which signs the group's 39000/39001/39002. The client MUST pin this as the
+   * expected author of group state — otherwise any pubkey can forge a group's
+   * admin/member lists. Captured via NIP-11 probe at create/import time.
+   */
+  relayPubkey?: string;
+  /**
+   * Mirror relays for this space (Decentralized Spaces M9). `hostRelay` is the
+   * signing authority; these are additional relays that hold a replica of the
+   * group's content. The client reads from whichever answers (dedup by id) and
+   * publishes to all of them. Discovered from a kind:30078 `wired:relays:<id>`
+   * overlay or added manually. Absent ⇒ single-relay space.
+   */
+  relayUrls?: string[];
 }
 
 /** Channel within a space */

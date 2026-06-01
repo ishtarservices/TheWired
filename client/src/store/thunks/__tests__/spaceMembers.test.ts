@@ -186,6 +186,43 @@ describe("syncSpaceMembers thunk", () => {
     expect(store.getState().spaces.list[0].memberPubkeys).toEqual(["pk-existing"]);
   });
 
+  it("skips the backend fetch entirely for a nip29-native space (no 'not a member')", async () => {
+    const store = createTestStore({
+      spaces: {
+        list: [makeSpace({ spaceType: "nip29-native" })],
+        activeSpaceId: null,
+        activeChannelId: null,
+        subscriptions: {},
+        channels: {},
+        channelsLoading: {},
+        pendingInvites: [],
+      },
+    });
+
+    await store.dispatch(syncSpaceMembers("space-1"));
+
+    // Relay-native spaces have no backend membership — the fetch (which would
+    // 404 / "not a member") must never fire.
+    expect(mockFetch).not.toHaveBeenCalled();
+  });
+
+  it("still fetches for decentralized-alite (backend-backed)", async () => {
+    const store = createTestStore({
+      spaces: {
+        list: [makeSpace({ spaceType: "decentralized-alite" })],
+        activeSpaceId: null,
+        activeChannelId: null,
+        subscriptions: {},
+        channels: {},
+        channelsLoading: {},
+        pendingInvites: [],
+      },
+    });
+    mockFetch.mockResolvedValue([makeMember({ pubkey: "pk-a" })]);
+    await store.dispatch(syncSpaceMembers("space-1"));
+    expect(mockFetch).toHaveBeenCalledTimes(1);
+  });
+
   it("releases in-flight slot after completion (allows refetch)", async () => {
     const store = createTestStore();
 

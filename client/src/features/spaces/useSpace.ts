@@ -8,14 +8,15 @@ import {
   updateSpace,
 } from "../../store/slices/spacesSlice";
 import {
-  enterClientSpace,
-  leaveClientSpace,
+  enterAnySpace,
+  leaveAnySpace,
   switchSpaceChannel,
   openBgChatSub,
   enterFriendsFeed,
   leaveFriendsFeed,
   switchFriendsFeedChannel,
 } from "../../lib/nostr/groupSubscriptions";
+import { isBackendBacked } from "./spaceType";
 import {
   addSpaceToStore,
   updateSpaceInStore,
@@ -178,7 +179,7 @@ export function useSpace() {
       // Friends Feed virtual space — subscribe to follow list notes
       if (spaceId === FRIENDS_FEED_ID) {
         if (activeSpaceId && activeSpaceId !== FRIENDS_FEED_ID) {
-          leaveClientSpace(activeSpaceId);
+          leaveAnySpace(activeSpaceId);
         } else if (activeSpaceId === FRIENDS_FEED_ID) {
           leaveFriendsFeed();
         }
@@ -200,11 +201,11 @@ export function useSpace() {
       if (activeSpaceId === FRIENDS_FEED_ID) {
         leaveFriendsFeed();
       } else if (activeSpaceId) {
-        leaveClientSpace(activeSpaceId);
+        leaveAnySpace(activeSpaceId);
       }
 
       dispatch(setActiveSpace(spaceId));
-      enterClientSpace(space);
+      enterAnySpace(space);
 
       // Pick channel: restore last-visited if it still exists, else default
       const spaceChannels = allChannels[spaceId];
@@ -223,6 +224,12 @@ export function useSpace() {
         // Channels not loaded yet — clear channel; will be set once channels load
         dispatch(setActiveChannel(null));
       }
+
+      // Backend-backed spaces (platform / A-lite) sync members, feed sources,
+      // onboarding, and existence from the backend. NIP-29-native spaces are
+      // relay-authoritative: members arrive via 39001/39002 (pipeline), there's
+      // no backend record, and a backend existence check would wrongly purge them.
+      if (!isBackendBacked(space)) return;
 
       // Sync members from backend (non-blocking)
       syncMembers(spaceId);
@@ -384,11 +391,11 @@ export function useSpace() {
 
       // Leave previous space
       if (activeSpaceId) {
-        leaveClientSpace(activeSpaceId);
+        leaveAnySpace(activeSpaceId);
       }
 
       dispatch(setActiveSpace(space.id));
-      enterClientSpace(space);
+      enterAnySpace(space);
 
       // Pick default channel once channels load
       const spaceChannels = allChannels[space.id];
@@ -403,6 +410,10 @@ export function useSpace() {
       } else {
         dispatch(setActiveChannel(null));
       }
+
+      // NIP-29-native spaces are relay-authoritative — members come from
+      // 39001/39002 (pipeline), so skip backend member/feed sync.
+      if (!isBackendBacked(space)) return;
 
       // Sync members from backend (non-blocking)
       syncMembers(space.id);

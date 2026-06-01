@@ -13,11 +13,15 @@ import { BOOTSTRAP_RELAYS } from "../../lib/nostr/constants";
 import { useAppSelector, useAppDispatch } from "../../store/hooks";
 import { setSidebarMode } from "../../store/slices/uiSlice";
 import { setOnboardingPending } from "../../store/slices/spaceConfigSlice";
+import { parseGroupAddress } from "./spaceType";
 
 interface JoinSpaceModalProps {
   open: boolean;
   onClose: () => void;
   initialCode?: string;
+  /** Called when the pasted value is a decentralized group address / naddr
+   *  (not a backend invite code) — the parent routes it to "Import a Group". */
+  onImportInstead?: (input: string) => void;
 }
 
 type Step = "input" | "preview" | "joining" | "success" | "onboarding";
@@ -48,7 +52,7 @@ function parseInviteCode(input: string): string {
   return trimmed;
 }
 
-export function JoinSpaceModal({ open, onClose, initialCode }: JoinSpaceModalProps) {
+export function JoinSpaceModal({ open, onClose, initialCode, onImportInstead }: JoinSpaceModalProps) {
   const { joinSpace } = useSpace();
   const dispatch = useAppDispatch();
   const navigate = useNavigate();
@@ -86,6 +90,23 @@ export function JoinSpaceModal({ open, onClose, initialCode }: JoinSpaceModalPro
   };
 
   const handleLookup = async () => {
+    const trimmed = codeInput.trim();
+    // A decentralized group address (`host'groupId`) or `naddr` is NOT a backend
+    // invite code — route it to "Import a Group" rather than the (doomed) invite
+    // lookup, which would just say "invalid invite code".
+    const looksDecentralized =
+      trimmed.startsWith("naddr1") ||
+      trimmed.startsWith("nostr:naddr") ||
+      parseGroupAddress(trimmed) !== null;
+    if (looksDecentralized) {
+      if (onImportInstead) {
+        onImportInstead(trimmed);
+      } else {
+        setError('This looks like a decentralized group. Use "Import a Group" to join it.');
+      }
+      return;
+    }
+
     const code = parseInviteCode(codeInput);
     if (!code) return;
 

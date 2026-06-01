@@ -55,6 +55,12 @@ class RelayManagerImpl {
   /** Per-event-id callbacks for publish confirmation (used by publishWithConfirmation) */
   private publishOKCallbacks = new Map<string, (relayUrl: string, success: boolean, message: string) => void>();
 
+  /** Relays we must NOT auto-answer NIP-42 AUTH for (AUTH-privacy). Connecting to
+   *  a relay and signing its challenge reveals the user's pubkey; for relays the
+   *  user hasn't opted into (e.g. an arbitrary relay dialed while *previewing* a
+   *  group to import) we suppress AUTH until they actually join. */
+  private authSuppressed = new Set<string>();
+
   /** Relays that have reached "connected" at least once this session — lets us
    *  tell a reconnect apart from a first connect. */
   private everConnected = new Set<string>();
@@ -117,6 +123,9 @@ class RelayManagerImpl {
         }
       },
       onAuth: async (challenge: string, relayUrl: string): Promise<NostrEvent | null> => {
+        // AUTH-privacy: never reveal the user's pubkey to a relay they haven't
+        // opted into (e.g. one we dialed just to preview a group for import).
+        if (this.authSuppressed.has(relayUrl)) return null;
         // Lazy imports to avoid circular dependency
         const { getSigner } = await import("./loginFlow");
         const { store } = await import("../../store");
@@ -284,6 +293,18 @@ class RelayManagerImpl {
     for (const conn of this.connections.values()) {
       conn.tryAuth();
     }
+  }
+
+  /** Suppress NIP-42 AUTH for a relay the user hasn't opted into — e.g. one
+   *  dialed only to preview a group before importing it (AUTH-privacy). */
+  suppressAuth(url: string): void {
+    this.authSuppressed.add(url);
+  }
+
+  /** Re-allow AUTH for a relay (e.g. after the user joins a group hosted there).
+   *  Pair with `replayAuth()` to answer any challenge received while suppressed. */
+  allowAuth(url: string): void {
+    this.authSuppressed.delete(url);
   }
 
   /** Wait for a specific relay to reach 'connected' status */

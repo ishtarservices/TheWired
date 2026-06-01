@@ -1,3 +1,7 @@
+// Shared test helpers are included via `mod common` in several test binaries;
+// each uses a different subset, so unused-in-this-binary is expected.
+#![allow(dead_code)]
+
 //! Shared scaffolding for DB-backed integration tests.
 //!
 //! Mirrors `services/backend/test/setup.ts`: same Postgres database
@@ -276,12 +280,14 @@ pub fn make_app_state(pool: PgPool) -> (Arc<AppState>, broadcast::Sender<Event>)
     };
     let relay_identity = RelayIdentity::new(config.relay_secret_key.clone(), &config.rust_env);
     let state = AppState {
-        pool,
+        pool: thewired_relay::db::Db::Pg(pool),
         config,
         broadcast_tx: tx.clone(),
         relay_identity,
         active_connections: std::sync::atomic::AtomicUsize::new(0),
         relay_url: "ws://localhost:7777".to_string(),
+        hosted_only: false,
+        owner_pubkey: None,
     };
     (Arc::new(state), tx)
 }

@@ -6,6 +6,10 @@ import { getSpaceChannelRoute } from "../../features/spaces/spaceChannelRoutes";
 import { EVENT_KINDS } from "../../types/nostr";
 import type { NostrFilter } from "../../types/nostr";
 import type { Space } from "../../types/space";
+import { isNip29Native } from "../../features/spaces/spaceType";
+import { seedNativeSpaceConfig } from "../../features/spaces/nip29SpaceSync";
+import { layoutDTags } from "../../features/spaces/channelLayout";
+import { wiredRelaysDTag, resolveRelaySet } from "../../features/spaces/relaySet";
 import { store } from "../../store";
 import { setChannelSubscription, removeChannelSubscription } from "../../store/slices/spacesSlice";
 import { setRefreshing, setLoadingMore, setHasMore } from "../../store/slices/feedSlice";
@@ -138,27 +142,52 @@ function rebuildHostSub(host: string): void {
 
 /** Active subscriptions per space for metadata */
 const spaceMetaSubs = new Map<string, string>();
+/** Active kind:30078 channel-layout subscriptions per native space (M4). */
+const spaceLayoutSubs = new Map<string, string>();
 
-/** Enter a space: fetch group metadata (kind:39000/39001/39002) */
-export function enterSpace(groupId: string, relayUrl: string): void {
+/** Enter a space: fetch group metadata (kind:39000/39001/39002) + channel layout
+ *  (kind:30078, ours + Obelisk's).
+ *  SECURITY: when the relay's signing pubkey is known, pin it as the filter
+ *  `authors` so forged group state (any pubkey reusing the group's d-tag) is
+ *  never delivered. `applyNativeGroupEvent` enforces the same check again. The
+ *  layout sub can't author-pin (admins are dynamic) — `parseLayoutEvent` checks
+ *  authorization instead. */
+export function enterSpace(groupId: string, relayUrl: string, relayPubkey?: string): void {
   if (spaceMetaSubs.has(groupId)) return;
 
+  const filter: NostrFilter = {
+    kinds: [
+      EVENT_KINDS.GROUP_METADATA,
+      EVENT_KINDS.GROUP_ADMINS,
+      EVENT_KINDS.GROUP_MEMBERS,
+    ],
+    "#d": [groupId],
+    limit: 3,
+  };
+  if (relayPubkey) filter.authors = [relayPubkey];
+
   const subId = subscriptionManager.subscribe({
+    filters: [filter],
+    relayUrls: [relayUrl],
+  });
+  spaceMetaSubs.set(groupId, subId);
+
+  // One kind:30078 sub covers both overlays (routed by d-tag in the pipeline):
+  // the channel layout (M4) and the mirror relay set (M9).
+  const layoutSub = subscriptionManager.subscribe({
     filters: [
       {
-        kinds: [
-          EVENT_KINDS.GROUP_METADATA,
-          EVENT_KINDS.GROUP_ADMINS,
-          EVENT_KINDS.GROUP_MEMBERS,
+        kinds: [EVENT_KINDS.APP_SPECIFIC_DATA],
+        "#d": [
+          ...layoutDTags({ id: groupId, hostRelay: relayUrl }),
+          wiredRelaysDTag(groupId),
         ],
-        "#d": [groupId],
-        limit: 3,
+        limit: 6,
       },
     ],
     relayUrls: [relayUrl],
   });
-
-  spaceMetaSubs.set(groupId, subId);
+  spaceLayoutSubs.set(groupId, layoutSub);
 }
 
 /** Leave a space: close metadata sub + all channel subs */
@@ -167,6 +196,11 @@ export function leaveSpace(groupId: string): void {
   if (metaSub) {
     subscriptionManager.close(metaSub);
     spaceMetaSubs.delete(groupId);
+  }
+  const layoutSub = spaceLayoutSubs.get(groupId);
+  if (layoutSub) {
+    subscriptionManager.close(layoutSub);
+    spaceLayoutSubs.delete(groupId);
   }
 
   // Close all channel subs for this space
@@ -270,14 +304,14 @@ export function switchSpaceChannel(
     filter = buildSpaceFeedFilter(authors, route.kinds, route.pageSize);
   }
 
-  // Chat (h-tag scoped) lives exclusively on the host relay.
-  // Feed channels (notes, media, articles) use all read relays for both
-  // read and community spaces — members publish notes to their own relays,
-  // not the space's host relay.
+  // Chat (h-tag scoped) is read from the space's full relay set — the host
+  // (authority) plus any mirrors (M9) — so history/live survive the authority
+  // going offline; the pipeline dedups by event id. Feed channels (notes,
+  // media, articles) use all read relays — members publish to their own relays.
   const subId = subscriptionManager.subscribe({
     filters: [filter],
     relayUrls: route.filterMode === "htag"
-      ? [space.hostRelay]
+      ? resolveRelaySet(space)
       : undefined,  // all read relays
   });
 
@@ -295,6 +329,36 @@ export function leaveClientSpace(spaceId: string): void {
       store.dispatch(removeChannelSubscription(channelId));
     }
   }
+}
+
+// ── Unified entry points (work for all three space modes) ───────────────
+// platform / decentralized-A-lite use the backend/client path; nip29-native
+// additionally subscribes to relay-published 39000/39001/39002 metadata.
+
+/** Enter any space: marks it active and (for native spaces) subscribes to the
+ *  relay's NIP-29 group metadata so members/roles/name stay live. */
+export function enterAnySpace(space: Space): void {
+  enterClientSpace(space);
+  if (isNip29Native(space)) {
+    // Show known members immediately, then refine from 39001/39002.
+    seedNativeSpaceConfig(space);
+    enterSpace(space.id, space.hostRelay, space.relayPubkey);
+  }
+}
+
+/** Switch channel for any space. Chat routes to the host relay (h-tag) for all
+ *  modes; the native/backend split is handled inside switchSpaceChannel. */
+export function switchAnyChannel(space: Space, channelType: string, channelId?: string): void {
+  switchSpaceChannel(space, channelType, channelId);
+}
+
+/** Leave any space, closing the native metadata sub too when applicable. */
+export function leaveAnySpace(spaceId: string): void {
+  const space = store.getState().spaces.list.find((s) => s.id === spaceId);
+  if (space && isNip29Native(space)) {
+    leaveSpace(spaceId);
+  }
+  leaveClientSpace(spaceId);
 }
 
 // ── Friends Feed ─────────────────────────────────────────────────

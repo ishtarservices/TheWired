@@ -2,6 +2,8 @@ import { useEffect, useCallback, useRef } from "react";
 import { useAppSelector, useAppDispatch } from "../../store/hooks";
 import { setMyPermissions, setMyChannelOverrides } from "../../store/slices/spaceConfigSlice";
 import * as rolesApi from "../../lib/api/roles";
+import { isNip29Native } from "./spaceType";
+import { nip29MyPermissions } from "./synthesizeNip29Roles";
 
 const EMPTY_PERMS: string[] = [];
 const EMPTY_OVERRIDES: Record<string, { allow: string[]; deny: string[] }> = {};
@@ -17,6 +19,12 @@ export function usePermissions(spaceId: string | null) {
   const isLoading = useAppSelector(
     (s) => (spaceId ? s.spaceConfig.loading[spaceId] : false) ?? false,
   );
+  const myPubkey = useAppSelector((s) => s.identity.pubkey);
+  const space = useAppSelector((s) =>
+    spaceId ? s.spaces.list.find((x) => x.id === spaceId) : undefined,
+  );
+  const native = space ? isNip29Native(space) : false;
+  const adminPubkeys = space?.adminPubkeys;
 
   // Track which spaceId we last fetched for to avoid redundant requests
   // but still refetch when switching spaces
@@ -24,6 +32,15 @@ export function usePermissions(spaceId: string | null) {
 
   useEffect(() => {
     if (!spaceId) return;
+    // NIP-29-native: derive coarse permissions from the relay admin set (39001)
+    // rather than the backend (which has no record of this space).
+    if (native) {
+      dispatch(
+        setMyPermissions({ spaceId, permissions: nip29MyPermissions(myPubkey, adminPubkeys ?? []) }),
+      );
+      lastFetchedRef.current = spaceId;
+      return;
+    }
     if (lastFetchedRef.current === spaceId) return;
 
     let cancelled = false;
@@ -55,7 +72,7 @@ export function usePermissions(spaceId: string | null) {
     })();
 
     return () => { cancelled = true; };
-  }, [spaceId, dispatch]);
+  }, [spaceId, dispatch, native, myPubkey, adminPubkeys]);
 
   const isAdmin = permissions.includes("MANAGE_SPACE") || permissions.includes("MANAGE_ROLES");
 

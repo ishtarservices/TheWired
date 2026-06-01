@@ -11,7 +11,17 @@ export const spaces = appSchema.table("spaces", {
   category: text("category"),
   language: text("language"),
   mode: text("mode").notNull().default("read-write"), // "read" | "read-write"
+  // Governance/source-of-truth mode (Decentralized Spaces). Distinct from `mode`.
+  // "platform" | "decentralized" | "nip29"
+  spaceMode: text("space_mode").notNull().default("platform"),
+  // Backend ingestion tier for this space's host relay: "none" | "discovery" | "full"
+  ingestionTier: text("ingestion_tier").notNull().default("none"),
+  // True when created in / imported from another app (not Wired-origin).
+  externalOrigin: boolean("external_origin").notNull().default(false),
   memberCount: integer("member_count").notNull().default(0),
+  // Member count mirrored from a NIP-29 relay's kind:39002 (relay-authoritative
+  // spaces). Kept separate from member_count / app.space_members.
+  mirroredMemberCount: integer("mirrored_member_count").notNull().default(0),
   activeMembers24h: integer("active_members_24h").notNull().default(0),
   messagesLast24h: integer("messages_last_24h").notNull().default(0),
   featured: boolean("featured").notNull().default(false),

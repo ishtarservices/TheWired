@@ -10,8 +10,9 @@ import { NotificationSettingsTab } from "./NotificationSettingsTab";
 import { SecuritySettingsTab } from "./SecuritySettingsTab";
 import { ThemeSettingsTab } from "./ThemeSettingsTab";
 import { WalletSettingsTab } from "./WalletSettingsTab";
+import { FeaturesSettingsTab } from "./FeaturesSettingsTab";
 
-type Tab = "profile" | "appearance" | "relays" | "notifications" | "security" | "wallet" | "app";
+type Tab = "profile" | "appearance" | "relays" | "notifications" | "security" | "wallet" | "features" | "app";
 
 const tabs: { id: Tab; label: string }[] = [
   { id: "profile", label: "Profile" },
@@ -20,6 +21,7 @@ const tabs: { id: Tab; label: string }[] = [
   { id: "notifications", label: "Notifications" },
   { id: "security", label: "Security" },
   { id: "wallet", label: "Wallet" },
+  { id: "features", label: "Features" },
   { id: "app", label: "App" },
 ];
 
@@ -69,6 +71,7 @@ export function SettingsPage() {
       {activeTab === "notifications" && <NotificationSettingsTab />}
       {activeTab === "security" && <SecuritySettingsTab />}
       {activeTab === "wallet" && <WalletSettingsTab />}
+      {activeTab === "features" && <FeaturesSettingsTab />}
       {activeTab === "app" && <AppSettingsTab />}
     </div>
   );

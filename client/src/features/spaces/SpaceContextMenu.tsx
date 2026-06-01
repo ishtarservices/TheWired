@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { BellOff, Bell, Clock, Link2, LogOut, Trash2, Pin, PinOff } from "lucide-react";
 import { cn } from "@/lib/utils";
@@ -44,7 +44,27 @@ export function SpaceContextMenu({
   const [showDurations, setShowDurations] = useState(false);
   const [showInvite, setShowInvite] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
+  const [coords, setCoords] = useState(position);
   const ref = useRef<HTMLDivElement>(null);
+
+  // Clamp/flip the menu so it never overflows the viewport. Runs before paint
+  // (and re-runs when the submenu swaps its height) to avoid a visible jump.
+  useLayoutEffect(() => {
+    if (!open) return;
+    const el = ref.current;
+    if (!el) return;
+    const { width, height } = el.getBoundingClientRect();
+    const margin = 8;
+    let x = position.x;
+    let y = position.y;
+    if (x + width > window.innerWidth - margin) {
+      x = Math.max(margin, position.x - width);
+    }
+    if (y + height > window.innerHeight - margin) {
+      y = Math.max(margin, window.innerHeight - height - margin);
+    }
+    setCoords({ x, y });
+  }, [open, position, showDurations, confirmDelete]);
 
   // Close on Escape
   useEffect(() => {
@@ -119,7 +139,7 @@ export function SpaceContextMenu({
     <div
       ref={ref}
       className="fixed z-50 w-max min-w-[160px] rounded-xl card-glass py-1.5 shadow-xl animate-fade-in-up"
-      style={{ left: position.x, top: position.y }}
+      style={{ left: coords.x, top: coords.y }}
     >
       {showDurations ? (
         <div className="py-1">

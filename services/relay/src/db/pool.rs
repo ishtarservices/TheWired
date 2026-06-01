@@ -17,6 +17,7 @@ pub async fn run_migrations(pool: &PgPool) -> anyhow::Result<()> {
     let migrations = [
         include_str!("../../migrations/001_initial.sql"),
         include_str!("../../migrations/002_visibility_column.sql"),
+        include_str!("../../migrations/003_tag_columns.sql"),
     ];
     for migration in &migrations {
         sqlx::raw_sql(migration).execute(pool).await?;

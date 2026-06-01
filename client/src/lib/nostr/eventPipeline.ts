@@ -32,9 +32,29 @@ import { parseEmojiSetEvent, parseUserEmojiListEvent } from "../../features/emoj
 import { parseRTCSignal } from "./callSignaling";
 import type { CallType } from "../../types/calling";
 import { scheduleMemberSync } from "../../store/thunks/spaceMembers";
+import {
+  applyNativeGroupEvent,
+  applyNativeLayoutEvent,
+  applyNativeRelaySetEvent,
+} from "../../features/spaces/nip29SpaceSync";
 import { createLogger, shortKey, shortRelay } from "../debug/logger";
 
 const log = createLogger("pipeline");
+const latencyLog = createLogger("latency");
+
+/** Gated per-message receive-latency probe (enable with `wiredDebug.enable("latency")`).
+ *  Splits the delay into transit (sender→here) and pipeline (verify+dispatch here),
+ *  tagged by the delivering relay — so a self-hosted/loopback group can be compared
+ *  against a platform space to localize where time goes. `transit` uses the event's
+ *  second-granularity `created_at`, so it carries ±1s noise + any clock skew; the
+ *  `pipeline` figure is monotonic and exact. */
+function logChatLatency(event: NostrEvent, relayUrl: string, receivedAt: number): void {
+  const transit = receivedAt - event.created_at * 1000;
+  const pipeline = Date.now() - receivedAt;
+  latencyLog.info(
+    `kind:9 ${event.id.slice(0, 8)} via ${shortRelay(relayUrl)} — transit ~${transit}ms · pipeline ${pipeline}ms`,
+  );
+}
 
 const dedup = new EventDeduplicator();
 
@@ -223,6 +243,10 @@ export async function processIncomingEvent(
   event: unknown,
   relayUrl: string,
 ): Promise<void> {
+  // Wall-clock arrival at the pipeline — used by the gated "latency" probe to
+  // split transit (sender→here) from pipeline (verify+dispatch) per relay.
+  const receivedAt = Date.now();
+
   // Step 1: Structural validation (fast, sync)
   if (!isValidEventStructure(event)) {
     if ((event as { kind?: number })?.kind === 9) {
@@ -299,6 +323,12 @@ export async function processIncomingEvent(
   // reaction aggregate (reactionsSlice) in indexEvent, saving memory on hot notes.
   if (event.kind !== EVENT_KINDS.REACTION) emit(addEvent(event));
   emit(incrementEventCount(relayUrl));
+
+  // Gated receive-latency probe for group chat (kind:9 with an `h` tag), so a
+  // self-hosted/loopback group's delivery can be compared against a platform space.
+  if (event.kind === EVENT_KINDS.CHAT_MESSAGE && event.tags.some((t) => t[0] === "h")) {
+    logChatLatency(event, relayUrl, receivedAt);
+  }
 
   // Step 4b: Wire kind:0 events into the profile cache
   if (event.kind === EVENT_KINDS.METADATA) {
@@ -685,13 +715,32 @@ async function indexEvent(event: NostrEvent): Promise<void> {
       }
       break;
     }
+    case EVENT_KINDS.APP_SPECIFIC_DATA: {
+      // kind:30078 overlays for native spaces, each guarded by its d-tag prefix
+      // so unrelated 30078 uses (DM read-state) pass through:
+      //   wired:relays:<id>  — mirror relay set (M9)
+      //   wired:/obelisk:layout — channel layout (M4)
+      if (!applyNativeRelaySetEvent(event)) {
+        applyNativeLayoutEvent(event);
+      }
+      break;
+    }
+    case EVENT_KINDS.GROUP_METADATA:
+    case EVENT_KINDS.GROUP_ADMINS: {
+      // Relay-authoritative NIP-29 state (39000 metadata / 39001 admins). Applied
+      // only to nip29-native spaces; a no-op for platform/A-lite (backend owns those).
+      applyNativeGroupEvent(event);
+      break;
+    }
     case EVENT_KINDS.GROUP_MEMBERS: {
-      // NIP-29 kind:39002 (replaceable group members list).
-      // Backend stays authoritative — relay only signals that membership changed.
-      // Debounced refetch coalesces bursts (relay re-emits 39002 on every join/leave).
-      const dTag = event.tags.find((t) => t[0] === "d")?.[1];
-      if (dTag && store.getState().spaces.list.some((s) => s.id === dTag)) {
-        scheduleMemberSync(dTag, store.dispatch);
+      // NIP-29 kind:39002 (replaceable group members list). Native spaces
+      // synthesize members directly from the relay event; platform / A-lite
+      // spaces stay backend-authoritative and trigger a debounced refetch.
+      if (!applyNativeGroupEvent(event)) {
+        const dTag = event.tags.find((t) => t[0] === "d")?.[1];
+        if (dTag && store.getState().spaces.list.some((s) => s.id === dTag)) {
+          scheduleMemberSync(dTag, store.dispatch);
+        }
       }
       break;
     }

@@ -218,8 +218,10 @@ tokio::spawn(async move {
 
 > Status: **largely complete.** The original "stub exists but isn't wired" gap has been fixed: `connection.rs` sends a challenge on connect, `handler.rs:34` routes `["AUTH", ...]` messages to `handle_auth`, the per-connection `authed_pubkey` is plumbed through to `query_events`, and `event_store.rs:208-228` filters protected/h-tagged events by membership for authenticated clients. NIP-11 advertises NIP-42 support.
 >
-> **Remaining gaps** are documented in [`NIP29_CHAT.md`](./NIP29_CHAT.md):
-> - Broadcast filter (`connection.rs::is_event_visible_to`) doesn't check `app.space_members`, so live kind:9 events from other members never reach a subscriber even after AUTH.
+> **Resolved since** (documented in [`NIP29_CHAT.md`](./NIP29_CHAT.md) Phase 2):
+> - ~~Broadcast filter doesn't check `app.space_members`~~ — **fixed** (`feb3538`, extended in `ed7f48f`). `connection.rs::is_event_visible_to` now consults a per-connection membership set populated on AUTH from `app.space_members`, so h-tagged kind:9 broadcasts reach all space members, not just the author / p-tagged collaborators. A 30 s TTL lazy refresh (`maybe_refresh_memberships`) plus an authoritative per-EVENT publish-side gate (`space_membership::is_space_member`) make kicks take effect within seconds. Eight unit tests in `connection.rs::tests`.
+>
+> **Remaining gaps** are documented in [`NIP29_CHAT.md`](./NIP29_CHAT.md) Phase 3:
 > - REQ-AUTH timing race: clients send REQs in their `onopen` handler before receiving / responding to the AUTH challenge, so initial historical fetches return zero h-tagged events.
 > - No `auth-required: true` mode for fully private relays (we only enforce membership-based filtering on h-tagged events).
 

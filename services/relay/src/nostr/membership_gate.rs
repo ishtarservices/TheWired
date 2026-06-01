@@ -35,6 +35,7 @@ pub fn requires_h_membership_check(kind: i32) -> bool {
         5      // NIP-09 self-deletion (author-only)
         | 9000 // NIP-29 add user (admin-gated)
         | 9001 // NIP-29 remove user (admin-gated)
+        | 9002 // NIP-29 edit metadata (admin-gated)
         | 9005 // NIP-29 mod delete event (admin-gated)
         | 9007 // NIP-29 create group
         | 9008 // NIP-29 delete group
@@ -102,7 +103,7 @@ mod tests {
 
     #[test]
     fn nip29_management_kinds_exempt() {
-        for kind in [5, 9000, 9001, 9005, 9007, 9008, 9021, 9022] {
+        for kind in [5, 9000, 9001, 9002, 9005, 9007, 9008, 9021, 9022] {
             assert!(
                 !requires_h_membership_check(kind),
                 "kind {kind} must skip membership check (handled separately)"

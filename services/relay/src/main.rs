@@ -23,5 +23,5 @@ async fn main() -> anyhow::Result<()> {
     let pool = db::pool::create_pool(&config.database_url).await?;
     db::pool::run_migrations(&pool).await?;
 
-    server::run(config, pool).await
+    server::run(config, db::Db::Pg(pool)).await
 }

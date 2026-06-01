@@ -1,10 +1,15 @@
+mod cloudflared;
 mod keystore;
 mod nip44;
+mod relay;
+mod tunnel;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     #[allow(unused_mut)]
     let mut builder = tauri::Builder::default()
+        .manage(relay::EmbeddedRelayState::default())
+        .manage(tunnel::TunnelState::default())
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_http::init())
         .plugin(tauri_plugin_fs::init())
@@ -57,6 +62,16 @@ pub fn run() {
             keystore::keystore_set_secret,
             keystore::keystore_get_secret,
             keystore::keystore_delete_secret,
+            relay::relay_start,
+            relay::relay_stop,
+            relay::relay_status,
+            relay::relay_stats,
+            relay::relay_reset,
+            tunnel::tunnel_start,
+            tunnel::tunnel_stop,
+            tunnel::tunnel_status,
+            tunnel::tunnel_named_identity,
+            tunnel::tunnel_set_custom,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

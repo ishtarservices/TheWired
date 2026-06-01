@@ -34,6 +34,18 @@ tauri-plugin-updater = "2"
 tauri-plugin-process = "2"
 tauri-plugin-localhost = "2"
 
+# Embedded NIP-29 relay engine (Decentralized Spaces M6). The SAME relay crate
+# that runs the production Postgres server, compiled with its `embedded` feature
+# so it links the SQLite backend and exposes `run_embedded`.
+thewired-relay = { path = "../../services/relay", features = ["embedded"] }
+# Spawning + reading output from the cloudflared tunnel child process (M7).
+tokio = { version = "1", features = ["process", "io-util", "time", "sync", "rt"] }
+# Download-on-enable of the cloudflared helper (M7). reqwest is already in the
+# tree via tauri-plugin-http; flate2 + tar extract the macOS .tgz release.
+reqwest = { version = "0.12", default-features = false, features = ["rustls-tls"] }
+flate2 = "1"
+tar = "0.4"
+
 # macOS: native keychain with Touch ID biometric access control
 [target.'cfg(target_os = "macos")'.dependencies]
 security-framework = { version = "3", features = ["OSX_10_15"] }

@@ -22,6 +22,11 @@ export async function loadSpaces(): Promise<Space[]> {
     if (!next.feedPubkeys) {
       next = { ...next, feedPubkeys: [] };
     }
+    // Backfill the space-mode discriminant: any space cached before
+    // Decentralized Spaces shipped is a backend-authoritative platform space.
+    if (!next.spaceType) {
+      next = { ...next, spaceType: "platform", channelSource: "backend" };
+    }
     // Heal stale `ws://localhost:7777` hostRelay cached from old seed data.
     // Only rewrite when this client isn't itself running against localhost.
     if (next.hostRelay === LEGACY_LOCAL_HOST && APP_RELAY !== LEGACY_LOCAL_HOST) {

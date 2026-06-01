@@ -3,6 +3,12 @@ name = "thewired-relay"
 version = "0.1.0"
 edition = "2021"
 
+[features]
+# Embedded in-process relay (Decentralized Spaces M6) — pulls the SQLite driver
+# so the same NIP-29 logic can run inside the Tauri app with no Postgres.
+# `if-addrs` is used by the embedded LAN-bind to pick a real LAN interface.
+embedded = ["sqlx/sqlite", "dep:if-addrs"]
+
 [dependencies]
 axum = { version = "0.8", features = ["ws"] }
 tokio = { version = "1", features = ["full"] }
@@ -22,3 +28,4 @@ dotenvy = "0.15"
 rand = "0.8"
 anyhow = "1"
 tower-http = { version = "0.6", features = ["cors"] }
+if-addrs = { version = "0.13", optional = true }

@@ -7,12 +7,23 @@ use std::sync::Mutex;
 
 const SERVICE_NAME: &str = "app.thewired.desktop";
 
-/// Instance suffix for dev builds with multiple instances
-fn instance_suffix() -> String {
+/// Instance suffix for dev builds with multiple instances (namespaces keychain
+/// accounts AND the embedded-relay data dir so concurrent dev instances don't
+/// collide).
+pub(crate) fn instance_suffix() -> String {
     match std::env::var("WIRED_INSTANCE") {
         Ok(id) if !id.is_empty() && id != "0" => format!("_{}", id),
         _ => String::new(),
     }
+}
+
+/// Numeric instance index (0 when unset) — used to give each dev instance a
+/// distinct, stable embedded-relay port.
+pub(crate) fn instance_index() -> u16 {
+    std::env::var("WIRED_INSTANCE")
+        .ok()
+        .and_then(|s| s.parse::<u16>().ok())
+        .unwrap_or(0)
 }
 
 /// Legacy key account name (single-key era)

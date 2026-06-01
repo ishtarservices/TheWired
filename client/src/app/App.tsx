@@ -26,6 +26,7 @@ import { NavigationLogger } from "../lib/debug/NavigationLogger";
 import { getAutoUpdatesEnabled } from "../features/settings/AppSettingsTab";
 import { useAppUpdater } from "../hooks/useAppUpdater";
 import { useZoomShortcuts } from "../hooks/useZoomShortcuts";
+import { useEmbeddedRelayAutostart } from "../features/settings/useEmbeddedRelayAutostart";
 
 /** Restores session + guards all routes behind login */
 function AuthGate() {
@@ -36,6 +37,10 @@ function AuthGate() {
   useEffect(() => {
     tryRestoreSession().finally(() => setRestoring(false));
   }, []);
+
+  // Desktop: bring the self-hosted relay back up (if the user was hosting) and
+  // re-point their self-hosted spaces to its live address after a restart.
+  useEmbeddedRelayAutostart();
 
   if (restoring || switchingAccount) {
     return (

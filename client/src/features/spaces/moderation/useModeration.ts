@@ -15,6 +15,7 @@ import { saveMembers } from "../../../lib/db/spaceMembersStore";
 import { syncSpaceMembers } from "../../../store/thunks/spaceMembers";
 import type { AppDispatch, RootState } from "../../../store";
 import type { Ban, Mute, Space } from "../../../types/space";
+import { isBackendBacked } from "../spaceType";
 import * as moderationApi from "../../../lib/api/moderation";
 
 const EMPTY_BANS: Ban[] = [];
@@ -76,9 +77,17 @@ export function useModeration(spaceId: string | null, enabled = true) {
   const isLoading = useAppSelector(
     (s) => (spaceId ? s.spaceConfig.loading[spaceId] : false) ?? false,
   );
+  // Moderation is a backend feature; nip29-native spaces moderate via relay
+  // events (9000/9001), not these endpoints. Guard so a native admin (who has
+  // synthesized perms) doesn't fire doomed backend calls. Default true when the
+  // space is unknown (preserves behavior where no space is in the store).
+  const backendBacked = useAppSelector((s) => {
+    const sp = spaceId ? s.spaces.list.find((x) => x.id === spaceId) : undefined;
+    return sp ? isBackendBacked(sp) : true;
+  });
 
   const fetchData = useCallback(async () => {
-    if (!spaceId) return;
+    if (!spaceId || !backendBacked) return;
     try {
       const [fetchedBans, fetchedMutes] = await Promise.all([
         moderationApi.fetchBans(spaceId),
@@ -89,57 +98,57 @@ export function useModeration(spaceId: string | null, enabled = true) {
     } catch {
       // Backend unavailable or no permission
     }
-  }, [spaceId, dispatch]);
+  }, [spaceId, backendBacked, dispatch]);
 
   useEffect(() => {
-    if (!enabled) return;
+    if (!enabled || !backendBacked) return;
     fetchData();
-  }, [fetchData, enabled]);
+  }, [fetchData, enabled, backendBacked]);
 
   const handleBanMember = useCallback(
     async (pubkey: string, reason?: string, expiresAt?: number) => {
-      if (!spaceId) return;
+      if (!spaceId || !backendBacked) return;
       const ban = await moderationApi.banMember(spaceId, { pubkey, reason, expiresAt });
       dispatch(addBan({ spaceId, ban: ban as Ban }));
       dispatch(removeMemberLocallyThunk(spaceId, pubkey));
     },
-    [spaceId, dispatch],
+    [spaceId, backendBacked, dispatch],
   );
 
   const handleUnbanMember = useCallback(
     async (pubkey: string) => {
-      if (!spaceId) return;
+      if (!spaceId || !backendBacked) return;
       await moderationApi.unbanMember(spaceId, pubkey);
       dispatch(removeBan({ spaceId, pubkey }));
     },
-    [spaceId, dispatch],
+    [spaceId, backendBacked, dispatch],
   );
 
   const handleMuteMember = useCallback(
     async (pubkey: string, durationSeconds: number, channelId?: string) => {
-      if (!spaceId) return;
+      if (!spaceId || !backendBacked) return;
       const mute = await moderationApi.muteMember(spaceId, { pubkey, durationSeconds, channelId });
       dispatch(addMute({ spaceId, mute: mute as Mute }));
     },
-    [spaceId, dispatch],
+    [spaceId, backendBacked, dispatch],
   );
 
   const handleUnmuteMember = useCallback(
     async (muteId: string) => {
-      if (!spaceId) return;
+      if (!spaceId || !backendBacked) return;
       await moderationApi.unmuteMember(spaceId, muteId);
       dispatch(removeMute({ spaceId, muteId }));
     },
-    [spaceId, dispatch],
+    [spaceId, backendBacked, dispatch],
   );
 
   const handleKickMember = useCallback(
     async (pubkey: string) => {
-      if (!spaceId) return;
+      if (!spaceId || !backendBacked) return;
       await moderationApi.kickMember(spaceId, pubkey);
       dispatch(removeMemberLocallyThunk(spaceId, pubkey));
     },
-    [spaceId, dispatch],
+    [spaceId, backendBacked, dispatch],
   );
 
   return {

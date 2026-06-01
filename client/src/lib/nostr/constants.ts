@@ -29,6 +29,16 @@ export const PROFILE_RELAYS = [
   "wss://relay.damus.io",
 ];
 
+/** Curated public NIP-29 group relays offered in the Decentralized Spaces relay
+ *  picker. The Wired's own relay (APP_RELAY) is always offered first; these are
+ *  well-known interoperable hosts. Capability is verified live via NIP-11 probe,
+ *  so an entry that stops supporting NIP-29 simply shows a warning badge. */
+export const NIP29_RELAY_PRESETS: { url: string; label: string }[] = [
+  { url: "wss://groups.0xchat.com", label: "0xchat Groups" },
+  { url: "wss://groups.fiatjaf.com", label: "fiatjaf Groups" },
+  { url: "wss://relay.groups.nip29.com", label: "nip29.com" },
+];
+
 /** Reconnection backoff parameters */
 export const RECONNECT = {
   /** Initial delay in ms */

@@ -281,6 +281,80 @@ export function buildDeletionEvent(
   };
 }
 
+// ── NIP-29 group management (Decentralized Spaces, native sub-type) ──────
+
+/** Build an unsigned kind:9007 create-group event. The relay creates the group
+ *  (creator becomes admin + member) and then emits 39000/39001/39002. `name`
+ *  is carried in content for relays that seed metadata from it; pair with
+ *  {@link buildEditGroupMetadata} for spec-compliant metadata tags. */
+export function buildCreateGroup(
+  pubkey: string,
+  groupId: string,
+  name: string,
+  opts?: { isPrivate?: boolean; isClosed?: boolean },
+): UnsignedEvent {
+  const tags: string[][] = [["h", groupId]];
+  // NIP-29 policy markers: private = members-only read, closed = join needs approval.
+  if (opts?.isPrivate) tags.push(["private"]);
+  if (opts?.isClosed) tags.push(["closed"]);
+  return {
+    pubkey,
+    created_at: Math.floor(Date.now() / 1000),
+    kind: 9007,
+    tags,
+    content: name,
+  };
+}
+
+/** Build an unsigned kind:9002 edit-group-metadata event (NIP-29). Metadata is
+ *  carried in tags; the relay applies it and republishes kind:39000. */
+export function buildEditGroupMetadata(
+  pubkey: string,
+  groupId: string,
+  meta: { name?: string; about?: string; picture?: string },
+): UnsignedEvent {
+  const tags: string[][] = [["h", groupId]];
+  if (meta.name) tags.push(["name", meta.name]);
+  if (meta.about) tags.push(["about", meta.about]);
+  if (meta.picture) tags.push(["picture", meta.picture]);
+  return {
+    pubkey,
+    created_at: Math.floor(Date.now() / 1000),
+    kind: 9002,
+    tags,
+    content: "",
+  };
+}
+
+/** Build an unsigned kind:9021 join-request event (NIP-29). Open groups
+ *  auto-admit; closed groups require a valid invite `code` or admin approval. */
+export function buildJoinRequest(
+  pubkey: string,
+  groupId: string,
+  inviteCode?: string,
+): UnsignedEvent {
+  const tags: string[][] = [["h", groupId]];
+  if (inviteCode) tags.push(["code", inviteCode]);
+  return {
+    pubkey,
+    created_at: Math.floor(Date.now() / 1000),
+    kind: 9021,
+    tags,
+    content: "",
+  };
+}
+
+/** Build an unsigned kind:9022 leave-group event (NIP-29). */
+export function buildLeaveGroup(pubkey: string, groupId: string): UnsignedEvent {
+  return {
+    pubkey,
+    created_at: Math.floor(Date.now() / 1000),
+    kind: 9022,
+    tags: [["h", groupId]],
+    content: "",
+  };
+}
+
 /** Build an unsigned kind:9005 moderator deletion event (NIP-29) */
 export function buildModDeletionEvent(
   pubkey: string,

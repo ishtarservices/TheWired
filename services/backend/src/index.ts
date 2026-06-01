@@ -2,7 +2,7 @@ import { createServer } from "./server.js";
 import { config } from "./config.js";
 import { runMigrations } from "./db/migrate.js";
 import { initIndexes } from "./lib/meilisearch.js";
-import { startRelayIngester } from "./workers/relayIngester.js";
+import { startRelayIngester } from "./workers/relayConnectionManager.js";
 import { startTrendingComputer } from "./workers/trendingComputer.js";
 import { startProfileRefresher } from "./workers/profileRefresher.js";
 import { startNotificationDispatcher } from "./workers/notificationDispatcher.js";

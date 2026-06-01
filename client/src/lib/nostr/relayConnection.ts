@@ -35,6 +35,10 @@ type InternalEventCallback = (subId: string, event: NostrEvent, relayUrl: string
  *  comfortable headroom; per-relay NIP-11 can still narrow this. */
 const DEFAULT_MAX_SUBS = 100;
 
+/** Wedge-safety: if a challenged relay never completes AUTH (signer offline),
+ *  release held REQs after this long so subscriptions don't hang forever. */
+const AUTH_WEDGE_MS = 3000;
+
 export class RelayConnection {
   readonly url: string;
   readonly mode: RelayMode;
@@ -71,6 +75,21 @@ export class RelayConnection {
    *  (when the relay connects before login completes). */
   private pendingAuthChallenge: string | null = null;
   private stormDetector: StormDetector;
+
+  // ── REQ-AUTH cold-start race (NIP29_CHAT Phase 3) ──────────────────────
+  // A relay that requires NIP-42 returns ZERO h-tagged history to a REQ that
+  // arrives before AUTH completes. On (re)connect we send REQs in onopen,
+  // *before* the buffered AUTH challenge is processed — so private/space history
+  // came back empty. Fix: once a relay has challenged us, hold REQs on each
+  // subsequent connect until AUTH succeeds (or a wedge timeout). Only engaged
+  // when an `onAuth` handler exists AND the relay has challenged before, so
+  // non-AUTH relays (and tests without onAuth) pay nothing.
+  private reqGate: "open" | "holding" = "open";
+  private heldReqs = new Map<string, NostrFilter[]>();
+  private everChallenged = false;
+  private authWedgeTimer: ReturnType<typeof setTimeout> | null = null;
+  /** Event id of the last AUTH (kind:22242) we sent, to match its OK. */
+  private lastAuthEventId: string | null = null;
 
   /** Short relay name for logging (computed once). */
   private shortUrl: string;
@@ -116,6 +135,8 @@ export class RelayConnection {
       this.reconnectAttempts = 0;
       this.setStatus("connected");
       this.flushQueue();
+      // Hold REQs until AUTH if this relay is known to require it (see reqGate).
+      this.maybeBeginAuthHold();
       this.resubscribe();
     };
 
@@ -137,6 +158,15 @@ export class RelayConnection {
       // Old AUTH challenge is invalid for the next session; clear it so we
       // don't replay a stale challenge that the relay will reject.
       this.pendingAuthChallenge = null;
+      // Reset the REQ gate for the next connection (everChallenged persists so
+      // the reconnect re-holds; heldReqs are rebuilt by resubscribe()).
+      this.reqGate = "open";
+      this.heldReqs.clear();
+      this.lastAuthEventId = null;
+      if (this.authWedgeTimer) {
+        clearTimeout(this.authWedgeTimer);
+        this.authWedgeTimer = null;
+      }
       if (this.status !== "disconnected") {
         this.stormDetector.recordDisconnect();
         this.setStatus("disconnected");
@@ -158,6 +188,54 @@ export class RelayConnection {
     this.messageQueue = [];
     this.deferredSubs = [];
     this.pendingAuthChallenge = null;
+    this.reqGate = "open";
+    this.heldReqs.clear();
+    this.lastAuthEventId = null;
+    if (this.authWedgeTimer) {
+      clearTimeout(this.authWedgeTimer);
+      this.authWedgeTimer = null;
+    }
+  }
+
+  /** Send a REQ, or hold it if the AUTH gate is engaged (see reqGate). */
+  private sendReq(subId: string, filters: NostrFilter[]): void {
+    if (this.reqGate === "holding") {
+      this.heldReqs.set(subId, filters); // last filters win; dedup by subId
+      return;
+    }
+    if (this.ws && this.ws.readyState === WebSocket.OPEN) {
+      log.debug(`${this.shortUrl} REQ ${subId} ${summarizeFilters(filters)}`);
+      this.ws.send(JSON.stringify(["REQ", subId, ...filters]));
+    }
+  }
+
+  /** On (re)connect, hold REQs if this relay is known to require AUTH. */
+  private maybeBeginAuthHold(): void {
+    // No signer wired, or the relay has never challenged us → no point holding
+    // (sending REQs immediately is correct for non-AUTH relays).
+    if (!this.onAuth || !this.everChallenged) {
+      this.reqGate = "open";
+      return;
+    }
+    this.reqGate = "holding";
+    if (this.authWedgeTimer) clearTimeout(this.authWedgeTimer);
+    this.authWedgeTimer = setTimeout(() => this.releaseReqGate(), AUTH_WEDGE_MS);
+  }
+
+  /** Open the gate and flush any held REQs (on AUTH success or the wedge timeout). */
+  private releaseReqGate(): void {
+    if (this.reqGate === "open") return;
+    this.reqGate = "open";
+    if (this.authWedgeTimer) {
+      clearTimeout(this.authWedgeTimer);
+      this.authWedgeTimer = null;
+    }
+    const held = [...this.heldReqs];
+    this.heldReqs.clear();
+    for (const [subId, filters] of held) {
+      // A sub may have been closed while held.
+      if (this.subscriptions.has(subId)) this.sendReq(subId, filters);
+    }
   }
 
   /** Attempt to answer the cached AUTH challenge. Safe to call multiple times.
@@ -187,6 +265,8 @@ export class RelayConnection {
       }
       this.ws.send(JSON.stringify(["AUTH", signedEvent]));
       this.pendingAuthChallenge = null;
+      // Remember the AUTH event id so the matching OK releases the REQ gate.
+      this.lastAuthEventId = signedEvent.id;
     }).catch((err) => {
       console.warn(`[auth] ${this.shortUrl} AUTH error`, err);
     });
@@ -218,16 +298,10 @@ export class RelayConnection {
       return;
     }
 
-    // Send REQ directly if connected; otherwise resubscribe() handles it on connect.
-    // Do NOT queue REQs — that causes double-sends when flushQueue + resubscribe both fire.
-    if (this.ws && this.ws.readyState === WebSocket.OPEN) {
-      log.debug(`${this.shortUrl} REQ ${subId} ${summarizeFilters(filters)}`);
-      this.ws.send(JSON.stringify(["REQ", subId, ...filters]));
-    } else {
-      log.debug(
-        `${this.shortUrl} REQ ${subId} deferred — not connected (status=${this.status}); will send on connect`,
-      );
-    }
+    // Send REQ if connected (held by the AUTH gate if engaged); otherwise
+    // resubscribe() handles it on connect. Do NOT queue REQs — that causes
+    // double-sends when flushQueue + resubscribe both fire.
+    this.sendReq(subId, filters);
   }
 
   closeSubscription(subId: string): void {
@@ -235,6 +309,8 @@ export class RelayConnection {
     this.pendingEOSE.delete(subId);
     // Remove from deferred queue if it was never sent
     this.deferredSubs = this.deferredSubs.filter((d) => d.subId !== subId);
+    // Drop it from the AUTH hold queue too (so release doesn't resurrect it).
+    this.heldReqs.delete(subId);
     this.send(["CLOSE", subId]);
     // A slot opened — drain the next deferred sub
     this.drainDeferred();
@@ -266,7 +342,7 @@ export class RelayConnection {
       return;
     }
 
-    this.ws.send(JSON.stringify(["REQ", next.subId, ...next.filters]));
+    this.sendReq(next.subId, next.filters);
   }
 
   publish(event: NostrEvent): void {
@@ -302,6 +378,12 @@ export class RelayConnection {
         break;
       }
       case "OK": {
+        // If this OK acknowledges our AUTH event, AUTH succeeded — release any
+        // REQs we held waiting for it.
+        if (msg[1] === this.lastAuthEventId) {
+          this.lastAuthEventId = null;
+          if (msg[2] === true) this.releaseReqGate();
+        }
         this.onOK?.(msg[1], msg[2], msg[3], this.url);
         break;
       }
@@ -324,6 +406,9 @@ export class RelayConnection {
         // NIP-42 auth challenge — sign and respond with kind:22242
         const challenge = msg[1] as string;
         if (!challenge) break;
+        // This relay requires AUTH — remember it so future reconnects hold REQs
+        // until AUTH completes (avoids the empty-history cold-start race).
+        this.everChallenged = true;
         // Cache the challenge so we can replay AUTH if the signer isn't ready yet.
         this.pendingAuthChallenge = challenge;
         this.tryAuth();
@@ -391,7 +476,7 @@ export class RelayConnection {
       if (delay === 0) {
         for (const [subId, filters] of batch) {
           this.pendingEOSE.add(subId);
-          this.send(["REQ", subId, ...filters]);
+          this.sendReq(subId, filters);
         }
       } else {
         setTimeout(() => {
@@ -399,7 +484,7 @@ export class RelayConnection {
             for (const [subId, filters] of batch) {
               if (!this.subscriptions.has(subId)) continue;
               this.pendingEOSE.add(subId);
-              this.send(["REQ", subId, ...filters]);
+              this.sendReq(subId, filters);
             }
           }
         }, delay);

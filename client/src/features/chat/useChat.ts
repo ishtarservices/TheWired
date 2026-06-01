@@ -1,5 +1,6 @@
-import { useCallback, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
 import { useAppSelector, useAppDispatch } from "../../store/hooks";
+import { resolveRelaySet } from "../spaces/relaySet";
 import { addEvent, indexChatMessage, hideMessage, removeChatMessage, indexEditedMessage } from "../../store/slices/eventsSlice";
 import { selectChatMessages } from "./chatSelectors";
 import { parseChannelIdPart } from "../spaces/spaceSelectors";
@@ -26,6 +27,15 @@ export function useChat() {
   const activeChannelId = useAppSelector((s) => s.spaces.activeChannelId);
   const hostRelay = useAppSelector(
     (s) => s.spaces.list.find((sp) => sp.id === s.spaces.activeSpaceId)?.hostRelay,
+  );
+  // The space's full relay set (authority + mirrors, M9): publish to all and
+  // read from any, so the space survives the authority relay going offline.
+  const relayUrlsKey = useAppSelector((s) =>
+    (s.spaces.list.find((sp) => sp.id === s.spaces.activeSpaceId)?.relayUrls ?? []).join(","),
+  );
+  const relayTargets = useMemo(
+    () => (hostRelay ? resolveRelaySet({ hostRelay, relayUrls: relayUrlsKey ? relayUrlsKey.split(",") : [] }) : []),
+    [hostRelay, relayUrlsKey],
   );
   const messages = useAppSelector(selectChatMessages);
 
@@ -74,15 +84,19 @@ export function useChat() {
           }
         }
 
-        // Ensure host relay is in the connection pool — `relayManager.publish`
-        // silently drops targets that aren't in `connections`, which would make
-        // the publish a no-op for any space whose host isn't a bootstrap relay
-        // or in the user's NIP-65 list.
-        if (hostRelay) {
-          relayManager.connect(hostRelay, "read+write");
+        // Ensure every relay in the space's set is in the connection pool —
+        // `relayManager.publish` silently drops targets that aren't in
+        // `connections`, which would make the publish a no-op for any host that
+        // isn't a bootstrap relay or in the user's NIP-65 list. Publish-to-all
+        // (M9): the message lands on the authority + every mirror.
+        for (const url of relayTargets) {
+          relayManager.connect(url, "read+write");
         }
 
-        const signed = await signAndPublish(unsigned, hostRelay ? [hostRelay] : undefined);
+        const signed = await signAndPublish(
+          unsigned,
+          relayTargets.length ? relayTargets : undefined,
+        );
 
         // Add to store — index by channel composite key for per-channel scoping
         dispatch(addEvent(signed));
@@ -106,7 +120,7 @@ export function useChat() {
 
       setReplyTo(null);
     },
-    [pubkey, activeSpaceId, activeChannelId, replyTo, hostRelay, dispatch],
+    [pubkey, activeSpaceId, activeChannelId, replyTo, relayTargets, dispatch],
   );
 
   const retryMessage = useCallback(
@@ -146,14 +160,14 @@ export function useChat() {
       );
       // Add h-tag so the deletion event matches the space's subscription filter
       unsigned.tags.push(["h", activeSpaceId]);
-      await signAndPublish(unsigned, hostRelay ? [hostRelay] : undefined);
+      await signAndPublish(unsigned, relayTargets.length ? relayTargets : undefined);
       // Also hide locally
       dispatch(hideMessage(eventId));
       if (activeChannelId) {
         dispatch(removeChatMessage({ contextId: activeChannelId, eventId }));
       }
     },
-    [pubkey, activeSpaceId, hostRelay, dispatch, activeChannelId],
+    [pubkey, activeSpaceId, relayTargets, dispatch, activeChannelId],
   );
 
   /** Publish a kind:9005 moderator deletion event */
@@ -161,14 +175,14 @@ export function useChat() {
     async (eventId: string) => {
       if (!pubkey || !activeSpaceId) return;
       const unsigned = buildModDeletionEvent(pubkey, activeSpaceId, [eventId]);
-      await signAndPublish(unsigned, hostRelay ? [hostRelay] : undefined);
+      await signAndPublish(unsigned, relayTargets.length ? relayTargets : undefined);
       // Also hide locally
       dispatch(hideMessage(eventId));
       if (activeChannelId) {
         dispatch(removeChatMessage({ contextId: activeChannelId, eventId }));
       }
     },
-    [pubkey, activeSpaceId, hostRelay, dispatch, activeChannelId],
+    [pubkey, activeSpaceId, relayTargets, dispatch, activeChannelId],
   );
 
   /** Edit a chat message (within 15-min window) */
@@ -189,12 +203,12 @@ export function useChat() {
         channelIdPart,
       );
 
-      const signed = await signAndPublish(unsigned, hostRelay ? [hostRelay] : undefined);
+      const signed = await signAndPublish(unsigned, relayTargets.length ? relayTargets : undefined);
       dispatch(addEvent(signed));
       dispatch(indexEditedMessage({ originalId: originalEvent.id, editEventId: signed.id }));
       setEditingMessage(null);
     },
-    [pubkey, activeSpaceId, activeChannelId, hostRelay, dispatch],
+    [pubkey, activeSpaceId, activeChannelId, relayTargets, dispatch],
   );
 
   /** Check if an event is within the edit window */

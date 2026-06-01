@@ -8,7 +8,6 @@ use std::time::{Duration, Instant};
 use tokio::sync::broadcast;
 use tokio::sync::Mutex;
 
-use crate::db::space_membership;
 use crate::nostr::event::Event;
 use crate::protocol::handler;
 use crate::protocol::nip42;
@@ -40,7 +39,7 @@ async fn maybe_refresh_memberships(
     if last_refresh.elapsed() < MEMBERSHIP_TTL {
         return false;
     }
-    match space_membership::query_for_pubkey(&state.pool, pk).await {
+    match state.pool.members_of(pk).await {
         Ok(set) => {
             *space_memberships = set;
             *last_refresh = Instant::now();
@@ -59,6 +58,12 @@ async fn maybe_refresh_memberships(
 
 /// Maximum incoming WebSocket message size (128 KiB)
 const MAX_MESSAGE_SIZE: usize = 128 * 1024;
+
+/// Per-connection message-rate cap for restricted (embedded) relays, which have
+/// no rate-limiting gateway in front of them. Generous enough never to bother a
+/// real client (30 msg/s sustained) but stops a flood from a public tunnel.
+const RATE_WINDOW: Duration = Duration::from_secs(10);
+const RATE_MAX_MSGS: u32 = 300;
 
 /// Visibility check for broadcast events (no per-broadcast DB query).
 /// Order:
@@ -140,6 +145,9 @@ pub async fn handle_connection(
     // Last time `space_memberships` was refreshed from the DB. AUTH populates
     // the cache and stamps this; lazy refresh in the broadcast path bumps it.
     let mut memberships_refreshed_at: Instant = Instant::now();
+    // Per-connection rate window (only enforced when `state.hosted_only`).
+    let mut rate_window_start: Instant = Instant::now();
+    let mut msgs_in_window: u32 = 0;
     let auth_challenge = nip42::generate_challenge();
 
     // Send NIP-42 AUTH challenge on connect
@@ -159,6 +167,25 @@ pub async fn handle_connection(
                             );
                             let _ = sender.send(Message::Text(notice.into())).await;
                             continue;
+                        }
+                        // Rate limit (restricted relays only — production sits
+                        // behind the gateway). Drop over-limit messages; warn once.
+                        if state.hosted_only {
+                            if rate_window_start.elapsed() >= RATE_WINDOW {
+                                rate_window_start = Instant::now();
+                                msgs_in_window = 0;
+                            }
+                            msgs_in_window += 1;
+                            if msgs_in_window > RATE_MAX_MSGS {
+                                if msgs_in_window == RATE_MAX_MSGS + 1 {
+                                    let _ = sender
+                                        .send(Message::Text(
+                                            r#"["NOTICE","rate limited: slow down"]"#.into(),
+                                        ))
+                                        .await;
+                                }
+                                continue;
+                            }
                         }
                         events_received += 1;
                         let was_authed = authed_pubkey.is_some();

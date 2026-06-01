@@ -8,6 +8,7 @@ import {
 } from "../../store/slices/spaceConfigSlice";
 import type { SpaceRole } from "../../types/space";
 import * as rolesApi from "../../lib/api/roles";
+import { isNip29Native } from "./spaceType";
 
 const EMPTY_ROLES: never[] = [];
 
@@ -19,10 +20,16 @@ export function useRoles(spaceId: string | null) {
   const isLoading = useAppSelector(
     (s) => (spaceId ? s.spaceConfig.loading[spaceId] : false) ?? false,
   );
+  const native = useAppSelector((s) => {
+    const sp = spaceId ? s.spaces.list.find((x) => x.id === spaceId) : undefined;
+    return sp ? isNip29Native(sp) : false;
+  });
   const fetchedRef = useRef<string | null>(null);
 
   useEffect(() => {
     if (!spaceId) return;
+    // NIP-29-native spaces synthesize roles from 39001 (pipeline/seed) — no backend.
+    if (native) return;
     // Already fetched for this space and got results — skip
     if (fetchedRef.current === spaceId && roles.length > 0) return;
 
@@ -58,7 +65,7 @@ export function useRoles(spaceId: string | null) {
       cancelled = true;
       clearTimeout(retryTimer);
     };
-  }, [spaceId, dispatch]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [spaceId, dispatch, native]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const handleCreateRole = useCallback(
     async (params: { name: string; color?: string; permissions: string[]; isAdmin?: boolean }) => {

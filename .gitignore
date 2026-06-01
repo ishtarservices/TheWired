@@ -83,6 +83,7 @@ coverage/
 PRODUCTION.md
 BLOSSOM_IMPLEMENTATION.md
 PACKAGES_DESIGN.md
+NOSTRIFY_REFACTOR.md
 spaces.json
 
 # Seed scripts (local demo data tooling)

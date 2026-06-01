@@ -17,6 +17,7 @@ import { listenTogetherSlice } from "./slices/listenTogetherSlice";
 import { emojiSlice } from "./slices/emojiSlice";
 import { gifSlice } from "./slices/gifSlice";
 import { walletSlice } from "./slices/walletSlice";
+import { featuresSlice } from "./slices/featuresSlice";
 import { onboardingSlice } from "../features/onboarding/onboardingSlice";
 import { listenTogetherMiddleware } from "@/features/listenTogether/listenTogetherMiddleware";
 
@@ -43,6 +44,7 @@ const appReducer = combineReducers({
   emoji: emojiSlice.reducer,
   gif: gifSlice.reducer,
   wallet: walletSlice.reducer,
+  features: featuresSlice.reducer,
   onboarding: onboardingSlice.reducer,
 });
 

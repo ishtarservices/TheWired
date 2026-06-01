@@ -22,6 +22,27 @@ export const config = {
   adminPubkeys: (process.env.ADMIN_PUBKEYS ?? "").split(",").filter(Boolean),
   /** Minimum member count for a space to request listing (admin bypass available) */
   minListingMembers: parseInt(process.env.MIN_LISTING_MEMBERS ?? "5", 10),
+  /** Decentralized Spaces ingestion (M3): how a newly-registered relay is handled.
+   *  'approval' = pending until an admin approves; 'open' = auto-approve; 'closed' = none. */
+  relayRegistrationMode: (process.env.RELAY_REGISTRATION_MODE ?? "approval") as
+    | "open"
+    | "approval"
+    | "closed",
+  /** Hard cap on distinct external relays the ingestion manager will dial. */
+  maxIngestRelays: parseInt(process.env.MAX_INGEST_RELAYS ?? "50", 10),
+  /** Max relays a single space may register for ingestion. */
+  maxRelaysPerSpace: parseInt(process.env.MAX_RELAYS_PER_SPACE ?? "3", 10),
+  /** Cloudflare credentials for provisioning per-user *named* relay tunnels
+   *  (Decentralized Spaces, M7). When any is unset the named-tunnel endpoint
+   *  returns 503 and only zero-config quick tunnels work. The token is
+   *  backend-only and never sent to clients; scope it minimally
+   *  (Account:Cloudflare Tunnel:Edit + Zone:DNS:Edit on the tunnel zone). */
+  cloudflareApiToken: process.env.CLOUDFLARE_API_TOKEN ?? "",
+  cloudflareAccountId: process.env.CLOUDFLARE_ACCOUNT_ID ?? "",
+  cloudflareZoneId: process.env.CLOUDFLARE_ZONE_ID ?? "",
+  /** DNS zone under which each user's relay gets a stable subdomain
+   *  (`<id>.relay.thewired.app`). Must live inside CLOUDFLARE_ZONE_ID. */
+  tunnelHostnameZone: process.env.TUNNEL_HOSTNAME_ZONE ?? "relay.thewired.app",
   /** Blossom blob storage directory */
   blobDir: process.env.BLOB_DIR ?? "blobs",
   /** Max blob upload size in bytes (default 100MB) */

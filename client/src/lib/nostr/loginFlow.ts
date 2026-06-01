@@ -26,6 +26,9 @@ import { EVENT_KINDS } from "../../types/nostr";
 import { saveUserState, getUserState } from "../db/userStateStore";
 import { getProfile } from "../db/profileStore";
 import { loadSpaces, saveSpaces } from "../db/spaceStore";
+import { loadEnabledFeatures } from "../../features/settings/featuresPersistence";
+import { setEnabledFeatures } from "../../store/slices/featuresSlice";
+import { isBackendBacked } from "../../features/spaces/spaceType";
 import { loadAllMembers } from "../db/spaceMembersStore";
 import { setMembers } from "../../store/slices/spaceConfigSlice";
 import { updateSpaceMembers } from "../../store/slices/spacesSlice";
@@ -558,6 +561,9 @@ export async function performLogin(
 
   // Step 7b: Load spaces + last-channel cache from IndexedDB
   await initLastChannelCache();
+  // Hydrate the per-account feature toggles (e.g. Decentralized Spaces) so any
+  // UI gated on them renders correctly from the first paint.
+  store.dispatch(setEnabledFeatures(await loadEnabledFeatures()));
   let savedSpaces = await loadSpaces();
 
   // If local cache is empty, recover from backend (covers logout/reimport,
@@ -579,6 +585,8 @@ export async function performLogin(
           mode: entry.space.mode as "read" | "read-write",
           creatorPubkey: entry.space.creatorPubkey ?? "",
           createdAt: 0,
+          spaceType: "platform" as const,
+          channelSource: "backend" as const,
         }));
 
         // Persist recovered spaces + channels to IndexedDB for next startup
@@ -628,12 +636,18 @@ export async function performLogin(
     } catch {
       // IDB read failed — refresh below will populate state from backend
     }
-    for (const space of savedSpaces) {
+    // Only backend-backed spaces (platform / decentralized A-lite) have members
+    // and a directory entry on our backend. NIP-29-native spaces are
+    // relay-authoritative — syncing or validating them against the backend
+    // would (a) 404 their members and (b) PURGE them as "stale" on every
+    // relogin, since the backend has no record of them.
+    const backendSpaces = savedSpaces.filter(isBackendBacked);
+    for (const space of backendSpaces) {
       void store.dispatch(syncSpaceMembers(space.id));
     }
 
     // Non-blocking: validate cached spaces against backend and purge stale ones
-    validateAndPurgeStaleSpaces(savedSpaces.map((s) => s.id)).catch(() => {});
+    validateAndPurgeStaleSpaces(backendSpaces.map((s) => s.id)).catch(() => {});
 
     // Preload cached channels for all spaces from IndexedDB so the
     // notification evaluator can resolve the correct channel IDs

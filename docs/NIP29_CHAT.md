@@ -116,14 +116,14 @@ Per-connection cache populated from `app.space_members` on AUTH success, consult
 
 One indexed DB query per AUTH (fast — `app.space_members` has a `(pubkey)` index). Constant-time set lookups on every broadcast. No per-broadcast DB calls.
 
-### Cache freshness limitation
+### Cache freshness (resolved in `ed7f48f`)
 
-V1 only refreshes the cache on AUTH (so on initial connect and on every reconnect). Live membership changes during a session don't invalidate the cache. In practice:
+The initial Phase 2 cache only refreshed on AUTH (initial connect + every reconnect), so mid-session membership changes didn't invalidate it. `ed7f48f` ("Single-source-of-truth members + reactive kick handling") closed that gap with a two-part scheme:
 
-- For users with stable membership (the 9-Alpha case — 27 fixed seed spaces), this is fully correct.
-- For users who join/leave a space mid-session, broadcasts in the new/old space won't reach them until they reconnect. Tauri WebSocket flap means reconnects happen often anyway, so this self-heals within seconds-to-minutes.
+- **Receive path — 30 s TTL lazy refresh.** `connection.rs::maybe_refresh_memberships` re-queries `app.space_members` when the cache is older than `MEMBERSHIP_TTL` (30 s), but *only* when an h-tagged event is about to be forwarded — idle connections never poll the DB. A kicked user keeps reading their old channels for at most 30 s before being cut off, even on a long-lived socket.
+- **Publish path — authoritative per-EVENT gate.** `space_membership::is_space_member` (consulted in `handler.rs` on every accepted h-tagged EVENT) hits the DB directly, so a kicked user can't *publish* into a space the moment the kick lands, regardless of any stale receive-side cache.
 
-A future refinement is to refresh on inbound NIP-29 membership events (`kind:9000/9001/9021/9022`) targeting the authed pubkey. The complication is propagation timing: the relay broadcasts the membership event before the backend `relayIngester` worker has updated `app.space_members`, so an immediate re-query reads stale data. Either delay the re-query (~1-2s) or directly mutate the local cache on event receipt (skip DB round-trip but accept divergence from `app.space_members` for closed-group join requests until ingester catches up).
+This was chosen over the "refresh on inbound `kind:9000/9001/9021/9022` membership events" idea floated earlier — that approach races the backend `relayIngester` (the relay broadcasts the membership event before `app.space_members` is updated, so an immediate re-query reads stale data). The TTL + authoritative-publish split sidesteps the race entirely.
 
 ### Tests
 

@@ -35,6 +35,7 @@ export type LogCategory =
   | "lnurl"
   | "nav"   // route changes, navigation timing, current-account context
   | "perf"  // main-thread health (event-loop lag spikes)
+  | "latency" // per-message receive latency, by relay (chat delivery timing)
   | "feed"; // profile / space feed throughput (note arrivals, LoadMore)
 
 type LogLevel = "debug" | "info" | "warn" | "error";
@@ -53,6 +54,7 @@ const CATEGORY_COLORS: Record<LogCategory, string> = {
   lnurl: "#fde047",
   nav: "#c084fc",
   perf: "#ef4444",
+  latency: "#e879f9",
   feed: "#10b981",
 };
 

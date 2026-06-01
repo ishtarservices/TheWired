@@ -8,6 +8,16 @@ import { createInvite } from "../../lib/api/invites";
 import { sendDM } from "../dm/dmService";
 import { useUserSearch } from "../search/useUserSearch";
 import { useProfile } from "../profile/useProfile";
+import { useAppSelector } from "../../store/hooks";
+import { isNip29Native } from "./spaceType";
+import { nativeInvitePlan } from "./nativeInvitePlan";
+import {
+  embeddedRelaySupported,
+  getEmbeddedRelayStatus,
+  getTunnelStatus,
+  type EmbeddedRelayStatus,
+  type TunnelStatus,
+} from "../../lib/relay/embeddedRelay";
 
 interface InviteGenerateModalProps {
   open: boolean;
@@ -121,12 +131,59 @@ export function InviteGenerateModal({
 }: InviteGenerateModalProps) {
   const [state, dispatch] = useReducer(reducer, initialState);
 
+  // Relay-authoritative (nip29-native) spaces have NO backend registration, so
+  // the backend invite endpoint would reject the creator with "Not a member".
+  // Instead, the "invite" for a native group is its shareable address
+  // (`<host>'<groupId>`) — what the "Import a Group" flow reads to join.
+  const space = useAppSelector((s) => s.spaces.list.find((sp) => sp.id === spaceId));
+  const native = !!space && isNip29Native(space);
+
+  // Resolve the native share target reactively from the live relay/tunnel state,
+  // so a space on the user's own (ephemeral-tunnel) relay produces the CURRENT
+  // address — or tells them to turn the relay on / expose it.
+  const [relayStatus, setRelayStatus] = useState<EmbeddedRelayStatus | null>(null);
+  const [tunnelStatus, setTunnelStatus] = useState<TunnelStatus | null>(null);
+  const [checkingStatus, setCheckingStatus] = useState(false);
+
+  useEffect(() => {
+    if (!open || !native || !embeddedRelaySupported()) return;
+    let cancelled = false;
+    setCheckingStatus(true);
+    Promise.all([getEmbeddedRelayStatus(), getTunnelStatus().catch(() => null)])
+      .then(([r, t]) => {
+        if (cancelled) return;
+        setRelayStatus(r);
+        setTunnelStatus(t);
+      })
+      .catch(() => {})
+      .finally(() => {
+        if (!cancelled) setCheckingStatus(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [open, native]);
+
+  const plan = space && native ? nativeInvitePlan(space, relayStatus, tunnelStatus) : null;
+  const planAddress = plan?.kind === "address" ? plan.address : null;
+  const planEphemeral = plan?.kind === "address" && plan.ephemeral;
+  const planScope = plan?.kind === "address" ? plan.scope : null;
+
   const handleClose = useCallback(() => {
     dispatch({ type: "RESET" });
     onClose();
   }, [onClose]);
 
   const handleGenerate = useCallback(async () => {
+    // Native: no backend call — the (live) address IS the invite.
+    if (native) {
+      if (planAddress) {
+        dispatch({ type: "GENERATE_SUCCESS", code: planAddress });
+      } else {
+        dispatch({ type: "GENERATE_ERROR", error: "This group has no shareable address." });
+      }
+      return;
+    }
     dispatch({ type: "GENERATE_START" });
     try {
       const res = await createInvite({
@@ -142,9 +199,15 @@ export function InviteGenerateModal({
         error: err instanceof Error ? err.message : "Failed to create invite",
       });
     }
-  }, [spaceId, state.maxUses, state.expiryHours, state.label]);
+  }, [native, planAddress, spaceId, state.maxUses, state.expiryHours, state.label]);
 
-  const inviteLink = state.code ? `${window.location.origin}/invite/${state.code}` : "";
+  // For native groups the code IS the group address (shared directly); for
+  // platform/A-lite it's a backend invite code behind an `/invite/<code>` link.
+  const inviteLink = !state.code
+    ? ""
+    : native
+      ? state.code
+      : `${window.location.origin}/invite/${state.code}`;
 
   const handleCopy = useCallback(async () => {
     if (!inviteLink) return;
@@ -159,7 +222,9 @@ export function InviteGenerateModal({
     try {
       await sendDM(
         state.dmTarget.trim(),
-        `You've been invited to join "${spaceName}"!\n\nJoin here: ${inviteLink}`,
+        native
+          ? `You've been invited to join "${spaceName}"!\n\nIn The Wired, use "Import a Group" and paste:\n${inviteLink}`
+          : `You've been invited to join "${spaceName}"!\n\nJoin here: ${inviteLink}`,
       );
       dispatch({ type: "DM_SUCCESS" });
       setTimeout(() => dispatch({ type: "DM_DONE" }), 3000);
@@ -185,6 +250,57 @@ export function InviteGenerateModal({
         </div>
 
         {!state.code ? (
+          native ? (
+            /* Native group: no backend invite — reactive to the live relay state. */
+            <div className="space-y-4">
+              {checkingStatus ? (
+                <p className="text-xs text-muted">Checking your relay…</p>
+              ) : plan?.kind === "relay-off" ? (
+                <p className="rounded-lg border border-amber-500/40 bg-amber-500/5 px-3 py-2 text-[12px] text-amber-400">
+                  Your relay isn&apos;t running, so this space can&apos;t be shared right now.
+                  Turn it on in{" "}
+                  <span className="text-soft">Settings → Features → Host a Relay</span>.
+                </p>
+              ) : plan?.kind === "address" ? (
+                <p className="rounded-lg border border-border bg-surface px-3 py-2 text-[12px] text-muted">
+                  {planScope === "local" ? (
+                    <>
+                      This address only works on <span className="text-soft">this machine</span>{" "}
+                      (loopback) — use it to test with a second app instance. For others
+                      to join, enable LAN access or a public tunnel in{" "}
+                      <span className="text-soft">Settings → Features → Host a Relay</span>.
+                    </>
+                  ) : planScope === "lan" ? (
+                    <>
+                      This address works for people on your{" "}
+                      <span className="text-soft">local network</span> (same Wi-Fi). For
+                      anyone on the internet, start a public tunnel in{" "}
+                      <span className="text-soft">Settings → Features → Host a Relay</span>.
+                    </>
+                  ) : (
+                    <>
+                      This is a relay-native group. Sharing its address lets anyone open
+                      it in The Wired (or another NIP-29 app) and request to join — no
+                      invite codes, uses, or expiry.
+                    </>
+                  )}
+                </p>
+              ) : (
+                <p className="text-xs text-muted">This group has no shareable address.</p>
+              )}
+              {state.error && <p className="text-xs text-red-400">{state.error}</p>}
+              <div className="flex justify-end gap-2">
+                <Button variant="ghost" size="md" onClick={handleClose}>
+                  {plan?.kind === "address" ? "Cancel" : "Close"}
+                </Button>
+                {plan?.kind === "address" && !checkingStatus && (
+                  <Button variant="primary" size="md" onClick={handleGenerate}>
+                    Get share link
+                  </Button>
+                )}
+              </div>
+            </div>
+          ) : (
           /* Options form */
           <div className="space-y-4">
             <div>
@@ -247,12 +363,13 @@ export function InviteGenerateModal({
               </Button>
             </div>
           </div>
+          )
         ) : (
           /* Code result */
           <div className="space-y-4">
             <div>
               <label className="mb-1 block text-xs font-medium text-soft">
-                Invite Link
+                {native ? "Group address (share to invite)" : "Invite Link"}
               </label>
               <div className="flex items-center gap-2">
                 <input
@@ -265,6 +382,13 @@ export function InviteGenerateModal({
                   {state.copied ? <Check size={14} className="text-green-400" /> : <Copy size={14} />}
                 </Button>
               </div>
+              {native && planEphemeral && (
+                <p className="mt-1.5 text-[11px] text-amber-400">
+                  This is your relay&apos;s current tunnel address — it changes when
+                  the relay restarts, so re-share from here if it stops working
+                  (or host on a branded tunnel for a permanent one).
+                </p>
+              )}
             </div>
 
             {/* Send via DM */}

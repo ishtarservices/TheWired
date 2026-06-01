@@ -8,10 +8,29 @@ import {
   setChannelsLoading,
 } from "../../store/slices/spacesSlice";
 import type { Space, SpaceChannel, SpaceChannelType } from "../../types/space";
+import { isNip29Native } from "./spaceType";
 
 const EMPTY_CHANNELS: SpaceChannel[] = [];
 import * as channelsApi from "../../lib/api/channels";
 import { saveChannels, loadChannels } from "../../lib/db/channelStore";
+
+/** Channels for a NIP-29-native space. Until a kind:30078 layout overlay (M4)
+ *  is present, a native group is a single interoperable chat channel. */
+function makeNativeChannels(spaceId: string): SpaceChannel[] {
+  return [
+    {
+      id: "chat",
+      spaceId,
+      type: "chat",
+      label: "#chat",
+      position: 0,
+      isDefault: true,
+      adminOnly: false,
+      slowModeSeconds: 0,
+      feedMode: "all",
+    },
+  ];
+}
 
 /** Ensure all channels have feedMode (backward compat for cached data without it) */
 function normalizeChannels(channels: SpaceChannel[]): SpaceChannel[] {
@@ -53,6 +72,10 @@ export function useSpaceChannels(spaceId: string | null) {
   const spaceMode = useAppSelector(
     (s) => s.spaces.list.find((sp) => sp.id === spaceId)?.mode ?? "read-write",
   );
+  const native = useAppSelector((s) => {
+    const sp = spaceId ? s.spaces.list.find((x) => x.id === spaceId) : undefined;
+    return sp ? isNip29Native(sp) : false;
+  });
 
   // Track the last spaceId we fetched from backend to avoid redundant calls
   // within the same space selection (but allow refetch when switching back)
@@ -60,6 +83,16 @@ export function useSpaceChannels(spaceId: string | null) {
 
   useEffect(() => {
     if (!spaceId) return;
+
+    // NIP-29-native spaces have no backend channels — synthesize a chat channel
+    // (M4 will load a kind:30078 layout overlay for richer channels).
+    if (native) {
+      if (channels.length === 0) {
+        dispatch(setChannels({ spaceId, channels: makeNativeChannels(spaceId) }));
+      }
+      dispatch(setChannelsLoading({ spaceId, loading: false }));
+      return;
+    }
 
     let cancelled = false;
     const hasCached = channels.length > 0;
@@ -105,7 +138,7 @@ export function useSpaceChannels(spaceId: string | null) {
     })();
 
     return () => { cancelled = true; };
-  }, [spaceId, dispatch]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [spaceId, dispatch, native]); // eslint-disable-line react-hooks/exhaustive-deps
   // Note: channels.length intentionally excluded to avoid infinite loops
 
   const handleCreateChannel = useCallback(

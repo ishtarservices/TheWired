@@ -1,11 +1,18 @@
 import { useState } from "react";
 import { useNavigate, useLocation } from "react-router-dom";
-import { X, Plus, LogIn } from "lucide-react";
+import { X, Plus, LogIn, Globe } from "lucide-react";
 import { Modal } from "../../components/ui/Modal";
 import { CreateSpaceModal } from "./CreateSpaceModal";
 import { JoinSpaceModal } from "./JoinSpaceModal";
+import { ImportSpaceModal } from "./ImportSpaceModal";
 import { InviteGenerateModal } from "./InviteGenerateModal";
 import { useSpace } from "./useSpace";
+import { isBackendBacked } from "./spaceType";
+import { useAppSelector } from "../../store/hooks";
+import {
+  FEATURE_DECENTRALIZED_SPACES,
+  selectFeatureEnabled,
+} from "../../store/slices/featuresSlice";
 
 interface SpaceActionModalProps {
   open: boolean;
@@ -16,8 +23,13 @@ export function SpaceActionModal({ open, onClose }: SpaceActionModalProps) {
   const { joinSpace } = useSpace();
   const navigate = useNavigate();
   const location = useLocation();
+  const decentralizedEnabled = useAppSelector(
+    selectFeatureEnabled(FEATURE_DECENTRALIZED_SPACES),
+  );
   const [showCreate, setShowCreate] = useState(false);
   const [showJoin, setShowJoin] = useState(false);
+  const [showImport, setShowImport] = useState(false);
+  const [importInput, setImportInput] = useState<string | undefined>(undefined);
   const [inviteSpace, setInviteSpace] = useState<{ id: string; name: string } | null>(null);
 
   const handleCreate = () => {
@@ -28,6 +40,11 @@ export function SpaceActionModal({ open, onClose }: SpaceActionModalProps) {
   const handleJoin = () => {
     onClose();
     setShowJoin(true);
+  };
+
+  const handleImport = () => {
+    onClose();
+    setShowImport(true);
   };
 
   return (
@@ -70,6 +87,21 @@ export function SpaceActionModal({ open, onClose }: SpaceActionModalProps) {
                 <p className="text-xs text-muted">Enter an invite code or link</p>
               </div>
             </button>
+
+            {decentralizedEnabled && (
+              <button
+                onClick={handleImport}
+                className="flex w-full items-center gap-4 rounded-xl bg-surface border border-border px-4 py-4 text-left transition-all hover:bg-primary/8 hover:border-primary/20 group"
+              >
+                <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-primary/10 text-primary group-hover:bg-primary/20 transition-colors">
+                  <Globe size={20} />
+                </div>
+                <div>
+                  <p className="text-sm font-semibold text-heading">Import a Group</p>
+                  <p className="text-xs text-muted">Bring a NIP-29 group from another app</p>
+                </div>
+              </button>
+            )}
           </div>
         </div>
       </Modal>
@@ -79,7 +111,11 @@ export function SpaceActionModal({ open, onClose }: SpaceActionModalProps) {
         onClose={() => setShowCreate(false)}
         onCreate={(space) => {
           joinSpace(space);
-          setInviteSpace({ id: space.id, name: space.name });
+          // Backend invites (kind via REST) only apply to backend-backed spaces.
+          // NIP-29-native groups use relay invites (not yet surfaced here).
+          if (isBackendBacked(space)) {
+            setInviteSpace({ id: space.id, name: space.name });
+          }
           if (location.pathname !== "/") {
             navigate("/");
           }
@@ -98,6 +134,22 @@ export function SpaceActionModal({ open, onClose }: SpaceActionModalProps) {
       <JoinSpaceModal
         open={showJoin}
         onClose={() => setShowJoin(false)}
+        onImportInstead={(addr) => {
+          // The pasted value was a decentralized group address, not an invite
+          // code — switch to the Import flow with it pre-filled.
+          setShowJoin(false);
+          setImportInput(addr);
+          setShowImport(true);
+        }}
+      />
+
+      <ImportSpaceModal
+        open={showImport}
+        initialInput={importInput}
+        onClose={() => {
+          setShowImport(false);
+          setImportInput(undefined);
+        }}
       />
     </>
   );

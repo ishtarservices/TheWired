@@ -5,6 +5,7 @@ import { fetchAllMemberRoles } from "../../lib/api/roles";
 import { saveMembers } from "../../lib/db/spaceMembersStore";
 import { ApiRequestError } from "../../lib/api/client";
 import { profileCache } from "../../lib/nostr/profileCache";
+import { isBackendBacked } from "../../features/spaces/spaceType";
 import { createLogger } from "../../lib/debug/logger";
 
 const log = createLogger("spaces");
@@ -44,7 +45,14 @@ export type SyncSpaceMembersThunk = (
  * existing state preserved.
  */
 export function syncSpaceMembers(spaceId: string) {
-  return (dispatch: AppDispatch): Promise<void> => {
+  return (dispatch: AppDispatch, getState: () => RootState): Promise<void> => {
+    // Relay-authoritative (nip29-native) spaces have NO backend membership —
+    // their roster comes from kind:39002 (applied by the pipeline). A backend
+    // fetch would 404 / "not a member", so skip it at the single source of truth
+    // (protects every caller: useMemberRoles, useSpace, loginFlow, 39002 nudges).
+    const space = getState().spaces.list.find((s) => s.id === spaceId);
+    if (space && !isBackendBacked(space)) return Promise.resolve();
+
     const existing = inFlight.get(spaceId);
     if (existing) return existing;
 

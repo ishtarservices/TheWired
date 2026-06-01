@@ -6,6 +6,8 @@ import { config } from "./config.js";
 import { blossomRoutes } from "./routes/blossom.js";
 import { healthRoutes } from "./routes/health.js";
 import { spacesRoutes } from "./routes/spaces.js";
+import { spaceRelaysRoutes } from "./routes/spaceRelays.js";
+import { relayTunnelRoutes } from "./routes/relayTunnels.js";
 import { invitesRoutes } from "./routes/invites.js";
 import { membersRoutes } from "./routes/members.js";
 import { permissionsRoutes } from "./routes/permissions.js";
@@ -66,6 +68,8 @@ export async function createServer() {
   // Register routes
   await server.register(healthRoutes);
   await server.register(spacesRoutes, { prefix: "/spaces" });
+  await server.register(spaceRelaysRoutes, { prefix: "/spaces" });
+  await server.register(relayTunnelRoutes, { prefix: "/relays" });
   await server.register(invitesRoutes, { prefix: "/invites" });
   await server.register(membersRoutes, { prefix: "/spaces" });
   await server.register(permissionsRoutes, { prefix: "/permissions" });

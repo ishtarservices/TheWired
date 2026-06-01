@@ -89,7 +89,7 @@ export async function migrateUnprefixedState(pubkey: string): Promise<void> {
     "spaces", "last_channels", "dm_state", "dm_read_state",
     "notification_unread_state", "notification_preferences",
     "known_followers", "friend_requests", "gif_favorites", "gif_recents",
-    "onboarding",
+    "onboarding", "enabled_features",
   ];
 
   for (const key of migrateKeys) {
