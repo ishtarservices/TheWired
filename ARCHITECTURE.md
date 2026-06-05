@@ -1,8 +1,8 @@
 # THE WIRED V1 -- Architecture Document
 
 > Decentralized Nostr-native media platform: streaming, messaging, music libraries, voice/video, Blossom blobs, discover.
-> Current version: v0.4.3
-> Tech Stack: Tauri v2 + React 19 + Redux | Nostr Protocol | Custom Rust Relay | Fastify + PostgreSQL + Redis + Meilisearch | Go API Gateway | LiveKit SFU | Caddy proxy | Astro landing
+> Current version: v0.6.0
+> Tech Stack: Tauri v2 + React 19 + Redux | Nostr Protocol | Custom Rust Relay (Postgres server + embedded SQLite) | Fastify + PostgreSQL + Redis + Meilisearch | Go API Gateway | LiveKit SFU | Caddy proxy | Astro landing | Cloudflare tunnels | multi-provider AI engine
 
 ---
 
@@ -21,6 +21,8 @@
 11. [Identity and Key Management](#11-identity-and-key-management)
 12. [Wallet Integration](#12-wallet-integration)
 13. [Phasing Strategy](#13-phasing-strategy)
+14. [Decentralized and Self-Hosted Spaces](#14-decentralized-and-self-hosted-spaces)
+15. [AI Engine](#15-ai-engine)
 
 ---
 
@@ -79,8 +81,9 @@
      |              |                  |  content, profileCache         |     |
      |              |                  |                                |     |
      |              |                  | Workers (background):          |     |
-     |              +<-- relayIngester |  relayIngester                 |     |
-     |                                 |  trendingComputer              |     |
+     |          +<-- relayConnMgr      |  relayConnectionManager        |     |
+     |          |  (+ingestHandlers,   |   (+ ingestHandlers)           |     |
+     |          |   multi-relay)       |  trendingComputer              |     |
      |                                 |  profileRefresher              |     |
      |                                 |  notificationDispatcher        |     |
      |                                 |  analyticsAggregator           |     |
@@ -107,7 +110,7 @@
 | Flow | Path |
 |------|------|
 | **Real-time Events (Client)** | Client WS -> Rust Relay -> NIP-01 event stored in PostgreSQL `relay.events` |
-| **Event Indexing (Backend)** | `relayIngester` worker -> WS to Rust Relay -> indexes profiles, chat activity, reactions, zap counters, memberships, group metadata into PostgreSQL `app` schema + Redis counters + Meilisearch |
+| **Event Indexing (Backend)** | `relayConnectionManager` + `ingestHandlers` -> WS to platform relay + every registered decentralized-space relay -> index profiles, chat activity, reactions, zap counters, memberships, group metadata into PostgreSQL `app` schema + Redis counters + Meilisearch |
 | **Live Broadcasting** | Client EVENT -> Rust Relay stores -> `broadcast::Sender` -> all connected clients' `broadcast::Receiver` -> filter matching -> `["EVENT", sub_id, event]` push |
 | **API Queries** | Client `api<T>()` (with NIP-98 header) -> Go Gateway (auth verify + rate limit) -> Fastify backend -> PostgreSQL + Redis (cached feeds) -> Response |
 | **Search** | Client -> Gateway -> Fastify `searchService` -> Meilisearch (full-text) + Relay NIP-50 (tsvector) -> merged results |
@@ -139,6 +142,11 @@
 | Live Chat | 1311 | NIP-53 | Regular | Chat tied to live stream via `a` tag |
 | Zap Request | 9734 | NIP-57 | Regular | NOT published to relays; sent to lnurl callback |
 | Zap Receipt | 9735 | NIP-57 | Regular | Published by recipient's LN wallet |
+| NWC Info | 13194 | NIP-47 | Replaceable | Wallet capabilities/encryption negotiation |
+| NWC Request | 23194 | NIP-47 | Regular | `pay_invoice` / `get_balance` etc. (encrypted to wallet) |
+| NWC Response | 23195 | NIP-47 | Regular | Correlated to request via `e` tag |
+| NWC Notification | 23196/23197 | NIP-47 | Regular | Push notifications (nip04 legacy / nip44_v2) |
+| Remote Signer | 24133 | NIP-46 | Regular | Bunker request/response (NIP-44 encrypted) |
 | Mute List | 10000 | NIP-51 | Replaceable | `p`/`t`/`word`/`e` tags for spam filtering |
 | Bookmarks | 10003 | NIP-51 | Replaceable | Saved events (tracks, articles, videos) |
 | User Groups | 10009 | NIP-51 | Replaceable | NIP-29 group memberships |
@@ -147,7 +155,7 @@
 | Follow Sets | 30000 | NIP-51 | Addressable | Categorized follow groups ("favorite-artists") |
 | Bookmark Sets | 30003 | NIP-51 | Addressable | Categorized bookmarks ("liked-tracks") |
 | Curation Sets | 30005 | NIP-51 | Addressable | Video playlists |
-| App-specific Data | 30078 | NIP-78 | Addressable | Client settings, preferences |
+| App-specific Data | 30078 | NIP-78 | Addressable | Client settings, preferences; `wired:layout:<groupId>` channel layout + `wired:relays:<groupId>` relay-set overlays for decentralized spaces |
 | NIP-29 Group Meta | 39000 | NIP-29 | Addressable | Group name, picture, about, access flags |
 | NIP-29 Group Admins | 39001 | NIP-29 | Addressable | Admin list with roles |
 | NIP-29 Group Members | 39002 | NIP-29 | Addressable | Member pubkey list |
@@ -399,7 +407,7 @@ ObjectStore: "user_state"
 interface RootState {
   identity: {
     pubkey: string | null;
-    signerType: 'nip07' | 'tauri_keystore' | 'managed';
+    signerType: 'nip07' | 'tauri_keystore' | 'nip46' | null;
     profile: Kind0Profile | null;
     relayList: { url: string; mode: 'read' | 'write' | 'read+write' }[];
     followList: string[];
@@ -511,15 +519,31 @@ interface RootState {
     removedPubkeys: string[];        // blocks relay resurrection after unfriend/cancel
   };
 
+  features: {                          // toggleable built-ins (default off)
+    ai: boolean;
+    selfHostedSpaces: boolean;
+    // ...other feature flags
+  };
+
+  ai: {                                // display/persisted AI state ONLY (NEVER api keys)
+    conversations: Record<string, AIConversation>;
+    activeConversationId: string | null;
+    providerConfigs: AIProviderConfig[];  // non-secret config; keys live in llmManager + keychain
+    pendingContext: AIContext | null;      // "Ask AI" snapshot staged into the next message
+    prefs: AIPrefs;                        // default model, reasoning/usage toggles, system prompt
+  };
+
   ui: {
     sidebarExpanded: boolean;
-    sidebarMode: 'spaces' | 'music';
+    sidebarMode: 'spaces' | 'music' | 'messages' | 'ai';
     activeTab: 'reels' | 'longform' | 'music';
     searchQuery: string;
     searchResults: SearchResult[];
     notifications: Notification[];
     memberListVisible: boolean;
   };
+
+  // Additional slices: spaceConfig, reactions, emoji, gif, voice, call, listenTogether
 }
 ```
 
@@ -570,7 +594,10 @@ interface NostrSigner {
 
 // NIP-07: delegates to window.nostr (Alby, nos2x, etc.)
 // Tauri: delegates to Rust via IPC (private key in OS keychain, never in JS)
+// NIP-46: delegates to a remote bunker over nostr-tools BunkerSigner (key never on device)
 ```
+
+**NIP-46 remote signing (bunker):** `lib/nostr/nip46Signer.ts` wraps nostr-tools `BunkerSigner`. `connect()` requests a broad perms set (including `sign_event:<kind>` for every kind we publish) so the bunker doesn't prompt per signature. The bunker URI + ephemeral client key are persisted in the OS-keychain secret store and restored on restart. Because a bunker round-trip may need manual approval, the signing timeout is raised to 90s for `signerType === "nip46"` (vs 12s otherwise). All three signers serialize through a single signing queue so concurrent publishes don't interleave.
 
 **Tauri NIP-44 v2 Encryption:**
 
@@ -830,7 +857,7 @@ The backend is a single-process Fastify service with background workers, fronted
 
 ### 7.1 Custom Rust Relay (`services/relay/`)
 
-Built with **axum + tokio + sqlx**. Handles all Nostr protocol operations:
+Built with **axum + tokio + sqlx**. Ships as one `thewired-relay` crate with two storage backends behind a `Db` enum: **PostgreSQL** (the platform relay) and **embedded SQLite** (compiled with the `embedded` Cargo feature, run in-process inside the Tauri client for self-hosted spaces). The two are parity-tested (`tests/db_parity.rs`). Handles all Nostr protocol operations:
 
 - **NIP-01:** Event storage (`relay.events` table), subscription management, REQ/CLOSE/EOSE
 - **Dynamic query filtering:** `query_events()` builds parameterized SQL from filter fields (ids, authors, kinds, since, until, #h/#p/#e/#d tags) with configurable limit (default 500, max 5000)
@@ -857,8 +884,14 @@ Built with **axum + tokio + sqlx**. Handles all Nostr protocol operations:
 - `src/protocol/nip50.rs` -- Full-text search queries
 - `src/db/event_store.rs` -- Event persistence with dynamic parameterized query building
 - `src/db/group_store.rs` -- Group persistence
+- `src/db/backend.rs` -- `Db` enum abstracting Postgres vs SQLite
+- `src/db/sqlite.rs` + `src/db/sqlite_groups.rs` -- Embedded SQLite event + group stores (`embedded` feature)
+- `src/db/membership_source.rs` -- Membership-authority abstraction (relay-native vs backend-provided)
 - `src/db/pool.rs` -- Connection pool management
 - `src/music/kinds.rs` -- Music event kind validation (tag-based: checks `title` and `d` tags)
+- `migrations/003_tag_columns.sql` -- Indexed `p_tags`/`e_tags` columns for faster tag filtering
+
+**Self-hosted policy (`embedded` feature):** binds loopback by default, signing identity lives in the OS keychain, and a `hosted_only` write policy restricts group creation to the owner and rejects writes to non-hosted groups. Per-group `is_private` enforcement returns an explicit `CLOSED auth-required` to anonymous/non-member REQs instead of a silent empty EOSE. A NIP-42 AUTH relaxation lets private groups authenticate over loopback/LAN/tunnel.
 
 ### 7.2 Go API Gateway (`services/gateway/`)
 
@@ -885,7 +918,7 @@ Lightweight reverse proxy handling cross-cutting concerns before requests reach 
 
 Single Node.js/Fastify service (`@thewired/backend`) that handles all API logic, background indexing, and data processing.
 
-**Routes (25 modules):**
+**Routes (28 modules):**
 
 | Route Module | Purpose |
 |-------------|---------|
@@ -913,9 +946,12 @@ Single Node.js/Fastify service (`@thewired/backend`) that handles all API logic,
 | `blossom` | BUD-01/02/06/11: `GET/HEAD /<sha256>`, `PUT /upload`, `DELETE /<sha256>`, `GET /list/<pubkey>` |
 | `gif` | GIF search proxy (Tenor/Giphy wrapper) |
 | `voice` | LiveKit token generation, room/participant management |
+| `spaceRelays` | Decentralized-space relay registry: `POST/GET/DELETE /spaces/:id/relays` |
+| `relayTunnels` | Cloudflare tunnel provisioning for self-hosted relays (`POST /relays/tunnel/provision`) |
+| `hls` | HLS manifest/segment serving for transcoded media |
 | `health` | Health check endpoint |
 
-**Services (21 modules):**
+**Services (23 modules):**
 
 | Service | Purpose |
 |---------|---------|
@@ -940,12 +976,17 @@ Single Node.js/Fastify service (`@thewired/backend`) that handles all API logic,
 | `livekitService` | LiveKit room tokens, participant listing |
 | `gifService` | GIF search proxy |
 | `profileCacheService` | Profile resolution with Redis caching layer |
+| `relayRegistrationService` | Decentralized-space relay registry, desired-set reconciliation |
+| `cloudflareTunnelService` | Cloudflare API: create tunnel + CNAME, manage connector secrets |
 
-**Background Workers (6 workers):**
+**Background Workers (7 workers + `ingestHandlers`):**
+
+> **Architecture change (v0.5+):** the single `relayIngester` worker was generalized into **`relayConnectionManager`** (manages WebSocket connections to N relays — the platform relay plus every registered decentralized-space relay) plus **`ingestHandlers`** (the per-kind indexing logic, extracted so it can run against any source connection). The indexing behavior below is unchanged; it just runs per-relay now with a desired-set diff, per-relay collapse, SSRF guard, rate cap, and an `allowedSpaceIds` h-tag guard.
 
 | Worker | Schedule/Trigger | Purpose |
 |--------|-----------------|---------|
-| `relayIngester` | Continuous (WebSocket) | Subscribes to kinds 0/1/7/9/22/30023/34236/9735/9021/9022/39000/31683/33123/30119. Indexes profiles into `cached_profiles` + Meilisearch, tracks space activity + member engagement, updates Redis zap counters, manages space membership, syncs group metadata. Indexes music tracks and albums into Meilisearch `tracks`/`albums` indexes. Tracks `since` for reconnect. |
+| `relayConnectionManager` + `ingestHandlers` | Continuous (WebSocket, multi-relay) | Subscribes to kinds 0/1/7/9/22/30023/34236/9735/9021/9022/39000/31683/33123/30119 across all connected relays. Indexes profiles into `cached_profiles` + Meilisearch, tracks space activity + member engagement, updates Redis zap counters, manages space membership, syncs group metadata, indexes music tracks/albums into Meilisearch. `ingestion_tier` (none → discovery → full) bounds how much each decentralized relay costs. Tracks `since` for reconnect. |
+| `transcodeWorker` | Queue-driven | Transcodes uploaded media (HLS variants); gated by `TRANSCODE_WORKER`/`TRANSCODE_ENQUEUE` env flags. |
 | `trendingComputer` | Every 5 minutes | Scores events using `(zap_count*10 + reaction_count*3 + view_count + comment_count*5 + log2(zap_sats)*2) * time_decay`. 4 periods (1h/6h/24h/7d), top 100 per period to `trending_snapshots` + Redis sorted sets. Includes music kinds 31683/33123 → `trending:music:tracks` and `trending:music:albums`. |
 | `profileRefresher` | Every hour | Finds profiles with `fetched_at > 24h` (limit 50), batch-fetches kind:0 from relay, upserts into `cached_profiles` + Meilisearch. |
 | `notificationDispatcher` | Every 30 seconds | Queries unsent `notification_queue` (limit 100), sends via `web-push` with VAPID, removes 410 Gone subscriptions. |
@@ -967,10 +1008,10 @@ relay.group_roles     -- Group roles and permissions (group_id, pubkey, role)
 relay.invite_codes    -- Group invite codes (code, group_id, creator, uses_remaining)
 ```
 
-**`app` schema** -- Managed by the Fastify backend via Drizzle ORM migrations (0001-0019):
+**`app` schema** -- Managed by the Fastify backend via Drizzle ORM migrations (0001-0025):
 
 ```sql
-app.spaces                  -- Space directory (id, group_id, name, mode, listed, listed_at, discovery_score, messages_last_24h, active_members_24h, featured)
+app.spaces                  -- Space directory (id, group_id, name, mode, listed, listed_at, discovery_score, messages_last_24h, active_members_24h, featured, space_mode, ingestion_tier, external_origin)
 app.space_categories        -- 11 seeded categories for discovery
 app.invites                 -- Application-level invites
 app.members                 -- Denormalized member data with display info
@@ -997,7 +1038,11 @@ app.onboarding_state        -- Profile wizard completion + app tour progress
 app.nip05_identities        -- `name@thewired.app` mappings served via `.well-known/nostr.json`
 app.blossom_blobs           -- Content-addressed blob metadata (sha256, owner pubkey, visibility, mime_type, size)
 app.temporary_channels      -- Ephemeral space channels
+app.space_relays            -- Decentralized-space relay registry (space_id, relay_url, status, registered_by, last_event_at) [migration 0024]
+app.relay_tunnels           -- Cloudflare tunnel records for self-hosted relays (tunnel id, hostname, status) [migration 0025]
 ```
+
+> Migrations 0020–0023 added transcode columns, enriched seed spaces, and profile versioning; 0024 (`decentralized_spaces`) added the `space_mode`/`ingestion_tier`/`external_origin` columns + `app.space_relays`; 0025 added `app.relay_tunnels`.
 
 ### 7.5 Redis Usage
 
@@ -1256,9 +1301,30 @@ Gateway injects X-Auth-Pubkey header for the backend
 
 Used for all API requests through the Go gateway.
 
+### 11.5 NIP-46 Remote Signing (Bunker)
+
+A third signer backend (`signerType: "nip46"`) delegates signing to a remote bunker over nostr-tools `BunkerSigner`:
+
+```
+1. User pastes a bunker URI (bunker://<pubkey>?relay=...&secret=...)
+2. Client generates an ephemeral client keypair
+3. connect() requests a broad perms set (get_public_key, nip44_encrypt/decrypt,
+   sign_event:<kind> for every kind we publish) so the bunker won't prompt per signature
+4. Bunker URI + ephemeral client key are stored in the OS-keychain secret store
+5. On restart, the connection is restored from the keychain
+```
+
+NIP-44 DM encryption is also routed through the bunker. Signing timeout is raised to 90s (bunkers may require manual approval). All signers share one signing queue.
+
+### 11.6 Multi-Account
+
+Multiple accounts can be added (`AddAccountModal`), each with its own signer (NIP-07 / Tauri / NIP-46). The active account is tracked in Redux; IndexedDB caches are isolated per pubkey (separate `thewired_<pubkey>` databases). Switching accounts closes all subscriptions and reloads relay list + state. The Tauri keystore supports multiple stored keys via `keystore_list_accounts` / `keystore_switch_account`, plus a generic secret store (`keystore_set_secret` / `keystore_get_secret`) used for bunker URIs and NWC configs.
+
 ---
 
 ## 12. Wallet Integration
+
+> **Status (v0.5+): shipped.** A hand-rolled NIP-47 NWC client (`client/src/lib/lightning/nwcClient.ts`), NIP-57 zap helpers (`zap.ts` + `lnurl.ts`), `walletSlice`, `walletManager`, `ZapModal`, and live zap totals (`useZapTotals`) are wired into every author surface (notes, chat, articles, video, profiles). Multi-wallet config is stored in the OS-keychain secret store. Remaining: zap splits and music-track zaps (Phase 14).
 
 ### 12.1 NIP-57 Zap Flow
 
@@ -1274,7 +1340,7 @@ Used for all API requests through the Go gateway.
 
 ### 12.2 Real-Time Aggregation
 
-Zap receipts flow through the Rust relay -> `relayIngester` worker -> Redis counter updates (atomic pipeline). Client subscribes to kind:9735 on the relay for real-time zap display.
+Zap receipts flow through the Rust relay -> `relayConnectionManager`/`ingestHandlers` -> Redis counter updates (atomic pipeline). The client also subscribes to kind:9735 directly on the relay (`useZapTotals`) for real-time zap display.
 
 SAT balance: NIP-47 `get_balance` every 60 seconds.
 
@@ -1449,7 +1515,36 @@ Per-user recommendations based on listening history, genre preferences, and soci
 
 ---
 
-### Phase 10: Discovery UX & Scale -- TODO
+### Phase 10: Wallet, Zaps & Remote Signing -- COMPLETE
+
+- NIP-46 remote signing (bunker) via nostr-tools `BunkerSigner`; signer-aware signing queue; NIP-44 DMs routed through the bunker; restore-on-restart
+- NIP-47 NWC client (`lib/lightning/nwcClient.ts`) + NIP-57 zaps (`zap.ts`/`lnurl.ts`) wired into every author surface (notes, chat, articles, video, profiles); multi-wallet settings; `walletSlice`; `ZapModal` + live zap totals
+- Multi-account login (`AddAccountModal`) + shared OS-keychain secret store for bunker URIs and NWC configs (`keystore_*_secret` commands)
+- process-compose dev orchestration (`pnpm dev`) + native LiveKit
+- `wiredDebug` structured logging (logger / perfMonitor / profileTracker / NavigationLogger)
+
+### Phase 11: Decentralized & Self-Hosted Spaces -- COMPLETE
+
+See [§14](#14-decentralized-and-self-hosted-spaces) and [docs/DECENTRALIZED_SPACES.md](./docs/DECENTRALIZED_SPACES.md). Milestones M0–M7 + M9 shipped; M8 (E2EE NIP-17 group rooms) open.
+
+- Three space modes (Platform / Decentralized A-lite / NIP-29-native) behind one client predicate
+- Embedded SQLite relay in-process in Tauri (`relay_start/stop/status`), loopback default, stable port 7787
+- Cloudflare tunnels (`cloudflared` download-on-enable) — default / quick / custom tiers + LAN-bind
+- NIP-29-native create + import; 39000/39001/39002 synthesis; portable kind-30078 channel-layout + relay-set overlays
+- Backend `relayConnectionManager` + `ingestHandlers` (multi-relay, SSRF guard, tiered discovery) replace `relayIngester`; `relayRegistrationService` + `cloudflareTunnelService`; routes `spaceRelays`/`relayTunnels`; migrations 0024/0025
+- Relay SQLite backend + group store, membership-source abstraction, `is_private` gating, NIP-42 relaxation, tag-columns migration
+
+### Phase 12: AI Engine -- COMPLETE
+
+See [§15](#15-ai-engine) and [docs/AI_ENGINE.md](./docs/AI_ENGINE.md). Phases 0–1 shipped; managed/native engine + image/audio (Phases 2–4) remaining.
+
+- Toggleable AI tab; 3-tier engine (detect local / managed `llama-server` / cloud keys) behind one OpenAI-compatible adapter
+- Streaming SSE → unified `ChatChunk`; block-memoized markdown, reasoning panel, token usage, regenerate
+- Gated agentic tools (read auto-run untrusted-framed; writes human-gated via `PendingWriteCard`) + `web_search`
+- Artifacts panel (charts/tables/documents) as a derived projection of message text; "Ask AI" context chips + publish-out
+- Keys in OS keychain + `llmManager` memory, never Redux; per-account IndexedDB conversation store
+
+### Phase 13: Discovery UX & Scale -- TODO
 
 See [DISCOVER_REMAINING_PHASES.md](./docs/DISCOVER_REMAINING_PHASES.md).
 
@@ -1476,16 +1571,15 @@ See [DISCOVER_REMAINING_PHASES.md](./docs/DISCOVER_REMAINING_PHASES.md).
 
 **Backend:**
 - `relayDirectoryWorker` (NIP-66 ingestion + NIP-11 probing)
-- `relayIngester` extensions for kind:10002 (relay user counts) + kind:34550 (communities)
+- `ingestHandlers` extensions for kind:10002 (relay user counts) + kind:34550 (communities)
 - Meilisearch spaces index (replace SQL `ILIKE`)
 - `spamService` full reputation model + rate anomaly detection
 - Meilisearch search ranking / boosting tuning
 - Monitoring (Prometheus + Grafana)
 
-### Phase 11: Monetization & Ecosystem -- TODO
+### Phase 14: Monetization & Ecosystem -- TODO
 
-- NIP-57 zaps on tracks/videos/articles (counter pipeline exists; UI TODO)
-- NIP-47 Nostr Wallet Connect for in-app payments
+- NIP-57 zap splits + music-track zaps (zaps on notes/chat/articles/videos/profiles + NIP-47 NWC shipped in Phase 10)
 - NIP-22 comments on tracks/videos/articles
 - NIP-44 encrypted private playlists
 - FFmpeg transcoding workers (multi-bitrate HLS, audio normalization to -14 LUFS)
@@ -1493,6 +1587,81 @@ See [DISCOVER_REMAINING_PHASES.md](./docs/DISCOVER_REMAINING_PHASES.md).
 - Collaborative playlists
 - Plugin/extension API
 - Mobile companion app
+
+---
+
+## 14. Decentralized and Self-Hosted Spaces
+
+The Wired runs **three space modes side by side**, gated by one client predicate (`isBackendBacked`) and one relay-authority resolver, so Platform spaces stay byte-for-byte unchanged. `space.id` already **is** a NIP-29 group id and chat already targets an arbitrary `hostRelay`, which is what made this additive rather than a rewrite. Full status: [docs/DECENTRALIZED_SPACES.md](./docs/DECENTRALIZED_SPACES.md).
+
+| Mode | Metadata / roles / channels | Membership authority | Host relay | Backend dep |
+|------|------------------------------|----------------------|------------|-------------|
+| **Platform** (default) | backend `app.*` | `app.space_members` | platform relay | full |
+| **Decentralized A-lite** | backend `app.*` | `app.space_members` | creator-chosen | full (BYO relay) |
+| **NIP-29-native** | relay events (39000/1/2 + 30078) | relay (`relay.group_members`) | creator-chosen / imported | none |
+
+### 14.1 Embedded Relay ("host on my machine")
+
+The shared `thewired-relay` crate compiled with an `embedded` Cargo feature runs in-process inside `src-tauri` (`relay_start/stop/status/stats/reset` IPC commands, `client/src-tauri/src/relay.rs`). Loopback-bound by default, signing identity in the OS keychain, `hosted_only` write policy. Stable port **7787** (per-dev-instance offset; falls back to an OS-assigned port if taken) so a space's address survives restarts. Client control surface: `lib/relay/embeddedRelay.ts` + `features/settings/HostRelaySection.tsx`.
+
+### 14.2 Tunneling & Naming
+
+`cloudflared` is downloaded-on-enable (Cloudflare-signed + `codesign`-verified, run as a separate process — no app-bundle signing change; `client/src-tauri/src/cloudflared.rs` + `tunnel.rs`). Host-a-Relay offers three public-access tiers:
+
+- **Default** — `<id>.relay.thewired.app`, backend-provisioned via `POST /relays/tunnel/provision` (NIP-98-authed; calls the Cloudflare API to create the tunnel + CNAME; connector secret generated and held on-device, never stored server-side).
+- **Quick** — `*.trycloudflare.com`, zero-config but ephemeral.
+- **Custom** — bring-your-own public `wss://` URL.
+
+Plus **LAN-bind** (binds `0.0.0.0`, reports a VPN-aware LAN IP).
+
+### 14.3 Multi-Relay Ingestion & Relay Sets
+
+Backend `relayConnectionManager` maintains the desired set of relay connections (platform + every registered space relay), with per-relay collapse, SSRF guard, rate cap, and an `allowedSpaceIds` h-tag guard. `ingestion_tier` (none → discovery → full) means private decentralized spaces cost zero backend ingestion. **Relay sets** (M9): a single signing **authority** + N transport **replicas** under the same group id, coordinated via a kind-30078 `wired:relays:<groupId>` overlay; the client publishes to all and reads from any (dedup by id).
+
+### 14.4 NIP-17 Group Rooms (E2EE — Model B)
+
+The end-to-end-encrypted tier hides message content from the relay (so moderation, search, analytics, and push are necessarily off for those rooms). The protocol engine is built + tested (`client/src/lib/nostr/nip17Room.ts`); the feature integration (generalizing the 1:1 DM store/receive/send/UI to group rooms) is the open **M8** milestone. The relay needs zero changes — kind:1059 routes by `p` tag and bypasses NIP-29 gating. Step-by-step plan: [docs/NIP17_GROUP_ROOMS.md](./docs/NIP17_GROUP_ROOMS.md). MLS-over-Nostr (NIP-EE / "Marmot") is tracked behind an audit gate, not built.
+
+---
+
+## 15. AI Engine
+
+A **toggleable** AI assistant (Settings → Features, default off). Full status + phased plan: [docs/AI_ENGINE.md](./docs/AI_ENGINE.md). All client-side — keys never leave the device, the agent never touches the Nostr signer without a human gate.
+
+### 15.1 Three-Tier Engine
+
+Behind ONE OpenAI-compatible HTTP adapter:
+
+1. **Reuse installed** — detect Ollama (`:11434`) / LM Studio (`:1234`) on localhost.
+2. **Managed** — `llama-server` download-on-enable (Phase 2, native `src-tauri/src/llm.rs` — planned). mistral.rs is the deferred in-process tier (Phase 4).
+3. **Cloud** — Claude / OpenAI / OpenRouter / DeepSeek / Kimi (BYO key).
+
+Every backend reduces to a single streaming contract — `ChatChunk` (`text | reasoning | tool_call | image | audio | usage | error | done`). `streamRunner` throttles deltas (~70ms), owns AbortControllers, and writes the final message through to IndexedDB.
+
+```
+AISettingsTab ──keys──▶ OS keychain (secretStore)
+      ▼
+llmManager.ts (singleton; Map<id,LLMProvider> + apiKeys in memory/keychain, NEVER Redux)
+      │ dispatch status                 │ chat() → AsyncIterable<ChatChunk>
+      ▼                                 ▼
+aiSlice (display+persisted state)   providers/* (openaiCompat · anthropic) via Tauri plugin-http
+      │ write-through
+      ▼
+aiConversationStore.ts (IndexedDB v2: aiConversations + aiMessages, per-account)
+```
+
+### 15.2 Agentic Tools (gated) & Artifacts
+
+- **Read tools** (auto-run, results framed **untrusted**): `get_profile`, `read_thread`, `read_space_feed`, `list_my_spaces`, `search_notes`, `web_search` (BYO Tavily/Brave/Exa key) — reuse the `aiContext` builders, drop muted authors.
+- **Write tools** (human-gated): `publish_note` / `reply_to` / `send_dm` / `post_to_space` / `publish_article`. The tool `run()` builds **nothing signed** — it registers a `PendingWrite` and returns "awaiting approval"; `gate/PendingWriteCard.tsx` shows the exact draft + target, and `gate/approveWrite.ts` is the ONLY place a tool-originated event is signed, only on human Approve. Write tools are omitted entirely when `signerType === null`.
+- **Tool loop** lives in `streamRunner` (depth ≤5, ≤8 tool calls/turn). The agent never touches the signer; the human gate is the backstop (OWASP LLM01/06, lethal-trifecta, EchoLeak mitigations).
+- **Artifacts** are a deterministic projection of message text (`artifactSync.ts`, id=`${messageId}#${i}`) — extracted on stream completion AND on hydration, no new IDB store. Charts render via a bounded, palette-index-only `chartSpec` into a lazy `ChartArtifact` (recharts, code-split out of the main bundle); tables and documents render through `AIMarkdown`.
+
+### 15.3 Security Contracts
+
+- **Keys never in Redux** — only `llmManager` memory + keychain. The slice holds non-secret config only.
+- All injected context + all read-tool output go through `frameUntrustedBlock`; markdown/artifact images are **click-to-load** (`SafeImage`), never auto-fetched (EchoLeak).
+- `AIMarkdown` scheme-allowlists URLs (`safeUrl`), no `rehype-raw`/raw HTML; inline HTML is a strict attribute-free tag allowlist (`remarkInlineTags`).
 
 ---
 
@@ -1507,8 +1676,11 @@ See [DISCOVER_REMAINING_PHASES.md](./docs/DISCOVER_REMAINING_PHASES.md).
 | `client/src/lib/nostr/signer.ts` + `nip07Signer.ts` + `tauriSigner.ts` | Signer abstraction; NIP-07 browser + Tauri keystore backends. |
 | `client/src/lib/nostr/giftWrap.ts` + `nip44.ts` | NIP-17 gift wrap crypto (used by DMs, friend requests, call signaling). |
 | `client/src/lib/nostr/callSignaling.ts` | WebRTC offer/answer/ICE over NIP-17 for DM calls. |
-| `client/src/lib/api/` | 22 API modules including `blossom.ts`, `discover.ts`, `voice.ts`, `requestQueue.ts`. |
-| `client/src/store/index.ts` | Redux store with 16 slices. |
+| `client/src/lib/nostr/nip46Signer.ts` | NIP-46 bunker signer over nostr-tools `BunkerSigner`. |
+| `client/src/lib/lightning/{nwcClient,zap,lnurl}.ts` | NIP-47 NWC client + NIP-57 zap/LNURL helpers. |
+| `client/src/lib/relay/embeddedRelay.ts` | Control surface for the in-process Tauri relay. |
+| `client/src/lib/api/` | 25 API modules including `blossom.ts`, `discover.ts`, `voice.ts`, `requestQueue.ts`. |
+| `client/src/store/index.ts` | Redux store with 20 slices (incl. `aiSlice`, `walletSlice`, `featuresSlice`). |
 
 **Client features:**
 | File | Purpose |
@@ -1521,12 +1693,18 @@ See [DISCOVER_REMAINING_PHASES.md](./docs/DISCOVER_REMAINING_PHASES.md).
 | `client/src/features/discover/DiscoverPage.tsx` | Spaces/Relays/Communities/People browser. |
 | `client/src/features/listenTogether/listenTogetherMiddleware.ts` | Synced playback session coordination. |
 | `client/src/features/onboarding/ProfileWizard.tsx` + `AppTour.tsx` | First-run flow. |
+| `client/src/features/ai/engine/{llmManager,streamRunner}.ts` | AI engine: provider singleton + streaming/tool loop. |
+| `client/src/features/ai/gate/approveWrite.ts` | The only place a tool-originated event is signed (human-gated). |
+| `client/src/features/wallet/walletManager.ts` + `ZapModal.tsx` | NWC wallet lifecycle + zap UI. |
+| `client/src/features/spaces/spaceType.ts` | Three-mode space discriminant + helpers. |
 
 **Backend:**
 | File | Purpose |
 |------|---------|
 | `services/backend/src/server.ts` | Fastify entry. Registers routes, services, workers. |
-| `services/backend/src/workers/relayIngester.ts` | WebSocket bridge from Rust relay to backend pipeline. |
+| `services/backend/src/workers/relayConnectionManager.ts` + `ingestHandlers.ts` | Multi-relay WebSocket bridge + per-kind indexing (replaced `relayIngester`). |
+| `services/backend/src/services/{relayRegistration,cloudflareTunnel}Service.ts` | Decentralized-space relay registry + Cloudflare tunnel provisioning. |
+| `client/src-tauri/src/{relay,tunnel,cloudflared}.rs` | Embedded relay + Cloudflare tunnel native commands. |
 | `services/backend/src/workers/trendingComputer.ts` + `discoveryScoreComputer.ts` | Ranking pipelines. |
 | `services/backend/src/services/musicService.ts` | Audio/cover upload with MIME validation, SHA-256, Blossom-backed. |
 | `services/backend/src/services/discoveryService.ts` | Listing lifecycle, category/tag browse, relay directory. |

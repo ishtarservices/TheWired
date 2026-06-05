@@ -1,14 +1,14 @@
 # The Wired V1
 
-Decentralized Nostr-native media platform -- streaming, messaging, music, voice/video calls, and long-form content in a desktop app. Built with Tauri v2, React 19, and the Nostr protocol.
+Decentralized Nostr-native media platform -- streaming, messaging, music, voice/video calls, long-form content, zaps, an AI assistant, and self-hostable spaces in a desktop app. Built with Tauri v2, React 19, and the Nostr protocol.
 
-Current version: **v0.4.3**. Auto-updating Tauri desktop app with macOS, Windows, and Linux builds.
+Current version: **v0.6.0**. Auto-updating Tauri desktop app with macOS, Windows, and Linux builds.
 
 ## Architecture
 
 | Service | Language | Port | Purpose |
 |---------|----------|------|---------|
-| Client | TypeScript/React/Tauri | 1420 | Desktop app with Nostr relay connections |
+| Client | TypeScript/React/Tauri | 1420 | Desktop app; Nostr relay connections, embedded relay, AI assistant, wallet |
 | Relay | Rust (axum + sqlx) | 7777 | Custom NIP-29 relay with PostgreSQL storage |
 | Backend | Node.js/TypeScript (Fastify + Drizzle) | 3002 | Business logic, RBAC, search, feeds, push, Blossom blobs |
 | Gateway | Go | 9080 | NIP-98 auth, rate limiting, request routing |
@@ -17,8 +17,9 @@ Current version: **v0.4.3**. Auto-updating Tauri desktop app with macOS, Windows
 | Redis | - | 6380 | Rate limits, caching, trending feeds |
 | Meilisearch | - | 7700 | Full-text search engine |
 | LiveKit | - | 7880 | WebRTC SFU for voice/video channels |
+| Embedded Relay | Rust (in-client) | 7787 | Optional self-hosted NIP-29 relay running in-process (SQLite), exposed via Cloudflare tunnel |
 
-See [ARCHITECTURE.md](./ARCHITECTURE.md) for the full design document.
+See [ARCHITECTURE.md](./ARCHITECTURE.md) for the full design document. Feature deep-dives: [docs/AI_ENGINE.md](./docs/AI_ENGINE.md), [docs/DECENTRALIZED_SPACES.md](./docs/DECENTRALIZED_SPACES.md), [docs/NIP17_GROUP_ROOMS.md](./docs/NIP17_GROUP_ROOMS.md).
 
 ## Requirements
 
@@ -261,6 +262,7 @@ TheWiredV1/
 │   │   │   └── ui/                # Button, Avatar, Spinner, Modal, PopoverMenu, MagicCard, etc.
 │   │   ├── contexts/              # React contexts (theme, toast, etc.)
 │   │   ├── features/
+│   │   │   ├── ai/                # Toggleable AI assistant: chat, multi-provider LLM, gated tools, artifacts
 │   │   │   ├── calling/           # 1:1 WebRTC DM calls (peer connection, signaling, ringtone)
 │   │   │   ├── chat/              # Kind:9 real-time chat, edits, context menu, GIFs, emoji
 │   │   │   ├── discover/          # /discover page: spaces, relays, communities, people
@@ -285,17 +287,20 @@ TheWiredV1/
 │   │   │   │   ├── moderation/    # Ban/mute/kick, member context menu
 │   │   │   │   ├── notes/         # Thread view, quoted notes, reply composer
 │   │   │   │   └── settings/      # Tabbed Space Settings modal
-│   │   │   └── voice/             # LiveKit voice/video channels, screen share, pre-join
+│   │   │   ├── voice/             # LiveKit voice/video channels, screen share, pre-join
+│   │   │   └── wallet/            # NIP-47 NWC wallet + NIP-57 zaps (ZapModal, walletManager, zap totals)
 │   │   ├── lib/
-│   │   │   ├── api/               # Backend API client (22 modules; NIP-98 auth, request queue)
-│   │   │   ├── db/                # IndexedDB persistence (events, profiles, music, audio cache)
-│   │   │   └── nostr/             # Protocol: relay, subscription, event pipeline, signers,
-│   │   │                          #   NIP-44, gift wrap, follow list, signing queue, callSignaling
-│   │   ├── store/                 # Redux store + 16 slices
+│   │   │   ├── api/               # Backend API client (25 modules; NIP-98 auth, request queue)
+│   │   │   ├── db/                # IndexedDB persistence (events, profiles, music, audio cache, AI conversations)
+│   │   │   ├── lightning/         # NIP-57 zaps, LNURL, NIP-47 NWC client
+│   │   │   ├── relay/             # Embedded relay control (in-process Tauri relay)
+│   │   │   └── nostr/             # Protocol: relay, subscription, event pipeline, signers (NIP-07 / Tauri / NIP-46),
+│   │   │                          #   NIP-44, gift wrap, follow list, signing queue, callSignaling, NIP-17 rooms
+│   │   ├── store/                 # Redux store + 20 slices
 │   │   ├── styles/                # Theme engine presets, color tokens
 │   │   ├── types/                 # TypeScript types
 │   │   └── workers/               # Web Worker for schnorr verification
-│   ├── src-tauri/                 # Rust: OS keychain, NIP-44 v2, keystore IPC, updater
+│   ├── src-tauri/                 # Rust: OS keychain, NIP-44 v2, keystore IPC, updater, embedded relay, cloudflared tunnel
 │   ├── e2e/                       # Playwright E2E tests
 │   ├── index.html
 │   ├── vite.config.ts
@@ -306,19 +311,19 @@ TheWiredV1/
 ├── services/
 │   ├── backend/                   # Node.js/Fastify backend (@thewired/backend)
 │   │   └── src/
-│   │       ├── routes/            # REST API endpoints (25 route modules)
-│   │       ├── services/          # Business logic (21 service modules)
-│   │       ├── workers/           # Background jobs (6 workers)
-│   │       ├── db/schema/         # Drizzle ORM tables (app schema, 20 tables)
-│   │       ├── db/migrations/     # SQL migrations (0001-0019)
+│   │       ├── routes/            # REST API endpoints (28 route modules)
+│   │       ├── services/          # Business logic (23 service modules)
+│   │       ├── workers/           # Background jobs (7 workers + ingestHandlers)
+│   │       ├── db/schema/         # Drizzle ORM tables (app schema, 25+ tables)
+│   │       ├── db/migrations/     # SQL migrations (0001-0025)
 │   │       ├── middleware/        # Auth context, error handler
 │   │       └── lib/               # Redis, Meilisearch, Nostr utils, MIME, validation
 │   ├── gateway/                   # Go API gateway
 │   │   ├── cmd/gateway/           # Entry point
 │   │   └── internal/              # auth, ratelimit, proxy, cors, logging, config
-│   ├── relay/                     # Rust NIP-29 relay
+│   ├── relay/                     # Rust NIP-29 relay (Postgres server or embedded SQLite)
 │   │   ├── migrations/            # PostgreSQL schema (relay schema)
-│   │   └── src/                   # nostr, protocol, db, music, relay_identity, connection
+│   │   └── src/                   # nostr, protocol, db (pg + sqlite), music, relay_identity, connection
 │   └── landing/                   # Astro marketing site (downloads, features, pricing)
 ├── config/livekit.yaml            # LiveKit SFU config
 ├── docker-compose.yml             # Dev infrastructure stack
@@ -346,7 +351,10 @@ TheWiredV1/
 | react-markdown | 9 | Markdown rendering (GFM + syntax highlight) |
 | @noble/curves | 1 | secp256k1 schnorr verification (Web Worker) |
 | idb | 8 | IndexedDB wrapper |
-| nostr-tools | 2 | Nostr protocol utilities |
+| nostr-tools | 2 | Nostr protocol utilities + NIP-46 BunkerSigner |
+| livekit-client | 2 | Voice/video SFU client |
+| marked + highlight.js | - | AI chat markdown + code highlighting |
+| recharts | 2 | AI artifact charts (lazy-loaded, code-split) |
 
 ### Backend
 | Package | Purpose |
@@ -392,9 +400,17 @@ TheWiredV1/
 | 30023 | NIP-23 | Long-form articles |
 | 30311 | NIP-53 | Live streams |
 | 1311 | NIP-53 | Live chat |
-| 1059 | NIP-17 | Gift wraps (encrypted DMs, friend requests, call signaling) |
+| 1059 | NIP-17 | Gift wraps (encrypted DMs, friend requests, call signaling, group rooms) |
 | 13 | NIP-17 | Seals (intermediate encryption layer) |
 | 14 | NIP-17 | Rumors (decrypted DM / call signaling content) |
+| 9734 | NIP-57 | Zap request (sent to LNURL callback, not relays) |
+| 9735 | NIP-57 | Zap receipt |
+| 13194 | NIP-47 | NWC wallet info / capabilities |
+| 23194 | NIP-47 | NWC request (pay_invoice, get_balance, …) |
+| 23195 | NIP-47 | NWC response |
+| 23196 / 23197 | NIP-47 | NWC notifications (nip04 legacy / nip44_v2) |
+| 24133 | NIP-46 | Remote signer (bunker) request/response |
+| 30078 | NIP-78 | App data: channel layout + relay-set overlays (decentralized spaces) |
 | 10000 | NIP-51 | Mute lists |
 | 10002 | NIP-65 | Relay lists |
 | 10009 | NIP-51 | User group memberships |
@@ -666,7 +682,39 @@ Expanded from basic upload/playback into a full artist + release workflow.
 - **Comprehensive test suite:** 229 client Vitest + 49 gateway Go + 33 relay Rust + backend Fastify-inject + Playwright E2E
 - **Path-based CI:** Docker image builds gated on test success, diff against last successful build
 
-### Phase 10: Discovery UX & Polish -- TODO
+### Phase 10: Wallet, Zaps & Remote Signing -- COMPLETE
+
+- **NIP-46 remote signing (bunker):** `nip46Signer` over nostr-tools `BunkerSigner`, signer-aware signing queue, NIP-44 DMs routed through the bunker, restore-on-restart (longer signing timeout for manual approval)
+- **Wallet & Zaps:** hand-rolled NIP-47 NWC client (`lib/lightning/nwcClient.ts`) + NIP-57 zaps (`lib/lightning/zap.ts`, `lnurl.ts`) wired into every author surface (notes, chat, articles, video, profiles); multi-wallet settings; `walletSlice`; `ZapModal` + live zap totals
+- **Multi-account login** (`AddAccountModal`) + shared OS-keychain secret store for bunker URIs and NWC config (new Rust `keystore_*_secret` commands)
+- **process-compose dev orchestration** (`pnpm dev`) + native LiveKit
+- **`wiredDebug` structured logging** (logger / perfMonitor / profileTracker / NavigationLogger)
+
+### Phase 11: Decentralized & Self-Hosted Spaces -- COMPLETE
+
+Self-hostable NIP-29 spaces across all layers. See [docs/DECENTRALIZED_SPACES.md](./docs/DECENTRALIZED_SPACES.md).
+
+- **Three space modes** side by side, gated by one client predicate: **Platform** (backend-backed), **Decentralized A-lite** (Platform space on a creator-chosen relay), **NIP-29-native** (relay-only, no backend)
+- **Embedded SQLite relay** running in-process inside Tauri (`relay_start/stop/status/stats`), loopback by default, stable port **7787**; relay signing identity in the OS keychain
+- **Cloudflare tunnels** (`cloudflared` downloaded-on-enable, signature + `codesign` verified): default `<id>.relay.thewired.app` (backend-provisioned), quick `*.trycloudflare.com`, or custom `wss://`; plus LAN-bind
+- **NIP-29-native create + import** (`ImportSpaceModal`: `host'groupId` / `naddr` / `nostr:` / deep link); 39000/39001/39002 synthesized into the same Redux slices as the backend path
+- **Backend** `relayConnectionManager` (multi-relay ingestion, SSRF guard, tiered discovery) + `ingestHandlers` **replace the single `relayIngester` worker**; `relayRegistrationService` + `cloudflareTunnelService`; routes `spaceRelays` + `relayTunnels`; migrations 0024/0025
+- **Relay:** SQLite backend + group store, membership-source abstraction, `is_private` gating, NIP-42 AUTH relaxation for hosted relays, tag-columns migration
+- **NIP-17 group rooms** engine (`lib/nostr/nip17Room.ts`) shipped + tested; full UI integration is the open M8 milestone ([docs/NIP17_GROUP_ROOMS.md](./docs/NIP17_GROUP_ROOMS.md))
+
+### Phase 12: AI Engine -- COMPLETE
+
+Toggleable AI assistant (Settings → Features, default off). See [docs/AI_ENGINE.md](./docs/AI_ENGINE.md).
+
+- **AI** tab: conversation sidebar + streaming chat center, per-account IndexedDB conversation store
+- **3-tier engine** behind one OpenAI-compatible adapter: detect local (Ollama / LM Studio) · managed `llama-server` (planned) · cloud keys (Claude / OpenAI / OpenRouter / DeepSeek / Kimi)
+- **Streaming** SSE normalized to a single `ChatChunk` contract; block-memoized markdown, `<think>` reasoning panel, token usage, copy/regenerate
+- **Agentic tool use:** read tools auto-run (results framed untrusted); write tools are human-gated via `PendingWriteCard` (agent never touches the signer); `web_search` tool (BYO Tavily/Brave/Exa key)
+- **Artifacts panel:** charts (recharts, lazy), tables, documents — a deterministic projection of message text
+- **"Ask AI" context chips** across notes, threads, DMs, profiles, spaces; **publish-out** (note / article / space / DM)
+- **Keys never in Redux** — OS keychain + `llmManager` memory only
+
+### Phase 13: Discovery UX & Polish -- TODO
 
 See [DISCOVER_REMAINING_PHASES.md](./docs/DISCOVER_REMAINING_PHASES.md) for detail.
 
@@ -675,7 +723,7 @@ See [DISCOVER_REMAINING_PHASES.md](./docs/DISCOVER_REMAINING_PHASES.md) for deta
 - **Listing request UI:** Modal for space admins to submit listing requests
 - **Meilisearch spaces index:** Replace SQL `ILIKE` with full-text search
 - **Relay directory worker:** NIP-66 monitor ingestion + NIP-11 probing
-- **`relayIngester`** extensions for kind:10002 (relay usage counts) and kind:34550 (communities)
+- **`ingestHandlers`** extensions for kind:10002 (relay usage counts) and kind:34550 (communities)
 - **Communities tab:** NIP-72 moderated communities browser
 - **People tab:** Starter packs (kind:39089) + suggested follows (2-hop social graph)
 - **"Friends Are In"** section: Spaces your follows are members of
@@ -691,10 +739,9 @@ See [DISCOVER_REMAINING_PHASES.md](./docs/DISCOVER_REMAINING_PHASES.md) for deta
 - **Custom emoji reactions** per server
 - **Forum-style threads**
 
-### Phase 11: Monetization & Ecosystem -- TODO
+### Phase 14: Monetization & Ecosystem -- TODO
 
-- **NIP-57 zaps** integration for tracks/videos/articles
-- **NIP-47 Nostr Wallet Connect** for in-app payments
+- **NIP-57 zap splits** + music-track zaps (zaps on notes/chat/articles/videos/profiles already shipped in Phase 10)
 - **NIP-22 comments** on tracks, videos, articles
 - **NIP-44 encrypted private playlists**
 - **FFmpeg transcoding workers** (multi-bitrate HLS, audio normalization to -14 LUFS)
