@@ -1,5 +1,5 @@
 import { memo } from "react";
-import { MessageCircle, Repeat2, Heart, Quote, Share, Pin, Zap } from "lucide-react";
+import { MessageCircle, Repeat2, Heart, Quote, Share, Pin, Zap, Sparkles } from "lucide-react";
 import type { NoteEngagement } from "../useNoteEngagement";
 
 interface NoteActionBarProps {
@@ -17,6 +17,8 @@ interface NoteActionBarProps {
   showPin?: boolean;
   isPinned?: boolean;
   onPin?: () => void;
+  /** Ask AI — summarize this note/thread (shown only when the AI feature is on) */
+  onAskAI?: () => void;
 }
 
 function formatCount(n: number): string {
@@ -38,6 +40,7 @@ export const NoteActionBar = memo(function NoteActionBar({
   showPin,
   isPinned,
   onPin,
+  onAskAI,
 }: NoteActionBarProps) {
   return (
     <div className="mt-2 flex items-center gap-8">
@@ -101,6 +104,17 @@ export const NoteActionBar = memo(function NoteActionBar({
           title="Zap"
         >
           <Zap size={16} className="group-hover:text-yellow-400" />
+        </button>
+      )}
+
+      {/* Ask AI */}
+      {onAskAI && (
+        <button
+          onClick={onAskAI}
+          className="group flex items-center gap-1.5 text-xs text-muted transition-colors hover:text-primary"
+          title="Ask AI about this thread"
+        >
+          <Sparkles size={16} className="group-hover:text-primary" />
         </button>
       )}
 

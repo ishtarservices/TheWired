@@ -37,6 +37,8 @@ const PROFILE_TABS: PanelTab[] = [{ id: "info", label: "Connections" }];
 
 const DISCOVER_TABS: PanelTab[] = [{ id: "preview", label: "Preview" }];
 
+const AI_TABS: PanelTab[] = [{ id: "artifacts", label: "Artifacts" }];
+
 const EMPTY_TABS: PanelTab[] = [];
 
 const TABS_BY_CONTEXT: Record<PanelContext, PanelTab[]> = {
@@ -45,6 +47,7 @@ const TABS_BY_CONTEXT: Record<PanelContext, PanelTab[]> = {
   dm: DM_TABS,
   profile: PROFILE_TABS,
   discover: DISCOVER_TABS,
+  ai: AI_TABS,
   none: EMPTY_TABS,
 };
 
@@ -66,6 +69,7 @@ function resolveContext(
   }
 
   // Sidebar-mode based
+  if (sidebarMode === "ai") return "ai";
   if (sidebarMode === "music") return "music";
   if (sidebarMode === "messages") {
     return activeConversation ? "dm" : "none";

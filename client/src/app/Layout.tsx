@@ -8,6 +8,7 @@ import { FloatingPlaybackBar } from "../features/music/playbackBar/FloatingPlayb
 import { UserPopoverProvider } from "../features/profile/UserPopoverContext";
 import { NotificationToastStack } from "../features/notifications/NotificationToast";
 import { WalletProvider } from "../features/wallet/WalletProvider";
+import { AIProvider } from "../features/ai/AIProvider";
 import { CallController } from "../features/calling/CallController";
 import { IncomingCallModal } from "../features/calling/IncomingCallModal";
 import { useAppSelector } from "../store/hooks";
@@ -23,6 +24,7 @@ export function Layout() {
   return (
     <WalletProvider>
       <UserPopoverProvider>
+      <AIProvider />
       <ThemeBackground />
       <div className="flex h-screen flex-col overflow-hidden bg-background">
         <TopBar

@@ -1,8 +1,12 @@
-import { Copy, Trash2, EyeOff, Pencil, Reply } from "lucide-react";
+import { Copy, Trash2, EyeOff, Pencil, Reply, Sparkles } from "lucide-react";
 import { useAppDispatch } from "@/store/hooks";
 import { deleteDMMessage } from "@/store/slices/dmSlice";
 import { PopoverMenu, PopoverMenuItem, PopoverMenuSeparator } from "@/components/ui/PopoverMenu";
 import { useRef } from "react";
+import { useAskAI } from "@/features/ai/context/useAskAI";
+import { buildDMMessageContext } from "@/features/ai/context/aiContext";
+import { useAppSelector } from "@/store/hooks";
+import { selectFeatureEnabled, FEATURE_AI } from "@/store/slices/featuresSlice";
 
 interface DMMessageContextMenuProps {
   open: boolean;
@@ -33,6 +37,8 @@ export function DMMessageContextMenu({
 }: DMMessageContextMenuProps) {
   const dispatch = useAppDispatch();
   const anchorRef = useRef<HTMLDivElement>(null);
+  const askAI = useAskAI();
+  const aiEnabled = useAppSelector(selectFeatureEnabled(FEATURE_AI));
 
   function handleCopy() {
     navigator.clipboard.writeText(content).catch(() => {});
@@ -71,6 +77,16 @@ export function DMMessageContextMenu({
           label="Copy text"
           onClick={handleCopy}
         />
+        {aiEnabled && (
+          <PopoverMenuItem
+            icon={<Sparkles size={14} />}
+            label="Ask AI"
+            onClick={() => {
+              askAI(buildDMMessageContext(partnerPubkey, wrapId));
+              onClose();
+            }}
+          />
+        )}
         {isOwnMessage && canEdit && (
           <PopoverMenuItem
             icon={<Pencil size={14} />}

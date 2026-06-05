@@ -1,9 +1,15 @@
-import { useCallback, useState, useMemo } from "react";
+import { useCallback, useState, useMemo, lazy, Suspense } from "react";
 import { cn } from "@/lib/utils";
-import { LayoutGrid, Music2, MessageCircle, ChevronRight } from "lucide-react";
+import { LayoutGrid, Music2, MessageCircle, ChevronRight, BrainCircuit } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import { useAppSelector, useAppDispatch } from "../../store/hooks";
 import { setSidebarMode } from "../../store/slices/uiSlice";
+import { selectFeatureEnabled, FEATURE_AI } from "../../store/slices/featuresSlice";
+// Lazy: keeps the AI tree (incl. the markdown/highlight libs) out of the main
+// bundle for users who never open the AI tab.
+const AISidebar = lazy(() =>
+  import("../../features/ai/AISidebar").then((m) => ({ default: m.AISidebar })),
+);
 import { setActiveConversation } from "../../store/slices/dmSlice";
 import { SpaceList } from "../../features/spaces/SpaceList";
 import { ChannelList } from "../../features/spaces/ChannelList";
@@ -25,6 +31,7 @@ export function Sidebar({ expanded }: SidebarProps) {
   const isLoggedIn = useAppSelector((s) => !!s.identity.pubkey);
   const activeSpaceId = useAppSelector((s) => s.spaces.activeSpaceId);
   const sidebarMode = useAppSelector((s) => s.ui.sidebarMode);
+  const aiEnabled = useAppSelector(selectFeatureEnabled(FEATURE_AI));
   const dmUnreadCount = useDMUnreadCount();
   const activeConversation = useAppSelector((s) => s.dm.activeConversation);
   const { width, isDragging, onMouseDown, onDoubleClick } = useResizeHandle({
@@ -159,6 +166,24 @@ export function Sidebar({ expanded }: SidebarProps) {
               </span>
             )}
           </button>
+          {aiEnabled && (
+            <button
+              data-tour="sidebar-ai"
+              onClick={() => {
+                dispatch(setSidebarMode("ai"));
+                navigate("/");
+              }}
+              className={cn(
+                "rounded-lg p-1.5 transition-colors",
+                sidebarMode === "ai"
+                  ? "bg-primary/10 text-primary"
+                  : "text-muted hover:text-heading hover:bg-surface",
+              )}
+              title="AI"
+            >
+              <BrainCircuit size={15} />
+            </button>
+          )}
 
         </div>
       </div>
@@ -206,6 +231,11 @@ export function Sidebar({ expanded }: SidebarProps) {
             activePartner={activeConversation}
             onSelectContact={handleSelectDMContact}
           />
+        )}
+        {sidebarMode === "ai" && (
+          <Suspense fallback={null}>
+            <AISidebar />
+          </Suspense>
         )}
       </div>
 

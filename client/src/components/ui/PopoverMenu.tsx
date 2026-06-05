@@ -12,6 +12,9 @@ interface PopoverMenuProps {
   anchorRef?: RefObject<HTMLElement | null>;
 }
 
+const FOCUSABLE =
+  'a[href],button:not([disabled]),textarea:not([disabled]),input:not([disabled]),select:not([disabled]),[tabindex]:not([tabindex="-1"])';
+
 export function PopoverMenu({ open, onClose, children, position = "above", anchorRef }: PopoverMenuProps) {
   const ref = useRef<HTMLDivElement>(null);
   const [coords, setCoords] = useState<React.CSSProperties>({});
@@ -26,6 +29,55 @@ export function PopoverMenu({ open, onClose, children, position = "above", ancho
     document.addEventListener("keydown", onKey);
     return () => document.removeEventListener("keydown", onKey);
   }, [open, onClose]);
+
+  // Keyboard a11y: move focus into the menu on open, let Up/Down/Home/End rove
+  // its items, and restore focus to the opener on close. Arrow keys are ignored
+  // while focus is in a text field so the caret still works.
+  useEffect(() => {
+    if (!open) return;
+    const menu = ref.current;
+    const previouslyFocused = document.activeElement as HTMLElement | null;
+    const items = () =>
+      menu ? Array.from(menu.querySelectorAll<HTMLElement>(FOCUSABLE)) : [];
+
+    const raf = window.requestAnimationFrame(() => {
+      if (menu && !menu.contains(document.activeElement)) {
+        (items()[0] ?? menu).focus();
+      }
+    });
+
+    const onKey = (e: KeyboardEvent) => {
+      if (!["ArrowDown", "ArrowUp", "Home", "End"].includes(e.key)) return;
+      const t = e.target as HTMLElement;
+      if (t.tagName === "INPUT" || t.tagName === "TEXTAREA" || t.isContentEditable) return;
+      const list = items();
+      if (list.length === 0) return;
+      e.preventDefault();
+      const cur = list.indexOf(document.activeElement as HTMLElement);
+      const next =
+        e.key === "Home"
+          ? 0
+          : e.key === "End"
+            ? list.length - 1
+            : e.key === "ArrowDown"
+              ? cur < 0
+                ? 0
+                : (cur + 1) % list.length
+              : cur < 0
+                ? list.length - 1
+                : (cur - 1 + list.length) % list.length;
+      list[next].focus();
+    };
+
+    menu?.addEventListener("keydown", onKey);
+    return () => {
+      window.cancelAnimationFrame(raf);
+      menu?.removeEventListener("keydown", onKey);
+      if (previouslyFocused && document.contains(previouslyFocused)) {
+        previouslyFocused.focus();
+      }
+    };
+  }, [open]);
 
   // Compute fixed position from anchor element when using portal mode.
   // Measures the menu after render and flips above/below if it would overflow.
@@ -68,10 +120,16 @@ export function PopoverMenu({ open, onClose, children, position = "above", ancho
     setCoords(style);
   }, [open, usePortal, anchorRef, position]);
 
-  // Close on scroll when using portal (fixed position goes stale)
+  // Close on scroll when using portal (the fixed position goes stale) — but NOT
+  // when the user is scrolling WITHIN the menu itself (e.g. a long, scrollable
+  // option list), which would otherwise dismiss it on the first wheel tick.
   useEffect(() => {
     if (!usePortal || !open) return;
-    const onScroll = () => onClose();
+    const onScroll = (e: Event) => {
+      const target = e.target as Node | null;
+      if (target && ref.current && ref.current.contains(target)) return;
+      onClose();
+    };
     window.addEventListener("scroll", onScroll, { capture: true });
     return () => window.removeEventListener("scroll", onScroll, { capture: true });
   }, [usePortal, open, onClose]);
@@ -79,9 +137,10 @@ export function PopoverMenu({ open, onClose, children, position = "above", ancho
   const menuEl = (
     <div
       ref={ref}
+      tabIndex={-1}
       onClick={(e) => e.stopPropagation()}
       className={cn(
-        "w-max min-w-[160px] max-h-[calc(100vh-2rem)] overflow-y-auto rounded-xl card-glass py-1.5 shadow-xl transition-all duration-150",
+        "w-max min-w-[160px] max-h-[calc(100vh-2rem)] overflow-y-auto rounded-xl card-glass py-1.5 shadow-xl outline-none transition-all duration-150",
         usePortal ? "fixed z-50" : "absolute right-0 z-40",
         !usePortal && (position === "above" ? "bottom-full mb-1" : "top-full mt-1"),
         open

@@ -54,6 +54,13 @@
   --color-destructive-fg: hsl(0 0% 100%);
   --color-success: hsl(142 71% 50%);
   --color-warning: hsl(38 92% 55%);
+
+  /* AI chart palette (referenced as var(--chart-N) by recharts artifacts) */
+  --chart-1: hsl(235 65% 64%);
+  --chart-2: hsl(170 65% 48%);
+  --chart-3: hsl(38 92% 58%);
+  --chart-4: hsl(330 70% 64%);
+  --chart-5: hsl(142 60% 52%);
 }
 
 /* ═══════════════════════════════════════════════════
@@ -484,4 +491,35 @@ body {
   .hover-scale:hover {
     transform: none;
   }
+}
+
+/* ═══════════════════════════════════════════════════
+   Syntax highlighting (highlight.js github-dark) — token colors only;
+   the code block's own panel background + padding are kept.
+   ═══════════════════════════════════════════════════ */
+
+.hljs {
+  background: transparent !important;
+  padding: 0 !important;
+  color: inherit;
+}
+
+/* ── AI streaming caret ──
+   Blinking caret at the end of the in-flight assistant block. Pure CSS
+   pseudo-element (aria-hidden by nature) so screen readers never announce it;
+   present only while AIMarkdown renders with the `ai-streaming` class. */
+.ai-streaming > :last-child::after {
+  content: "";
+  display: inline-block;
+  width: 0.45em;
+  height: 1em;
+  margin-left: 2px;
+  vertical-align: text-bottom;
+  border-radius: 1px;
+  background: var(--color-primary);
+  animation: ai-caret-blink 1.05s steps(2, start) infinite;
+}
+@keyframes ai-caret-blink {
+  0%, 49% { opacity: 1; }
+  50%, 100% { opacity: 0; }
 }

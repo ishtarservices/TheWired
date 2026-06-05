@@ -29,6 +29,9 @@ import { FRIENDS_FEED_ID } from "../friends/friendsFeedConstants";
 import { BlockedMessage } from "../../components/ui/BlockedMessage";
 import { usePlaybackSpeed, VALID_SPEEDS } from "@/hooks/usePlaybackSpeed";
 import { NoteActionBar } from "./notes/NoteActionBar";
+import { selectFeatureEnabled, FEATURE_AI } from "@/store/slices/featuresSlice";
+import { useAskAI } from "@/features/ai/context/useAskAI";
+import { buildThreadContext, buildNoteContext } from "@/features/ai/context/aiContext";
 import { useZap } from "../wallet/WalletProvider";
 import { QuotedNote } from "./notes/QuotedNote";
 import { ReplyComposer } from "./notes/ReplyComposer";
@@ -172,6 +175,8 @@ const NoteCard = memo(function NoteCard({ event }: { event: NostrEvent }) {
 
   const engagement = useNoteEngagement(event.id);
   const actions = useNoteActions(event);
+  const askAI = useAskAI();
+  const aiEnabled = useAppSelector(selectFeatureEnabled(FEATURE_AI));
   const { openZap } = useZap();
 
   const quoteRef = useMemo(() => parseQuoteRef(event), [event]);
@@ -323,6 +328,11 @@ const NoteCard = memo(function NoteCard({ event }: { event: NostrEvent }) {
         onQuote={handleQuote}
         onShare={handleShare}
         onZap={() => openZap({ recipientPubkey: event.pubkey, event })}
+        onAskAI={
+          aiEnabled
+            ? () => askAI(buildThreadContext(event.id) ?? buildNoteContext(event.id))
+            : undefined
+        }
       />
 
       {showReplyComposer && (

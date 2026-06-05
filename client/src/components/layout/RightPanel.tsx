@@ -1,12 +1,19 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, lazy, Suspense } from "react";
 import { cn } from "@/lib/utils";
-import { Users, Info, ListMusic, Music2, User, Link2 } from "lucide-react";
+import { Users, Info, ListMusic, Music2, User, Link2, BrainCircuit, Shapes } from "lucide-react";
 import { MemberList } from "../../features/spaces/MemberList";
 import { SpaceInfoPanel } from "../../features/spaces/SpaceInfoPanel";
 import { QueueContent } from "../../features/music/QueueContent";
 import { NowPlayingDetail } from "../../features/music/NowPlayingDetail";
 import { DMContactPanel } from "../../features/dm/DMContactPanel";
 import { ProfileSidePanel } from "../../features/profile/ProfileSidePanel";
+// Lazy: the artifacts panel pulls recharts (already split) + the markdown
+// renderer; load it only once the AI panel is actually shown.
+const ArtifactsPanel = lazy(() =>
+  import("../../features/ai/artifacts/ArtifactsPanel").then((m) => ({
+    default: m.ArtifactsPanel,
+  })),
+);
 import { useResizeHandle } from "./useResizeHandle";
 import { useRightPanelContext } from "./useRightPanelContext";
 import { RightPanelTabBar } from "./RightPanelTabBar";
@@ -31,6 +38,7 @@ const CONTEXT_TITLES: Record<PanelContext, string> = {
   dm: "Contact",
   profile: "Profile",
   discover: "Preview",
+  ai: "Artifacts",
   none: "",
 };
 
@@ -40,6 +48,7 @@ const CONTEXT_ICONS: Record<PanelContext, React.ReactNode> = {
   dm: <User size={16} />,
   profile: <Link2 size={16} />,
   discover: <Info size={16} />,
+  ai: <BrainCircuit size={16} />,
   none: null,
 };
 
@@ -50,6 +59,7 @@ const TAB_ICONS: Record<string, React.ReactNode> = {
   queue: <ListMusic size={16} />,
   details: <Music2 size={16} />,
   profile: <User size={16} />,
+  artifacts: <Shapes size={16} />,
 };
 
 export function RightPanel() {
@@ -161,6 +171,15 @@ export function RightPanel() {
         {mounted.has("profile") && (
           <div className={context === "profile" ? "" : "hidden"}>
             <ProfileSidePanel />
+          </div>
+        )}
+
+        {/* ── AI artifacts context ── */}
+        {mounted.has("ai") && (
+          <div className={context === "ai" ? "" : "hidden"}>
+            <Suspense fallback={null}>
+              <ArtifactsPanel />
+            </Suspense>
           </div>
         )}
 

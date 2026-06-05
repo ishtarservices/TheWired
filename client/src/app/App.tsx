@@ -1,5 +1,6 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, lazy, Suspense } from "react";
 import { BrowserRouter, Routes, Route, Outlet, useParams, useNavigate } from "react-router-dom";
+import { BrainCircuit } from "lucide-react";
 import { Layout } from "./Layout";
 import { useAppSelector } from "../store/hooks";
 import { LoginScreen } from "../features/identity/LoginScreen";
@@ -27,6 +28,12 @@ import { getAutoUpdatesEnabled } from "../features/settings/AppSettingsTab";
 import { useAppUpdater } from "../hooks/useAppUpdater";
 import { useZoomShortcuts } from "../hooks/useZoomShortcuts";
 import { useEmbeddedRelayAutostart } from "../features/settings/useEmbeddedRelayAutostart";
+
+// Lazy: the AI chat tree (react-markdown / rehype-highlight / marked) only loads
+// the first time the user opens the AI tab, then stays mounted (keep-alive).
+const AIChatView = lazy(() =>
+  import("../features/ai/AIChatView").then((m) => ({ default: m.AIChatView })),
+);
 
 /** Restores session + guards all routes behind login */
 function AuthGate() {
@@ -84,12 +91,29 @@ function OnboardingOverlays() {
   );
 }
 
+function AILoadingFallback() {
+  return (
+    <div className="flex flex-1 items-center justify-center bg-background">
+      <BrainCircuit size={28} className="animate-pulse text-primary/60" />
+    </div>
+  );
+}
+
 function MainContent() {
   const activeChannelId = useAppSelector((s) => s.spaces.activeChannelId);
   const activeSpaceId = useAppSelector((s) => s.spaces.activeSpaceId);
   const sidebarMode = useAppSelector((s) => s.ui.sidebarMode);
   const isMusic = sidebarMode === "music";
+  const isAI = sidebarMode === "ai";
   const isFriendsFeed = activeSpaceId === FRIENDS_FEED_ID;
+
+  // Mount the (lazy) AI view only after the tab is first opened, then keep it
+  // mounted so streaming survives a sidebar switch — this is what lets the AI
+  // chunk stay out of the initial load for users who never open it.
+  const [aiEverOpened, setAiEverOpened] = useState(false);
+  useEffect(() => {
+    if (isAI) setAiEverOpened(true);
+  }, [isAI]);
 
   return (
     <>
@@ -98,8 +122,17 @@ function MainContent() {
         <MusicRouter />
       </div>
 
+      {/* AI view — kept alive so streaming survives a sidebar switch */}
+      {aiEverOpened && (
+        <div className={isAI ? "flex flex-1 flex-col overflow-hidden" : "hidden"}>
+          <Suspense fallback={<AILoadingFallback />}>
+            <AIChatView />
+          </Suspense>
+        </div>
+      )}
+
       {/* Spaces view */}
-      <div className={isMusic ? "hidden" : "flex flex-1 flex-col overflow-hidden"}>
+      <div className={isMusic || isAI ? "hidden" : "flex flex-1 flex-col overflow-hidden"}>
         {isFriendsFeed ? (
           <FriendsFeedPanel />
         ) : !activeChannelId ? (

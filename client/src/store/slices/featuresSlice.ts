@@ -9,8 +9,11 @@ import type { RootState } from "../index";
 
 /** Stable feature ids. Add new toggleable features here. */
 export const FEATURE_DECENTRALIZED_SPACES = "decentralized-spaces";
+export const FEATURE_AI = "ai";
 
-export type FeatureId = typeof FEATURE_DECENTRALIZED_SPACES;
+export type FeatureId =
+  | typeof FEATURE_DECENTRALIZED_SPACES
+  | typeof FEATURE_AI;
 
 /** Features enabled by default for every account. */
 const DEFAULT_ENABLED: FeatureId[] = [];

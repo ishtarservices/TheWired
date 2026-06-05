@@ -11,10 +11,13 @@ import { SecuritySettingsTab } from "./SecuritySettingsTab";
 import { ThemeSettingsTab } from "./ThemeSettingsTab";
 import { WalletSettingsTab } from "./WalletSettingsTab";
 import { FeaturesSettingsTab } from "./FeaturesSettingsTab";
+import { AISettingsTab } from "./AISettingsTab";
+import { useAppSelector } from "@/store/hooks";
+import { selectFeatureEnabled, FEATURE_AI } from "@/store/slices/featuresSlice";
 
-type Tab = "profile" | "appearance" | "relays" | "notifications" | "security" | "wallet" | "features" | "app";
+type Tab = "profile" | "appearance" | "relays" | "notifications" | "security" | "wallet" | "features" | "ai" | "app";
 
-const tabs: { id: Tab; label: string }[] = [
+const baseTabs: { id: Tab; label: string }[] = [
   { id: "profile", label: "Profile" },
   { id: "appearance", label: "Appearance" },
   { id: "relays", label: "Relays" },
@@ -28,6 +31,14 @@ const tabs: { id: Tab; label: string }[] = [
 export function SettingsPage() {
   const [searchParams] = useSearchParams();
   const requestedTab = searchParams.get("tab");
+  const aiEnabled = useAppSelector(selectFeatureEnabled(FEATURE_AI));
+  const tabs = aiEnabled
+    ? [
+        ...baseTabs.slice(0, 7),
+        { id: "ai" as Tab, label: "AI" },
+        ...baseTabs.slice(7),
+      ]
+    : baseTabs;
   const [activeTab, setActiveTab] = useState<Tab>(() =>
     tabs.some((t) => t.id === requestedTab) ? (requestedTab as Tab) : "profile",
   );
@@ -72,6 +83,7 @@ export function SettingsPage() {
       {activeTab === "security" && <SecuritySettingsTab />}
       {activeTab === "wallet" && <WalletSettingsTab />}
       {activeTab === "features" && <FeaturesSettingsTab />}
+      {activeTab === "ai" && <AISettingsTab />}
       {activeTab === "app" && <AppSettingsTab />}
     </div>
   );

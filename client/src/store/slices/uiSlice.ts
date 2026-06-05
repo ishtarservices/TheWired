@@ -1,9 +1,9 @@
 import { createSlice, type PayloadAction } from "@reduxjs/toolkit";
 
 type ActiveTab = "chat" | "reels" | "longform";
-type SidebarMode = "spaces" | "music" | "messages";
+export type SidebarMode = "spaces" | "music" | "messages" | "ai";
 
-export type PanelContext = "space" | "music" | "dm" | "profile" | "discover" | "none";
+export type PanelContext = "space" | "music" | "dm" | "profile" | "discover" | "ai" | "none";
 
 interface RightPanelState {
   /** Per-context visibility — closing in one context doesn't affect others */
@@ -45,6 +45,7 @@ const initialState: UIState = {
       dm: false,
       profile: false,
       discover: false,
+      ai: false,
       none: false,
     },
     activeTabByContext: {
@@ -53,6 +54,7 @@ const initialState: UIState = {
       dm: "profile",
       profile: "info",
       discover: "preview",
+      ai: "artifacts",
       none: "",
     },
     contextOverride: null,

@@ -1,6 +1,10 @@
 import { useRef } from "react";
-import { Copy, Trash2, EyeOff, Pencil, Shield } from "lucide-react";
+import { Copy, Trash2, EyeOff, Pencil, Shield, Sparkles } from "lucide-react";
 import { PopoverMenu, PopoverMenuItem, PopoverMenuSeparator } from "../../components/ui/PopoverMenu";
+import { useAppSelector } from "../../store/hooks";
+import { selectFeatureEnabled, FEATURE_AI } from "../../store/slices/featuresSlice";
+import { useAskAI } from "../ai/context/useAskAI";
+import { buildSelectionContext } from "../ai/context/aiContext";
 
 interface ChatMessageContextMenuProps {
   open: boolean;
@@ -30,6 +34,8 @@ export function ChatMessageContextMenu({
   onEdit,
 }: ChatMessageContextMenuProps) {
   const anchorRef = useRef<HTMLDivElement>(null);
+  const askAI = useAskAI();
+  const aiEnabled = useAppSelector(selectFeatureEnabled(FEATURE_AI));
 
   function handleCopy() {
     navigator.clipboard.writeText(content).catch(() => {});
@@ -55,6 +61,16 @@ export function ChatMessageContextMenu({
           label="Copy text"
           onClick={handleCopy}
         />
+        {aiEnabled && (
+          <PopoverMenuItem
+            icon={<Sparkles size={14} />}
+            label="Ask AI"
+            onClick={() => {
+              askAI(buildSelectionContext(content, "Space message"));
+              onClose();
+            }}
+          />
+        )}
         {isOwnMessage && canEdit && (
           <PopoverMenuItem
             icon={<Pencil size={14} />}

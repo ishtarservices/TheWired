@@ -484,6 +484,25 @@ fn read_legacy_fallback_key() -> Option<SecretKey> {
     parse_hex_secret_key(hex_str).ok()
 }
 
+/// Restrict a plaintext fallback file (and its parent dir) to owner-only on
+/// Unix. The fallback is only ever written when the OS keychain is unavailable;
+/// when it must exist, it should at least not be group/other-readable or copied
+/// into backups with loose permissions. No-op on Windows (ACLs differ).
+fn harden_perms(path: &std::path::Path) {
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        if let Some(parent) = path.parent() {
+            let _ = std::fs::set_permissions(parent, std::fs::Permissions::from_mode(0o700));
+        }
+        let _ = std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o600));
+    }
+    #[cfg(not(unix))]
+    {
+        let _ = path;
+    }
+}
+
 fn write_fallback_key_for(pubkey: &str, hex_str: &str) {
     if let Some(path) = fallback_key_path_for(pubkey) {
         if let Some(parent) = path.parent() {
@@ -491,7 +510,9 @@ fn write_fallback_key_for(pubkey: &str, hex_str: &str) {
         }
         if let Err(e) = std::fs::write(&path, hex_str) {
             log::warn!("Failed to write fallback key file: {e}");
+            return;
         }
+        harden_perms(&path);
     }
 }
 
@@ -529,7 +550,9 @@ fn write_secret_fallback(key: &str, value: &str) {
         }
         if let Err(e) = std::fs::write(&path, value) {
             log::warn!("Failed to write secret fallback file: {e}");
+            return;
         }
+        harden_perms(&path);
     }
 }
 
@@ -1003,9 +1026,28 @@ pub fn keystore_nip44_decrypt(
 pub fn keystore_set_secret(key: String, value: String) -> Result<(), String> {
     let account = get_secret_account_for(&key);
     let marker = format!("{}_marker", account);
-    let _ = platform::store_secret(SERVICE_NAME, &account, &marker, value.as_bytes());
-    write_secret_fallback(&key, &value);
+    // Keychain-first, but only drop the plaintext file fallback once we've VERIFIED
+    // the secret actually round-trips. Some environments (unsigned/ad-hoc builds,
+    // a broken Data Protection keychain on macOS) report a successful write yet
+    // can't read the item back on relaunch — there we MUST keep the file fallback
+    // or the secret is silently lost on restart. (Transport secrets only — the
+    // identity key keeps its own always-on fallback.)
+    if store_secret_verified(&account, &marker, value.as_bytes()) {
+        delete_secret_fallback(&key);
+    } else {
+        log::warn!("keychain unverified for secret '{key}'; keeping owner-only file fallback");
+        write_secret_fallback(&key, &value);
+    }
     Ok(())
+}
+
+/// Write a secret to the keychain and confirm it reads back identically. Returns
+/// false if the write failed OR the read-back didn't match (keychain unreliable).
+fn store_secret_verified(account: &str, marker: &str, value: &[u8]) -> bool {
+    if platform::store_secret(SERVICE_NAME, account, marker, value).is_err() {
+        return false;
+    }
+    matches!(platform::read_key(SERVICE_NAME, account), Ok(Some(read)) if read.as_slice() == value)
 }
 
 /// Read a secret stored via keystore_set_secret. Returns None if absent.
@@ -1015,11 +1057,24 @@ pub fn keystore_get_secret(key: String) -> Result<Option<String>, String> {
     if let Ok(Some(data)) = platform::read_key(SERVICE_NAME, &account) {
         if let Ok(s) = String::from_utf8(data) {
             if !s.is_empty() {
+                // Keychain is authoritative — clean up any stale plaintext copy
+                // left by the pre-hardening "always write fallback" behavior.
+                delete_secret_fallback(&key);
                 return Ok(Some(s));
             }
         }
     }
-    Ok(read_secret_fallback(&key))
+    // Legacy/last-resort plaintext fallback: try to migrate it into the keychain
+    // and delete the file ONLY if the keychain write verifiably round-trips (else
+    // keep the file — see keystore_set_secret).
+    if let Some(s) = read_secret_fallback(&key) {
+        let marker = format!("{}_marker", account);
+        if store_secret_verified(&account, &marker, s.as_bytes()) {
+            delete_secret_fallback(&key);
+        }
+        return Ok(Some(s));
+    }
+    Ok(None)
 }
 
 /// Delete a secret stored via keystore_set_secret.

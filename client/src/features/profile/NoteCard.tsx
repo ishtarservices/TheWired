@@ -6,6 +6,9 @@ import { Avatar } from "../../components/ui/Avatar";
 import { RichContent } from "../../components/content/RichContent";
 import { MusicEmbedCard } from "../../components/content/MusicEmbedCard";
 import { NoteActionBar } from "../spaces/notes/NoteActionBar";
+import { selectFeatureEnabled, FEATURE_AI } from "../../store/slices/featuresSlice";
+import { useAskAI } from "../ai/context/useAskAI";
+import { buildThreadContext, buildNoteContext } from "../ai/context/aiContext";
 import { QuotedNote } from "../spaces/notes/QuotedNote";
 import { ReplyComposer } from "../spaces/notes/ReplyComposer";
 import { RepostHeader } from "./RepostHeader";
@@ -157,6 +160,8 @@ function NoteCardInner({
   const { openZap } = useZap();
   const myPubkey = useAppSelector((s) => s.identity.pubkey);
   const pinnedNoteIds = useAppSelector((s) => s.identity.pinnedNoteIds);
+  const askAI = useAskAI();
+  const aiEnabled = useAppSelector(selectFeatureEnabled(FEATURE_AI));
   const [showReplyComposer, setShowReplyComposer] = useState(false);
   const [showMedia, setShowMedia] = useState(true);
   const [showPopover, setShowPopover] = useState(false);
@@ -381,6 +386,11 @@ function NoteCardInner({
         showPin={showPin}
         isPinned={isPinned}
         onPin={() => actions.togglePin(event.id)}
+        onAskAI={
+          aiEnabled
+            ? () => askAI(buildThreadContext(event.id) ?? buildNoteContext(event.id))
+            : undefined
+        }
       />
 
       {/* Reply composer */}

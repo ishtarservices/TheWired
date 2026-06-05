@@ -22,6 +22,7 @@ import { emojiSlice } from "@/store/slices/emojiSlice";
 import { gifSlice } from "@/store/slices/gifSlice";
 import { walletSlice } from "@/store/slices/walletSlice";
 import { featuresSlice } from "@/store/slices/featuresSlice";
+import { aiSlice } from "@/store/slices/aiSlice";
 import { onboardingSlice } from "@/features/onboarding/onboardingSlice";
 import type { RootState } from "@/store";
 
@@ -47,6 +48,7 @@ const appReducer = combineReducers({
   gif: gifSlice.reducer,
   wallet: walletSlice.reducer,
   features: featuresSlice.reducer,
+  ai: aiSlice.reducer,
   onboarding: onboardingSlice.reducer,
 });
 

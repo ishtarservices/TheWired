@@ -60,3 +60,18 @@ export function nip46SecretKey(pubkey: string): string {
 export function nwcWalletsKey(pubkey: string): string {
   return `nwc_wallets_${pubkey}`;
 }
+
+/** Keychain key for a user's AI provider config blob (non-secret: baseUrl/label/model). */
+export function llmProvidersKey(pubkey: string): string {
+  return `llm_providers_${pubkey}`;
+}
+
+/** Keychain key for a single AI provider's API key (bearer credential). */
+export function llmApiKeySecret(pubkey: string, providerId: string): string {
+  return `llm_apikey_${pubkey}_${providerId}`;
+}
+
+/** Keychain key for the AI web-search provider API key. */
+export function webSearchKeySecret(pubkey: string): string {
+  return `ai_websearch_key_${pubkey}`;
+}

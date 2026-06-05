@@ -148,6 +148,45 @@ export function buildPinnedNotesEvent(
   };
 }
 
+/** Build an unsigned kind:30023 long-form article (NIP-23, addressable).
+ *  `slug` becomes the `d` tag; a fresh one is generated when omitted so each
+ *  publish is a new article rather than overwriting an existing addressable. */
+export function buildArticle(
+  pubkey: string,
+  params: {
+    content: string;
+    title: string;
+    summary?: string;
+    image?: string;
+    slug?: string;
+    hashtags?: string[];
+    publishedAt?: number;
+  },
+): UnsignedEvent {
+  const now = Math.floor(Date.now() / 1000);
+  const slug =
+    params.slug?.trim() ||
+    `ai-${now.toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
+  const tags: string[][] = [
+    ["d", slug],
+    ["title", params.title],
+    ["published_at", String(params.publishedAt ?? now)],
+  ];
+  if (params.summary?.trim()) tags.push(["summary", params.summary.trim()]);
+  if (params.image?.trim()) tags.push(["image", params.image.trim()]);
+  for (const tag of params.hashtags ?? []) {
+    const t = tag.trim().replace(/^#/, "");
+    if (t) tags.push(["t", t.toLowerCase()]);
+  }
+  return {
+    pubkey,
+    created_at: now,
+    kind: 30023,
+    tags,
+    content: params.content,
+  };
+}
+
 /** Build an unsigned kind:1 reply event (NIP-10 threading) */
 export function buildReply(
   pubkey: string,

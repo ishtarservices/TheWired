@@ -19,7 +19,9 @@
         { "url": "https://cdn.satellite.earth/**" },
         { "url": "https://blossom.oxtr.dev/**" },
         { "url": "https://files.v0l.io/**" },
-        { "url": "https://**" }
+        { "url": "https://**" },
+        { "url": "http://localhost:*/**" },
+        { "url": "http://127.0.0.1:*/**" }
       ]
     }
   ]

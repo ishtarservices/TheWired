@@ -1,8 +1,11 @@
 import { useRef, useState, useEffect } from "react";
-import { Trash2 } from "lucide-react";
-import { useAppDispatch } from "@/store/hooks";
+import { Trash2, Sparkles } from "lucide-react";
+import { useAppDispatch, useAppSelector } from "@/store/hooks";
 import { deleteDMConversation } from "@/store/slices/dmSlice";
-import { PopoverMenu, PopoverMenuItem } from "@/components/ui/PopoverMenu";
+import { PopoverMenu, PopoverMenuItem, PopoverMenuSeparator } from "@/components/ui/PopoverMenu";
+import { selectFeatureEnabled, FEATURE_AI } from "@/store/slices/featuresSlice";
+import { useAskAI } from "@/features/ai/context/useAskAI";
+import { buildDMConversationContext } from "@/features/ai/context/aiContext";
 
 interface DMConversationContextMenuProps {
   open: boolean;
@@ -23,6 +26,8 @@ export function DMConversationContextMenu({
   const dispatch = useAppDispatch();
   const anchorRef = useRef<HTMLDivElement>(null);
   const [confirmDelete, setConfirmDelete] = useState(false);
+  const askAI = useAskAI();
+  const aiEnabled = useAppSelector(selectFeatureEnabled(FEATURE_AI));
 
   useEffect(() => {
     if (!open) setConfirmDelete(false);
@@ -71,12 +76,27 @@ export function DMConversationContextMenu({
             />
           </>
         ) : (
-          <PopoverMenuItem
-            icon={<Trash2 size={14} />}
-            label="Delete conversation"
-            onClick={handleDelete}
-            variant="danger"
-          />
+          <>
+            {aiEnabled && (
+              <>
+                <PopoverMenuItem
+                  icon={<Sparkles size={14} />}
+                  label="Summarize with AI"
+                  onClick={() => {
+                    askAI(buildDMConversationContext(partnerPubkey));
+                    onClose();
+                  }}
+                />
+                <PopoverMenuSeparator />
+              </>
+            )}
+            <PopoverMenuItem
+              icon={<Trash2 size={14} />}
+              label="Delete conversation"
+              onClick={handleDelete}
+              variant="danger"
+            />
+          </>
         )}
       </PopoverMenu>
     </>

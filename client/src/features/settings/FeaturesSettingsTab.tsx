@@ -1,6 +1,7 @@
 import { Sparkles } from "lucide-react";
 import { useAppDispatch, useAppSelector } from "../../store/hooks";
 import {
+  FEATURE_AI,
   FEATURE_DECENTRALIZED_SPACES,
   setFeatureEnabled,
   type FeatureId,
@@ -20,6 +21,12 @@ const FEATURES: FeatureRow[] = [
     label: "Decentralized Spaces",
     description:
       "Create spaces on a relay you choose, start pure NIP-29 groups, and import groups from other Nostr apps. Platform spaces are unaffected.",
+  },
+  {
+    id: FEATURE_AI,
+    label: "AI",
+    description:
+      "An AI chat tab. Connect a local engine (Ollama, LM Studio) or your own API keys (Claude, OpenAI, OpenRouter, Deepseek, Kimi). Conversations stay on this device; keys are stored in your OS keychain.",
   },
 ];
 

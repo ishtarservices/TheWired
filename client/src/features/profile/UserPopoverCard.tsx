@@ -14,6 +14,7 @@ import {
   HeartHandshake,
   Clock,
   Zap,
+  Sparkles,
 } from "lucide-react";
 import { npubEncode } from "nostr-tools/nip19";
 import { Avatar } from "@/components/ui/Avatar";
@@ -29,6 +30,9 @@ import { setMuteList } from "@/store/slices/identitySlice";
 import { buildMuteListEvent } from "@/lib/nostr/eventBuilder";
 import { signAndPublish } from "@/lib/nostr/publish";
 import { useZap } from "../wallet/WalletProvider";
+import { selectFeatureEnabled, FEATURE_AI } from "@/store/slices/featuresSlice";
+import { useAskAI } from "../ai/context/useAskAI";
+import { buildProfileContext } from "../ai/context/aiContext";
 
 const CARD_WIDTH = 320;
 const GAP = 8;
@@ -93,6 +97,8 @@ export function UserPopoverCard({
   const cardRef = useRef<HTMLDivElement>(null);
   const navigate = useNavigate();
   const { openZap } = useZap();
+  const askAI = useAskAI();
+  const aiEnabled = useAppSelector(selectFeatureEnabled(FEATURE_AI));
   const dispatch = useAppDispatch();
   const { profile } = useProfile(pubkey);
   const mutualSpaces = useMutualSpaces(pubkey);
@@ -437,6 +443,19 @@ export function UserPopoverCard({
               <ExternalLink size={12} />
               Profile
             </button>
+
+            {aiEnabled && (
+              <button
+                onClick={() => {
+                  askAI(buildProfileContext(pubkey));
+                  onClose();
+                }}
+                className="flex items-center justify-center rounded-lg bg-surface-hover px-2.5 py-1.5 text-heading hover:bg-surface-hover/80 transition-colors"
+                title="Ask AI about this account"
+              >
+                <Sparkles size={14} />
+              </button>
+            )}
 
             {!isMe && (
               <>

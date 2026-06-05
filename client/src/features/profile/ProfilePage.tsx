@@ -26,6 +26,7 @@ import {
   Loader2,
   Mic2,
   Music2,
+  Sparkles,
 } from "lucide-react";
 import { npubEncode } from "nostr-tools/nip19";
 import { Avatar } from "../../components/ui/Avatar";
@@ -53,6 +54,9 @@ import { buildMuteListEvent } from "../../lib/nostr/eventBuilder";
 import { signAndPublish } from "../../lib/nostr/publish";
 import { useClickOutside } from "../../hooks/useClickOutside";
 import { RichContent } from "../../components/content/RichContent";
+import { selectFeatureEnabled, FEATURE_AI } from "../../store/slices/featuresSlice";
+import { useAskAI } from "../ai/context/useAskAI";
+import { buildProfileContext } from "../ai/context/aiContext";
 import { useProfileSettings } from "./useProfileSettings";
 import type { ProfileTab } from "./profileSettings";
 import type { ProfileFeedItem } from "./useProfileNotes";
@@ -178,6 +182,8 @@ export function ProfilePage({ pubkey }: ProfilePageProps) {
   useClickOutside(unfriendConfirmRef, () => setShowUnfriendConfirm(false), showUnfriendConfirm);
 
   const followListLoaded = useAppSelector((s) => s.identity.followListCreatedAt > 0);
+  const aiEnabled = useAppSelector(selectFeatureEnabled(FEATURE_AI));
+  const askAI = useAskAI();
 
   const handleFollow = useCallback(async () => {
     try {
@@ -452,6 +458,22 @@ export function ProfilePage({ pubkey }: ProfilePageProps) {
                       boxShadow: "var(--shadow-elevated)",
                     }}
                   >
+                    {aiEnabled && (
+                      <>
+                        <button
+                          onClick={() => {
+                            askAI(buildProfileContext(pubkey));
+                            setShowOverflow(false);
+                          }}
+                          className="flex w-full items-center gap-2.5 px-3 py-2 text-xs text-heading hover:bg-surface-hover transition-colors"
+                        >
+                          <Sparkles size={13} />
+                          Ask AI about this account
+                        </button>
+                        <div className="border-t border-border" />
+                      </>
+                    )}
+
                     <button
                       onClick={handleCopyPubkey}
                       className="flex w-full items-center gap-2.5 px-3 py-2 text-xs text-heading hover:bg-surface-hover transition-colors"

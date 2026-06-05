@@ -1,8 +1,11 @@
 import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import { Bell, BellOff, Volume2, AtSign, VolumeX, Check } from "lucide-react";
+import { Bell, BellOff, Volume2, AtSign, VolumeX, Check, Sparkles } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { useAppDispatch } from "../../store/hooks";
+import { useAppDispatch, useAppSelector } from "../../store/hooks";
+import { selectFeatureEnabled, FEATURE_AI } from "../../store/slices/featuresSlice";
+import { useAskAI } from "../ai/context/useAskAI";
+import { buildChannelContext } from "../ai/context/aiContext";
 import {
   setChannelNotifMode,
   clearChannelUnread,
@@ -34,6 +37,9 @@ export function ChannelContextMenu({
   const dispatch = useAppDispatch();
   const currentMode = useChannelNotifMode(channelId);
   const unread = useChannelUnread(channelId);
+  const aiEnabled = useAppSelector(selectFeatureEnabled(FEATURE_AI));
+  const activeSpaceId = useAppSelector((s) => s.spaces.activeSpaceId);
+  const askAI = useAskAI();
   const [showModes, setShowModes] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
 
@@ -115,6 +121,19 @@ export function ChannelContextMenu({
             >
               <Check size={14} />
               Mark as Read
+            </button>
+          )}
+
+          {aiEnabled && activeSpaceId && (
+            <button
+              onClick={() => {
+                askAI(buildChannelContext(activeSpaceId, channelId));
+                onClose();
+              }}
+              className="flex w-full items-center gap-2 rounded-lg mx-1 px-3.5 py-2.5 text-sm text-body hover:bg-surface-hover hover:text-heading transition-colors"
+            >
+              <Sparkles size={14} />
+              Summarize channel
             </button>
           )}
 

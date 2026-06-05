@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import { useAppDispatch, useAppSelector } from "../store/hooks";
-import { setSidebarMode } from "../store/slices/uiSlice";
+import { setSidebarMode, type SidebarMode } from "../store/slices/uiSlice";
 import { setActiveSpace, setActiveChannel } from "../store/slices/spacesSlice";
 import { setMusicView, setActiveDetailId } from "../store/slices/musicSlice";
 import { setActiveConversation } from "../store/slices/dmSlice";
@@ -9,7 +9,7 @@ import type { MusicView } from "../types/music";
 
 interface NavEntry {
   route: string;
-  sidebarMode: "spaces" | "music" | "messages";
+  sidebarMode: SidebarMode;
   spaceId: string | null;
   channelId: string | null;
   musicView: MusicView;
