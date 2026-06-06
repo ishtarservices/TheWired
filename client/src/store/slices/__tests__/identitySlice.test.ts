@@ -7,6 +7,7 @@ const {
   login,
   logout,
   setProfile,
+  markProfileChecked,
   setRelayList,
   setDMRelayList,
   setFollowList,
@@ -67,6 +68,44 @@ describe("identitySlice", () => {
     store.dispatch(setProfile({ profile: { name: "V2" }, createdAt: 100 }));
     // The slice uses strict > check, so equal timestamps are rejected
     expect(store.getState().identity.profile?.name).toBe("V1");
+  });
+
+  // ─── profileChecked (Save-gating signal) ───────
+
+  it("starts with profileChecked false", () => {
+    const store = createTestStore();
+    expect(store.getState().identity.profileChecked).toBe(false);
+  });
+
+  it("marks profileChecked true once a profile is set", () => {
+    const store = createTestStore();
+    store.dispatch(setProfile({ profile: { name: "Luna" }, createdAt: 100 }));
+    expect(store.getState().identity.profileChecked).toBe(true);
+  });
+
+  it("marks profileChecked true even when a stale duplicate is rejected", () => {
+    // A late stale echo must still flip the gate (we HAVE seen a profile), but
+    // must not overwrite the fresher one.
+    const store = createTestStore();
+    store.dispatch(setProfile({ profile: { name: "Fresh" }, createdAt: 200 }));
+    store.dispatch(setProfile({ profile: { name: "Stale" }, createdAt: 100 }));
+    expect(store.getState().identity.profile?.name).toBe("Fresh");
+    expect(store.getState().identity.profileChecked).toBe(true);
+  });
+
+  it("markProfileChecked flips the gate without setting a profile (new user / EOSE)", () => {
+    const store = createTestStore();
+    store.dispatch(markProfileChecked());
+    expect(store.getState().identity.profileChecked).toBe(true);
+    expect(store.getState().identity.profile).toBeNull();
+    expect(store.getState().identity.profileCreatedAt).toBe(0);
+  });
+
+  it("resets profileChecked on logout", () => {
+    const store = createTestStore();
+    store.dispatch(markProfileChecked());
+    store.dispatch(logout());
+    expect(store.getState().identity.profileChecked).toBe(false);
   });
 
   // ─── setRelayList ──────────────────────────────

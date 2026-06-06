@@ -1,4 +1,4 @@
-import { useState, useRef } from "react";
+import { useState, useRef, useEffect } from "react";
 import { X } from "lucide-react";
 import { Button } from "../../components/ui/Button";
 import { Modal } from "../../components/ui/Modal";
@@ -10,6 +10,11 @@ import { signAndPublish } from "../../lib/nostr/publish";
 import { useAutoResize } from "../../hooks/useAutoResize";
 import type { Kind0Profile } from "../../types/profile";
 import { sanitizeNip05Input } from "../../lib/nip05Utils";
+import {
+  profileToForm,
+  syncProfileForm,
+  type ProfileFormField,
+} from "./profileFormSync";
 
 interface ProfileEditModalProps {
   onClose: () => void;
@@ -18,17 +23,22 @@ interface ProfileEditModalProps {
 export function ProfileEditModal({ onClose }: ProfileEditModalProps) {
   const pubkey = useAppSelector((s) => s.identity.pubkey);
   const existingProfile = useAppSelector((s) => s.identity.profile);
+  const profileCreatedAt = useAppSelector((s) => s.identity.profileCreatedAt);
+  const profileChecked = useAppSelector((s) => s.identity.profileChecked);
 
-  const [form, setForm] = useState<Kind0Profile>({
-    name: existingProfile?.name ?? "",
-    display_name: existingProfile?.display_name ?? "",
-    about: existingProfile?.about ?? "",
-    picture: existingProfile?.picture ?? "",
-    banner: existingProfile?.banner ?? "",
-    nip05: existingProfile?.nip05 ?? "",
-    lud16: existingProfile?.lud16 ?? "",
-    website: existingProfile?.website ?? "",
-  });
+  const [form, setForm] = useState<Kind0Profile>(() => profileToForm(existingProfile));
+
+  // Re-sync if the profile arrives/updates after mount (cold-login race). Only
+  // fields the user hasn't edited are filled, so a half-edited form still picks
+  // up the rest of the real profile rather than publishing those fields as empty
+  // on save. See profileFormSync + ProfileSettingsTab for the full rationale.
+  const touched = useRef<Set<ProfileFormField>>(new Set());
+  const [syncedAt, setSyncedAt] = useState(0);
+  useEffect(() => {
+    if (!existingProfile || profileCreatedAt <= syncedAt) return;
+    setForm((prev) => syncProfileForm(prev, existingProfile, touched.current));
+    setSyncedAt(profileCreatedAt);
+  }, [existingProfile, profileCreatedAt, syncedAt]);
 
   const aboutRef = useRef<HTMLTextAreaElement>(null);
   useAutoResize(aboutRef, form.about ?? "", 200);
@@ -41,7 +51,9 @@ export function ProfileEditModal({ onClose }: ProfileEditModalProps) {
     setError(null);
 
     try {
-      const unsigned = buildProfileEvent(pubkey, form);
+      // Merge over the last-known profile so unmodeled fields (lud06, custom
+      // keys) survive the republish instead of being wiped.
+      const unsigned = buildProfileEvent(pubkey, form, existingProfile ?? undefined);
       await signAndPublish(unsigned);
       onClose();
     } catch (e) {
@@ -51,7 +63,8 @@ export function ProfileEditModal({ onClose }: ProfileEditModalProps) {
     }
   };
 
-  const updateField = (field: keyof Kind0Profile, value: string) => {
+  const updateField = (field: ProfileFormField, value: string) => {
+    touched.current.add(field);
     setForm((prev) => ({
       ...prev,
       [field]: field === "nip05" ? sanitizeNip05Input(value) : value,
@@ -123,11 +136,14 @@ export function ProfileEditModal({ onClose }: ProfileEditModalProps) {
           <p className="mt-3 text-xs text-red-400">{error}</p>
         )}
 
-        <div className="mt-4 flex justify-end gap-2">
+        <div className="mt-4 flex items-center justify-end gap-2">
+          {!profileChecked && (
+            <span className="mr-auto text-xs text-muted">Loading current profile…</span>
+          )}
           <Button variant="secondary" onClick={onClose}>
             Cancel
           </Button>
-          <Button onClick={handleSave} disabled={saving}>
+          <Button onClick={handleSave} disabled={saving || !profileChecked}>
             {saving ? <Spinner size="sm" /> : "Save"}
           </Button>
         </div>

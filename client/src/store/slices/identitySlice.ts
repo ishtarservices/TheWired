@@ -19,6 +19,10 @@ interface IdentityState {
   pubkey: string | null;
   signerType: SignerType;
   profile: Kind0Profile | null;
+  /** True once we've resolved the user's current kind:0 (or confirmed none exists
+   *  via EOSE). The profile editors gate Save on this so a republish can't clobber
+   *  the real profile on relays with a thin form submitted before it loaded. */
+  profileChecked: boolean;
   relayList: RelayListEntry[];
   followList: string[];
   knownFollowers: string[];
@@ -41,6 +45,7 @@ const initialState: IdentityState = {
   pubkey: null,
   signerType: null,
   profile: null,
+  profileChecked: false,
   relayList: [],
   followList: [],
   knownFollowers: [],
@@ -75,9 +80,17 @@ export const identitySlice = createSlice({
       state,
       action: PayloadAction<{ profile: Kind0Profile; createdAt: number }>,
     ) {
+      // We've now seen a real kind:0 — safe to edit/republish even if a stale
+      // (older created_at) duplicate is what arrived.
+      state.profileChecked = true;
       if (action.payload.createdAt <= state.profileCreatedAt) return;
       state.profile = action.payload.profile;
       state.profileCreatedAt = action.payload.createdAt;
+    },
+    /** Mark that we've finished looking for the user's kind:0 (e.g. EOSE with no
+     *  profile found — a brand-new user). Lets the editors enable Save. */
+    markProfileChecked(state) {
+      state.profileChecked = true;
     },
     setRelayList(
       state,
@@ -140,6 +153,7 @@ export const {
   login,
   logout,
   setProfile,
+  markProfileChecked,
   setRelayList,
   setDMRelayList,
   setFollowList,

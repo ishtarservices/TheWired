@@ -9,6 +9,7 @@ import { useAppDispatch } from "../../store/hooks";
 import { addNotification } from "../../store/slices/notificationSlice";
 import { useWallet } from "./useWallet";
 import { sendZap } from "../../lib/lightning/zap";
+import { resolveZapTarget } from "./zapTarget";
 import type { ZapTarget } from "./WalletProvider";
 
 const PRESETS = [21, 100, 500, 1000, 5000];
@@ -61,7 +62,7 @@ export function ZapModal({
     setChosenWalletId(next);
   }, [connectedWallets, defaultWalletId, chosenWalletId]);
 
-  const lud16 = profile?.lud16;
+  const { lud16, lnurl, canZap, display: lnDisplay } = resolveZapTarget(profile);
   const displayName =
     target.displayName ||
     profile?.display_name ||
@@ -69,7 +70,7 @@ export function ZapModal({
     `${target.recipientPubkey.slice(0, 8)}…`;
 
   const handleZap = async () => {
-    if (!lud16 || amount <= 0 || !chosenWalletId) return;
+    if (!canZap || amount <= 0 || !chosenWalletId) return;
     const walletId = chosenWalletId;
     setStatus("sending");
     setError(null);
@@ -79,7 +80,10 @@ export function ZapModal({
         amountSats: amount,
         comment: comment.trim() || undefined,
         event: target.event,
+        // resolveZapEndpoint prefers lud16; lnurl is the lud06 fallback (only set
+        // when lud16 is absent), so we never pass both.
         lud16,
+        lnurl,
         // Bind the chosen wallet id at call time so a mid-zap re-render doesn't
         // accidentally swap wallets between request and pay.
         payInvoice: (invoice, amountMsat) =>
@@ -124,11 +128,11 @@ export function ZapModal({
             <div className="truncate text-sm font-medium text-heading">
               {displayName}
             </div>
-            {lud16 && <div className="truncate text-xs text-muted">{lud16}</div>}
+            {lnDisplay && <div className="truncate text-xs text-muted">{lnDisplay}</div>}
           </div>
         </div>
 
-        {!lud16 ? (
+        {!canZap ? (
           <p className="rounded-lg bg-field px-3 py-3 text-sm text-soft">
             This user hasn't set a Lightning address, so they can't receive zaps
             yet.

@@ -65,4 +65,27 @@ describe("profileStore", () => {
     expect(result).toBeDefined();
     expect(result!.name).toBe("Luna");
   });
+
+  it("preserves lud06 and unknown custom fields, and never leaks internal keys", async () => {
+    const profile = {
+      name: "Luna",
+      lud16: "luna@wallet.com",
+      lud06: "lnurl1keepme",
+      bot: true,
+      customField: "keep",
+      created_at: 1700000000,
+    } as unknown as Parameters<typeof putProfile>[1];
+
+    await putProfile("pk1", profile);
+    const result = (await getProfile("pk1")) as Record<string, unknown> | undefined;
+
+    expect(result?.lud16).toBe("luna@wallet.com");
+    // Would have been dropped by the old hand-picked getProfile().
+    expect(result?.lud06).toBe("lnurl1keepme");
+    expect(result?.bot).toBe(true);
+    expect(result?.customField).toBe("keep");
+    // Internal bookkeeping keys must not surface as profile fields.
+    expect(result).not.toHaveProperty("_cachedAt");
+    expect(result).not.toHaveProperty("pubkey");
+  });
 });

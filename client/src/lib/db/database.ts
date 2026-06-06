@@ -38,6 +38,7 @@ export interface TheWiredDB {
       banner?: string;
       nip05?: string;
       lud16?: string;
+      lud06?: string;
       website?: string;
       created_at?: number;
       _cachedAt: number;

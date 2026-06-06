@@ -36,17 +36,10 @@ export async function getProfile(
     return undefined; // Stale
   }
 
-  return {
-    name: stored.name,
-    display_name: stored.display_name,
-    about: stored.about,
-    picture: stored.picture,
-    banner: stored.banner,
-    nip05: stored.nip05,
-    lud16: stored.lud16,
-    website: stored.website,
-    created_at: stored.created_at,
-  };
+  // Return everything except our internal bookkeeping keys, so fields we don't
+  // model (lud06, custom keys) round-trip through IDB and survive a republish.
+  const { _cachedAt, pubkey: _pk, ...profile } = stored;
+  return profile;
 }
 
 export async function deleteExpiredProfiles(): Promise<number> {
