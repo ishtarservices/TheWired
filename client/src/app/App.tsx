@@ -11,6 +11,8 @@ import { MusicLinkResolver } from "../features/music/MusicLinkResolver";
 import { RelayStatusPanel } from "../features/relay/RelayStatusPanel";
 import { ProfilePage } from "../features/profile/ProfilePage";
 import { NoteThreadPage } from "../features/profile/NoteThreadPage";
+import { ArticlePage } from "../features/longform/ArticlePage";
+import { ArticleEditorPage } from "../features/longform/ArticleEditorPage";
 import { SettingsPage } from "../features/settings/SettingsPage";
 import { DMView } from "../features/dm/DMView";
 import { DiscoverPage } from "../features/discover/DiscoverPage";
@@ -223,6 +225,9 @@ function AppRoutes() {
           <Route path="dm/:pubkey" element={<DMView />} />
           <Route path="music/album/:pubkey/:slug" element={<MusicLinkResolver type="album" />} />
           <Route path="music/track/:pubkey/:slug" element={<MusicLinkResolver type="track" />} />
+          <Route path="write" element={<ArticleEditorPage />} />
+          <Route path="write/:naddr" element={<ArticleEditorPage />} />
+          <Route path="article/:id" element={<ArticlePage />} />
           <Route
             path="note/:noteId"
             element={<NoteRouteWrapper />}

@@ -159,9 +159,33 @@ export function buildPinnedNotesEvent(
   };
 }
 
+/** Derive a human-readable, URL-safe `d`-tag slug from an article title, with a
+ *  short random suffix so two articles sharing a title don't collide. Falls back
+ *  to a fully generated slug when the title has no usable characters (emoji-only,
+ *  blank, non-Latin that strips to nothing). */
+export function articleSlugFromTitle(title: string): string {
+  const rand = Math.random().toString(36).slice(2, 8);
+  const base = title
+    .toLowerCase()
+    .normalize("NFKD")
+    .replace(/\p{Diacritic}/gu, "") // drop accents so "déjà" → "deja"
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .slice(0, 60)
+    .replace(/-+$/g, "");
+  return base
+    ? `${base}-${rand}`
+    : `article-${Math.floor(Date.now() / 1000).toString(36)}-${rand}`;
+}
+
 /** Build an unsigned kind:30023 long-form article (NIP-23, addressable).
- *  `slug` becomes the `d` tag; a fresh one is generated when omitted so each
- *  publish is a new article rather than overwriting an existing addressable. */
+ *  `slug` becomes the `d` tag; a fresh one is derived from the title when omitted
+ *  so each publish is a new article rather than overwriting an existing
+ *  addressable. To EDIT an existing article, pass its current `slug` AND its
+ *  original `publishedAt` so the address stays stable and the publish date is
+ *  preserved (only `created_at` advances). When `spaceId` is set the article is
+ *  scoped to that space (NIP-29 `h` tag) — publish it to the space host relay
+ *  only for "space-exclusive" visibility. Mirrors music's space scoping. */
 export function buildArticle(
   pubkey: string,
   params: {
@@ -172,12 +196,12 @@ export function buildArticle(
     slug?: string;
     hashtags?: string[];
     publishedAt?: number;
+    spaceId?: string;
+    channelId?: string;
   },
 ): UnsignedEvent {
   const now = Math.floor(Date.now() / 1000);
-  const slug =
-    params.slug?.trim() ||
-    `ai-${now.toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
+  const slug = params.slug?.trim() || articleSlugFromTitle(params.title);
   const tags: string[][] = [
     ["d", slug],
     ["title", params.title],
@@ -188,6 +212,11 @@ export function buildArticle(
   for (const tag of params.hashtags ?? []) {
     const t = tag.trim().replace(/^#/, "");
     if (t) tags.push(["t", t.toLowerCase()]);
+  }
+  // Space-exclusive scoping (same shape as music's addVisibilityTags).
+  if (params.spaceId) {
+    tags.push(["h", params.spaceId]);
+    if (params.channelId) tags.push(["channel", params.channelId]);
   }
   return {
     pubkey,

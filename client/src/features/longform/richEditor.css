@@ -1,0 +1,23 @@
+/* Styling for the Tiptap WYSIWYG article surface. The body content itself is
+   styled by Tailwind's `prose` classes (applied via editorProps); this file only
+   covers what prose can't: the empty-state placeholder and focus outline. */
+
+.tiptap.ProseMirror {
+  outline: none;
+}
+
+/* Placeholder (from @tiptap/extension-placeholder) on the first empty line. */
+.tiptap p.is-editor-empty:first-child::before {
+  content: attr(data-placeholder);
+  float: left;
+  height: 0;
+  pointer-events: none;
+  color: var(--color-muted);
+}
+
+/* Selected image gets a subtle ring so it's clear it can be deleted/moved. */
+.tiptap img.ProseMirror-selectednode {
+  outline: 2px solid var(--color-primary);
+  outline-offset: 2px;
+  border-radius: 0.5rem;
+}

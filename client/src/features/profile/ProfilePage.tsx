@@ -27,6 +27,7 @@ import {
   Mic2,
   Music2,
   Sparkles,
+  PenSquare,
 } from "lucide-react";
 import { npubEncode } from "nostr-tools/nip19";
 import { Avatar } from "../../components/ui/Avatar";
@@ -678,8 +679,27 @@ export function ProfilePage({ pubkey }: ProfilePageProps) {
         })}
       </div>
 
-      {/* Note composer (own profile only, notes tab) */}
-      {isMe && activeTab === "notes" && <NoteComposer />}
+      {/* Post-type selector + composer (own profile only, notes tab) */}
+      {isMe && activeTab === "notes" && (
+        <>
+          <div className="mx-6 mt-4 inline-flex w-fit rounded-lg border border-border p-0.5">
+            <button
+              className="rounded-md bg-primary/20 px-4 py-1.5 text-xs font-medium text-primary"
+              aria-pressed="true"
+            >
+              Note
+            </button>
+            <button
+              onClick={() => navigate("/write")}
+              className="flex items-center gap-1.5 rounded-md px-4 py-1.5 text-xs font-medium text-soft transition-colors hover:text-heading"
+            >
+              <PenSquare size={13} />
+              Article
+            </button>
+          </div>
+          <NoteComposer />
+        </>
+      )}
 
       {/* Tab content — only active tab renders */}
       <div className="flex-1 px-6 py-4">
@@ -738,12 +758,25 @@ export function ProfilePage({ pubkey }: ProfilePageProps) {
           />
         )}
         {activeTab === "reads" && (
-          <ReadsTab
-            articles={feed.articles}
-            loading={!feed.articlesEose && feed.articles.length === 0}
-            hasMore={feed.hasMoreArticles}
-            onLoadMore={feed.loadMoreArticles}
-          />
+          <>
+            {isMe && (
+              <div className="mb-3 flex justify-end">
+                <button
+                  onClick={() => navigate("/write")}
+                  className="flex items-center gap-1.5 rounded-lg bg-primary/20 px-4 py-2 text-sm font-medium text-primary transition-colors hover:bg-primary/30"
+                >
+                  <PenSquare size={14} />
+                  Write article
+                </button>
+              </div>
+            )}
+            <ReadsTab
+              articles={feed.articles}
+              loading={!feed.articlesEose && feed.articles.length === 0}
+              hasMore={feed.hasMoreArticles}
+              onLoadMore={feed.loadMoreArticles}
+            />
+          </>
         )}
         {activeTab === "music" && <ProfileMusicTab pubkey={pubkey} />}
         {activeTab === "showcase" && <ProfileShowcaseTab pubkey={pubkey} />}
