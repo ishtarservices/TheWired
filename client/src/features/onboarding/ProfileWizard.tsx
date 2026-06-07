@@ -57,6 +57,10 @@ const HELP_TEXT: Record<string, { label: string; help: string }> = {
     label: "Nostr Address",
     help: "A human-readable handle (like you@thewired.app) that shows the Nostr community you're a real person behind this account. Different apps display the verification in different ways — think of it as a friendly alias for your long key.",
   },
+  lud16: {
+    label: "Lightning Address",
+    help: "Where people send you sats (zaps). Looks like an email (you@walletprovider.com) — get one from a Lightning wallet like Alby, Coinos, or Primal. This is for receiving; connecting a wallet to send is separate, in Settings → Wallet.",
+  },
   website: {
     label: "Website",
     help: "Your personal website or link.",
@@ -250,7 +254,9 @@ export function ProfileWizard() {
         }
       }
 
-      const unsigned = buildProfileEvent(pubkey, form);
+      // Merge over the loaded profile so fields not shown in the wizard (lud06,
+      // custom keys) aren't dropped when an existing user re-runs onboarding.
+      const unsigned = buildProfileEvent(pubkey, form, existingProfile ?? undefined);
       await signAndPublish(unsigned);
       setSaved(true);
       // Don't dispatch setProfileWizardCompleted here — that reducer hides
@@ -821,7 +827,7 @@ function AdvancedStep({
       </p>
 
       <div className="space-y-3">
-        {(["nip05", "website"] as const).map((key) => (
+        {(["nip05", "lud16", "website"] as const).map((key) => (
           <div key={key}>
             <label className="mb-1 flex items-center text-xs text-soft">
               {HELP_TEXT[key].label}
@@ -834,7 +840,9 @@ function AdvancedStep({
               placeholder={
                 key === "nip05"
                   ? "username@thewired.app"
-                  : "https://yoursite.com"
+                  : key === "lud16"
+                    ? "you@walletprovider.com"
+                    : "https://yoursite.com"
               }
               className={cn(
                 "w-full rounded-xl border bg-field px-3 py-2 text-sm text-heading placeholder-muted focus:outline-none transition-colors",

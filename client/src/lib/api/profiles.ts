@@ -11,6 +11,7 @@ export interface CachedProfile {
   nip05: string | null;
   banner: string | null;
   lud16: string | null;
+  lud06: string | null;
   website: string | null;
   /** kind:0 created_at — the version. Null on legacy rows cached before versioning. */
   createdAt: number | null;
@@ -35,6 +36,7 @@ export function cachedProfileToKind0(p: CachedProfile): { profile: Kind0Profile;
   if (p.nip05) profile.nip05 = p.nip05;
   if (p.banner) profile.banner = p.banner;
   if (p.lud16) profile.lud16 = p.lud16;
+  if (p.lud06) profile.lud06 = p.lud06;
   if (p.website) profile.website = p.website;
   const createdAt = p.createdAt ?? 0;
   if (createdAt > 0) profile.created_at = createdAt;

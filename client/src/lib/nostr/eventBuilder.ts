@@ -3,17 +3,28 @@ import type { Kind0Profile } from "../../types/profile";
 import type { RelayListEntry } from "../../types/relay";
 
 /** Build an unsigned kind:0 metadata event.
- *  Throws if the resulting profile content would be empty — publishing an
- *  empty kind:0 permanently wipes the user's profile on all relays. */
+ *
+ *  Read-modify-write: `profile` (the edited fields) is merged OVER `base` (the
+ *  last-known kind:0 content), so fields the editing UI doesn't model — lud06,
+ *  NIP-57 pointers, custom keys — survive a republish instead of being wiped.
+ *  An edited field set to "" removes that key (an intentional clear).
+ *
+ *  Throws if the resulting content would be empty — publishing an empty kind:0
+ *  permanently wipes the user's profile on all relays. */
 export function buildProfileEvent(
   pubkey: string,
   profile: Kind0Profile,
+  base?: Kind0Profile,
 ): UnsignedEvent {
-  const content: Record<string, string> = {};
-  for (const [key, value] of Object.entries(profile)) {
-    if (value !== undefined && value !== "") {
-      content[key] = value;
-    }
+  const merged: Record<string, unknown> = { ...(base ?? {}), ...profile };
+  const content: Record<string, unknown> = {};
+  for (const [key, value] of Object.entries(merged)) {
+    // created_at is an event-level field, never profile content. The rest are
+    // prototype-pollution keys: never assign them via bracket notation (it would
+    // set `content`'s prototype) nor republish them out of preserved fields.
+    if (key === "created_at" || key === "__proto__" || key === "constructor" || key === "prototype") continue;
+    if (value === undefined || value === null || value === "") continue;
+    content[key] = value;
   }
 
   if (Object.keys(content).length === 0) {

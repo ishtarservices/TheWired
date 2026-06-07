@@ -11,6 +11,7 @@ export interface ParsedProfileContent {
   nip05: string | null;
   banner: string | null;
   lud16: string | null;
+  lud06: string | null;
   website: string | null;
 }
 
@@ -22,7 +23,7 @@ export function parseProfileContent(content: string): ParsedProfileContent | nul
   } catch {
     return null;
   }
-  if (typeof profile !== "object" || profile === null) return null;
+  if (typeof profile !== "object" || profile === null || Array.isArray(profile)) return null;
   const str = (v: unknown): string | null => (typeof v === "string" && v.length > 0 ? v : null);
   return {
     name: str(profile.name),
@@ -32,6 +33,7 @@ export function parseProfileContent(content: string): ParsedProfileContent | nul
     nip05: str(profile.nip05),
     banner: str(profile.banner),
     lud16: str(profile.lud16),
+    lud06: str(profile.lud06),
     website: str(profile.website),
   };
 }
@@ -90,6 +92,7 @@ export const profileCacheService = {
           nip05: row.nip05,
           banner: row.banner,
           lud16: row.lud16,
+          lud06: row.lud06,
           website: row.website,
           createdAt: row.createdAt,
           fetchedAt: row.fetchedAt,

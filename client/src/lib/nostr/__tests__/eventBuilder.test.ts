@@ -64,6 +64,63 @@ describe("buildProfileEvent", () => {
     const ev = buildProfileEvent(PK, { name: "test" });
     expect(ev.created_at).toBe(Math.floor(Date.now() / 1000));
   });
+
+  // ─── read-modify-write base merge ──────────────
+
+  it("preserves base-only fields the form doesn't model (no wipe of lud06/custom)", () => {
+    const base = { name: "Luna", lud06: "lnurl1xyz", nip57: "custom" } as Record<string, unknown>;
+    const ev = buildProfileEvent(PK, { name: "Luna", about: "hi" }, base);
+    const parsed = JSON.parse(ev.content);
+    expect(parsed.lud06).toBe("lnurl1xyz");
+    expect(parsed.nip57).toBe("custom");
+    expect(parsed.about).toBe("hi");
+  });
+
+  it("lets the form override a base field of the same key", () => {
+    const ev = buildProfileEvent(PK, { name: "New" }, { name: "Old", about: "keep" });
+    const parsed = JSON.parse(ev.content);
+    expect(parsed.name).toBe("New");
+    expect(parsed.about).toBe("keep");
+  });
+
+  it("an empty-string form field removes a key that exists in base (intentional clear)", () => {
+    const ev = buildProfileEvent(PK, { name: "Luna", about: "" }, { name: "Luna", about: "old bio" });
+    const parsed = JSON.parse(ev.content);
+    expect(parsed).not.toHaveProperty("about");
+  });
+
+  it("never serializes created_at into content (event-level only)", () => {
+    const ev = buildProfileEvent(
+      PK,
+      { name: "Luna", created_at: 12345 },
+      { created_at: 99999, lud16: "luna@x.com" },
+    );
+    const parsed = JSON.parse(ev.content);
+    expect(parsed).not.toHaveProperty("created_at");
+    expect(parsed.lud16).toBe("luna@x.com");
+  });
+
+  it("throws empty when base + form merge to nothing", () => {
+    expect(() => buildProfileEvent(PK, { name: "" }, { name: "" })).toThrow("empty profile");
+  });
+
+  // ─── prototype-pollution hardening (untrusted base republished) ──
+
+  it("drops __proto__ / constructor / prototype keys and never pollutes Object.prototype", () => {
+    const malicious = JSON.parse(
+      '{"name":"Luna","__proto__":{"polluted":true},"constructor":"x","prototype":"y"}',
+    );
+    const ev = buildProfileEvent(PK, { name: "Luna" }, malicious);
+    const parsed = JSON.parse(ev.content);
+    const own = (o: unknown, k: string) => Object.prototype.hasOwnProperty.call(o, k);
+    expect(parsed.name).toBe("Luna");
+    expect(own(parsed, "__proto__")).toBe(false);
+    expect(own(parsed, "constructor")).toBe(false);
+    expect(own(parsed, "prototype")).toBe(false);
+    // Global prototype must be untouched.
+    expect(({} as Record<string, unknown>).polluted).toBeUndefined();
+    expect((Object.prototype as Record<string, unknown>).polluted).toBeUndefined();
+  });
 });
 
 // ─── buildChatMessage ────────────────────────────────────

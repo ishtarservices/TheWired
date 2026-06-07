@@ -10,6 +10,7 @@ export const cachedProfiles = appSchema.table("cached_profiles", {
   nip05: text("nip05"),
   banner: text("banner"),
   lud16: text("lud16"),
+  lud06: text("lud06"),
   website: text("website"),
   /** kind:0 event created_at — the version clock for this replaceable event. */
   createdAt: bigint("created_at", { mode: "number" }),

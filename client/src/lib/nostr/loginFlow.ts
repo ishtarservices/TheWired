@@ -2,6 +2,7 @@ import { store } from "../../store";
 import {
   login,
   setProfile,
+  markProfileChecked,
   setRelayList,
   setDMRelayList,
   setFollowList,
@@ -14,7 +15,6 @@ import {
   setRelayStatus,
   updateLatency,
 } from "../../store/slices/relaysSlice";
-import type { Kind0Profile } from "../../types/profile";
 import type { RelayListEntry } from "../../types/relay";
 import { detectSigner, createSigner, type NostrSigner } from "./signer";
 import { relayManager } from "./relayManager";
@@ -67,6 +67,7 @@ import { BOOTSTRAP_RELAYS, APP_RELAY, PROFILE_RELAYS } from "./constants";
 import { signAndPublish } from "./publish";
 import { buildDMRelayListEvent } from "./eventBuilder";
 import { profileCache } from "./profileCache";
+import { parseProfile } from "../../features/profile/profileParser";
 import { loadDMState, startDMPersistence, cancelPendingSave as cancelDMSave, flushPendingSave as flushDMSave } from "../../features/dm/dmPersistence";
 import { loadDMReadState, startDMReadStateSync, cancelPendingSave as cancelDMReadStateSave, flushPendingSave as flushDMReadStateSave } from "../../features/dm/dmReadState";
 import { loadFollowerState, startFollowerPersistence, cancelPendingSave as cancelFollowerSave, flushPendingSave as flushFollowerSave } from "./followerPersistence";
@@ -244,6 +245,24 @@ function wireRelayStatusBridge(): void {
   });
 }
 
+/** Ingest the logged-in user's own kind:0 from any subscription: parse it (which
+ *  preserves fields we don't model, e.g. lud06), reconcile through the freshness
+ *  guard, and keep the shared profile cache in sync. */
+function ingestOwnProfileEvent(event: import("../../types/nostr").NostrEvent, pubkey: string): void {
+  if (event.pubkey !== pubkey || event.kind !== EVENT_KINDS.METADATA) return;
+  const profile = parseProfile(event);
+  if (!profile) {
+    idLog.warn(`own kind:0 had invalid JSON content — profile not updated`);
+    return;
+  }
+  const latency = loginStartedAt ? `${(performance.now() - loginStartedAt).toFixed(0)}ms after login` : "";
+  idLog.info(
+    `own kind:0 received → "${profile.display_name || profile.name || "unnamed"}" ${latency} — dispatching to identity slice`,
+  );
+  store.dispatch(setProfile({ profile, createdAt: event.created_at }));
+  profileCache.handleProfileEvent(event);
+}
+
 /** Subscribe for user metadata (profile, follows, mutes) on given relays */
 function subscribeUserData(
   pubkey: string,
@@ -263,20 +282,7 @@ function subscribeUserData(
 
       switch (event.kind) {
         case EVENT_KINDS.METADATA: {
-          try {
-            const profile = JSON.parse(event.content) as Kind0Profile;
-            profile.created_at = event.created_at;
-            const latency = loginStartedAt ? `${(performance.now() - loginStartedAt).toFixed(0)}ms after login` : "";
-            idLog.info(
-              `own kind:0 received → "${profile.display_name || profile.name || "unnamed"}" ${latency} — dispatching to identity slice`,
-            );
-            store.dispatch(setProfile({ profile, createdAt: event.created_at }));
-            // Keep profile cache in sync
-            profileCache.handleProfileEvent(event);
-          } catch {
-            // Invalid profile JSON
-            idLog.warn(`own kind:0 had invalid JSON content — profile not updated`);
-          }
+          ingestOwnProfileEvent(event, pubkey);
           break;
         }
         case EVENT_KINDS.FOLLOW_LIST: {
@@ -309,6 +315,9 @@ function subscribeUserData(
       }
     },
     onEOSE: () => {
+      // We've heard back from the relays — whether or not a kind:0 was found, the
+      // profile editors can now safely build a republish (no real profile to clobber).
+      store.dispatch(markProfileChecked());
       // If no kind:3 was found on relays (new user or contact list not on these
       // relays), mark the follow list as loaded so follow actions aren't blocked.
       // createdAt: 1 is a sentinel meaning "checked relays, confirmed empty" —
@@ -558,6 +567,19 @@ export async function performLogin(
 
   // Step 7: Subscribe for user metadata from bootstrap relays
   subscribeUserData(pubkey, BOOTSTRAP_RELAYS);
+
+  // Step 7-a: Also fetch our OWN kind:0 from the profile indexers. subscribeUserData
+  // bundles kinds 0/3/10000/10003, which makes relayManager strip the indexer-only
+  // relays (purplepag.es / kindpag.es) from that sub — so our own profile would only
+  // ever come from bootstrap + the user's relays, resolving LESS reliably than a
+  // stranger's (which goes through PROFILE_RELAYS). A kind:0-only filter is
+  // indexer-safe, so this reaches the indexers where most clients aggregate kind:0.
+  relayManager.subscribe({
+    filters: [{ kinds: [EVENT_KINDS.METADATA], authors: [pubkey], limit: 1 }],
+    relayUrls: PROFILE_RELAYS,
+    onEvent: (event) => ingestOwnProfileEvent(event, pubkey),
+    onEOSE: () => store.dispatch(markProfileChecked()),
+  });
 
   // Step 7b: Load spaces + last-channel cache from IndexedDB
   await initLastChannelCache();
