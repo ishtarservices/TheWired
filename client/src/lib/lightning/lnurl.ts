@@ -8,18 +8,41 @@
 import { bech32 } from "@scure/base";
 import type { NostrEvent } from "../../types/nostr";
 import { createLogger } from "../debug/logger";
+import { assertSafeFetchUrl } from "../security/ssrfGuard";
 
 const lnurlLog = createLogger("lnurl");
+
+/** How many redirect hops to follow (re-validating each) before giving up. */
+const MAX_REDIRECTS = 4;
 
 const isTauri =
   typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
 
-async function lnurlFetch(url: string): Promise<Response> {
-  if (isTauri) {
-    const { fetch: tauriFetch } = await import("@tauri-apps/plugin-http");
-    return tauriFetch(url);
+/**
+ * Fetch an LNURL endpoint whose URL was built from UNTRUSTED profile data
+ * (lud16 / lud06 / a server-supplied `callback`). Every URL — and every redirect
+ * hop — is host-validated by the SSRF guard before a request leaves the machine,
+ * so a malicious address can't point the client at loopback / LAN / cloud-metadata
+ * hosts. See lib/security/ssrfGuard.ts.
+ */
+async function lnurlFetch(rawUrl: string): Promise<Response> {
+  let url = assertSafeFetchUrl(rawUrl);
+  if (!isTauri) {
+    // Web build (not yet shipped): the browser's CORS + mixed-content policy is
+    // the backstop for redirect hops — fetch() won't let us re-validate them.
+    return fetch(url);
   }
-  return fetch(url);
+  // Desktop: the reqwest-backed plugin bypasses CORS + mixed-content, so we must
+  // follow redirects ourselves and re-validate each Location before chasing it.
+  const { fetch: tauriFetch } = await import("@tauri-apps/plugin-http");
+  for (let hop = 0; hop <= MAX_REDIRECTS; hop++) {
+    const res = await tauriFetch(url, { maxRedirections: 0 });
+    if (res.status < 300 || res.status >= 400) return res;
+    const location = res.headers.get("location");
+    if (!location) return res;
+    url = assertSafeFetchUrl(new URL(location, url).toString());
+  }
+  throw new Error("Too many redirects from the Lightning provider.");
 }
 
 export interface ZapEndpoint {

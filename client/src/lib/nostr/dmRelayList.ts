@@ -1,5 +1,6 @@
 import type { NostrEvent } from "../../types/nostr";
 import { normalizeRelayUrl } from "./nip65";
+import { isSafeRelayUrl } from "../security/ssrfGuard";
 import { relayManager } from "./relayManager";
 import { BOOTSTRAP_RELAYS } from "./constants";
 import { store } from "../../store";
@@ -12,7 +13,12 @@ export function parseDMRelayList(event: NostrEvent): string[] {
   for (const tag of event.tags) {
     if (tag[0] !== "relay" || !tag[1]) continue;
     const url = normalizeRelayUrl(tag[1]);
-    if (url) urls.push(url);
+    // SSRF guard: a kind:10050 published by the *recipient* (an attacker, when
+    // you DM them) is fully attacker-controlled, and getDMRelaysForPublish dials
+    // every entry via relayManager.connect. Drop loopback/private/link-local
+    // hosts so it can't make the client connect to internal services. See
+    // lib/security/ssrfGuard.ts.
+    if (url && isSafeRelayUrl(url)) urls.push(url);
   }
   return urls;
 }
