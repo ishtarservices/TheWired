@@ -115,10 +115,26 @@ function wsFor(url: string): MockWebSocket | undefined {
   return MockWebSocket.instances.find((w) => w.url === url);
 }
 
+/** Poll until the manager has opened the mock socket for `url`. Sockets are
+ *  created after an async DB read, so racing a fixed `tick()` is flaky on slow
+ *  CI; this resolves as soon as the socket exists, or throws on timeout (so a
+ *  genuine "never opened" regression still fails — just deterministically). */
+async function waitForWs(url: string, timeoutMs = 2000): Promise<MockWebSocket> {
+  const deadline = Date.now() + timeoutMs;
+  for (;;) {
+    const ws = wsFor(url);
+    if (ws) return ws;
+    if (Date.now() >= deadline) {
+      throw new Error(`mock WebSocket for ${url} was never opened within ${timeoutMs}ms`);
+    }
+    await new Promise((r) => setTimeout(r, 5));
+  }
+}
+
 describe("relay manager — regression (own relay)", () => {
   it("with NO registered relays, opens exactly the own relay with the two legacy REQs", async () => {
     await startManager();
-    await tick();
+    await waitForWs(config.relayUrl);
 
     expect(MockWebSocket.instances).toHaveLength(1);
     const own = ownWs();
@@ -140,14 +156,12 @@ describe("relay manager — external relays", () => {
     await insertSpaceWithRelay("spaceA", "wss://ext.example");
     await insertSpaceWithRelay("spaceB", "wss://ext.example"); // same relay → one connection
     await startManager();
+
+    const ext = await waitForWs("wss://ext.example");
+    ext.simulateOpen();
     await tick();
 
-    const ext = wsFor("wss://ext.example");
-    expect(ext).toBeDefined();
-    ext!.simulateOpen();
-    await tick();
-
-    const reqs = reqFrames(ext!);
+    const reqs = reqFrames(ext);
     const chat = reqs.find((r) => r[1] === "ext-chat")![2] as { kinds: number[]; "#h": string[] };
     expect(chat.kinds).toEqual([9, 7]);
     expect(new Set(chat["#h"])).toEqual(new Set(["spaceA", "spaceB"]));
@@ -158,8 +172,7 @@ describe("relay manager — external relays", () => {
   it("reconcile: closes a connection when its registration is removed", async () => {
     await insertSpaceWithRelay("spaceA", "wss://ext.gone");
     await startManager();
-    await tick();
-    const ext = wsFor("wss://ext.gone")!;
+    const ext = await waitForWs("wss://ext.gone");
     expect(ext.closed).toBe(false);
 
     // Drop the registration; the 40ms refresh loop should close it.
@@ -171,8 +184,7 @@ describe("relay manager — external relays", () => {
   it("reconnects after a drop (with backoff)", async () => {
     await insertSpaceWithRelay("spaceA", "wss://ext.flap");
     await startManager();
-    await tick();
-    const first = wsFor("wss://ext.flap")!;
+    const first = await waitForWs("wss://ext.flap");
 
     first.simulateOpen();
     await tick();
@@ -188,8 +200,7 @@ describe("relay manager — flood rate cap", () => {
   it("drops + flags a relay that exceeds the event cap", async () => {
     await insertSpaceWithRelay("spaceA", "wss://ext.flood");
     await startManager();
-    await tick();
-    const ext = wsFor("wss://ext.flood")!;
+    const ext = await waitForWs("wss://ext.flood");
     ext.simulateOpen();
     await tick();
 
@@ -209,8 +220,7 @@ describe("relay manager — per-relay cursor", () => {
   it("advances the relay's own since-cursor on events", async () => {
     await insertSpaceWithRelay("spaceA", "wss://ext.cursor");
     await startManager();
-    await tick();
-    const ext = wsFor("wss://ext.cursor")!;
+    const ext = await waitForWs("wss://ext.cursor");
     ext.simulateOpen();
     await tick();
 
