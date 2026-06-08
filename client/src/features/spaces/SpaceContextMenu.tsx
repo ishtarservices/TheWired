@@ -1,6 +1,6 @@
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import { BellOff, Bell, Clock, Link2, LogOut, Trash2, Pin, PinOff, Sparkles } from "lucide-react";
+import { BellOff, Bell, Clock, Link2, LogOut, Trash2, Pin, PinOff, BrainCircuit } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useAppDispatch, useAppSelector } from "../../store/hooks";
 import { selectFeatureEnabled, FEATURE_AI } from "../../store/slices/featuresSlice";
@@ -195,7 +195,7 @@ export function SpaceContextMenu({
               }}
               className="flex w-full items-center gap-2 rounded-lg mx-1 px-3.5 py-2.5 text-sm text-body hover:bg-surface-hover hover:text-heading transition-colors"
             >
-              <Sparkles size={14} />
+              <BrainCircuit size={14} />
               Catch me up
             </button>
           )}

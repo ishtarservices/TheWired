@@ -3,7 +3,7 @@ import { parseContent, type ContentSegment } from "@/lib/content/parseContent";
 import { MentionLink } from "./MentionLink";
 import { InlineMarkdown } from "./InlineMarkdown";
 import { EmbedRenderer } from "./EmbedRenderer";
-import { MusicEmbedCard } from "./MusicEmbedCard";
+import { EmbeddedNote } from "./EmbeddedNote";
 import { InviteCard } from "./InviteCard";
 import { SmartImage, SmartVideo } from "../media";
 
@@ -12,26 +12,38 @@ interface RichContentProps {
   /** NIP-30 emoji tags from the event: [["emoji", shortcode, url], ...] */
   emojiTags?: string[][];
   onMentionClick?: (pubkey: string, anchor: HTMLElement) => void;
+  /**
+   * Event ids already rendered elsewhere (e.g. a dedicated quote card) — skip
+   * the inline embed for them so the same note isn't shown twice.
+   */
+  suppressEventIds?: string[];
 }
 
-export function RichContent({ content, emojiTags, onMentionClick }: RichContentProps) {
+export function RichContent({ content, emojiTags, onMentionClick, suppressEventIds }: RichContentProps) {
   const segments = parseContent(content, emojiTags);
 
   return (
-    <span className="whitespace-pre-wrap wrap-break-word">
+    <div className="whitespace-pre-wrap wrap-break-word">
       {segments.map((seg, i) => (
-        <RichSegment key={i} segment={seg} onMentionClick={onMentionClick} />
+        <RichSegment
+          key={i}
+          segment={seg}
+          onMentionClick={onMentionClick}
+          suppressEventIds={suppressEventIds}
+        />
       ))}
-    </span>
+    </div>
   );
 }
 
 function RichSegment({
   segment,
   onMentionClick,
+  suppressEventIds,
 }: {
   segment: ContentSegment;
   onMentionClick?: (pubkey: string, anchor: HTMLElement) => void;
+  suppressEventIds?: string[];
 }) {
   switch (segment.type) {
     case "text":
@@ -41,26 +53,29 @@ function RichSegment({
       return <MentionLink pubkey={segment.pubkey} onClick={onMentionClick} />;
 
     case "event-ref":
+      // Already rendered as a dedicated quote card elsewhere — don't duplicate.
+      if (suppressEventIds?.includes(segment.id)) return null;
       return (
-        <span className="font-mono text-xs text-primary/70 bg-surface px-1 py-0.5 rounded">
-          {segment.id.slice(0, 8)}...
-        </span>
+        <EmbeddedNote
+          idRef={{
+            id: segment.id,
+            relays: segment.relays,
+            author: segment.author,
+            kind: segment.kind,
+          }}
+        />
       );
 
     case "addr-ref":
-      if (segment.kind === 31683 || segment.kind === 33123) {
-        return (
-          <MusicEmbedCard
-            kind={segment.kind}
-            pubkey={segment.pubkey}
-            identifier={segment.identifier}
-          />
-        );
-      }
       return (
-        <span className="font-mono text-xs text-primary/70 bg-surface px-1 py-0.5 rounded">
-          {segment.identifier || "addr"}
-        </span>
+        <EmbeddedNote
+          addrRef={{
+            kind: segment.kind,
+            pubkey: segment.pubkey,
+            identifier: segment.identifier,
+            relays: segment.relays,
+          }}
+        />
       );
 
     case "url":

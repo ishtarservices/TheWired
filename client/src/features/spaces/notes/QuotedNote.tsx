@@ -1,40 +1,31 @@
 import { memo } from "react";
-import { useAppSelector } from "../../../store/hooks";
-import { eventsSelectors } from "../../../store/slices/eventsSlice";
-import { useProfile } from "../../profile/useProfile";
-import { Avatar } from "../../../components/ui/Avatar";
-import { RichContent } from "../../../components/content/RichContent";
+import { EmbeddedNote } from "../../../components/content/EmbeddedNote";
+import { EmbedDepthContext } from "../../../components/content/embedDepth";
 
 interface QuotedNoteProps {
   eventId: string;
+  /** Relay hint from the NIP-18 `q` tag, if any. */
+  relayHint?: string;
+  /** Author pubkey from the NIP-18 `q` tag, if any. */
+  pubkey?: string;
 }
 
-export const QuotedNote = memo(function QuotedNote({ eventId }: QuotedNoteProps) {
-  const event = useAppSelector((s) => eventsSelectors.selectById(s.events, eventId));
-  const { profile } = useProfile(event?.pubkey ?? null);
-
-  if (!event) {
-    return (
-      <div className="mt-2 card-glass rounded-xl p-3 text-xs text-muted">
-        Quoted note not found
-      </div>
-    );
-  }
-
-  const name = profile?.display_name || profile?.name || event.pubkey.slice(0, 8) + "...";
-  const truncated = event.content.length > 280
-    ? event.content.slice(0, 280) + "..."
-    : event.content;
-
+/**
+ * A NIP-18 quoted note shown beneath a note's body. Renders the referenced
+ * event as a compact, fetch-if-missing card (depth 1) — the same machinery that
+ * powers inline `nostr:` embeds, so quotes resolve, are kind-aware, and don't
+ * recurse without bound.
+ */
+export const QuotedNote = memo(function QuotedNote({ eventId, relayHint, pubkey }: QuotedNoteProps) {
   return (
-    <div className="mt-2 card-glass rounded-xl p-3">
-      <div className="mb-1 flex items-center gap-1.5">
-        <Avatar src={profile?.picture} alt={name} size="xs" />
-        <span className="text-xs font-medium text-heading">{name}</span>
-      </div>
-      <div className="line-clamp-3 text-xs leading-relaxed text-body">
-        <RichContent content={truncated} />
-      </div>
-    </div>
+    <EmbedDepthContext.Provider value={1}>
+      <EmbeddedNote
+        idRef={{
+          id: eventId,
+          relays: relayHint ? [relayHint] : undefined,
+          author: pubkey || undefined,
+        }}
+      />
+    </EmbedDepthContext.Provider>
   );
 });

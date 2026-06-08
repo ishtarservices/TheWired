@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import { createPortal } from "react-dom";
 import { useNavigate } from "react-router-dom";
-import { ChevronLeft, ChevronRight, X, Sparkles } from "lucide-react";
+import { ChevronLeft, ChevronRight, X, PartyPopper } from "lucide-react";
 import { AnimatePresence, motion } from "motion/react";
 import { cn } from "@/lib/utils";
 import { Button } from "../../components/ui/Button";
@@ -175,7 +175,7 @@ export function AppTour() {
                 className="mb-4 flex justify-center"
               >
                 <div className="flex h-14 w-14 items-center justify-center rounded-full bg-primary/10 animate-pulse-glow">
-                  <Sparkles size={28} className="text-primary" />
+                  <PartyPopper size={28} className="text-primary" />
                 </div>
               </motion.div>
 

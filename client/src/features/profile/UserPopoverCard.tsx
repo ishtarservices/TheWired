@@ -14,7 +14,7 @@ import {
   HeartHandshake,
   Clock,
   Zap,
-  Sparkles,
+  BrainCircuit,
 } from "lucide-react";
 import { npubEncode } from "nostr-tools/nip19";
 import { Avatar } from "@/components/ui/Avatar";
@@ -453,7 +453,7 @@ export function UserPopoverCard({
                 className="flex items-center justify-center rounded-lg bg-surface-hover px-2.5 py-1.5 text-heading hover:bg-surface-hover/80 transition-colors"
                 title="Ask AI about this account"
               >
-                <Sparkles size={14} />
+                <BrainCircuit size={14} />
               </button>
             )}
 

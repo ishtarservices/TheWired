@@ -1,4 +1,5 @@
 import { createSlice, type PayloadAction } from "@reduxjs/toolkit";
+import { summarizeContent } from "../../lib/content/contentPreview";
 
 export interface DMMessage {
   id: string;
@@ -55,9 +56,10 @@ const initialState: DMState = {
   mutationCounter: 0,
 };
 
-/** Truncate a string for message preview display */
+/** Build a friendly one-line message preview: summarize noisy refs/URLs, then truncate */
 function truncatePreview(text: string, max = 50): string {
-  return text.length > max ? text.slice(0, max) + "..." : text;
+  const summary = summarizeContent(text);
+  return summary.length > max ? summary.slice(0, max) + "..." : summary;
 }
 
 /** Insert a message in sorted (ascending createdAt) order via binary search */

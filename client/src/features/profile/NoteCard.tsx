@@ -309,6 +309,7 @@ function NoteCardInner({
           <RichContent
             content={cleanedContent}
             onMentionClick={(pubkey, anchor) => setMentionPopover({ pubkey, anchor })}
+            suppressEventIds={quoteRef ? [quoteRef.eventId] : undefined}
           />
         </div>
       )}
@@ -341,7 +342,9 @@ function NoteCardInner({
       )}
 
       {/* Quoted note */}
-      {quoteRef && <QuotedNote eventId={quoteRef.eventId} />}
+      {quoteRef && (
+        <QuotedNote eventId={quoteRef.eventId} relayHint={quoteRef.relayHint} pubkey={quoteRef.pubkey} />
+      )}
 
       {/* Engagement action bar */}
       <NoteActionBar

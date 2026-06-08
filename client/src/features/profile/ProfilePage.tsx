@@ -30,7 +30,7 @@ import {
   Loader2,
   Mic2,
   Music2,
-  Sparkles,
+  BrainCircuit,
   PenSquare,
 } from "lucide-react";
 import { npubEncode } from "nostr-tools/nip19";
@@ -516,7 +516,7 @@ export function ProfilePage({ pubkey }: ProfilePageProps) {
                           }}
                           className="flex w-full items-center gap-2.5 px-3 py-2 text-xs text-heading hover:bg-surface-hover transition-colors"
                         >
-                          <Sparkles size={13} />
+                          <BrainCircuit size={13} />
                           Ask AI about this account
                         </button>
                         <div className="border-t border-border" />

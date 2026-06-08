@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Sparkles, X } from "lucide-react";
+import { SlidersHorizontal, X } from "lucide-react";
 import { useAppSelector } from "../../store/hooks";
 import { OnboardingFlow } from "./OnboardingFlow";
 
@@ -21,7 +21,7 @@ export function OnboardingBanner({ spaceId, spaceName, spacePicture }: Onboardin
   return (
     <>
       <div className="flex items-center gap-3 rounded-xl bg-primary/5 border border-primary/10 px-4 py-2.5 mx-4 mt-2">
-        <Sparkles size={16} className="shrink-0 text-primary" />
+        <SlidersHorizontal size={16} className="shrink-0 text-primary" />
         <div className="flex-1 min-w-0">
           <p className="text-xs font-medium text-heading">Customize your experience</p>
           <p className="text-[10px] text-muted">
