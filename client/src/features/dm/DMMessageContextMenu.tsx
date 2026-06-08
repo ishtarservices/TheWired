@@ -1,4 +1,4 @@
-import { Copy, Trash2, EyeOff, Pencil, Reply, Sparkles } from "lucide-react";
+import { Copy, Trash2, EyeOff, Pencil, Reply, BrainCircuit } from "lucide-react";
 import { useAppDispatch } from "@/store/hooks";
 import { deleteDMMessage } from "@/store/slices/dmSlice";
 import { PopoverMenu, PopoverMenuItem, PopoverMenuSeparator } from "@/components/ui/PopoverMenu";
@@ -79,7 +79,7 @@ export function DMMessageContextMenu({
         />
         {aiEnabled && (
           <PopoverMenuItem
-            icon={<Sparkles size={14} />}
+            icon={<BrainCircuit size={14} />}
             label="Ask AI"
             onClick={() => {
               askAI(buildDMMessageContext(partnerPubkey, wrapId));

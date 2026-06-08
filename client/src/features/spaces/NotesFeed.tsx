@@ -159,11 +159,17 @@ const NoteCard = memo(function NoteCard({ event }: { event: NostrEvent }) {
 
       {cleanText && (
         <div className="text-sm leading-relaxed text-body">
-          <RichContent content={cleanText} onMentionClick={openUserPopover} />
+          <RichContent
+            content={cleanText}
+            onMentionClick={openUserPopover}
+            suppressEventIds={quoteRef ? [quoteRef.eventId] : undefined}
+          />
         </div>
       )}
 
-      {quoteRef && <QuotedNote eventId={quoteRef.eventId} />}
+      {quoteRef && (
+        <QuotedNote eventId={quoteRef.eventId} relayHint={quoteRef.relayHint} pubkey={quoteRef.pubkey} />
+      )}
 
       {media.length > 0 && (
         <div className="mt-2">

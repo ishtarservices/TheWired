@@ -1,5 +1,5 @@
 import { useRef, useState, useEffect } from "react";
-import { Trash2, Sparkles } from "lucide-react";
+import { Trash2, BrainCircuit } from "lucide-react";
 import { useAppDispatch, useAppSelector } from "@/store/hooks";
 import { deleteDMConversation } from "@/store/slices/dmSlice";
 import { PopoverMenu, PopoverMenuItem, PopoverMenuSeparator } from "@/components/ui/PopoverMenu";
@@ -80,7 +80,7 @@ export function DMConversationContextMenu({
             {aiEnabled && (
               <>
                 <PopoverMenuItem
-                  icon={<Sparkles size={14} />}
+                  icon={<BrainCircuit size={14} />}
                   label="Summarize with AI"
                   onClick={() => {
                     askAI(buildDMConversationContext(partnerPubkey));

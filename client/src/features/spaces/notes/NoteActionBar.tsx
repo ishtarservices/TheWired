@@ -1,5 +1,5 @@
 import { memo } from "react";
-import { MessageCircle, Repeat2, Heart, Quote, Share, Pin, Zap, Sparkles } from "lucide-react";
+import { MessageCircle, Repeat2, Heart, Quote, Share, Pin, Zap, BrainCircuit } from "lucide-react";
 import type { NoteEngagement } from "../useNoteEngagement";
 
 interface NoteActionBarProps {
@@ -114,7 +114,7 @@ export const NoteActionBar = memo(function NoteActionBar({
           className="group flex items-center gap-1.5 text-xs text-muted transition-colors hover:text-primary"
           title="Ask AI about this thread"
         >
-          <Sparkles size={16} className="group-hover:text-primary" />
+          <BrainCircuit size={16} className="group-hover:text-primary" />
         </button>
       )}
 

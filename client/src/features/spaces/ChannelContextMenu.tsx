@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import { Bell, BellOff, Volume2, AtSign, VolumeX, Check, Sparkles } from "lucide-react";
+import { Bell, BellOff, Volume2, AtSign, VolumeX, Check, BrainCircuit } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useAppDispatch, useAppSelector } from "../../store/hooks";
 import { selectFeatureEnabled, FEATURE_AI } from "../../store/slices/featuresSlice";
@@ -132,7 +132,7 @@ export function ChannelContextMenu({
               }}
               className="flex w-full items-center gap-2 rounded-lg mx-1 px-3.5 py-2.5 text-sm text-body hover:bg-surface-hover hover:text-heading transition-colors"
             >
-              <Sparkles size={14} />
+              <BrainCircuit size={14} />
               Summarize channel
             </button>
           )}

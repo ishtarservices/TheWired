@@ -1,4 +1,4 @@
-import { Sparkles } from "lucide-react";
+import { Blocks } from "lucide-react";
 import { useAppDispatch, useAppSelector } from "../../store/hooks";
 import {
   FEATURE_AI,
@@ -84,7 +84,7 @@ export function FeaturesSettingsTab() {
     <div className="mx-auto w-full max-w-lg space-y-4">
       <div className="rounded-lg border border-border bg-panel p-4">
         <div className="mb-1 flex items-center gap-2">
-          <Sparkles size={14} className="text-primary" />
+          <Blocks size={14} className="text-primary" />
           <h3 className="text-sm font-semibold text-heading">Optional Features</h3>
         </div>
         <p className="mb-3 text-xs text-muted">

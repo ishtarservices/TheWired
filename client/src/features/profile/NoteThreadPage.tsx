@@ -213,14 +213,19 @@ function RootNoteExpanded({ event }: { event: NostrEvent }) {
       {/* Content — larger text for expanded view */}
       {cleanedContent && (
         <div className="text-[15px] leading-relaxed text-body mb-3">
-          <RichContent content={cleanedContent} />
+          <RichContent
+            content={cleanedContent}
+            suppressEventIds={quoteRef ? [quoteRef.eventId] : undefined}
+          />
         </div>
       )}
 
       {/* Media */}
       {media.length > 0 && <MediaGallery media={media} density="expanded" />}
 
-      {quoteRef && <QuotedNote eventId={quoteRef.eventId} />}
+      {quoteRef && (
+        <QuotedNote eventId={quoteRef.eventId} relayHint={quoteRef.relayHint} pubkey={quoteRef.pubkey} />
+      )}
 
       {/* Timestamp */}
       <p className="mt-3 mb-3 text-xs text-muted border-b border-border pb-3">
