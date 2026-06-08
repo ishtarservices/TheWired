@@ -10,7 +10,8 @@ interface NoteActionBarProps {
   onRepost: () => void;
   onLike: () => void;
   onQuote: () => void;
-  onShare?: () => void;
+  /** Opens the share menu, anchored to the Share button. */
+  onShare?: (anchor: HTMLElement) => void;
   /** Zap action — sends a NIP-57 lightning zap to the note author */
   onZap?: () => void;
   /** Pin action — only shown on the user's own root notes */
@@ -121,7 +122,7 @@ export const NoteActionBar = memo(function NoteActionBar({
       {/* Share */}
       {onShare && (
         <button
-          onClick={onShare}
+          onClick={(e) => onShare(e.currentTarget)}
           disabled={!canInteract}
           className="group flex items-center gap-1.5 text-xs text-muted transition-colors hover:text-primary disabled:cursor-not-allowed disabled:opacity-40"
         >
