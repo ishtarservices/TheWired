@@ -1,19 +1,20 @@
-import Markdown from "react-markdown";
-import remarkGfm from "remark-gfm";
-import rehypeHighlight from "rehype-highlight";
-import { ArrowLeft, Zap } from "lucide-react";
+import { ArrowLeft, Zap, Pencil, Trash2 } from "lucide-react";
 import { Button } from "../../components/ui/Button";
 import { Avatar } from "../../components/ui/Avatar";
 import { useProfile } from "../profile/useProfile";
 import { useZap } from "../wallet/WalletProvider";
+import { ArticleMarkdown } from "./ArticleMarkdown";
 import type { LongFormArticle } from "../../types/media";
 
 interface ArticleReaderProps {
   article: LongFormArticle;
   onBack: () => void;
+  /** Shown only for the author (provided by the reader route). */
+  onEdit?: () => void;
+  onDelete?: () => void;
 }
 
-export function ArticleReader({ article, onBack }: ArticleReaderProps) {
+export function ArticleReader({ article, onBack, onEdit, onDelete }: ArticleReaderProps) {
   const { profile } = useProfile(article.pubkey);
   const { openZap } = useZap();
   const authorName =
@@ -23,11 +24,33 @@ export function ArticleReader({ article, onBack }: ArticleReaderProps) {
 
   return (
     <div className="flex-1 overflow-y-auto">
-      <div className="border-b border-border px-6 py-3">
+      <div className="flex items-center justify-between border-b border-border px-6 py-3">
         <Button variant="ghost" size="sm" onClick={onBack} className="gap-1">
           <ArrowLeft size={16} />
           Back
         </Button>
+        {(onEdit || onDelete) && (
+          <div className="flex items-center gap-2">
+            {onEdit && (
+              <button
+                onClick={onEdit}
+                className="flex items-center gap-1.5 rounded-lg bg-surface-hover px-3 py-1.5 text-xs font-medium text-heading transition-colors hover:bg-surface-hover/80"
+              >
+                <Pencil size={13} />
+                Edit
+              </button>
+            )}
+            {onDelete && (
+              <button
+                onClick={onDelete}
+                className="flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-medium text-red-400 transition-colors hover:bg-red-500/10"
+              >
+                <Trash2 size={13} />
+                Delete
+              </button>
+            )}
+          </div>
+        )}
       </div>
 
       {article.image && (
@@ -76,10 +99,8 @@ export function ArticleReader({ article, onBack }: ArticleReaderProps) {
           </div>
         )}
 
-        <div className="prose prose-invert mt-8 max-w-none prose-headings:text-heading prose-p:text-body prose-a:text-primary-soft prose-code:text-primary-soft prose-pre:bg-panel">
-          <Markdown remarkPlugins={[remarkGfm]} rehypePlugins={[rehypeHighlight]}>
-            {article.content}
-          </Markdown>
+        <div className="mt-8">
+          <ArticleMarkdown content={article.content} />
         </div>
       </div>
     </div>

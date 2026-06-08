@@ -1,7 +1,6 @@
 import { useState, useEffect, useMemo, useRef, memo, useCallback } from "react";
-import { useNavigate } from "react-router-dom";
-import { ChevronUp, ChevronDown, Image as ImageIcon, CornerUpLeft, MoreHorizontal, Trash2, Download } from "lucide-react";
-import { MediaLightbox, downloadMedia } from "../../components/ui/MediaLightbox";
+import { ChevronUp, ChevronDown, Image as ImageIcon, CornerUpLeft, MoreHorizontal, Trash2 } from "lucide-react";
+import { MediaGallery } from "../../components/media";
 import { Avatar } from "../../components/ui/Avatar";
 import { RichContent } from "../../components/content/RichContent";
 import { MusicEmbedCard } from "../../components/content/MusicEmbedCard";
@@ -16,12 +15,13 @@ import { useProfile } from "./useProfile";
 import { useProfileNoteActions } from "./useProfileNoteActions";
 import { useNoteEngagement } from "../spaces/useNoteEngagement";
 import { useRepostedEvent } from "./useRepostedEvent";
-import { useEngagementReporter } from "./engagementCollector";
-import { parseThreadRef, parseQuoteRef } from "../spaces/noteParser";
+import { useEngagementReporter, EngagementCollectorProvider } from "./engagementCollector";
+import { parseThreadRef, parseQuoteRef, isDirectReply } from "../spaces/noteParser";
 import { extractMediaUrls, stripMediaUrls } from "../../lib/media/mediaUrlParser";
 import { UserPopoverCard } from "./UserPopoverCard";
 import { useZap } from "../wallet/WalletProvider";
 import { useClickOutside } from "../../hooks/useClickOutside";
+import { shallowEqual } from "react-redux";
 import { useAppSelector, useAppDispatch } from "../../store/hooks";
 import { eventsSelectors, removeEvent, removeRepost } from "../../store/slices/eventsSlice";
 import { subscriptionManager } from "../../lib/nostr/subscriptionManager";
@@ -49,6 +49,11 @@ interface NoteCardProps {
   showThreadContext?: boolean;
   /** Stagger animation delay in ms */
   animationDelay?: number;
+  /**
+   * Stable id for anchor-based scroll restoration. Set by paginated feeds (not
+   * pinned/standalone uses) so back-nav can land on this exact card.
+   */
+  anchorId?: string;
 }
 
 export const ProfileNoteCard = memo(function ProfileNoteCard({
@@ -56,6 +61,7 @@ export const ProfileNoteCard = memo(function ProfileNoteCard({
   index = 0,
   showThreadContext,
   animationDelay,
+  anchorId,
 }: NoteCardProps) {
   const myPubkey = useAppSelector((s) => s.identity.pubkey);
   const dispatch = useAppDispatch();
@@ -87,6 +93,7 @@ export const ProfileNoteCard = memo(function ProfileNoteCard({
     return (
       <div
         ref={engagementRef}
+        data-feed-anchor={anchorId}
         className="animate-fade-in-up"
         style={animationDelay ? { animationDelay: `${animationDelay}ms` } : undefined}
       >
@@ -102,6 +109,7 @@ export const ProfileNoteCard = memo(function ProfileNoteCard({
   return (
     <div
       ref={engagementRef}
+      data-feed-anchor={anchorId}
       className="animate-fade-in-up"
       style={animationDelay ? { animationDelay: `${animationDelay}ms` } : undefined}
     >
@@ -153,7 +161,6 @@ function NoteCardInner({
   event: NostrEvent;
   showThreadContext?: boolean;
 }) {
-  const navigate = useNavigate();
   const { profile } = useProfile(event.pubkey);
   const engagement = useNoteEngagement(event.id);
   const actions = useProfileNoteActions(event);
@@ -163,9 +170,11 @@ function NoteCardInner({
   const askAI = useAskAI();
   const aiEnabled = useAppSelector(selectFeatureEnabled(FEATURE_AI));
   const [showReplyComposer, setShowReplyComposer] = useState(false);
+  const [showQuoteComposer, setShowQuoteComposer] = useState(false);
+  const [showReplies, setShowReplies] = useState(false);
   const [showMedia, setShowMedia] = useState(true);
   const [showPopover, setShowPopover] = useState(false);
-  const [lightboxSrc, setLightboxSrc] = useState<string | null>(null);
+  const [mentionPopover, setMentionPopover] = useState<{ pubkey: string; anchor: HTMLElement } | null>(null);
   const [showOverflow, setShowOverflow] = useState(false);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const avatarRef = useRef<HTMLButtonElement>(null);
@@ -174,13 +183,6 @@ function NoteCardInner({
 
   useClickOutside(overflowRef, () => setShowOverflow(false), showOverflow);
   useClickOutside(deleteConfirmRef, () => setShowDeleteConfirm(false), showDeleteConfirm);
-
-  const handleCardClick = useCallback((e: React.MouseEvent) => {
-    // Don't navigate if clicking on interactive elements
-    const target = e.target as HTMLElement;
-    if (target.closest("button, a, input, textarea, video, audio, [role='button']")) return;
-    navigate(`/note/${event.id}`);
-  }, [navigate, event.id]);
 
   const handleDelete = useCallback(() => {
     setShowDeleteConfirm(false);
@@ -210,7 +212,7 @@ function NoteCardInner({
   const hasMedia = media.length > 0;
 
   return (
-    <div onClick={handleCardClick} className="group/notecard card-glass rounded-xl p-5 transition-all duration-150 hover-lift cursor-pointer">
+    <div className="group/notecard card-glass rounded-xl p-5 transition-all duration-150">
       {/* Author row */}
       <div className="mb-3 flex items-center gap-3">
         <button
@@ -225,7 +227,12 @@ function NoteCardInner({
         )}
         <div className="min-w-0 flex-1">
           <span className="text-sm font-semibold text-heading">{displayName}</span>
-          <span className="ml-2 text-xs text-muted">{formatRelativeTime(event.created_at)}</span>
+          <span
+            className="ml-2 text-xs text-muted"
+            title={new Date(event.created_at * 1000).toLocaleString()}
+          >
+            {formatRelativeTime(event.created_at)}
+          </span>
         </div>
 
         {/* Overflow menu (own notes only) */}
@@ -296,11 +303,21 @@ function NoteCardInner({
         <ThreadContext parentId={threadRef.replyId} />
       )}
 
-      {/* Content */}
+      {/* Content — mentions open an in-place popover, never navigate away */}
       {cleanedContent && (
         <div className="text-sm leading-relaxed text-body">
-          <RichContent content={cleanedContent} />
+          <RichContent
+            content={cleanedContent}
+            onMentionClick={(pubkey, anchor) => setMentionPopover({ pubkey, anchor })}
+          />
         </div>
+      )}
+      {mentionPopover && (
+        <UserPopoverCard
+          pubkey={mentionPopover.pubkey}
+          anchorEl={mentionPopover.anchor}
+          onClose={() => setMentionPopover(null)}
+        />
       )}
 
       {/* Media toggle + display — shown by default */}
@@ -315,56 +332,12 @@ function NoteCardInner({
         </button>
       )}
 
-      {showMedia && media.length > 0 && (
-        <div className="mt-3 flex flex-col gap-2">
-          {media.map((m) => (
-            <div key={m.url} className="group/media relative">
-              {m.type === "image" && (
-                <>
-                  <img
-                    src={m.url}
-                    alt=""
-                    loading="lazy"
-                    onClick={() => setLightboxSrc(m.url)}
-                    className="max-h-96 w-full rounded-lg object-cover cursor-zoom-in hover:opacity-90 transition-opacity"
-                  />
-                  <button
-                    onClick={() => downloadMedia(m.url)}
-                    className="absolute right-2 top-2 rounded-full bg-black/50 p-1.5 text-white/70 opacity-0 group-hover/media:opacity-100 hover:bg-black/70 hover:text-white transition-all"
-                    title="Download image"
-                  >
-                    <Download size={14} />
-                  </button>
-                </>
-              )}
-              {m.type === "video" && (
-                <>
-                  <video
-                    src={m.url}
-                    controls
-                    preload="metadata"
-                    className="max-h-96 w-full rounded-lg"
-                  />
-                  <button
-                    onClick={() => downloadMedia(m.url)}
-                    className="absolute right-2 top-2 rounded-full bg-black/50 p-1.5 text-white/70 opacity-0 group-hover/media:opacity-100 hover:bg-black/70 hover:text-white transition-all"
-                    title="Download video"
-                  >
-                    <Download size={14} />
-                  </button>
-                </>
-              )}
-              {m.type === "audio" && (
-                <audio src={m.url} controls className="w-full" />
-              )}
-            </div>
-          ))}
+      {/* Keep the gallery mounted and toggle visibility so re-showing doesn't
+          re-decode the media and pop in at the wrong size. */}
+      {media.length > 0 && (
+        <div className={showMedia ? undefined : "hidden"}>
+          <MediaGallery media={media} density="feed" />
         </div>
-      )}
-
-      {/* Image lightbox */}
-      {lightboxSrc && (
-        <MediaLightbox src={lightboxSrc} onClose={() => setLightboxSrc(null)} />
       )}
 
       {/* Quoted note */}
@@ -378,10 +351,7 @@ function NoteCardInner({
         onReply={() => setShowReplyComposer((v) => !v)}
         onRepost={actions.repost}
         onLike={actions.like}
-        onQuote={() => {
-          const content = prompt("Quote this note:");
-          if (content) actions.quote(content);
-        }}
+        onQuote={() => setShowQuoteComposer((v) => !v)}
         onZap={() => openZap({ recipientPubkey: event.pubkey, event })}
         showPin={showPin}
         isPinned={isPinned}
@@ -400,10 +370,97 @@ function NoteCardInner({
           onSend={(content) => {
             actions.reply(content);
             setShowReplyComposer(false);
+            setShowReplies(true);
           }}
           onCancel={() => setShowReplyComposer(false)}
         />
       )}
+
+      {/* Quote composer — replaces the old native prompt() */}
+      {showQuoteComposer && (
+        <ReplyComposer
+          targetPubkey={event.pubkey}
+          label="Quoting"
+          placeholder="Add a comment…"
+          onSend={(content) => {
+            actions.quote(content);
+            setShowQuoteComposer(false);
+          }}
+          onCancel={() => setShowQuoteComposer(false)}
+        />
+      )}
+
+      {/* Inline replies — read the conversation without leaving the feed */}
+      {engagement.replyCount > 0 && (
+        <button
+          onClick={() => setShowReplies((v) => !v)}
+          className="mt-2 flex items-center gap-1 text-xs font-medium text-muted transition-colors hover:text-heading"
+        >
+          {showReplies ? <ChevronUp size={13} /> : <ChevronDown size={13} />}
+          {showReplies ? "Hide" : "View"} {engagement.replyCount}{" "}
+          {engagement.replyCount === 1 ? "reply" : "replies"}
+        </button>
+      )}
+      {showReplies && <InlineReplies noteId={event.id} />}
+    </div>
+  );
+}
+
+/** Stable empty array so the id selector doesn't churn when there are none. */
+const EMPTY_IDS: string[] = [];
+
+/**
+ * Lazily-loaded reply thread, rendered inline so the conversation is reachable
+ * without navigating to a dedicated note page. Subscribes for direct replies
+ * (kind:1 `#e`) while expanded and renders each as a (recursively expandable)
+ * note card, so likes/zaps/replies and nested threads all work in place.
+ */
+function InlineReplies({ noteId }: { noteId: string }) {
+  // Select the (stable) id list and the entities map separately, then derive the
+  // direct-child set in a memo — so we don't rebuild + sort on every unrelated
+  // store dispatch (engagement REQs stream kind:7/6/1 constantly).
+  const replyIds = useAppSelector(
+    (s) => s.events.replies[noteId] ?? EMPTY_IDS,
+    shallowEqual,
+  );
+  const entities = useAppSelector((s) => s.events.entities);
+
+  const items = useMemo(() => {
+    const out: ProfileFeedItem[] = [];
+    for (const id of replyIds) {
+      const ev = entities[id];
+      // DIRECT replies only: `replies[noteId]` is the whole flattened subtree
+      // (each reply is indexed under both its root and its parent), so without
+      // this filter every nested reply would also render under each ancestor.
+      if (ev && isDirectReply(ev, noteId)) {
+        out.push({ event: ev, repostedEventId: null, reposterPubkey: null });
+      }
+    }
+    out.sort((a, b) => a.event.created_at - b.event.created_at);
+    return out;
+  }, [replyIds, entities, noteId]);
+
+  // Fetch the full thread + stream new replies for as long as it's open.
+  useEffect(() => {
+    const subId = subscriptionManager.subscribe({
+      filters: [{ kinds: [EVENT_KINDS.SHORT_TEXT], "#e": [noteId], limit: 100 }],
+      relayUrls: PROFILE_RELAYS,
+    });
+    return () => subscriptionManager.close(subId);
+  }, [noteId]);
+
+  if (items.length === 0) {
+    return <p className="mt-2 pl-3 text-xs text-muted">Loading replies…</p>;
+  }
+
+  return (
+    // Stable item identities (memoized above) keep ProfileNoteCard's memo intact.
+    <div className="mt-3 flex flex-col gap-3 border-l-2 border-border pl-3">
+      <EngagementCollectorProvider relayUrls={PROFILE_RELAYS}>
+        {items.map((item, i) => (
+          <ProfileNoteCard key={item.event.id} item={item} index={i} />
+        ))}
+      </EngagementCollectorProvider>
     </div>
   );
 }

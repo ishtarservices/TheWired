@@ -6,6 +6,7 @@
  * clipboard-equivalent here. Hidden entirely for read-only logins (no signer).
  */
 import { useRef, useState } from "react";
+import { useNavigate } from "react-router-dom";
 import {
   MoreHorizontal,
   FileText,
@@ -26,17 +27,16 @@ import { relayManager } from "@/lib/nostr/relayManager";
 import { sendDM } from "@/features/dm/dmService";
 import type { Space, SpaceChannel } from "@/types/space";
 import type { UnsignedEvent } from "@/types/nostr";
-import { ArticleComposeModal } from "./ArticleComposeModal";
 
 type Status = { kind: "idle" } | { kind: "busy" } | { kind: "done" } | { kind: "error"; message: string };
 
 export function AIPublishMenu({ text, title }: { text: string; title?: string }) {
   const anchorRef = useRef<HTMLButtonElement>(null);
+  const navigate = useNavigate();
   const [open, setOpen] = useState(false);
   const [status, setStatus] = useState<Status>({ kind: "idle" });
   const [dmPicker, setDmPicker] = useState(false);
   const [spacePicker, setSpacePicker] = useState(false);
-  const [articleOpen, setArticleOpen] = useState(false);
 
   const hasSigner = useAppSelector((s) => s.identity.signerType !== null && !!s.identity.pubkey);
   if (!hasSigner) return null;
@@ -103,8 +103,13 @@ export function AIPublishMenu({ text, title }: { text: string; title?: string })
         <PopoverMenuItem icon={<FileText size={14} />} label="Publish as note" onClick={publishNote} />
         <PopoverMenuItem
           icon={<Newspaper size={14} />}
-          label="Publish as article"
-          onClick={() => { setOpen(false); setArticleOpen(true); }}
+          label="Edit & publish as article"
+          onClick={() => {
+            setOpen(false);
+            // Hand the AI output to the full article editor (cover, formatting,
+            // preview, visibility, autosave) prefilled — far richer than a modal.
+            navigate("/write", { state: { articleSeed: { title, content: text } } });
+          }}
         />
         <PopoverMenuItem
           icon={<UsersIcon size={14} />}
@@ -138,14 +143,6 @@ export function AIPublishMenu({ text, title }: { text: string; title?: string })
           onSelect={postToSpace}
           channelTypes={["chat", "notes"]}
           title="Post to Space"
-        />
-      )}
-      {articleOpen && (
-        <ArticleComposeModal
-          open={articleOpen}
-          onClose={() => setArticleOpen(false)}
-          initialContent={text}
-          initialTitle={title}
         />
       )}
     </>

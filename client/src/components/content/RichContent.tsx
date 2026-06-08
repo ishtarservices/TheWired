@@ -1,12 +1,11 @@
-import { useState } from "react";
-import { FileText, Download } from "lucide-react";
+import { FileText } from "lucide-react";
 import { parseContent, type ContentSegment } from "@/lib/content/parseContent";
 import { MentionLink } from "./MentionLink";
 import { InlineMarkdown } from "./InlineMarkdown";
 import { EmbedRenderer } from "./EmbedRenderer";
 import { MusicEmbedCard } from "./MusicEmbedCard";
 import { InviteCard } from "./InviteCard";
-import { MediaLightbox, downloadMedia } from "../ui/MediaLightbox";
+import { SmartImage, SmartVideo } from "../media";
 
 interface RichContentProps {
   content: string;
@@ -77,24 +76,16 @@ function RichSegment({
       );
 
     case "image":
-      return <ClickableImage url={segment.url} />;
+      return (
+        <span className="mt-1 inline-block">
+          <SmartImage url={segment.url} density="inline" />
+        </span>
+      );
 
     case "video":
       return (
-        <span className="relative mt-1 inline-block group/vid">
-          <video
-            src={segment.url}
-            controls
-            preload="metadata"
-            className="max-w-xs max-h-60 rounded-lg"
-          />
-          <button
-            onClick={() => downloadMedia(segment.url)}
-            className="absolute right-2 top-2 rounded-full bg-black/50 p-1.5 text-white/70 opacity-0 group-hover/vid:opacity-100 hover:bg-black/70 hover:text-white transition-all"
-            title="Download video"
-          >
-            <Download size={14} />
-          </button>
+        <span className="mt-1 inline-block">
+          <SmartVideo url={segment.url} density="inline" />
         </span>
       );
 
@@ -144,49 +135,4 @@ function RichSegment({
     default:
       return null;
   }
-}
-
-function ClickableImage({ url }: { url: string }) {
-  const [lightbox, setLightbox] = useState(false);
-  const [loaded, setLoaded] = useState(false);
-  const [errored, setErrored] = useState(false);
-
-  return (
-    <>
-      <span className="relative mt-1 inline-block max-w-xs">
-        {/* Skeleton placeholder — reserves space until image loads */}
-        {!loaded && !errored && (
-          <span className="flex items-center justify-center w-48 h-36 rounded-lg bg-surface-hover animate-pulse">
-            <svg
-              className="w-8 h-8 text-faint/40"
-              fill="none"
-              viewBox="0 0 24 24"
-              stroke="currentColor"
-              strokeWidth={1.5}
-            >
-              <path
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                d="m2.25 15.75 5.159-5.159a2.25 2.25 0 0 1 3.182 0l5.159 5.159m-1.5-1.5 1.409-1.409a2.25 2.25 0 0 1 3.182 0l2.909 2.909M3.75 21h16.5A2.25 2.25 0 0 0 22.5 18.75V5.25A2.25 2.25 0 0 0 20.25 3H3.75A2.25 2.25 0 0 0 1.5 5.25v13.5A2.25 2.25 0 0 0 3.75 21Z"
-              />
-            </svg>
-          </span>
-        )}
-        <img
-          src={url}
-          alt=""
-          loading="lazy"
-          onLoad={() => setLoaded(true)}
-          onError={() => setErrored(true)}
-          onClick={() => setLightbox(true)}
-          className={`max-w-xs max-h-60 rounded-lg inline-block cursor-zoom-in hover:opacity-90 transition-opacity duration-200 ${
-            loaded ? "opacity-100" : "opacity-0 absolute top-0 left-0"
-          }`}
-        />
-      </span>
-      {lightbox && (
-        <MediaLightbox src={url} onClose={() => setLightbox(false)} />
-      )}
-    </>
-  );
 }

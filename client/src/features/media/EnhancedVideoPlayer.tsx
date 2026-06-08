@@ -195,7 +195,7 @@ export function EnhancedVideoPlayer({
         ref={videoRef}
         poster={poster}
         playsInline
-        className="h-full w-full"
+        className="h-full w-full object-contain"
         onTimeUpdate={onTimeUpdate}
         onLoadedMetadata={onLoadedMetadata}
         onPlay={onPlay}

@@ -7,9 +7,18 @@ interface ReplyComposerProps {
   targetPubkey: string;
   onSend: (content: string) => void;
   onCancel: () => void;
+  /** Header verb before the author name. Default "Replying to"; e.g. "Quoting". */
+  label?: string;
+  placeholder?: string;
 }
 
-export function ReplyComposer({ targetPubkey, onSend, onCancel }: ReplyComposerProps) {
+export function ReplyComposer({
+  targetPubkey,
+  onSend,
+  onCancel,
+  label = "Replying to",
+  placeholder = "Write a reply...",
+}: ReplyComposerProps) {
   const [text, setText] = useState("");
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   useAutoResize(textareaRef, text, 120);
@@ -36,7 +45,7 @@ export function ReplyComposer({ targetPubkey, onSend, onCancel }: ReplyComposerP
   return (
     <div className="mt-2 rounded-xl card-glass border border-border">
       <div className="flex items-center gap-1 border-l-2 border-primary px-3 pt-2 text-xs text-muted">
-        <span>Replying to</span>
+        <span>{label}</span>
         <span className="text-primary">{name}</span>
       </div>
       <div className="flex items-end gap-2 p-2">
@@ -46,7 +55,7 @@ export function ReplyComposer({ targetPubkey, onSend, onCancel }: ReplyComposerP
           onChange={(e) => setText(e.target.value)}
           onKeyDown={handleKeyDown}
           rows={1}
-          placeholder="Write a reply..."
+          placeholder={placeholder}
           className="flex-1 resize-none overflow-hidden rounded-md bg-transparent px-2 py-1 text-sm text-body placeholder:text-muted focus:outline-none"
         />
         <div className="flex gap-1 pb-1">

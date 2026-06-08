@@ -10,6 +10,7 @@ import { parseThreadRef } from "../spaces/noteParser";
 import { hasMediaUrls } from "../../lib/media/mediaUrlParser";
 import { matchEmbed } from "../../lib/content/embedPatterns";
 import { parseLongFormEvent } from "../longform/useLongForm";
+import { readProfilePages, writeProfileView } from "./profileFeedViewState";
 import type { NostrEvent } from "../../types/nostr";
 import type { LongFormArticle } from "../../types/media";
 
@@ -88,26 +89,46 @@ export function useProfileFeed(pubkey: string) {
   const [eoseReceived, setEoseReceived] = useState(false);
   const [articlesEose, setArticlesEose] = useState(false);
 
-  // Pagination state per tab
-  const [notesPage, setNotesPage] = useState(1);
-  const [repostsPage, setRepostsPage] = useState(1);
-  const [repliesPage, setRepliesPage] = useState(1);
-  const [mediaPage, setMediaPage] = useState(1);
-  const [articlesPage, setArticlesPage] = useState(1);
+  // Pagination state per tab — seeded from the view-state store so back-navigation
+  // resumes the same number of loaded pages instead of snapping to the first page.
+  const [notesPage, setNotesPage] = useState(() => readProfilePages(pubkey).notes);
+  const [repostsPage, setRepostsPage] = useState(() => readProfilePages(pubkey).reposts);
+  const [repliesPage, setRepliesPage] = useState(() => readProfilePages(pubkey).replies);
+  const [mediaPage, setMediaPage] = useState(() => readProfilePages(pubkey).media);
+  const [articlesPage, setArticlesPage] = useState(() => readProfilePages(pubkey).articles);
 
   // Track oldest event timestamp for relay pagination
   const oldestTimestampRef = useRef<number>(0);
   const [fetchingMore, setFetchingMore] = useState(false);
 
-  // Reset pagination when pubkey changes
+  // Load this pubkey's remembered pages when the pubkey changes (the same
+  // ProfilePage instance is reused across /profile/:pubkey navigations).
+  const pubkeyRef = useRef(pubkey);
   useEffect(() => {
-    setNotesPage(1);
-    setRepostsPage(1);
-    setRepliesPage(1);
-    setMediaPage(1);
-    setArticlesPage(1);
+    if (pubkeyRef.current === pubkey) return;
+    pubkeyRef.current = pubkey;
+    const pages = readProfilePages(pubkey);
+    setNotesPage(pages.notes);
+    setRepostsPage(pages.reposts);
+    setRepliesPage(pages.replies);
+    setMediaPage(pages.media);
+    setArticlesPage(pages.articles);
     oldestTimestampRef.current = 0;
   }, [pubkey]);
+
+  // Persist page counts so they survive unmount (Back from an article/DM/editor
+  // or a cross-profile navigation remounts the page).
+  useEffect(() => {
+    writeProfileView(pubkey, {
+      pages: {
+        notes: notesPage,
+        reposts: repostsPage,
+        replies: repliesPage,
+        media: mediaPage,
+        articles: articlesPage,
+      },
+    });
+  }, [pubkey, notesPage, repostsPage, repliesPage, mediaPage, articlesPage]);
 
   // For OWN profile, also query the user's own write relays (kind:10002) — their
   // notes live wherever they publish, which isn't necessarily in PROFILE_RELAYS.

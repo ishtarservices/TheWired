@@ -1,6 +1,9 @@
-import { useState, useMemo, useEffect, memo } from "react";
+import { useState, useMemo, useEffect, useRef, useCallback, memo } from "react";
 import { Play, ImageIcon, Maximize2, ExternalLink, Download } from "lucide-react";
 import { useAppSelector } from "../../store/hooks";
+import { useNearViewport } from "../../hooks/useNearViewport";
+import { videoLoadQueue } from "../../lib/media/mediaLoadQueue";
+import { createLogger } from "../../lib/debug/logger";
 import { usePlaybackBarSpacing } from "../../hooks/usePlaybackBarSpacing";
 import { selectSpaceMediaEvents } from "./spaceSelectors";
 import { EVENT_KINDS } from "../../types/nostr";
@@ -8,18 +11,41 @@ import type { NostrEvent } from "../../types/nostr";
 import { EnhancedVideoPlayer } from "../media/EnhancedVideoPlayer";
 import { useZap } from "../wallet/WalletProvider";
 import { parseVideoEvent, selectVideoSource } from "../media/imetaParser";
+import { orientationFromDimString } from "../../components/media";
 import { Avatar } from "../../components/ui/Avatar";
 import { RichContent } from "../../components/content/RichContent";
 import { useProfile } from "../profile/useProfile";
 import { extractMediaUrls, stripMediaUrls } from "../../lib/media/mediaUrlParser";
 import { matchEmbed, type EmbedMatch, type EmbedPlatform } from "../../lib/content/embedPatterns";
-import { imageCache } from "../../lib/cache/imageCache";
 import { downloadMedia } from "../../components/ui/MediaLightbox";
 import { useScrollRestore } from "../../hooks/useScrollRestore";
-import { useVideoThumbnail } from "../../hooks/useVideoThumbnail";
 import { useFeedPagination } from "./useFeedPagination";
 import { FeedToolbar } from "./FeedToolbar";
 import { LoadMoreButton } from "./LoadMoreButton";
+
+const feedLog = createLogger("feed");
+
+/** How many tiles to add to the rendered window each time the sentinel is hit. */
+const RENDER_PAGE = 30;
+
+/** Fires `onReach` when scrolled within ~1000px of the end — drives the render
+ *  window growing (and, once everything fetched is shown, fetching more). */
+function RevealSentinel({ onReach }: { onReach: () => void }) {
+  const ref = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    const el = ref.current;
+    if (!el || typeof IntersectionObserver === "undefined") return;
+    const obs = new IntersectionObserver(
+      (entries) => {
+        if (entries[0]?.isIntersecting) onReach();
+      },
+      { rootMargin: "1000px" },
+    );
+    obs.observe(el);
+    return () => obs.disconnect();
+  }, [onReach]);
+  return <div ref={ref} className="h-1" />;
+}
 
 // ── Types ────────────────────────────────────────────────────────
 
@@ -203,6 +229,99 @@ const ImageThumbnail = memo(function ImageThumbnail({
   );
 });
 
+/** Last URL path segment, for compact log lines. */
+function shortUrl(url: string): string {
+  try {
+    const u = new URL(url);
+    const seg = u.pathname.split("/").filter(Boolean).pop() || u.hostname;
+    return seg.length > 24 ? `${seg.slice(0, 24)}…` : seg;
+  } catch {
+    return url.slice(-24);
+  }
+}
+
+/**
+ * Renders one video grid frame. The concurrency slot is tied to this component's
+ * mount/unmount: acquire on mount, set `src` once granted, seek a first frame,
+ * release on seeked/error/unmount. The parent mounts it only while the tile is
+ * near the viewport (non-sticky), so the set of *loading* videos stays bounded
+ * to roughly what's on screen no matter how long the feed gets.
+ */
+function LazyVideoFrame({ url }: { url: string }) {
+  const [src, setSrc] = useState<string | undefined>(undefined);
+  const holdingRef = useRef(false);
+  const doneRef = useRef(false);
+  const startRef = useRef(0);
+
+  useEffect(() => {
+    let cancelled = false;
+    feedLog.debug(`media: video enqueue ${shortUrl(url)}`, videoLoadQueue.stats());
+    videoLoadQueue.acquire().then(() => {
+      if (cancelled) {
+        videoLoadQueue.release(); // granted after we unmounted — hand it on
+        return;
+      }
+      holdingRef.current = true;
+      startRef.current = performance.now();
+      feedLog.debug(`media: video load-start ${shortUrl(url)}`, videoLoadQueue.stats());
+      setSrc(url);
+    });
+    return () => {
+      cancelled = true;
+      if (holdingRef.current && !doneRef.current) {
+        holdingRef.current = false;
+        videoLoadQueue.release();
+      }
+    };
+  }, [url]);
+
+  const finish = (how: "seeked" | "metadata" | "error") => {
+    if (doneRef.current) return;
+    doneRef.current = true;
+    if (holdingRef.current) {
+      holdingRef.current = false;
+      videoLoadQueue.release();
+    }
+    const ms = startRef.current ? Math.round(performance.now() - startRef.current) : 0;
+    if (how === "error") {
+      feedLog.warn(`media: video frame failed ${shortUrl(url)}`, videoLoadQueue.stats());
+    } else {
+      feedLog.debug(`media: video frame ${how} ${shortUrl(url)} (${ms}ms)`, videoLoadQueue.stats());
+    }
+  };
+
+  if (!src) {
+    return (
+      <div className="flex h-full w-full items-center justify-center bg-surface">
+        <Play size={28} className="text-muted/40" />
+      </div>
+    );
+  }
+  return (
+    <video
+      src={src}
+      muted
+      playsInline
+      preload="metadata"
+      onLoadedMetadata={(e) => {
+        const v = e.currentTarget;
+        if (v.currentTime === 0) {
+          try {
+            v.currentTime = Math.min(0.1, (v.duration || 1) / 2);
+            return;
+          } catch {
+            /* not seekable — finish below */
+          }
+        }
+        finish("metadata");
+      }}
+      onSeeked={() => finish("seeked")}
+      onError={() => finish("error")}
+      className="h-full w-full object-cover"
+    />
+  );
+}
+
 const VideoThumbnail = memo(function VideoThumbnail({
   item,
   onClick,
@@ -210,25 +329,34 @@ const VideoThumbnail = memo(function VideoThumbnail({
   item: MediaItem;
   onClick: () => void;
 }) {
-  const thumb = useVideoThumbnail(item.url, item.thumbnailUrl);
+  const containerRef = useRef<HTMLDivElement>(null);
+  const hasPoster = !!item.thumbnailUrl;
+  // Non-sticky window: mount the frame loader only while on/near screen, unmount
+  // when it scrolls well away — that's what releases the queue slot + connection.
+  const near = useNearViewport(containerRef, "600px", false);
 
   return (
-    <div className="flex flex-col overflow-hidden rounded-lg border border-border bg-surface">
+    <div
+      ref={containerRef}
+      className="flex flex-col overflow-hidden rounded-lg border border-border bg-surface"
+    >
       <button
         onClick={onClick}
         className="group relative w-full shrink-0"
       >
         <div className="aspect-square w-full bg-surface">
-          {thumb ? (
+          {hasPoster ? (
             <img
-              src={thumb}
+              src={item.thumbnailUrl}
               alt={item.title ?? "Video"}
-              className="h-full w-full object-cover"
               loading="lazy"
+              className="h-full w-full object-cover"
             />
+          ) : near ? (
+            <LazyVideoFrame url={item.url} />
           ) : (
             <div className="flex h-full w-full items-center justify-center bg-surface">
-              <Play size={32} className="text-muted" />
+              <Play size={28} className="text-muted/40" />
             </div>
           )}
         </div>
@@ -432,6 +560,15 @@ function ExpandedVideoView({
     item.event.pubkey.slice(0, 8) + "...";
   const text = getItemText(item);
 
+  // Orientation: prefer the imeta `dim`; fall back to the vertical-video kinds.
+  const dim = parseVideoEvent(item.event).variants[0]?.dim;
+  const isVerticalKind =
+    item.event.kind === EVENT_KINDS.VIDEO_VERTICAL ||
+    item.event.kind === EVENT_KINDS.VIDEO_VERTICAL_ADDR;
+  const orientation = orientationFromDimString(dim);
+  const portrait =
+    orientation === "portrait" || (orientation === "unknown" && isVerticalKind);
+
   return (
     <div className="flex flex-1 flex-col items-center overflow-y-auto bg-black p-4">
       <div className="mb-2 flex w-full max-w-4xl items-center justify-end">
@@ -451,7 +588,11 @@ function ExpandedVideoView({
           title={item.title ?? item.caption}
           authorName={authorName}
           onClose={onClose}
-          className="aspect-video w-full"
+          className={
+            portrait
+              ? "mx-auto aspect-[9/16] h-[80vh]"
+              : "aspect-video w-full"
+          }
           onZap={() => openZap({ recipientPubkey: item.event.pubkey, event: item.event })}
         />
       </div>
@@ -548,8 +689,17 @@ export function MediaFeed() {
   const activeChannelId = useAppSelector((s) => s.spaces.activeChannelId);
   const [activeItem, setActiveItem] = useState<MediaItem | null>(null);
   const [filter, setFilter] = useState<FilterTab>("all");
+  // Cap how many tiles are actually rendered; grow it as the user scrolls. This
+  // keeps the DOM (and per-event-batch re-render cost) bounded no matter how many
+  // media items the feed holds, and makes tab switches cheap (resets to one page).
+  const [renderLimit, setRenderLimit] = useState(RENDER_PAGE);
   const scrollRef = useScrollRestore(activeChannelId);
   const { meta, refresh, loadMore } = useFeedPagination("media");
+  // The media channel only subscribes to dedicated media kinds (20/21/22/34235),
+  // so note-derived media + embeds only appear once kind:1 notes are fetched and
+  // cross-indexed (eventPipeline). Ensure notes are fetched too — this is a no-op
+  // when they're already loaded (guarded on event count), so it doesn't refetch.
+  useFeedPagination("notes");
   const { scrollPaddingClass } = usePlaybackBarSpacing();
 
   const allItems = useMemo(() => {
@@ -570,18 +720,20 @@ export function MediaFeed() {
     return items;
   }, [mediaEvents]);
 
-  // Preload all image thumbnails into cache (including YouTube thumbs)
+  // NOTE: we deliberately do NOT eagerly preload every image/thumbnail here.
+  // Doing so `new Image()`-loaded the entire feed at once (hundreds of requests),
+  // saturating the connection pool and starving the relay sockets + the clip the
+  // user actually clicks to play. Tiles load lazily instead (`loading="lazy"` on
+  // images, viewport-gated + concurrency-queued for videos).
+
+  // Trace feed composition so throttling is diagnosable via `wiredDebug` (feed).
   useEffect(() => {
-    const imageUrls = allItems
-      .filter((m) => m.type === "image")
-      .map((m) => m.url);
-    const thumbUrls = allItems
-      .filter((m) => m.thumbnailUrl)
-      .map((m) => m.thumbnailUrl!);
-    const ytThumbs = allItems
-      .filter((m) => m.type === "embed" && m.embed?.platform === "youtube")
-      .map((m) => YOUTUBE_THUMB_URL(m.embed!.id));
-    imageCache.preloadMany([...imageUrls, ...thumbUrls, ...ytThumbs]);
+    const img = allItems.filter((m) => m.type === "image").length;
+    const vid = allItems.filter((m) => m.type === "video").length;
+    const emb = allItems.filter((m) => m.type === "embed").length;
+    feedLog.debug(
+      `media feed: ${allItems.length} items (img=${img} vid=${vid} embed=${emb})`,
+    );
   }, [allItems]);
 
   const filteredItems = useMemo(() => {
@@ -591,38 +743,31 @@ export function MediaFeed() {
     return allItems.filter((m) => m.type === "embed");
   }, [allItems, filter]);
 
+  // Switching tabs starts a fresh render window (don't render hundreds at once).
+  useEffect(() => {
+    setRenderLimit(RENDER_PAGE);
+  }, [filter]);
+
+  const visibleItems = useMemo(
+    () => filteredItems.slice(0, renderLimit),
+    [filteredItems, renderLimit],
+  );
+  const hasMoreLocal = renderLimit < filteredItems.length;
+  const revealMore = useCallback(() => setRenderLimit((n) => n + RENDER_PAGE), []);
+
   const imageCount = allItems.filter((m) => m.type === "image").length;
   const videoCount = allItems.filter((m) => m.type === "video").length;
   const embedCount = allItems.filter((m) => m.type === "embed").length;
 
-  // Expanded view
-  if (activeItem) {
-    if (activeItem.type === "embed") {
-      return (
-        <ExpandedEmbedView
-          item={activeItem}
-          onClose={() => setActiveItem(null)}
-        />
-      );
-    }
-    if (activeItem.type === "video") {
-      return (
-        <ExpandedVideoView
-          item={activeItem}
-          onClose={() => setActiveItem(null)}
-        />
-      );
-    }
-    return (
-      <ExpandedImageView
-        item={activeItem}
-        onClose={() => setActiveItem(null)}
-      />
-    );
-  }
+  // Log the play/expand intent alongside the load-queue state, so a "won't play"
+  // can be correlated with connection-pool saturation in the exported trace.
+  const handleExpand = useCallback((item: MediaItem) => {
+    feedLog.debug(`media: expand ${item.type}`, videoLoadQueue.stats());
+    setActiveItem(item);
+  }, []);
 
   return (
-    <div className="flex flex-1 flex-col overflow-hidden">
+    <div className="relative flex flex-1 flex-col overflow-hidden">
       <FeedToolbar isRefreshing={meta.isRefreshing} onRefresh={refresh}>
         {allItems.length > 0 && (
           <>
@@ -667,13 +812,13 @@ export function MediaFeed() {
         ) : (
           <>
             <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-4">
-              {filteredItems.map((item) => {
+              {visibleItems.map((item) => {
                 if (item.type === "embed") {
                   return (
                     <EmbedThumbnail
                       key={item.key}
                       item={item}
-                      onClick={() => setActiveItem(item)}
+                      onClick={() => handleExpand(item)}
                     />
                   );
                 }
@@ -682,7 +827,7 @@ export function MediaFeed() {
                     <VideoThumbnail
                       key={item.key}
                       item={item}
-                      onClick={() => setActiveItem(item)}
+                      onClick={() => handleExpand(item)}
                     />
                   );
                 }
@@ -690,19 +835,35 @@ export function MediaFeed() {
                   <ImageThumbnail
                     key={item.key}
                     item={item}
-                    onClick={() => setActiveItem(item)}
+                    onClick={() => handleExpand(item)}
                   />
                 );
               })}
             </div>
+            {/* Reveal more rendered tiles as you approach the end; once the whole
+                fetched set is shown, fall back to fetching more from the relay. */}
+            {hasMoreLocal && <RevealSentinel onReach={revealMore} />}
             <LoadMoreButton
               isLoading={meta.isLoadingMore}
-              hasMore={meta.hasMore}
+              hasMore={!hasMoreLocal && meta.hasMore}
               onLoadMore={loadMore}
             />
           </>
         )}
       </div>
+
+      {/* Expanded media — overlay so the grid (and its scroll position) stays mounted */}
+      {activeItem && (
+        <div className="absolute inset-0 z-30 flex flex-col bg-background">
+          {activeItem.type === "embed" ? (
+            <ExpandedEmbedView item={activeItem} onClose={() => setActiveItem(null)} />
+          ) : activeItem.type === "video" ? (
+            <ExpandedVideoView item={activeItem} onClose={() => setActiveItem(null)} />
+          ) : (
+            <ExpandedImageView item={activeItem} onClose={() => setActiveItem(null)} />
+          )}
+        </div>
+      )}
     </div>
   );
 }

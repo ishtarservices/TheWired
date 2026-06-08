@@ -1,6 +1,6 @@
 import { useState, useMemo, useEffect, useCallback, useRef, memo } from "react";
 import { nip19 } from "nostr-tools";
-import { ChevronDown, ChevronUp, ImageIcon, Film, Gauge, Download } from "lucide-react";
+import { ChevronDown, ChevronUp, ImageIcon, Film } from "lucide-react";
 import { useAppSelector } from "../../store/hooks";
 import { usePlaybackBarSpacing } from "../../hooks/usePlaybackBarSpacing";
 import { selectSpaceRootNotes, selectSpaceRootNoteIds, selectActiveSpace } from "./spaceSelectors";
@@ -11,10 +11,9 @@ import { useUserPopover } from "../profile/UserPopoverContext";
 import {
   extractMediaUrls,
   stripMediaUrls,
-  type ExtractedMedia,
 } from "../../lib/media/mediaUrlParser";
 import { imageCache } from "../../lib/cache/imageCache";
-import { downloadMedia } from "../../components/ui/MediaLightbox";
+import { MediaGallery } from "../../components/media";
 import { useScrollRestore } from "../../hooks/useScrollRestore";
 import { useFeedPagination } from "./useFeedPagination";
 import { FeedToolbar } from "./FeedToolbar";
@@ -27,7 +26,6 @@ import { useIsBlocked } from "../../hooks/useIsBlocked";
 import { useUnblock } from "../../hooks/useUnblock";
 import { FRIENDS_FEED_ID } from "../friends/friendsFeedConstants";
 import { BlockedMessage } from "../../components/ui/BlockedMessage";
-import { usePlaybackSpeed, VALID_SPEEDS } from "@/hooks/usePlaybackSpeed";
 import { NoteActionBar } from "./notes/NoteActionBar";
 import { selectFeatureEnabled, FEATURE_AI } from "@/store/slices/featuresSlice";
 import { useAskAI } from "@/features/ai/context/useAskAI";
@@ -40,134 +38,11 @@ import { RecipientPickerModal } from "../../components/sharing/RecipientPickerMo
 import { sendDM } from "../dm/dmService";
 import type { NostrEvent } from "../../types/nostr";
 
-function InlineImage({ url }: { url: string }) {
-  const [errored, setErrored] = useState(false);
-  if (errored) {
-    return (
-      <a
-        href={url}
-        target="_blank"
-        rel="noopener noreferrer"
-        className="text-xs text-primary underline"
-      >
-        {url}
-      </a>
-    );
-  }
-  return (
-    <div className="group/img relative inline-block">
-      <img
-        src={url}
-        alt=""
-        className="max-h-80 rounded-md object-contain"
-        loading="lazy"
-        onError={() => setErrored(true)}
-      />
-      <button
-        onClick={() => downloadMedia(url)}
-        className="absolute right-2 top-2 rounded-full bg-black/50 p-1.5 text-white/70 opacity-0 group-hover/img:opacity-100 hover:bg-black/70 hover:text-white transition-all"
-        title="Download image"
-      >
-        <Download size={14} />
-      </button>
-    </div>
-  );
-}
-
-function InlineVideo({ url }: { url: string }) {
-  const videoRef = useRef<HTMLVideoElement>(null);
-  const [playbackRate, setPlaybackRate] = usePlaybackSpeed();
-  const [showSpeedMenu, setShowSpeedMenu] = useState(false);
-
-  useEffect(() => {
-    if (videoRef.current) videoRef.current.playbackRate = playbackRate;
-  }, [playbackRate]);
-
-  return (
-    <div className="group/video relative inline-block max-h-80">
-      <video
-        ref={videoRef}
-        src={url}
-        controls
-        playsInline
-        preload="metadata"
-        className="max-h-80 rounded-md bg-black"
-        onRateChange={(e) => {
-          // Sync if user changes speed via native controls
-          const rate = (e.target as HTMLVideoElement).playbackRate;
-          if (rate !== playbackRate) setPlaybackRate(rate);
-        }}
-      />
-      {/* Download + Speed overlay buttons */}
-      <div className="absolute right-2 top-2 z-10 flex items-center gap-1">
-        <button
-          onClick={() => downloadMedia(url)}
-          className="flex items-center rounded-md px-1.5 py-0.5 text-[11px] font-medium bg-black/50 text-white/70 opacity-0 group-hover/video:opacity-100 backdrop-blur-sm hover:bg-black/70 hover:text-white transition-all"
-          title="Download video"
-        >
-          <Download size={12} />
-        </button>
-        <div className="relative">
-        <button
-          onClick={() => setShowSpeedMenu((v) => !v)}
-          className={`flex items-center gap-0.5 rounded-md px-1.5 py-0.5 text-[11px] font-medium backdrop-blur-sm transition-colors ${
-            playbackRate !== 1
-              ? "bg-indigo-500/20 text-indigo-300"
-              : "bg-black/50 text-white/70 opacity-0 group-hover/video:opacity-100"
-          }`}
-          title="Playback speed"
-        >
-          <Gauge size={12} />
-          <span>{playbackRate}x</span>
-        </button>
-        {showSpeedMenu && (
-          <div className="absolute right-0 top-full mt-1 rounded-xl border border-border card-glass py-1 shadow-lg">
-            {VALID_SPEEDS.map((speed) => (
-              <button
-                key={speed}
-                onClick={() => { setPlaybackRate(speed); setShowSpeedMenu(false); }}
-                className={`block w-full px-3 py-1 text-left text-xs transition-colors ${
-                  speed === playbackRate
-                    ? "bg-primary/15 text-primary-soft"
-                    : "text-body hover:bg-surface-hover"
-                }`}
-              >
-                {speed}x
-              </button>
-            ))}
-          </div>
-        )}
-        </div>
-      </div>
-    </div>
-  );
-}
-
-function MediaPreview({ media }: { media: ExtractedMedia[] }) {
-  const images = media.filter((m) => m.type === "image");
-  const videos = media.filter((m) => m.type === "video");
-
-  return (
-    <div className="mt-2 space-y-2">
-      {images.length > 0 && (
-        <div className="flex flex-wrap gap-2">
-          {images.map((m) => (
-            <InlineImage key={m.url} url={m.url} />
-          ))}
-        </div>
-      )}
-      {videos.map((m) => (
-        <InlineVideo key={m.url} url={m.url} />
-      ))}
-    </div>
-  );
-}
-
 const NoteCard = memo(function NoteCard({ event }: { event: NostrEvent }) {
   const { profile } = useProfile(event.pubkey);
   const isBlocked = useIsBlocked(event.pubkey);
   const { openUserPopover } = useUserPopover();
-  const [showMedia, setShowMedia] = useState(false);
+  const [showMedia, setShowMedia] = useState(true);
   const [showReplyComposer, setShowReplyComposer] = useState(false);
   const [threadExpanded, setThreadExpanded] = useState(false);
   const [sharePickerOpen, setSharePickerOpen] = useState(false);
@@ -314,7 +189,12 @@ const NoteCard = memo(function NoteCard({ event }: { event: NostrEvent }) {
             <span>{showMedia ? "Hide media" : "Show media"}</span>
           </button>
 
-          {showMedia && <MediaPreview media={media} />}
+          {/* Keep the gallery mounted and just toggle visibility — re-mounting
+              on every Show would re-decode the media and pop in at the wrong
+              size before settling. */}
+          <div className={showMedia ? undefined : "hidden"}>
+            <MediaGallery media={media} density="feed" />
+          </div>
         </div>
       )}
 

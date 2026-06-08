@@ -1,13 +1,19 @@
 import { useEffect, useCallback, useRef } from "react";
 import { createPortal } from "react-dom";
-import { X, ZoomIn, ZoomOut, Download, RotateCcw } from "lucide-react";
+import {
+  X,
+  ZoomIn,
+  ZoomOut,
+  Download,
+  RotateCcw,
+  ChevronLeft,
+  ChevronRight,
+} from "lucide-react";
 import { useState } from "react";
 
-interface MediaLightboxProps {
-  src: string;
-  alt?: string;
-  onClose: () => void;
-}
+type MediaLightboxProps =
+  | { src: string; srcs?: undefined; startIndex?: undefined; alt?: string; onClose: () => void }
+  | { srcs: string[]; startIndex?: number; src?: undefined; alt?: string; onClose: () => void };
 
 /** Download a media URL by fetching as blob and triggering a save dialog. */
 export function downloadMedia(url: string, filename?: string) {
@@ -33,16 +39,42 @@ export function downloadMedia(url: string, filename?: string) {
  * Fullscreen image lightbox overlay.
  * Click backdrop or press Escape to close. Scroll/pinch to zoom.
  * Images are fit-to-screen by default; zoom scales from there.
+ *
+ * Accepts either a single `src` or a gallery (`srcs` + optional `startIndex`).
+ * In gallery mode, ←/→ keys and on-screen chevrons navigate (clamped, no wrap).
  */
-export function MediaLightbox({ src, alt, onClose }: MediaLightboxProps) {
+export function MediaLightbox(props: MediaLightboxProps) {
+  const { alt, onClose } = props;
+  const list = props.srcs ?? [props.src!];
+  const [index, setIndex] = useState(props.startIndex ?? 0);
   const [zoom, setZoom] = useState(1);
   const [dragging, setDragging] = useState(false);
   const [translate, setTranslate] = useState({ x: 0, y: 0 });
   const dragStart = useRef({ x: 0, y: 0, tx: 0, ty: 0 });
 
+  const src = list[Math.min(index, list.length - 1)];
+  const isGallery = list.length > 1;
+
+  const resetView = useCallback(() => {
+    setZoom(1);
+    setTranslate({ x: 0, y: 0 });
+  }, []);
+
+  const goPrev = useCallback(() => {
+    setIndex((i) => Math.max(0, i - 1));
+    resetView();
+  }, [resetView]);
+
+  const goNext = useCallback(() => {
+    setIndex((i) => Math.min(list.length - 1, i + 1));
+    resetView();
+  }, [resetView, list.length]);
+
   useEffect(() => {
     const handleKey = (e: KeyboardEvent) => {
       if (e.key === "Escape") onClose();
+      else if (e.key === "ArrowLeft") goPrev();
+      else if (e.key === "ArrowRight") goNext();
     };
     window.addEventListener("keydown", handleKey);
     // Prevent body scroll while lightbox is open
@@ -52,16 +84,11 @@ export function MediaLightbox({ src, alt, onClose }: MediaLightboxProps) {
       window.removeEventListener("keydown", handleKey);
       document.body.style.overflow = prev;
     };
-  }, [onClose]);
+  }, [onClose, goPrev, goNext]);
 
   const handleWheel = useCallback((e: React.WheelEvent) => {
     e.stopPropagation();
     setZoom((z) => Math.min(5, Math.max(0.5, z - e.deltaY * 0.003)));
-  }, []);
-
-  const resetView = useCallback(() => {
-    setZoom(1);
-    setTranslate({ x: 0, y: 0 });
   }, []);
 
   const handlePointerDown = useCallback(
@@ -147,6 +174,39 @@ export function MediaLightbox({ src, alt, onClose }: MediaLightboxProps) {
         <div className="absolute left-4 top-4 z-10 rounded-full bg-white/10 px-3 py-1 text-xs font-medium text-white/70">
           {Math.round(zoom * 100)}%
         </div>
+      )}
+
+      {/* Gallery navigation */}
+      {isGallery && (
+        <>
+          {index > 0 && (
+            <button
+              onClick={(e) => {
+                e.stopPropagation();
+                goPrev();
+              }}
+              className="absolute left-4 top-1/2 z-10 -translate-y-1/2 rounded-full bg-white/10 p-2.5 text-white/80 hover:bg-white/20 transition-colors"
+              title="Previous"
+            >
+              <ChevronLeft size={22} />
+            </button>
+          )}
+          {index < list.length - 1 && (
+            <button
+              onClick={(e) => {
+                e.stopPropagation();
+                goNext();
+              }}
+              className="absolute right-4 top-1/2 z-10 -translate-y-1/2 rounded-full bg-white/10 p-2.5 text-white/80 hover:bg-white/20 transition-colors"
+              title="Next"
+            >
+              <ChevronRight size={22} />
+            </button>
+          )}
+          <div className="absolute bottom-4 left-1/2 z-10 -translate-x-1/2 rounded-full bg-white/10 px-3 py-1 text-xs font-medium text-white/70">
+            {index + 1} / {list.length}
+          </div>
+        </>
       )}
 
       {/* Image */}
