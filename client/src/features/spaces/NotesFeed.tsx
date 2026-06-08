@@ -1,5 +1,4 @@
 import { useState, useMemo, useEffect, useCallback, useRef, memo } from "react";
-import { nip19 } from "nostr-tools";
 import { ChevronDown, ChevronUp, ImageIcon, Film } from "lucide-react";
 import { useAppSelector } from "../../store/hooks";
 import { usePlaybackBarSpacing } from "../../hooks/usePlaybackBarSpacing";
@@ -34,8 +33,7 @@ import { useZap } from "../wallet/WalletProvider";
 import { QuotedNote } from "./notes/QuotedNote";
 import { ReplyComposer } from "./notes/ReplyComposer";
 import { ThreadView } from "./notes/ThreadView";
-import { RecipientPickerModal } from "../../components/sharing/RecipientPickerModal";
-import { sendDM } from "../dm/dmService";
+import { NoteShareMenu } from "../../components/sharing/NoteShareMenu";
 import type { NostrEvent } from "../../types/nostr";
 
 const NoteCard = memo(function NoteCard({ event }: { event: NostrEvent }) {
@@ -45,11 +43,12 @@ const NoteCard = memo(function NoteCard({ event }: { event: NostrEvent }) {
   const [showMedia, setShowMedia] = useState(true);
   const [showReplyComposer, setShowReplyComposer] = useState(false);
   const [threadExpanded, setThreadExpanded] = useState(false);
-  const [sharePickerOpen, setSharePickerOpen] = useState(false);
+  const [shareAnchor, setShareAnchor] = useState<HTMLElement | null>(null);
   const avatarRef = useRef<HTMLButtonElement>(null);
 
   const engagement = useNoteEngagement(event.id);
   const actions = useNoteActions(event);
+  const activeSpace = useAppSelector(selectActiveSpace);
   const askAI = useAskAI();
   const aiEnabled = useAppSelector(selectFeatureEnabled(FEATURE_AI));
   const { openZap } = useZap();
@@ -121,18 +120,6 @@ const NoteCard = memo(function NoteCard({ event }: { event: NostrEvent }) {
   const handleToggleThread = useCallback(() => {
     setThreadExpanded((v) => !v);
   }, []);
-
-  const handleShare = useCallback(() => {
-    setSharePickerOpen(true);
-  }, []);
-
-  const handleShareToDM = useCallback(
-    async (recipientPubkey: string) => {
-      const nevent = nip19.neventEncode({ id: event.id });
-      await sendDM(recipientPubkey, `nostr:${nevent}`);
-    },
-    [event.id],
-  );
 
   const unblock = useUnblock(event.pubkey);
 
@@ -212,7 +199,7 @@ const NoteCard = memo(function NoteCard({ event }: { event: NostrEvent }) {
         onRepost={handleRepost}
         onLike={handleLike}
         onQuote={handleQuote}
-        onShare={handleShare}
+        onShare={setShareAnchor}
         onZap={() => openZap({ recipientPubkey: event.pubkey, event })}
         onAskAI={
           aiEnabled
@@ -237,14 +224,12 @@ const NoteCard = memo(function NoteCard({ event }: { event: NostrEvent }) {
         />
       )}
 
-      {sharePickerOpen && (
-        <RecipientPickerModal
-          open={sharePickerOpen}
-          onClose={() => setSharePickerOpen(false)}
-          onSelect={handleShareToDM}
-          title="Forward Note"
-        />
-      )}
+      <NoteShareMenu
+        event={event}
+        anchorEl={shareAnchor}
+        onClose={() => setShareAnchor(null)}
+        relays={activeSpace?.hostRelay ? [activeSpace.hostRelay] : undefined}
+      />
     </div>
   );
 });

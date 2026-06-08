@@ -9,6 +9,7 @@ import { selectFeatureEnabled, FEATURE_AI } from "../../store/slices/featuresSli
 import { useAskAI } from "../ai/context/useAskAI";
 import { buildThreadContext, buildNoteContext } from "../ai/context/aiContext";
 import { QuotedNote } from "../spaces/notes/QuotedNote";
+import { NoteShareMenu } from "../../components/sharing/NoteShareMenu";
 import { ReplyComposer } from "../spaces/notes/ReplyComposer";
 import { RepostHeader } from "./RepostHeader";
 import { useProfile } from "./useProfile";
@@ -177,6 +178,7 @@ function NoteCardInner({
   const [mentionPopover, setMentionPopover] = useState<{ pubkey: string; anchor: HTMLElement } | null>(null);
   const [showOverflow, setShowOverflow] = useState(false);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+  const [shareAnchor, setShareAnchor] = useState<HTMLElement | null>(null);
   const avatarRef = useRef<HTMLButtonElement>(null);
   const overflowRef = useRef<HTMLDivElement>(null);
   const deleteConfirmRef = useRef<HTMLDivElement>(null);
@@ -356,6 +358,7 @@ function NoteCardInner({
         onLike={actions.like}
         onQuote={() => setShowQuoteComposer((v) => !v)}
         onZap={() => openZap({ recipientPubkey: event.pubkey, event })}
+        onShare={setShareAnchor}
         showPin={showPin}
         isPinned={isPinned}
         onPin={() => actions.togglePin(event.id)}
@@ -405,6 +408,12 @@ function NoteCardInner({
         </button>
       )}
       {showReplies && <InlineReplies noteId={event.id} />}
+
+      <NoteShareMenu
+        event={event}
+        anchorEl={shareAnchor}
+        onClose={() => setShareAnchor(null)}
+      />
     </div>
   );
 }

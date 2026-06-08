@@ -1,8 +1,9 @@
-import { useContext, useMemo, type MouseEvent } from "react";
+import { useContext, useMemo, useState, type MouseEvent } from "react";
 import { useNavigate } from "react-router-dom";
 import { FileText } from "lucide-react";
 import { Avatar } from "../ui/Avatar";
 import { MediaGallery } from "../media";
+import { NoteShareMenu } from "../sharing/NoteShareMenu";
 import { MusicEmbedCard } from "./MusicEmbedCard";
 import { RichContent } from "./RichContent";
 import { EmbedDepthContext, MAX_EMBED_DEPTH } from "./embedDepth";
@@ -135,17 +136,26 @@ function NoteEmbedActions({ event }: { event: NostrEvent }) {
   const engagement = useNoteEngagement(event.id);
   const actions = useProfileNoteActions(event);
   const { openZap } = useZap();
+  const [shareAnchor, setShareAnchor] = useState<HTMLElement | null>(null);
   return (
-    <NoteActionBar
-      engagement={engagement}
-      canInteract={actions.canInteract}
-      canWrite={actions.canWrite}
-      onReply={() => navigate(`/note/${event.id}`)}
-      onRepost={actions.repost}
-      onLike={actions.like}
-      onQuote={() => navigate(`/note/${event.id}`)}
-      onZap={() => openZap({ recipientPubkey: event.pubkey, event })}
-    />
+    <>
+      <NoteActionBar
+        engagement={engagement}
+        canInteract={actions.canInteract}
+        canWrite={actions.canWrite}
+        onReply={() => navigate(`/note/${event.id}`)}
+        onRepost={actions.repost}
+        onLike={actions.like}
+        onQuote={() => navigate(`/note/${event.id}`)}
+        onZap={() => openZap({ recipientPubkey: event.pubkey, event })}
+        onShare={setShareAnchor}
+      />
+      <NoteShareMenu
+        event={event}
+        anchorEl={shareAnchor}
+        onClose={() => setShareAnchor(null)}
+      />
+    </>
   );
 }
 
