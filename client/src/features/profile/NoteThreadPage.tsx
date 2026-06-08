@@ -15,7 +15,7 @@ import { useNoteEngagement } from "../spaces/useNoteEngagement";
 import { EngagementCollectorProvider, useEngagementReporter } from "./engagementCollector";
 import { parseQuoteRef } from "../spaces/noteParser";
 import { extractMediaUrls, stripMediaUrls } from "../../lib/media/mediaUrlParser";
-import { MediaLightbox } from "../../components/ui/MediaLightbox";
+import { MediaGallery } from "../../components/media";
 import { useAppSelector } from "../../store/hooks";
 import { eventsSelectors } from "../../store/slices/eventsSlice";
 import { subscriptionManager } from "../../lib/nostr/subscriptionManager";
@@ -175,7 +175,7 @@ function RootNoteExpanded({ event }: { event: NostrEvent }) {
   const { openZap } = useZap();
   const navigate = useNavigate();
   const [showReplyComposer, setShowReplyComposer] = useState(false);
-  const [lightboxSrc, setLightboxSrc] = useState<string | null>(null);
+  const [showQuoteComposer, setShowQuoteComposer] = useState(false);
 
   const displayName = profile?.display_name || profile?.name || event.pubkey.slice(0, 12) + "...";
   const quoteRef = useMemo(() => parseQuoteRef(event), [event]);
@@ -218,33 +218,7 @@ function RootNoteExpanded({ event }: { event: NostrEvent }) {
       )}
 
       {/* Media */}
-      {media.length > 0 && (
-        <div className="mb-3 flex flex-col gap-2">
-          {media.map((m) => (
-            <div key={m.url} className="relative group/media">
-              {m.type === "image" && (
-                <img
-                  src={m.url}
-                  alt=""
-                  loading="lazy"
-                  onClick={() => setLightboxSrc(m.url)}
-                  className="max-h-[500px] w-full rounded-lg object-cover cursor-zoom-in hover:opacity-90 transition-opacity"
-                />
-              )}
-              {m.type === "video" && (
-                <video src={m.url} controls preload="metadata" className="max-h-[500px] w-full rounded-lg" />
-              )}
-              {m.type === "audio" && (
-                <audio src={m.url} controls className="w-full" />
-              )}
-            </div>
-          ))}
-        </div>
-      )}
-
-      {lightboxSrc && (
-        <MediaLightbox src={lightboxSrc} onClose={() => setLightboxSrc(null)} />
-      )}
+      {media.length > 0 && <MediaGallery media={media} density="expanded" />}
 
       {quoteRef && <QuotedNote eventId={quoteRef.eventId} />}
 
@@ -261,10 +235,7 @@ function RootNoteExpanded({ event }: { event: NostrEvent }) {
         onReply={() => setShowReplyComposer((v) => !v)}
         onRepost={actions.repost}
         onLike={actions.like}
-        onQuote={() => {
-          const content = prompt("Quote this note:");
-          if (content) actions.quote(content);
-        }}
+        onQuote={() => setShowQuoteComposer((v) => !v)}
         onZap={() => openZap({ recipientPubkey: event.pubkey, event })}
       />
 
@@ -276,6 +247,19 @@ function RootNoteExpanded({ event }: { event: NostrEvent }) {
             setShowReplyComposer(false);
           }}
           onCancel={() => setShowReplyComposer(false)}
+        />
+      )}
+
+      {showQuoteComposer && (
+        <ReplyComposer
+          targetPubkey={event.pubkey}
+          label="Quoting"
+          placeholder="Add a comment…"
+          onSend={(content) => {
+            actions.quote(content);
+            setShowQuoteComposer(false);
+          }}
+          onCancel={() => setShowQuoteComposer(false)}
         />
       )}
     </div>
@@ -290,6 +274,7 @@ function ReplyCard({ event, index, animationDelay }: { event: NostrEvent; index:
   const { openZap } = useZap();
   const navigate = useNavigate();
   const [showReplyComposer, setShowReplyComposer] = useState(false);
+  const [showQuoteComposer, setShowQuoteComposer] = useState(false);
 
   const displayName = profile?.display_name || profile?.name || event.pubkey.slice(0, 12) + "...";
 
@@ -329,23 +314,7 @@ function ReplyCard({ event, index, animationDelay }: { event: NostrEvent; index:
         </div>
       )}
 
-      {media.length > 0 && (
-        <div className="mb-2 flex flex-col gap-2">
-          {media.map((m) => (
-            <div key={m.url}>
-              {m.type === "image" && (
-                <img src={m.url} alt="" loading="lazy" className="max-h-60 rounded-lg object-cover" />
-              )}
-              {m.type === "video" && (
-                <video src={m.url} controls preload="metadata" className="max-h-60 w-full rounded-lg" />
-              )}
-              {m.type === "audio" && (
-                <audio src={m.url} controls className="w-full" />
-              )}
-            </div>
-          ))}
-        </div>
-      )}
+      {media.length > 0 && <MediaGallery media={media} density="compact" />}
 
       <NoteActionBar
         engagement={engagement}
@@ -354,10 +323,7 @@ function ReplyCard({ event, index, animationDelay }: { event: NostrEvent; index:
         onReply={() => setShowReplyComposer((v) => !v)}
         onRepost={actions.repost}
         onLike={actions.like}
-        onQuote={() => {
-          const content = prompt("Quote this note:");
-          if (content) actions.quote(content);
-        }}
+        onQuote={() => setShowQuoteComposer((v) => !v)}
         onZap={() => openZap({ recipientPubkey: event.pubkey, event })}
       />
 
@@ -369,6 +335,19 @@ function ReplyCard({ event, index, animationDelay }: { event: NostrEvent; index:
             setShowReplyComposer(false);
           }}
           onCancel={() => setShowReplyComposer(false)}
+        />
+      )}
+
+      {showQuoteComposer && (
+        <ReplyComposer
+          targetPubkey={event.pubkey}
+          label="Quoting"
+          placeholder="Add a comment…"
+          onSend={(content) => {
+            actions.quote(content);
+            setShowQuoteComposer(false);
+          }}
+          onCancel={() => setShowQuoteComposer(false)}
         />
       )}
     </div>

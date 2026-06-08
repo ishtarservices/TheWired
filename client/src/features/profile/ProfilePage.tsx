@@ -2,6 +2,10 @@ import { useState, useCallback, useMemo, useRef, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import { usePlaybackBarSpacing } from "@/hooks/usePlaybackBarSpacing";
 import {
+  useAnchoredScrollRestore,
+  type SavedScrollPosition,
+} from "@/hooks/useAnchoredScrollRestore";
+import {
   User,
   Globe,
   Zap,
@@ -59,6 +63,7 @@ import { selectFeatureEnabled, FEATURE_AI } from "../../store/slices/featuresSli
 import { useAskAI } from "../ai/context/useAskAI";
 import { buildProfileContext } from "../ai/context/aiContext";
 import { useProfileSettings } from "./useProfileSettings";
+import { readProfileView, writeProfileView } from "./profileFeedViewState";
 import type { ProfileTab } from "./profileSettings";
 import type { ProfileFeedItem } from "./useProfileNotes";
 import type { LongFormArticle } from "../../types/media";
@@ -75,7 +80,9 @@ interface ProfilePageProps {
 export function ProfilePage({ pubkey }: ProfilePageProps) {
   const { profile } = useProfile(pubkey);
   const { openZap } = useZap();
-  const [activeTab, setActiveTab] = useState<Tab>("notes");
+  const [activeTab, setActiveTab] = useState<Tab>(
+    () => readProfileView(pubkey)?.activeTab ?? "notes",
+  );
   const [followModal, setFollowModal] = useState<"following" | "followers" | null>(null);
   const feed = useProfileFeed(pubkey);
   const { following, followers, followingLoading, followersLoading } = useFollowData(pubkey, followModal === "followers");
@@ -131,27 +138,68 @@ export function ProfilePage({ pubkey }: ProfilePageProps) {
     }
   }, [feed.allItems.length, pubkey, feed.totalNotes, feed.totalReposts, feed.totalReplies, feed.totalMedia]);
 
-  // Per-tab scroll position persistence
-  const scrollRef = useRef<HTMLDivElement>(null);
-  const scrollPositions = useRef<Record<Tab, number>>({
-    notes: 0, reposts: 0, replies: 0, media: 0, reads: 0, music: 0, showcase: 0,
+  // Per-tab scroll position — persisted via profileFeedViewState so returning to
+  // this page (Back from an article/DM/editor, or a cross-profile nav) resumes
+  // where the user left off.
+  //
+  // We pin to the CARD the viewport was on (anchor), not a raw pixel offset: on
+  // remount the cards render instantly from Redux, but their media is 0px tall
+  // until it loads, so the feed is far shorter than when the offset was saved —
+  // a pixel offset clamps to that short height and snaps to the top. The anchor
+  // re-resolves the card's live position and re-pins as media loads. Saving is
+  // continuous (on scroll), not in an unmount cleanup, since React nulls refs
+  // before cleanup runs on unmount. See useAnchoredScrollRestore.
+  const readScroll = useCallback((): SavedScrollPosition | undefined => {
+    const v = readProfileView(pubkey);
+    if (!v) return undefined;
+    const a = v.anchor?.[activeTab];
+    return {
+      scrollTop: v.scrollTop?.[activeTab] ?? 0,
+      anchorId: a?.id,
+      anchorOffset: a?.offset,
+    };
+  }, [pubkey, activeTab]);
+
+  const writeScroll = useCallback(
+    (pos: SavedScrollPosition) => {
+      writeProfileView(pubkey, {
+        scrollTop: { [activeTab]: pos.scrollTop },
+        anchor: {
+          [activeTab]: pos.anchorId
+            ? { id: pos.anchorId, offset: pos.anchorOffset ?? 0 }
+            : undefined,
+        },
+      });
+    },
+    [pubkey, activeTab],
+  );
+
+  const { containerRef, capture: captureScroll } = useAnchoredScrollRestore({
+    key: `${pubkey}:${activeTab}`,
+    read: readScroll,
+    write: writeScroll,
+    cardAttr: "data-feed-anchor",
   });
 
   const handleTabChange = useCallback((newTab: Tab) => {
     feedLog.debug(`tab change  ${activeTab} → ${newTab}  pubkey=${shortKey(pubkey)}`);
-    // Save current scroll position
-    if (scrollRef.current) {
-      scrollPositions.current[activeTab] = scrollRef.current.scrollTop;
-    }
+    // Snapshot the current tab's position before its content swaps out.
+    captureScroll();
+    writeProfileView(pubkey, { activeTab: newTab });
     setActiveTab(newTab);
-  }, [activeTab, pubkey]);
+  }, [activeTab, pubkey, captureScroll]);
 
-  // Restore scroll position when tab changes
+  // Reload the remembered tab when the pubkey changes (the ProfilePage instance
+  // is reused across /profile/:pubkey navigations).
+  const tabPubkeyRef = useRef(pubkey);
   useEffect(() => {
-    if (scrollRef.current) {
-      scrollRef.current.scrollTop = scrollPositions.current[activeTab];
-    }
-  }, [activeTab]);
+    if (tabPubkeyRef.current === pubkey) return;
+    tabPubkeyRef.current = pubkey;
+    setActiveTab(readProfileView(pubkey)?.activeTab ?? "notes");
+  }, [pubkey]);
+
+  // Scroll restoration is handled by useAnchoredScrollRestore above (anchor-based,
+  // re-pins as media loads) — see containerRef on the scroll container below.
 
   // Engagement is fetched per-card as notes scroll into view — see FeedTab's
   // EngagementCollectorProvider + ProfileNoteCard's useEngagementReporter.
@@ -267,7 +315,7 @@ export function ProfilePage({ pubkey }: ProfilePageProps) {
     : allTabs.filter((t) => profileDisplaySettings.visibleTabs.includes(t.id as ProfileTab));
 
   return (
-    <div ref={scrollRef} className={`flex min-h-0 flex-1 flex-col overflow-y-auto ${scrollPaddingClass}`}>
+    <div ref={containerRef} className={`flex min-h-0 flex-1 flex-col overflow-y-auto ${scrollPaddingClass}`}>
       {/* Banner */}
       <div className="relative h-40 shrink-0 overflow-hidden bg-linear-to-r from-primary/40 to-primary-soft/15">
         {profile?.banner && (
@@ -887,6 +935,7 @@ function FeedTab({
           key={item.event.id}
           item={item}
           index={i}
+          anchorId={item.event.id}
           showThreadContext={showThreadContext}
           animationDelay={i < 15 ? i * 40 : undefined}
         />
@@ -962,6 +1011,7 @@ function ReadsTab({
       {articles.map((article, i) => (
         <div
           key={article.eventId}
+          data-feed-anchor={article.eventId}
           className="animate-fade-in-up"
           style={{ animationDelay: `${Math.min(i, 15) * 40}ms` }}
         >

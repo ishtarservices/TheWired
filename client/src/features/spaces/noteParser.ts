@@ -83,6 +83,19 @@ export function isRootNote(event: NostrEvent): boolean {
   return ref.rootId === null;
 }
 
+/**
+ * Returns true if `event` is a DIRECT reply to `parentId` (its immediate
+ * parent), not a deeper descendant. The events store indexes a reply under both
+ * its NIP-10 root and its immediate parent, so `replies[rootId]` is the whole
+ * flattened subtree; this filters that down to one thread level.
+ */
+export function isDirectReply(event: NostrEvent, parentId: string): boolean {
+  const ref = parseThreadRef(event);
+  // The reply marker is the immediate parent; fall back to root for top-level
+  // replies that only carry a root tag.
+  return (ref.replyId ?? ref.rootId) === parentId;
+}
+
 /** Parse NIP-25 reaction content */
 export function parseReactionContent(event: NostrEvent): string {
   const c = event.content.trim();
