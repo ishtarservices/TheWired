@@ -56,6 +56,13 @@ const initialState = eventsAdapter.getInitialState<EventsExtraState>({
 /** Max events per feed index to prevent unbounded memory growth */
 const FEED_INDEX_CAP = 500;
 
+/** Max reply/repost/quote IDs kept per target note. A single hot note can attract
+ *  thousands of kind 7/6/1 events; keeping them all bloats memory and makes the
+ *  per-card engagement selectors (esp. the repost `.some()` scan) O(n) on every
+ *  events-slice change. Newest-N is plenty for counts + "did I repost" checks;
+ *  counts on very hot notes saturate at the cap (display reads "300+"). */
+const ENGAGEMENT_INDEX_CAP = 300;
+
 function pushToIndex(
   index: Record<string, string[]>,
   contextId: string,
@@ -192,6 +199,7 @@ export const eventsSlice = createSlice({
         state.replies,
         action.payload.parentEventId,
         action.payload.eventId,
+        ENGAGEMENT_INDEX_CAP,
       );
     },
     indexRepost(
@@ -202,6 +210,7 @@ export const eventsSlice = createSlice({
         state.reposts,
         action.payload.targetEventId,
         action.payload.eventId,
+        ENGAGEMENT_INDEX_CAP,
       );
     },
     indexRepostByAuthor(
@@ -222,6 +231,7 @@ export const eventsSlice = createSlice({
         state.quotes,
         action.payload.targetEventId,
         action.payload.eventId,
+        ENGAGEMENT_INDEX_CAP,
       );
     },
     // ── Batched index reducers (eventPipeline flush) ──────────────────
@@ -232,16 +242,16 @@ export const eventsSlice = createSlice({
       for (const it of action.payload) pushToIndex(state.notesByAuthor, it.pubkey, it.eventId);
     },
     indexReplies(state, action: PayloadAction<{ parentEventId: string; eventId: string }[]>) {
-      for (const it of action.payload) pushToIndex(state.replies, it.parentEventId, it.eventId);
+      for (const it of action.payload) pushToIndex(state.replies, it.parentEventId, it.eventId, ENGAGEMENT_INDEX_CAP);
     },
     indexReposts(state, action: PayloadAction<{ targetEventId: string; eventId: string }[]>) {
-      for (const it of action.payload) pushToIndex(state.reposts, it.targetEventId, it.eventId);
+      for (const it of action.payload) pushToIndex(state.reposts, it.targetEventId, it.eventId, ENGAGEMENT_INDEX_CAP);
     },
     indexRepostsByAuthor(state, action: PayloadAction<{ pubkey: string; eventId: string }[]>) {
       for (const it of action.payload) pushToIndex(state.repostsByAuthor, it.pubkey, it.eventId);
     },
     indexQuotes(state, action: PayloadAction<{ targetEventId: string; eventId: string }[]>) {
-      for (const it of action.payload) pushToIndex(state.quotes, it.targetEventId, it.eventId);
+      for (const it of action.payload) pushToIndex(state.quotes, it.targetEventId, it.eventId, ENGAGEMENT_INDEX_CAP);
     },
     indexChatMessages(state, action: PayloadAction<{ groupId: string; eventId: string }[]>) {
       for (const it of action.payload) pushToIndex(state.chatMessages, it.groupId, it.eventId);

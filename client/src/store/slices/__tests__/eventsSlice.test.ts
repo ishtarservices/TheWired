@@ -297,3 +297,39 @@ describe("eventsSlice — batched index reducers", () => {
     expect(feed).not.toContain("e0");
   });
 });
+
+describe("eventsSlice — engagement index cap (300)", () => {
+  it("caps replies per parent at 300 (newest kept, oldest trimmed)", () => {
+    const store = createTestStore();
+    for (let i = 0; i < 350; i++) {
+      store.dispatch(indexReply({ parentEventId: "hot", eventId: `r${i}` }));
+    }
+    const replies = store.getState().events.replies["hot"];
+    expect(replies).toHaveLength(300);
+    expect(replies[replies.length - 1]).toBe("r349");
+    expect(replies).not.toContain("r0");
+  });
+
+  it("caps reposts and quotes per target at 300", () => {
+    const store = createTestStore();
+    for (let i = 0; i < 350; i++) {
+      store.dispatch(indexRepost({ targetEventId: "hot", eventId: `rp${i}` }));
+      store.dispatch(indexQuote({ targetEventId: "hot", eventId: `q${i}` }));
+    }
+    expect(store.getState().events.reposts["hot"]).toHaveLength(300);
+    expect(store.getState().events.quotes["hot"]).toHaveLength(300);
+  });
+
+  it("enforces the 300-cap within a single batched dispatch", () => {
+    const store = createTestStore();
+    const items = Array.from({ length: 350 }, (_, i) => ({
+      parentEventId: "hot",
+      eventId: `r${i}`,
+    }));
+    store.dispatch(indexReplies(items));
+    const replies = store.getState().events.replies["hot"];
+    expect(replies).toHaveLength(300);
+    expect(replies[replies.length - 1]).toBe("r349");
+    expect(replies).not.toContain("r0");
+  });
+});

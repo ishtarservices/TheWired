@@ -22,30 +22,12 @@ import { useScrollRestore } from "../../hooks/useScrollRestore";
 import { useFeedPagination } from "./useFeedPagination";
 import { FeedToolbar } from "./FeedToolbar";
 import { LoadMoreButton } from "./LoadMoreButton";
+import { RevealSentinel } from "../../components/ui/RevealSentinel";
 
 const feedLog = createLogger("feed");
 
 /** How many tiles to add to the rendered window each time the sentinel is hit. */
 const RENDER_PAGE = 30;
-
-/** Fires `onReach` when scrolled within ~1000px of the end — drives the render
- *  window growing (and, once everything fetched is shown, fetching more). */
-function RevealSentinel({ onReach }: { onReach: () => void }) {
-  const ref = useRef<HTMLDivElement>(null);
-  useEffect(() => {
-    const el = ref.current;
-    if (!el || typeof IntersectionObserver === "undefined") return;
-    const obs = new IntersectionObserver(
-      (entries) => {
-        if (entries[0]?.isIntersecting) onReach();
-      },
-      { rootMargin: "1000px" },
-    );
-    obs.observe(el);
-    return () => obs.disconnect();
-  }, [onReach]);
-  return <div ref={ref} className="h-1" />;
-}
 
 // ── Types ────────────────────────────────────────────────────────
 
