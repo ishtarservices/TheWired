@@ -90,7 +90,7 @@ export const channelsRoutes: FastifyPluginAsync = async (server) => {
       const perm = await permissionService.check(params.spaceId, pubkey, "MANAGE_CHANNELS");
       if (!perm.allowed) return reply.status(403).send({ error: "Missing MANAGE_CHANNELS permission", code: "FORBIDDEN" });
 
-      const channel = await channelService.updateChannel(params.channelId, body);
+      const channel = await channelService.updateChannel(params.spaceId, params.channelId, body);
       if (!channel) return reply.status(404).send({ error: "Channel not found", code: "NOT_FOUND" });
       return { data: channel };
     },
@@ -110,10 +110,10 @@ export const channelsRoutes: FastifyPluginAsync = async (server) => {
       if (!perm.allowed) return reply.status(403).send({ error: "Missing MANAGE_CHANNELS permission", code: "FORBIDDEN" });
 
       try {
-        await channelService.deleteChannel(params.channelId);
+        await channelService.deleteChannel(params.spaceId, params.channelId);
         return { data: { success: true } };
       } catch (err: any) {
-        return reply.status(400).send({ error: err.message, code: "BAD_REQUEST" });
+        return reply.status(404).send({ error: err.message, code: "NOT_FOUND" });
       }
     },
   );

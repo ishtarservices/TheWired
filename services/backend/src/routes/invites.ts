@@ -199,7 +199,8 @@ export const invitesRoutes: FastifyPluginAsync = async (server) => {
     if (!params) return;
     const { spaceId } = params;
 
-    const perm = await permissionService.check(spaceId, pubkey, "CREATE_INVITES");
+    const manage = await permissionService.check(spaceId, pubkey, "MANAGE_INVITES");
+    const perm = manage.allowed ? manage : await permissionService.check(spaceId, pubkey, "CREATE_INVITES");
     if (!perm.allowed) {
       return reply.status(403).send({ error: perm.reason ?? "Forbidden", code: "FORBIDDEN" });
     }
@@ -212,11 +213,36 @@ export const invitesRoutes: FastifyPluginAsync = async (server) => {
     return { data: activeInvites };
   });
 
-  // Revoke invite
+  // Revoke invite (auth + ownership). Closes #57: previously unauthenticated.
   server.delete<{ Params: { id: string } }>("/:id", async (request, reply) => {
     const params = validate(idParams, request.params, reply);
     if (!params) return;
     const { id } = params;
+
+    const pubkey = (request as any).pubkey as string | undefined;
+    if (!pubkey) return reply.status(401).send({ error: "Unauthorized", code: "UNAUTHORIZED" });
+
+    // Unknown or already-revoked code → 404 (no longer a silent success).
+    const [invite] = await db.select().from(invites).where(eq(invites.code, id)).limit(1);
+    if (!invite || invite.revoked) {
+      return reply.status(404).send({ error: "Invite not found", code: "NOT_FOUND" });
+    }
+
+    // Authorize: the creator of the space, the invite's own creator, or a member
+    // holding MANAGE_INVITES / CREATE_INVITES on that space.
+    const [space] = await db.select().from(spaces).where(eq(spaces.id, invite.spaceId)).limit(1);
+    const isSpaceCreator = !!space?.creatorPubkey && space.creatorPubkey === pubkey;
+    const isInviteCreator = invite.createdBy === pubkey;
+    let authorized = isSpaceCreator || isInviteCreator;
+    if (!authorized) {
+      const manage = await permissionService.check(invite.spaceId, pubkey, "MANAGE_INVITES");
+      const create = manage.allowed ? manage : await permissionService.check(invite.spaceId, pubkey, "CREATE_INVITES");
+      authorized = manage.allowed || create.allowed;
+    }
+    if (!authorized) {
+      return reply.status(403).send({ error: "Not allowed to revoke this invite", code: "FORBIDDEN" });
+    }
+
     await db.update(invites).set({ revoked: true }).where(eq(invites.code, id));
     return { data: { success: true } };
   });

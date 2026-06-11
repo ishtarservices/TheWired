@@ -106,17 +106,26 @@ export const roleService = {
     return { ...role, permissions: params.permissions };
   },
 
-  /** Update a role */
-  async updateRole(roleId: string, params: UpdateRoleParams) {
+  /** Update a role. Scoped to (spaceId, roleId): a role id from another space is
+   *  rejected BEFORE the destructive rolePermissions delete/reinsert, closing the
+   *  cross-space role/permission-rewrite IDOR (#15). */
+  async updateRole(spaceId: string, roleId: string, params: UpdateRoleParams) {
+    const [owned] = await db
+      .select()
+      .from(spaceRoles)
+      .where(and(eq(spaceRoles.id, roleId), eq(spaceRoles.spaceId, spaceId)))
+      .limit(1);
+    if (!owned) throw new Error("Role not found");
+
     const updates: Record<string, unknown> = {};
     if (params.name !== undefined) updates.name = params.name;
     if (params.color !== undefined) updates.color = params.color;
 
     if (Object.keys(updates).length > 0) {
-      await db.update(spaceRoles).set(updates).where(eq(spaceRoles.id, roleId));
+      await db.update(spaceRoles).set(updates).where(and(eq(spaceRoles.id, roleId), eq(spaceRoles.spaceId, spaceId)));
     }
 
-    // Replace permissions if provided
+    // Replace permissions if provided (role↔space binding already verified above)
     if (params.permissions !== undefined) {
       await db.delete(rolePermissions).where(eq(rolePermissions.roleId, roleId));
       if (params.permissions.length > 0) {
@@ -135,14 +144,18 @@ export const roleService = {
     return { ...role, permissions: perms.map((p) => p.permission) };
   },
 
-  /** Delete a role (refuses default/admin roles) */
-  async deleteRole(roleId: string) {
-    const [role] = await db.select().from(spaceRoles).where(eq(spaceRoles.id, roleId)).limit(1);
+  /** Delete a role (scoped to its space; refuses default/admin roles) */
+  async deleteRole(spaceId: string, roleId: string) {
+    const [role] = await db
+      .select()
+      .from(spaceRoles)
+      .where(and(eq(spaceRoles.id, roleId), eq(spaceRoles.spaceId, spaceId)))
+      .limit(1);
     if (!role) throw new Error("Role not found");
     if (role.isDefault) throw new Error("Cannot delete a default role");
     if (role.isAdmin) throw new Error("Cannot delete an admin role");
 
-    await db.delete(spaceRoles).where(eq(spaceRoles.id, roleId));
+    await db.delete(spaceRoles).where(and(eq(spaceRoles.id, roleId), eq(spaceRoles.spaceId, spaceId)));
   },
 
   /** Reorder roles */
@@ -179,6 +192,20 @@ export const roleService = {
   /** Seed default roles for a new space (idempotent + serialized per space).
    *  Uses an in-memory lock to prevent concurrent calls from creating duplicates. */
   async seedDefaultRoles(spaceId: string, creatorPubkey: string) {
+    // Authority guard (closes #0): never seed or grant Admin to anyone other than
+    // the space's recorded creator. The space row is written with creatorPubkey
+    // BEFORE this is ever called, and every legitimate caller passes that same
+    // creator. A stranger reaching this via POST /spaces or POST /roles/seed will
+    // mismatch and be refused — they never become Admin.
+    const [space] = await db
+      .select({ creatorPubkey: spaces.creatorPubkey })
+      .from(spaces)
+      .where(eq(spaces.id, spaceId))
+      .limit(1);
+    if (space?.creatorPubkey && space.creatorPubkey !== creatorPubkey) {
+      return;
+    }
+
     // Serialize: if another call is already seeding this space, wait for it
     const inflight = seedLocks.get(spaceId);
     if (inflight) {
@@ -216,46 +243,51 @@ export const roleService = {
       return;
     }
 
-    // Admin role
+    // Seed atomically (#61): a crash between these writes must not strand the
+    // space with an Admin role but no default Member role (unrepairable via API,
+    // since the top-level existing-roles guard would then short-circuit forever).
     const adminId = nanoid(12);
-    await db.insert(spaceRoles).values({
-      id: adminId,
-      spaceId,
-      name: "Admin",
-      position: 0,
-      isDefault: false,
-      isAdmin: true,
-    });
-
-    // Member role
     const memberId = nanoid(12);
-    await db.insert(spaceRoles).values({
-      id: memberId,
-      spaceId,
-      name: "Member",
-      position: 1,
-      isDefault: true,
-      isAdmin: false,
+    await db.transaction(async (tx) => {
+      // Admin role
+      await tx.insert(spaceRoles).values({
+        id: adminId,
+        spaceId,
+        name: "Admin",
+        position: 0,
+        isDefault: false,
+        isAdmin: true,
+      });
+
+      // Member role + its permissions
+      await tx.insert(spaceRoles).values({
+        id: memberId,
+        spaceId,
+        name: "Member",
+        position: 1,
+        isDefault: true,
+        isAdmin: false,
+      });
+      await tx.insert(rolePermissions).values(
+        DEFAULT_MEMBER_PERMISSIONS.map((p) => ({ roleId: memberId, permission: p })),
+      );
+
+      // Register creator as a member + assign Admin role
+      await tx.insert(spaceMembers).values({ spaceId, pubkey: creatorPubkey }).onConflictDoNothing();
+      await tx.insert(memberRoles).values({ spaceId, pubkey: creatorPubkey, roleId: adminId }).onConflictDoNothing();
     });
-    await db.insert(rolePermissions).values(
-      DEFAULT_MEMBER_PERMISSIONS.map((p) => ({ roleId: memberId, permission: p })),
-    );
-
-    // Register creator as a member of the space
-    await db
-      .insert(spaceMembers)
-      .values({ spaceId, pubkey: creatorPubkey })
-      .onConflictDoNothing();
-
-    // Assign Admin role to creator
-    await db
-      .insert(memberRoles)
-      .values({ spaceId, pubkey: creatorPubkey, roleId: adminId })
-      .onConflictDoNothing();
   },
 
-  /** Get channel overrides for a role */
-  async getChannelOverrides(roleId: string) {
+  /** Get channel overrides for a role (scoped to its space). channelOverrides is
+   *  keyed only by roleId, so the role↔space binding is the only available guard. */
+  async getChannelOverrides(spaceId: string, roleId: string) {
+    const [owned] = await db
+      .select({ id: spaceRoles.id })
+      .from(spaceRoles)
+      .where(and(eq(spaceRoles.id, roleId), eq(spaceRoles.spaceId, spaceId)))
+      .limit(1);
+    if (!owned) throw new Error("Role not found");
+
     const rows = await db
       .select()
       .from(channelOverrides)
@@ -282,11 +314,19 @@ export const roleService = {
     }));
   },
 
-  /** Set channel overrides for a role (replaces all) */
+  /** Set channel overrides for a role (replaces all; scoped to the role's space) */
   async setChannelOverrides(
+    spaceId: string,
     roleId: string,
     overrides: Array<{ channelId: string; allow: string[]; deny: string[] }>,
   ) {
+    const [owned] = await db
+      .select({ id: spaceRoles.id })
+      .from(spaceRoles)
+      .where(and(eq(spaceRoles.id, roleId), eq(spaceRoles.spaceId, spaceId)))
+      .limit(1);
+    if (!owned) throw new Error("Role not found");
+
     await db.delete(channelOverrides).where(eq(channelOverrides.roleId, roleId));
 
     const values: Array<{ roleId: string; channelId: string; permission: string; effect: string }> = [];

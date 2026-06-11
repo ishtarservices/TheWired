@@ -2,6 +2,7 @@ import { z } from "zod";
 import type { FastifyPluginAsync } from "fastify";
 import { roleService } from "../services/roleService.js";
 import { permissionService } from "../services/permissionService.js";
+import { requirePubkey, requireSpaceCreator } from "../lib/authz.js";
 import { validate, hexId, nonEmptyString } from "../lib/validation.js";
 
 const spaceIdParamsSchema = z.object({
@@ -109,8 +110,12 @@ export const rolesRoutes: FastifyPluginAsync = async (server) => {
       const perm = await permissionService.check(params.spaceId, pubkey, "MANAGE_ROLES");
       if (!perm.allowed) return reply.status(403).send({ error: "Missing MANAGE_ROLES permission", code: "FORBIDDEN" });
 
-      const role = await roleService.updateRole(params.roleId, body);
-      return { data: role };
+      try {
+        const role = await roleService.updateRole(params.spaceId, params.roleId, body);
+        return { data: role };
+      } catch (err: any) {
+        return reply.status(404).send({ error: err.message, code: "NOT_FOUND" });
+      }
     },
   );
 
@@ -128,10 +133,11 @@ export const rolesRoutes: FastifyPluginAsync = async (server) => {
       if (!perm.allowed) return reply.status(403).send({ error: "Missing MANAGE_ROLES permission", code: "FORBIDDEN" });
 
       try {
-        await roleService.deleteRole(params.roleId);
+        await roleService.deleteRole(params.spaceId, params.roleId);
         return { data: { success: true } };
       } catch (err: any) {
-        return reply.status(400).send({ error: err.message, code: "BAD_REQUEST" });
+        const notFound = err.message === "Role not found";
+        return reply.status(notFound ? 404 : 400).send({ error: err.message, code: notFound ? "NOT_FOUND" : "BAD_REQUEST" });
       }
     },
   );
@@ -161,15 +167,25 @@ export const rolesRoutes: FastifyPluginAsync = async (server) => {
 
   // ── Channel overrides ──────────────────────────────────────
 
-  /** GET /:spaceId/roles/:roleId/overrides — Get channel overrides */
+  /** GET /:spaceId/roles/:roleId/overrides — Get channel overrides (MANAGE_ROLES) */
   server.get<{ Params: { spaceId: string; roleId: string } }>(
     "/:spaceId/roles/:roleId/overrides",
     async (request, reply) => {
       const params = validate(spaceAndRoleIdParamsSchema, request.params, reply);
       if (!params) return;
 
-      const overrides = await roleService.getChannelOverrides(params.roleId);
-      return { data: overrides };
+      const pubkey = (request as any).pubkey as string | undefined;
+      if (!pubkey) return reply.status(401).send({ error: "Authentication required", code: "UNAUTHORIZED" });
+
+      const perm = await permissionService.check(params.spaceId, pubkey, "MANAGE_ROLES");
+      if (!perm.allowed) return reply.status(403).send({ error: "Missing MANAGE_ROLES permission", code: "FORBIDDEN" });
+
+      try {
+        const overrides = await roleService.getChannelOverrides(params.spaceId, params.roleId);
+        return { data: overrides };
+      } catch (err: any) {
+        return reply.status(404).send({ error: err.message, code: "NOT_FOUND" });
+      }
     },
   );
 
@@ -191,8 +207,12 @@ export const rolesRoutes: FastifyPluginAsync = async (server) => {
       const perm = await permissionService.check(params.spaceId, pubkey, "MANAGE_ROLES");
       if (!perm.allowed) return reply.status(403).send({ error: "Missing MANAGE_ROLES permission", code: "FORBIDDEN" });
 
-      await roleService.setChannelOverrides(params.roleId, body.overrides);
-      return { data: { success: true } };
+      try {
+        await roleService.setChannelOverrides(params.spaceId, params.roleId, body.overrides);
+        return { data: { success: true } };
+      } catch (err: any) {
+        return reply.status(404).send({ error: err.message, code: "NOT_FOUND" });
+      }
     },
   );
 
@@ -281,8 +301,12 @@ export const rolesRoutes: FastifyPluginAsync = async (server) => {
       const params = validate(spaceIdParamsSchema, request.params, reply);
       if (!params) return;
 
-      const pubkey = (request as any).pubkey as string | undefined;
-      if (!pubkey) return reply.status(401).send({ error: "Authentication required", code: "UNAUTHORIZED" });
+      const pubkey = requirePubkey(request, reply);
+      if (!pubkey) return;
+
+      // Creator-only: seeding assigns the Admin role, so a stranger must never
+      // reach it on a space they don't own (#0 sibling path).
+      if (!(await requireSpaceCreator(params.spaceId, pubkey, reply))) return;
 
       // Only seed if no roles exist yet
       const existing = await roleService.listRoles(params.spaceId);
