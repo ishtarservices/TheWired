@@ -218,11 +218,77 @@ describe("dmSlice", () => {
         rumorId: "rumor-1",
         newContent: "edited!",
         editedAt: 2000,
+        senderPubkey: PARTNER_PK, // the original author edits their own message
       }),
     );
     const msg = store.getState().dm.messages[PARTNER_PK][0];
     expect(msg.editedContent).toBe("edited!");
     expect(msg.editedAt).toBe(2000);
+  });
+
+  // PROBE #23/#32 — pre-fix: a DM partner could edit/delete YOUR messages.
+  // post-fix asserts: an edit/delete whose author != the message's senderPubkey is ignored.
+  it("PROBE #23 — ignores an edit from a non-author (cannot rewrite your message)", () => {
+    const store = createTestStore();
+    // message authored by ME, sitting in the conversation with PARTNER
+    store.dispatch(
+      addDMMessage({
+        partnerPubkey: PARTNER_PK,
+        message: makeMessage({ rumorId: "rumor-mine", senderPubkey: MY_PK, content: "my secret" }) as any,
+        myPubkey: MY_PK,
+      }),
+    );
+    // PARTNER forges an edit of MY message
+    store.dispatch(
+      editDMMessage({
+        partnerPubkey: PARTNER_PK,
+        rumorId: "rumor-mine",
+        newContent: "tampered",
+        editedAt: 2000,
+        senderPubkey: PARTNER_PK,
+        wrapId: "attacker-wrap-1",
+      }),
+    );
+    const msg = store.getState().dm.messages[PARTNER_PK][0];
+    expect(msg.editedContent).toBeUndefined();
+    expect(msg.content).toBe("my secret");
+  });
+
+  it("PROBE #23 — dedups the edit wrap (self-wrap echo is a no-op)", () => {
+    const store = createTestStore();
+    store.dispatch(
+      addDMMessage({
+        partnerPubkey: PARTNER_PK,
+        message: makeMessage({ rumorId: "rumor-1", senderPubkey: PARTNER_PK }) as any,
+        myPubkey: MY_PK,
+      }),
+    );
+    const edit = {
+      partnerPubkey: PARTNER_PK,
+      rumorId: "rumor-1",
+      newContent: "v2",
+      editedAt: 2000,
+      senderPubkey: PARTNER_PK,
+      wrapId: "edit-wrap-1",
+    };
+    store.dispatch(editDMMessage(edit));
+    store.dispatch(editDMMessage({ ...edit, newContent: "v3" })); // same wrapId → ignored
+    expect(store.getState().dm.messages[PARTNER_PK][0].editedContent).toBe("v2");
+  });
+
+  it("#87 — refreshes the conversation preview when the latest message is edited", () => {
+    const store = createTestStore();
+    store.dispatch(
+      addDMMessage({
+        partnerPubkey: PARTNER_PK,
+        message: makeMessage({ rumorId: "rumor-1", senderPubkey: PARTNER_PK, content: "original" }) as any,
+        myPubkey: MY_PK,
+      }),
+    );
+    store.dispatch(
+      editDMMessage({ partnerPubkey: PARTNER_PK, rumorId: "rumor-1", newContent: "brand new preview", editedAt: 2000, senderPubkey: PARTNER_PK }),
+    );
+    expect(store.getState().dm.contacts[0].lastMessagePreview).toContain("brand new preview");
   });
 
   // ─── remoteDeleteDMMessage ─────────────────────
@@ -237,10 +303,27 @@ describe("dmSlice", () => {
       }),
     );
     store.dispatch(
-      remoteDeleteDMMessage({ partnerPubkey: PARTNER_PK, rumorId: "rumor-1" }),
+      remoteDeleteDMMessage({ partnerPubkey: PARTNER_PK, rumorId: "rumor-1", senderPubkey: PARTNER_PK }),
     );
     const msg = store.getState().dm.messages[PARTNER_PK][0];
     expect(msg.isDeleted).toBe(true);
+  });
+
+  it("PROBE #32 — ignores a delete from a non-author", () => {
+    const store = createTestStore();
+    store.dispatch(
+      addDMMessage({
+        partnerPubkey: PARTNER_PK,
+        message: makeMessage({ rumorId: "rumor-mine", senderPubkey: MY_PK, content: "keep me" }) as any,
+        myPubkey: MY_PK,
+      }),
+    );
+    store.dispatch(
+      remoteDeleteDMMessage({ partnerPubkey: PARTNER_PK, rumorId: "rumor-mine", senderPubkey: PARTNER_PK, wrapId: "attacker-wrap-2" }),
+    );
+    const msg = store.getState().dm.messages[PARTNER_PK][0];
+    expect(msg.isDeleted).toBeFalsy();
+    expect(msg.content).toBe("keep me");
   });
 
   // ─── deleteDMConversation ──────────────────────

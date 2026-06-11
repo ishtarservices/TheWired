@@ -3,7 +3,7 @@ import { memberRoles, spaceMembers } from "../db/schema/members.js";
 import { spaceRoles, rolePermissions, channelOverrides } from "../db/schema/permissions.js";
 import { bans, timedMutes } from "../db/schema/moderation.js";
 import { spaces } from "../db/schema/spaces.js";
-import { eq, and, gt, or, isNull } from "drizzle-orm";
+import { eq, and, gt, or, isNull, inArray } from "drizzle-orm";
 import { roleService } from "./roleService.js";
 
 export const permissionService = {
@@ -94,56 +94,52 @@ export const permissionService = {
       return { allowed: false, reason: "Not a member" };
     }
 
-    // Check if any role is admin — admins bypass all permission checks
-    for (const { roleId } of roles) {
-      const [role] = await db.select().from(spaceRoles).where(eq(spaceRoles.id, roleId)).limit(1);
-      if (role?.isAdmin) return { allowed: true, reason: "Admin role" };
+    // Batched (#105): load the member's roles, channel overrides, and base grants
+    // for THIS permission in a constant number of queries instead of per role.
+    const roleIds = roles.map((r) => r.roleId);
+
+    // Admin bypass.
+    const roleRows = await db.select().from(spaceRoles).where(inArray(spaceRoles.id, roleIds));
+    if (roleRows.some((r) => r.isAdmin)) return { allowed: true, reason: "Admin role" };
+
+    // Per-role channel override for this channel+permission (first wins per role,
+    // mirroring the original `overrides[0]`).
+    const overrideEffectByRole = new Map<string, string>();
+    if (channelId) {
+      const overrideRows = await db
+        .select()
+        .from(channelOverrides)
+        .where(
+          and(
+            inArray(channelOverrides.roleId, roleIds),
+            eq(channelOverrides.channelId, channelId),
+            eq(channelOverrides.permission, permission),
+          ),
+        );
+      for (const o of overrideRows) {
+        if (!overrideEffectByRole.has(o.roleId)) overrideEffectByRole.set(o.roleId, o.effect);
+      }
     }
 
-    // Check role permissions with channel overrides (Deny Wins model)
-    // If ANY role has an explicit DENY for this channel+permission, result is DENY.
-    // Otherwise if ANY role (after overrides) grants the permission, result is ALLOW.
+    // Roles that grant this permission at the base level.
+    const basePermRows = await db
+      .select({ roleId: rolePermissions.roleId })
+      .from(rolePermissions)
+      .where(and(inArray(rolePermissions.roleId, roleIds), eq(rolePermissions.permission, permission)));
+    const baseGrantRoles = new Set(basePermRows.map((r) => r.roleId));
+
+    // Deny-wins, evaluated per role exactly as before: a channel override (deny or
+    // allow) decides that role and skips its base check; otherwise the base grant
+    // applies.
     let anyAllows = false;
     let anyDenies = false;
-
-    for (const { roleId } of roles) {
-      if (channelId) {
-        // Get channel overrides for this role+channel+permission
-        const overrides = await db
-          .select()
-          .from(channelOverrides)
-          .where(
-            and(
-              eq(channelOverrides.roleId, roleId),
-              eq(channelOverrides.channelId, channelId),
-              eq(channelOverrides.permission, permission),
-            ),
-          );
-
-        if (overrides.length > 0) {
-          const effect = overrides[0].effect;
-          if (effect === "deny") {
-            anyDenies = true;
-            continue; // Deny wins — skip further checks for this role
-          }
-          if (effect === "allow") {
-            anyAllows = true;
-            continue; // Explicit allow for this channel
-          }
-        }
-      }
-
-      // No channel override (or no channelId) — check base role permissions
-      const perms = await db
-        .select()
-        .from(rolePermissions)
-        .where(and(eq(rolePermissions.roleId, roleId), eq(rolePermissions.permission, permission)));
-      if (perms.length > 0) {
-        anyAllows = true;
-      }
+    for (const roleId of roleIds) {
+      const effect = overrideEffectByRole.get(roleId);
+      if (effect === "deny") { anyDenies = true; continue; }
+      if (effect === "allow") { anyAllows = true; continue; }
+      if (baseGrantRoles.has(roleId)) anyAllows = true;
     }
 
-    // Deny wins: explicit deny on any role blocks the permission
     if (anyDenies) {
       return { allowed: false, reason: "Denied by channel override" };
     }

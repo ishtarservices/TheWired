@@ -213,6 +213,22 @@ export async function sendZap(params: SendZapParams): Promise<SendZapResult> {
     invoice,
   });
 
+  // #10 — amount-tampering guard. The BOLT11 comes from the recipient's LNURL
+  // server (untrusted: derived from profile lud16/lud06). NIP-47 pay_invoice pays
+  // whatever amount is encoded in the invoice, so a malicious/compromised provider
+  // could return an invoice for ANY amount. Verify the invoice encodes exactly what
+  // we asked for, and reject zero-amount invoices, BEFORE paying.
+  const invoiceSats = getSatoshisAmountFromBolt11(invoice);
+  if (!invoiceSats || invoiceSats <= 0) {
+    throw new Error("The Lightning provider returned a zero-amount invoice. Zap cancelled — nothing was paid.");
+  }
+  if (Math.round(invoiceSats * 1000) !== amountMsat) {
+    const requestedSats = Math.round(amountMsat / 1000);
+    throw new Error(
+      `Invoice amount mismatch: requested ${requestedSats.toLocaleString()} sats but the provider's invoice is for ${invoiceSats.toLocaleString()} sats. Zap cancelled — nothing was paid.`,
+    );
+  }
+
   let preimage: string;
   try {
     const result = await params.payInvoice(invoice, amountMsat);

@@ -67,12 +67,6 @@ export const voiceRoutes: FastifyPluginAsync = async (server) => {
       return reply.status(403).send({ error: "Not a member of this space", code: "FORBIDDEN" });
     }
 
-    // Check if user is banned (bans deny everything)
-    const banCheck = await permissionService.check(spaceId, pubkey, "JOIN_VOICE");
-    if (banCheck.reason === "Banned") {
-      return reply.status(403).send({ error: "Banned from this space", code: "FORBIDDEN" });
-    }
-
     // Verify channel exists and is voice/video type
     const channels = await channelService.listChannels(spaceId);
     const channel = channels.find((c: any) => c.id === channelId);
@@ -83,10 +77,30 @@ export const voiceRoutes: FastifyPluginAsync = async (server) => {
       return reply.status(400).send({ error: "Channel is not a voice/video channel", code: "BAD_REQUEST" });
     }
 
-    // Voice permissions default to allowed for members.
-    // Fine-grained voice permissions (JOIN_VOICE, SPEAK, USE_VIDEO, SCREEN_SHARE)
-    // are opt-out: allowed unless explicitly denied via role permissions.
-    const canPublishSources: string[] = ["microphone", "camera", "screen_share", "screen_share_audio"];
+    // Closes #75. Gate entry on the channel-scoped CONNECT permission (this also
+    // folds in the ban check — bans deny everything inside permissionService).
+    // The real permission is CONNECT, not the non-existent "JOIN_VOICE".
+    const connect = await permissionService.check(spaceId, pubkey, "CONNECT", channelId);
+    if (!connect.allowed) {
+      return reply.status(403).send({ error: connect.reason ?? "Cannot connect to this channel", code: "FORBIDDEN" });
+    }
+
+    // Compute publish grants from effective (channel-scoped) permissions. The base
+    // role model is an allow-list, so a source is granted only when the permission
+    // is actually held and not channel-denied. The default Member role grants all
+    // of SPEAK/VIDEO/SCREEN_SHARE and admins bypass, so ordinary members are
+    // unaffected; only role-restricted / channel-denied users are downgraded
+    // (e.g. listen-only). SCREEN_SHARE maps to two LiveKit sources.
+    const [speak, video, screen] = await Promise.all([
+      permissionService.check(spaceId, pubkey, "SPEAK", channelId),
+      permissionService.check(spaceId, pubkey, "VIDEO", channelId),
+      permissionService.check(spaceId, pubkey, "SCREEN_SHARE", channelId),
+    ]);
+    const canPublishSources: string[] = [];
+    if (speak.allowed) canPublishSources.push("microphone");
+    if (video.allowed) canPublishSources.push("camera");
+    if (screen.allowed) canPublishSources.push("screen_share", "screen_share_audio");
+    const canPublish = canPublishSources.length > 0;
 
     const roomName = `${spaceId}:${channelId}`;
 
@@ -100,7 +114,7 @@ export const voiceRoutes: FastifyPluginAsync = async (server) => {
       roomName,
       pubkey, // Display name resolved on client side
       {
-        canPublish: true,
+        canPublish,
         canPublishData: true,
         canSubscribe: true,
         canPublishSources,

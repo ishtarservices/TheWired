@@ -23,8 +23,14 @@ vi.mock("@/lib/api/roles", () => ({
   fetchAllMemberRoles: vi.fn().mockResolvedValue([]),
 }));
 
+const mockSignAndPublish = vi.fn().mockResolvedValue({});
+vi.mock("@/lib/nostr/publish", () => ({
+  signAndPublish: (...a: unknown[]) => mockSignAndPublish(...a),
+}));
+
 import * as moderationApi from "@/lib/api/moderation";
 import { useModeration } from "../useModeration";
+import { login } from "@/store/slices/identitySlice";
 import { _resetInFlight } from "@/store/thunks/spaceMembers";
 
 const mockKick = moderationApi.kickMember as ReturnType<typeof vi.fn>;
@@ -203,5 +209,40 @@ describe("useModeration kick/ban dual-write", () => {
 
     const persisted = await loadMembers("space-1");
     expect(persisted?.map((m) => m.pubkey)).toEqual(["pk-admin"]);
+  });
+
+  // PROBE #40 — a nip29-native admin's Kick must publish a relay-enforced
+  // kind:9001 (not silently no-op / not call the backend API).
+  it("PROBE #40 — native kick publishes a kind:9001 remove-user, not a backend call", async () => {
+    const store = createTestStore({
+      spaces: {
+        list: [makeSpace({
+          memberPubkeys: ["pk-admin", "pk-victim"],
+          spaceType: "nip29-native",
+          groupRef: { host: "wss://relay.test.com", groupId: "space-1" } as any,
+        })],
+        activeSpaceId: null, activeChannelId: null, subscriptions: {},
+        channels: {}, channelsLoading: {}, pendingInvites: [],
+      },
+      spaceConfig: {
+        roles: {}, members: { "space-1": [makeMember({ pubkey: "pk-admin" }), makeMember({ pubkey: "pk-victim" })] },
+        overrides: {}, myPermissions: {}, myChannelOverrides: {}, bans: {}, mutes: {}, onboardingPending: {}, loading: {},
+      },
+    });
+    store.dispatch(login({ pubkey: "pk-admin", signerType: "nip07" }));
+
+    const { result } = renderHook(() => useModeration("space-1", false), { wrapper: wrapper(store) });
+
+    await act(async () => { await result.current.kickMember("pk-victim"); });
+
+    // backend API NOT called; a 9001 with h + p tags WAS published
+    expect(mockKick).not.toHaveBeenCalled();
+    expect(mockSignAndPublish).toHaveBeenCalledTimes(1);
+    const [unsigned] = mockSignAndPublish.mock.calls[0];
+    expect(unsigned.kind).toBe(9001);
+    expect(unsigned.tags).toContainEqual(["h", "space-1"]);
+    expect(unsigned.tags).toContainEqual(["p", "pk-victim"]);
+    // optimistic local removal still applied
+    expect(store.getState().spaces.list[0].memberPubkeys).toEqual(["pk-admin"]);
   });
 });

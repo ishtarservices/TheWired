@@ -36,7 +36,7 @@ import { syncSpaceMembers } from "../../store/thunks/spaceMembers";
 import { loadMusicLibrary } from "../db/musicStore";
 import { getEventsByKind } from "../db/eventStore";
 import { setSpaces, removeSpace, setChannels, setActiveSpace } from "../../store/slices/spacesSlice";
-import { trackDeletedNote, restoreDeletedAddrIds } from "../../store/slices/eventsSlice";
+import { trackPendingDeletion, restoreDeletedAddrIds } from "../../store/slices/eventsSlice";
 import { addNotification } from "../../store/slices/notificationSlice";
 import { validateSpaces, fetchMySpaces } from "../api/spaces";
 import { saveChannels } from "../db/channelStore";
@@ -714,7 +714,11 @@ export async function performLogin(
   // For addressable IDs ("a" tags), track the deletion timestamp so that
   // re-published events (created AFTER the deletion) are NOT filtered out.
   const deletedAddrTimestamps = new Map<string, number>(); // addr → latest deletion created_at
-  const deletedEventIds = new Set<string>();
+  // e-tag deletions, keyed by target event id → the pubkeys that requested them.
+  // We can't know the target's author here (notes aren't loaded from IDB at this
+  // point), so these are seeded as PENDING and resolved with an author check when
+  // the target arrives over the wire (#21) — never as a blanket suppression.
+  const eDeletions = new Map<string, Set<string>>();
   for (const delEvt of deletionEvents) {
     for (const tag of delEvt.tags) {
       if (tag[0] === "a" && tag[1]) {
@@ -726,10 +730,13 @@ export async function performLogin(
         }
       }
       if (tag[0] === "e" && tag[1]) {
-        deletedEventIds.add(tag[1]);
+        (eDeletions.get(tag[1]) ?? eDeletions.set(tag[1], new Set()).get(tag[1])!).add(delEvt.pubkey);
       }
     }
   }
+  /** An IDB-loaded event is e-tag-deleted only if one of its deleters is its own author. */
+  const isEDeletedByAuthor = (e: { id: string; pubkey: string }): boolean =>
+    eDeletions.get(e.id)?.has(e.pubkey) ?? false;
 
   /** Check if an event is superseded by a deletion (only for events created before the deletion) */
   function isDeletedByAddr(event: { pubkey: string; created_at: number; tags: string[][] }, kindNum: number): boolean {
@@ -742,22 +749,26 @@ export async function performLogin(
     return deletedAt !== undefined && event.created_at <= deletedAt;
   }
 
-  // Populate Redux deletion tracking so re-delivered events from relays are rejected
-  for (const eventId of deletedEventIds) {
-    store.dispatch(trackDeletedNote(eventId));
+  // Seed pending deletions: applied (with an author check) only when each target
+  // event arrives. A forged kind:5 for an id its publisher doesn't own therefore
+  // never suppresses the real note.
+  for (const [eventId, deleters] of eDeletions) {
+    for (const deleter of deleters) {
+      store.dispatch(trackPendingDeletion({ eventId, deleter }));
+    }
   }
   if (deletedAddrTimestamps.size > 0) {
     store.dispatch(restoreDeletedAddrIds(Object.fromEntries(deletedAddrTimestamps)));
   }
 
   const liveTrackEvents = trackEvents.filter(
-    (e) => !deletedEventIds.has(e.id) && !isDeletedByAddr(e, EVENT_KINDS.MUSIC_TRACK),
+    (e) => !isEDeletedByAuthor(e) && !isDeletedByAddr(e, EVENT_KINDS.MUSIC_TRACK),
   );
   const liveAlbumEvents = albumEvents.filter(
-    (e) => !deletedEventIds.has(e.id) && !isDeletedByAddr(e, EVENT_KINDS.MUSIC_ALBUM),
+    (e) => !isEDeletedByAuthor(e) && !isDeletedByAddr(e, EVENT_KINDS.MUSIC_ALBUM),
   );
   const livePlaylistEvents = playlistEvents.filter(
-    (e) => !deletedEventIds.has(e.id) && !isDeletedByAddr(e, EVENT_KINDS.MUSIC_PLAYLIST),
+    (e) => !isEDeletedByAuthor(e) && !isDeletedByAddr(e, EVENT_KINDS.MUSIC_PLAYLIST),
   );
 
   // Helper to index a parsed track into Redux
@@ -875,7 +886,7 @@ export async function performLogin(
 
   // Restore annotations from IndexedDB, filtering deletions
   const liveAnnotationEvents = annotationEvents.filter(
-    (e) => !deletedEventIds.has(e.id) && !isDeletedByAddr(e, EVENT_KINDS.MUSIC_TRACK_NOTES),
+    (e) => !isEDeletedByAuthor(e) && !isDeletedByAddr(e, EVENT_KINDS.MUSIC_TRACK_NOTES),
   );
   for (const evt of liveAnnotationEvents) {
     const annotation = parseAnnotationEvent(evt);
@@ -1048,6 +1059,11 @@ export async function performLogin(
 
   const mergeFollowers = () => {
     if (followerMerged) return;
+    // #77 — the 10s safety timer (and the standing subscription) can fire AFTER an
+    // account switch. Without this guard, account A's buffered followers get merged
+    // into account B's knownFollowers (and persisted there). Bail if we're no longer
+    // the active identity.
+    if (store.getState().identity.pubkey !== pubkey) return;
     followerMerged = true;
     clearTimeout(followerTimer);
     // Merge buffered followers with cached set — always union, never replace with smaller
@@ -1066,6 +1082,8 @@ export async function performLogin(
     ],
     relayUrls: PROFILE_RELAYS,
     onEvent: (event) => {
+      // Stale-subscription guard (#77): ignore deliveries after an account switch.
+      if (store.getState().identity.pubkey !== pubkey) return;
       // Only care about events that include us in their follow list
       if (event.pubkey === pubkey) return;
       const followsUs = event.tags.some(

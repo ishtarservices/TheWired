@@ -91,38 +91,44 @@ export const channelService = {
     return channel;
   },
 
-  /** Update a channel */
-  async updateChannel(channelId: string, updates: UpdateChannelParams) {
-    // If setting isDefault, clear it from all other channels in the space first
+  /** Update a channel. Scoped to (spaceId, channelId) — a channel id from another
+   *  space yields 0 rows (route 404s), closing the cross-space IDOR (#14). */
+  async updateChannel(spaceId: string, channelId: string, updates: UpdateChannelParams) {
+    // Verify the channel belongs to this space before any mutation.
+    const [existing] = await db
+      .select()
+      .from(spaceChannels)
+      .where(and(eq(spaceChannels.id, channelId), eq(spaceChannels.spaceId, spaceId)))
+      .limit(1);
+    if (!existing) return undefined;
+
+    // If setting isDefault, clear it from all other channels in the (verified) space.
     if (updates.isDefault) {
-      const [existing] = await db.select().from(spaceChannels).where(eq(spaceChannels.id, channelId)).limit(1);
-      if (existing) {
-        await db
-          .update(spaceChannels)
-          .set({ isDefault: false })
-          .where(eq(spaceChannels.spaceId, existing.spaceId));
-      }
+      await db
+        .update(spaceChannels)
+        .set({ isDefault: false })
+        .where(eq(spaceChannels.spaceId, spaceId));
     }
 
     const [channel] = await db
       .update(spaceChannels)
       .set(updates)
-      .where(eq(spaceChannels.id, channelId))
+      .where(and(eq(spaceChannels.id, channelId), eq(spaceChannels.spaceId, spaceId)))
       .returning();
     return channel;
   },
 
-  /** Delete a channel. When deleting the default, promotes the next channel. */
-  async deleteChannel(channelId: string) {
+  /** Delete a channel (scoped to its space). When deleting the default, promotes the next. */
+  async deleteChannel(spaceId: string, channelId: string) {
     const [channel] = await db
       .select()
       .from(spaceChannels)
-      .where(eq(spaceChannels.id, channelId))
+      .where(and(eq(spaceChannels.id, channelId), eq(spaceChannels.spaceId, spaceId)))
       .limit(1);
 
     if (!channel) throw new Error("Channel not found");
 
-    await db.delete(spaceChannels).where(eq(spaceChannels.id, channelId));
+    await db.delete(spaceChannels).where(and(eq(spaceChannels.id, channelId), eq(spaceChannels.spaceId, spaceId)));
 
     // If this was the default channel, promote the next one by position
     if (channel.isDefault) {

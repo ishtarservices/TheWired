@@ -32,6 +32,11 @@ interface EventsExtraState {
   /** Addressable IDs deleted via kind:5 "a" tags — maps addr to deletion created_at.
    *  Prevents re-delivered addressable events (music) from external relays. */
   deletedAddrIds: Record<string, number>;
+  /** kind:5 deletions whose target is not yet in the store, keyed by target event
+   *  id → the pubkeys that requested the deletion. Resolved (with an author check)
+   *  when the target arrives — so a third party can't censor a note by deleting an
+   *  id it doesn't own (#21). Bounded + never persisted. */
+  pendingDeletions: Record<string, string[]>;
 }
 
 const initialState = eventsAdapter.getInitialState<EventsExtraState>({
@@ -51,7 +56,11 @@ const initialState = eventsAdapter.getInitialState<EventsExtraState>({
   editedMessages: {},
   deletedNoteIds: {},
   deletedAddrIds: {},
+  pendingDeletions: {},
 });
+
+/** Max distinct pending (unconfirmed) deletions kept — attacker-growable, so FIFO-capped. */
+const PENDING_DELETION_CAP = 2000;
 
 /** Max events per feed index to prevent unbounded memory growth */
 const FEED_INDEX_CAP = 500;
@@ -339,6 +348,22 @@ export const eventsSlice = createSlice({
         state.deletedAddrIds[addr] = Math.max(prev, ts);
       }
     },
+    /** Record a kind:5 whose target is not yet known. Applied (with an author
+     *  check) only when the target event arrives. (#21) */
+    trackPendingDeletion(state, action: PayloadAction<{ eventId: string; deleter: string }>) {
+      const { eventId, deleter } = action.payload;
+      const existing = state.pendingDeletions[eventId];
+      if (existing) {
+        if (!existing.includes(deleter)) existing.push(deleter);
+        return;
+      }
+      const keys = Object.keys(state.pendingDeletions);
+      if (keys.length >= PENDING_DELETION_CAP) delete state.pendingDeletions[keys[0]];
+      state.pendingDeletions[eventId] = [deleter];
+    },
+    clearPendingDeletion(state, action: PayloadAction<string>) {
+      delete state.pendingDeletions[action.payload];
+    },
   },
 });
 
@@ -383,4 +408,6 @@ export const {
   trackDeletedNote,
   trackDeletedAddr,
   restoreDeletedAddrIds,
+  trackPendingDeletion,
+  clearPendingDeletion,
 } = eventsSlice.actions;

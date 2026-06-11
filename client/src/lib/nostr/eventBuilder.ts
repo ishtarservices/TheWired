@@ -99,6 +99,23 @@ export function buildChatMessage(
   };
 }
 
+/** Build an unsigned NIP-29 kind:9001 remove-user (kick) event. The relay
+ *  enforces is_admin and republishes its members list (39002). */
+export function buildRemoveUser(
+  pubkey: string,
+  groupId: string,
+  targetPubkey: string,
+  reason?: string,
+): UnsignedEvent {
+  return {
+    pubkey,
+    created_at: Math.floor(Date.now() / 1000),
+    kind: 9001,
+    tags: [["h", groupId], ["p", targetPubkey]],
+    content: reason ?? "",
+  };
+}
+
 /** Build an unsigned kind:1 root text note (NIP-10) */
 export function buildRootNote(
   pubkey: string,

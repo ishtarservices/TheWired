@@ -74,10 +74,26 @@ pub fn calc_padded_len(unpadded_len: usize) -> Result<usize, String> {
     if unpadded_len <= 32 {
         return Ok(32);
     }
-    // next_power = 1 << (floor(log2(unpadded_len - 1)) + 1)
-    let next_power = (unpadded_len - 1).next_power_of_two();
+    // NIP-44: next_power = 1 << (floor(log2(n)) + 1) where n = unpadded_len - 1,
+    // i.e. the power of two STRICTLY GREATER than n. `next_power_of_two()` returns
+    // n itself when n is already a power of two, which diverges from the spec for
+    // unpadded_len ∈ {257, 513, 1025, 2049, 4097, 8193, 16385, 32769} (#20). Force
+    // strictly-greater.
+    let n = unpadded_len - 1;
+    let next_power = if n.is_power_of_two() { n << 1 } else { n.next_power_of_two() };
     let chunk = if next_power <= 256 { 32 } else { next_power / 8 };
     Ok(chunk * (((unpadded_len - 1) / chunk) + 1))
+}
+
+/// The pre-#20 (non-spec) padded length. Used ONLY by `unpad` to keep decryption
+/// of our own previously-sealed history working — never for encryption.
+fn calc_padded_len_legacy(unpadded_len: usize) -> usize {
+    if unpadded_len <= 32 {
+        return 32;
+    }
+    let next_power = (unpadded_len - 1).next_power_of_two();
+    let chunk = if next_power <= 256 { 32 } else { next_power / 8 };
+    chunk * (((unpadded_len - 1) / chunk) + 1)
 }
 
 /// Pad plaintext per NIP-44: [u16_be_length][plaintext][zero_padding]
@@ -107,7 +123,13 @@ pub fn unpad(padded: &[u8]) -> Result<Vec<u8>, String> {
         return Err("Plaintext length exceeds padded data".to_string());
     }
     let expected_padded_len = calc_padded_len(unpadded_len)?;
-    if padded.len() != 2 + expected_padded_len {
+    // Accept the spec length OR the pre-#20 legacy length, so messages sealed by an
+    // older build of this app (at the 8 divergent lengths) remain decryptable. New
+    // encryption always uses the spec length. The two differ only at 8 lengths and
+    // padding size is already public from the ciphertext, so this is no oracle.
+    if padded.len() != 2 + expected_padded_len
+        && padded.len() != 2 + calc_padded_len_legacy(unpadded_len)
+    {
         return Err("Invalid padding".to_string());
     }
     // Verify trailing zeros
@@ -241,18 +263,30 @@ mod tests {
 
     #[test]
     fn test_calc_padded_len() {
-        // Min: 1 byte → 32
-        assert_eq!(calc_padded_len(1).unwrap(), 32);
-        // 32 bytes → 32
-        assert_eq!(calc_padded_len(32).unwrap(), 32);
-        // 33 bytes → 64
-        assert_eq!(calc_padded_len(33).unwrap(), 64);
-        // 64 bytes → 64
-        assert_eq!(calc_padded_len(64).unwrap(), 64);
-        // 65 bytes → 96
-        assert_eq!(calc_padded_len(65).unwrap(), 96);
-        // Max: 65535 → 65536
-        assert_eq!(calc_padded_len(65535).unwrap(), 65536);
+        // Official NIP-44 v2 calc_padded_len vectors (nip44.vectors.json `padding`).
+        let spec: &[(usize, usize)] = &[
+            (16, 32), (32, 32), (33, 64), (37, 64), (45, 64), (49, 64), (64, 64),
+            (65, 96), (100, 128), (111, 128), (200, 224), (250, 256), (320, 320),
+            (383, 384), (384, 384), (400, 448), (500, 512), (512, 512), (515, 640),
+            (700, 768), (800, 896), (1020, 1024), (1024, 1024), (1400, 1536),
+            (2000, 2048), (2025, 2048), (3000, 3072), (3017, 3072), (4000, 4096),
+            (5000, 5120), (6000, 6144), (7000, 7168), (8000, 8192), (9000, 10240),
+            (10000, 10240), (65535, 65536),
+        ];
+        for &(input, expected) in spec {
+            assert_eq!(calc_padded_len(input).unwrap(), expected, "calc_padded_len({input})");
+        }
+
+        // PROBE #20 — the exact lengths where the old `next_power_of_two` formula
+        // diverged from the spec (unpadded_len = 2^k + 1). Pre-fix these returned
+        // 288/576/1152/... instead of 320/640/1280/...
+        let divergence: &[(usize, usize)] = &[
+            (257, 320), (513, 640), (1025, 1280), (2049, 2560),
+            (4097, 5120), (8193, 10240), (16385, 20480), (32769, 40960),
+        ];
+        for &(input, expected) in divergence {
+            assert_eq!(calc_padded_len(input).unwrap(), expected, "divergence calc_padded_len({input})");
+        }
     }
 
     #[test]
@@ -263,6 +297,36 @@ mod tests {
             let unpadded = unpad(&padded).unwrap();
             assert_eq!(unpadded, msg.as_bytes());
         }
+    }
+
+    #[test]
+    fn test_pad_unpad_roundtrip_at_divergence_lengths() {
+        // pad() now uses the spec length; unpad() must accept it.
+        for &len in &[257usize, 513, 1025, 2049, 4097] {
+            let msg = vec![b'x'; len];
+            let padded = pad(&msg).unwrap();
+            assert_eq!(padded.len(), 2 + calc_padded_len(len).unwrap());
+            assert_eq!(unpad(&padded).unwrap(), msg);
+        }
+    }
+
+    #[test]
+    fn test_unpad_accepts_legacy_padding() {
+        // A blob sealed by an OLD build at a divergence length (legacy padded len)
+        // must still decrypt. Hand-build a legacy-padded buffer for len 257 (288).
+        let len = 257usize;
+        let legacy_padded = calc_padded_len_legacy(len);
+        assert_ne!(legacy_padded, calc_padded_len(len).unwrap()); // they differ (288 vs 320)
+        let mut buf = Vec::with_capacity(2 + legacy_padded);
+        buf.extend_from_slice(&(len as u16).to_be_bytes());
+        buf.extend_from_slice(&vec![b'y'; len]);
+        buf.resize(2 + legacy_padded, 0);
+        assert_eq!(unpad(&buf).unwrap(), vec![b'y'; len]);
+
+        // A non-spec, non-legacy length is still rejected.
+        let mut bad = buf.clone();
+        bad.push(0);
+        assert!(unpad(&bad).is_err());
     }
 
     #[test]

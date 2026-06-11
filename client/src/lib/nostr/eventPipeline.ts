@@ -1,6 +1,8 @@
 import type { NostrEvent } from "../../types/nostr";
 import { EVENT_KINDS } from "../../types/nostr";
 import { EventDeduplicator } from "./dedup";
+import { verifySpaceModAuthority } from "./mutationAuthority";
+import { trackPendingDeletion, clearPendingDeletion } from "../../store/slices/eventsSlice";
 import { isValidEventStructure } from "./validation";
 import { verifyBridge } from "./verifyWorkerBridge";
 import type { UnknownAction } from "@reduxjs/toolkit";
@@ -316,6 +318,28 @@ export async function processIncomingEvent(
         return;
       }
     }
+  }
+
+  // Step 3d: Resolve a pending kind:5 deletion now that the target has arrived.
+  // A deletion is only honored if one of the requesters actually authored this
+  // event (#21) — so a third party that published a kind:5 for an id it doesn't
+  // own can no longer suppress the real note when it shows up.
+  const pendingDeleters = store.getState().events.pendingDeletions[event.id];
+  if (pendingDeleters && pendingDeleters.length > 0) {
+    const authorized = pendingDeleters.includes(event.pubkey);
+    store.dispatch(clearPendingDeletion(event.id));
+    if (authorized && (event.kind === EVENT_KINDS.SHORT_TEXT || event.kind === EVENT_KINDS.REPOST)) {
+      store.dispatch(trackDeletedNote(event.id));
+      deleteEvent(event.id).catch(() => {});
+      return;
+    }
+    if (authorized && event.kind === EVENT_KINDS.CHAT_MESSAGE) {
+      store.dispatch(hideMessage(event.id));
+      deleteEvent(event.id).catch(() => {});
+      return;
+    }
+    // Otherwise (unauthorized deleter, or a kind we don't pre-suppress) fall
+    // through and index the event normally.
   }
 
   // Step 4: Dispatch to store (buffered on the burst path — see flushEventPipeline).
@@ -647,43 +671,42 @@ async function indexEvent(event: NostrEvent): Promise<void> {
           // via its reverse index (no-op if the id isn't a known reaction).
           store.dispatch(removeReactionByEventId({ eventId: tag[1], byPubkey: event.pubkey }));
           const refEvent = state.events.entities[tag[1]];
-          if (!refEvent || refEvent.pubkey === event.pubkey) {
-            // Safety: don't let "e" tag deletions cascade to addressable music
-            // events. Those must ONLY be deleted via "a" tags (handled above)
-            // to properly respect the created_at supersedence rule.
-            const isAddressableEvent = refEvent && refEvent.kind >= 30000 && refEvent.kind < 40000;
-            if (!isAddressableEvent) {
-              deleteEvent(tag[1]).catch(() => {});
-            }
-            if (refEvent?.kind === EVENT_KINDS.CHAT_MESSAGE) {
-              const refHTag = refEvent.tags.find((t) => t[0] === "h")?.[1];
-              if (refHTag) {
-                const refChannelTag = refEvent.tags.find((t) => t[0] === "channel")?.[1];
-                const contextId = refChannelTag ? `${refHTag}:${refChannelTag}` : refHTag;
-                store.dispatch(removeChatMessage({ contextId, eventId: tag[1] }));
+          if (refEvent) {
+            // Target known — apply NIP-09 directly: only the author may delete it.
+            if (refEvent.pubkey === event.pubkey) {
+              // Safety: don't let "e" tag deletions cascade to addressable music
+              // events. Those must ONLY be deleted via "a" tags (handled above)
+              // to properly respect the created_at supersedence rule.
+              const isAddressableEvent = refEvent.kind >= 30000 && refEvent.kind < 40000;
+              if (!isAddressableEvent) {
+                deleteEvent(tag[1]).catch(() => {});
               }
-              store.dispatch(hideMessage(tag[1]));
-              store.dispatch(removeEvent(tag[1]));
-            } else if (refEvent?.kind === EVENT_KINDS.SHORT_TEXT) {
-              store.dispatch(removeNote({ pubkey: event.pubkey, eventId: tag[1] }));
-              store.dispatch(removeEvent(tag[1]));
-              store.dispatch(trackDeletedNote(tag[1]));
-            } else if (refEvent?.kind === EVENT_KINDS.REPOST) {
-              store.dispatch(removeRepost({ pubkey: event.pubkey, eventId: tag[1] }));
-              store.dispatch(removeEvent(tag[1]));
-              store.dispatch(trackDeletedNote(tag[1]));
-            } else if (!refEvent) {
-              // Event not in store (may arrive later) — track as deleted
-              // preemptively, but only for ephemeral kinds (notes/reposts).
-              const deletedKinds = event.tags
-                .filter((t) => t[0] === "k" && t[1])
-                .map((t) => parseInt(t[1], 10));
-              const targetsOnlyEphemeral = deletedKinds.length === 0 ||
-                deletedKinds.every((k) => k < 30000 || k >= 40000);
-              if (targetsOnlyEphemeral) {
+              if (refEvent.kind === EVENT_KINDS.CHAT_MESSAGE) {
+                const refHTag = refEvent.tags.find((t) => t[0] === "h")?.[1];
+                if (refHTag) {
+                  const refChannelTag = refEvent.tags.find((t) => t[0] === "channel")?.[1];
+                  const contextId = refChannelTag ? `${refHTag}:${refChannelTag}` : refHTag;
+                  store.dispatch(removeChatMessage({ contextId, eventId: tag[1] }));
+                }
+                store.dispatch(hideMessage(tag[1]));
+                store.dispatch(removeEvent(tag[1]));
+              } else if (refEvent.kind === EVENT_KINDS.SHORT_TEXT) {
+                store.dispatch(removeNote({ pubkey: event.pubkey, eventId: tag[1] }));
+                store.dispatch(removeEvent(tag[1]));
+                store.dispatch(trackDeletedNote(tag[1]));
+              } else if (refEvent.kind === EVENT_KINDS.REPOST) {
+                store.dispatch(removeRepost({ pubkey: event.pubkey, eventId: tag[1] }));
+                store.dispatch(removeEvent(tag[1]));
                 store.dispatch(trackDeletedNote(tag[1]));
               }
             }
+            // else: a non-author asked to delete a known event — ignore it.
+          } else {
+            // Target not in the store yet. Record the request as PENDING instead of
+            // suppressing on faith — it is applied only if the target, when it
+            // arrives, was actually authored by this deleter (#21). Do NOT delete
+            // from IndexedDB here.
+            store.dispatch(trackPendingDeletion({ eventId: tag[1], deleter: event.pubkey }));
           }
         }
       }
@@ -745,15 +768,37 @@ async function indexEvent(event: NostrEvent): Promise<void> {
       break;
     }
     case EVENT_KINDS.MOD_DELETE_EVENT: {
-      // NIP-29 kind:9005: moderator delete — admin removes a message from the group
+      // NIP-29 kind:9005: moderator delete — admin removes a message from the group.
       const groupId = event.tags.find((t) => t[0] === "h")?.[1];
       if (!groupId) break;
+
+      // #5 — authority check. The chat read set includes non-enforcing mirrors and
+      // imported relays, so anyone could publish a 9005 to wipe arbitrary messages.
+      // Require the author to be in the space's pinned authority set.
+      const space = store.getState().spaces.list.find((s) => s.id === groupId);
+      const verdict = verifySpaceModAuthority(event, space);
+      if (verdict === "defer-unknown-space") {
+        // Space not loaded yet (rare race: spaces hydrate before chat subs open).
+        // Drop without persisting and unmark so a relay redelivery can retry once
+        // the space metadata is present.
+        dedup.unmarkSeen(event.id);
+        break;
+      }
+      if (verdict === "drop-unauthorized") {
+        break;
+      }
+
       // Apply buffered adds first so refs to same-burst messages resolve.
       flushEventPipeline();
       for (const tag of event.tags) {
         if (tag[0] === "e" && tag[1]) {
           const refEvent = store.getState().events.entities[tag[1]];
           if (refEvent) {
+            // Scope hardening: only delete messages that actually belong to THIS
+            // group, so an admin of one (e.g. self-imported) group can't delete
+            // another group's messages via a forged h-tag mismatch.
+            const refHTag = refEvent.tags.find((t) => t[0] === "h")?.[1];
+            if (refHTag && refHTag !== groupId) continue;
             const refChannelTag = refEvent.tags.find((t) => t[0] === "channel")?.[1];
             const contextId = refChannelTag ? `${groupId}:${refChannelTag}` : groupId;
             store.dispatch(removeChatMessage({ contextId, eventId: tag[1] }));
@@ -1260,6 +1305,8 @@ function handleDMEditWrap(
       rumorId: originalRumorId,
       newContent: dm.content,
       editedAt: Math.round(Date.now() / 1000),
+      senderPubkey: dm.sender,
+      wrapId: dm.wrapId,
     }),
   );
 }
@@ -1281,6 +1328,8 @@ function handleDMDeleteWrap(
     remoteDeleteDMMessage({
       partnerPubkey,
       rumorId: originalRumorId,
+      senderPubkey: dm.sender,
+      wrapId: dm.wrapId,
     }),
   );
 }

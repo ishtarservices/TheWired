@@ -78,6 +78,33 @@ describe("spacesSlice", () => {
     expect(store.getState().spaces.list[0].name).toBe("Updated");
   });
 
+  // PROBE #42 — two native groups sharing one group id (different hosts) must not
+  // silently overwrite each other.
+  it("PROBE #42 — refuses to overwrite a same-id native space with a different host", () => {
+    const store = createTestStore();
+    const a = makeSpace({
+      id: "g1", name: "Real Group",
+      spaceType: "nip29-native", groupRef: { host: "wss://real.relay", groupId: "g1" } as any,
+    });
+    const evil = makeSpace({
+      id: "g1", name: "Hijacker",
+      spaceType: "nip29-native", groupRef: { host: "wss://evil.relay", groupId: "g1" } as any,
+    });
+    store.dispatch(addSpace(a));
+    store.dispatch(addSpace(evil));
+    expect(store.getState().spaces.list).toHaveLength(1);
+    expect(store.getState().spaces.list[0].name).toBe("Real Group");
+    expect((store.getState().spaces.list[0].groupRef as any).host).toBe("wss://real.relay");
+  });
+
+  it("PROBE #42 — still upserts a same-id native space from the SAME host (legit refresh)", () => {
+    const store = createTestStore();
+    const ref = { host: "wss://real.relay", groupId: "g1" } as any;
+    store.dispatch(addSpace(makeSpace({ id: "g1", name: "v1", spaceType: "nip29-native", groupRef: ref })));
+    store.dispatch(addSpace(makeSpace({ id: "g1", name: "v2", spaceType: "nip29-native", groupRef: ref })));
+    expect(store.getState().spaces.list[0].name).toBe("v2");
+  });
+
   // ─── removeSpace ───────────────────────────────
 
   it("removes a space", () => {

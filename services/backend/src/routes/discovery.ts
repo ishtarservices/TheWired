@@ -2,6 +2,7 @@ import { z } from "zod";
 import type { FastifyPluginAsync } from "fastify";
 import { discoveryService } from "../services/discoveryService.js";
 import { validate, nonEmptyString, limitParam, offsetParam } from "../lib/validation.js";
+import { requirePubkey, requireSpaceCreator } from "../lib/authz.js";
 
 const spacesQuerySchema = z.object({
   category: z.string().optional(),
@@ -87,10 +88,13 @@ export const discoveryRoutes: FastifyPluginAsync = async (server) => {
     const body = validate(listingRequestBodySchema, request.body, reply);
     if (!body) return;
 
-    const pubkey = (request as any).pubkey;
-    if (!pubkey) {
-      return reply.status(401).send({ error: "Authentication required" });
-    }
+    const pubkey = requirePubkey(request, reply);
+    if (!pubkey) return;
+
+    // Closes #102: only the space's creator (or MANAGE_SPACE holder / platform
+    // admin) may request listing. Prevents force-listing someone else's space and
+    // the pending-request griefing vector.
+    if (!(await requireSpaceCreator(body.spaceId, pubkey, reply, { allowPlatformAdmin: true }))) return;
 
     try {
       const result = await discoveryService.submitListingRequest({

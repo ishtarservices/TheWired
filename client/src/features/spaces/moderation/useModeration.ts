@@ -15,7 +15,10 @@ import { saveMembers } from "../../../lib/db/spaceMembersStore";
 import { syncSpaceMembers } from "../../../store/thunks/spaceMembers";
 import type { AppDispatch, RootState } from "../../../store";
 import type { Ban, Mute, Space } from "../../../types/space";
-import { isBackendBacked } from "../spaceType";
+import { isBackendBacked, isNip29Native } from "../spaceType";
+import { resolveRelaySet } from "../relaySet";
+import { buildRemoveUser } from "../../../lib/nostr/eventBuilder";
+import { signAndPublish } from "../../../lib/nostr/publish";
 import * as moderationApi from "../../../lib/api/moderation";
 
 const EMPTY_BANS: Ban[] = [];
@@ -81,10 +84,11 @@ export function useModeration(spaceId: string | null, enabled = true) {
   // events (9000/9001), not these endpoints. Guard so a native admin (who has
   // synthesized perms) doesn't fire doomed backend calls. Default true when the
   // space is unknown (preserves behavior where no space is in the store).
-  const backendBacked = useAppSelector((s) => {
-    const sp = spaceId ? s.spaces.list.find((x) => x.id === spaceId) : undefined;
-    return sp ? isBackendBacked(sp) : true;
-  });
+  const space = useAppSelector((s) =>
+    (spaceId ? s.spaces.list.find((x) => x.id === spaceId) : undefined),
+  );
+  const myPubkey = useAppSelector((s) => s.identity.pubkey);
+  const backendBacked = space ? isBackendBacked(space) : true;
 
   const fetchData = useCallback(async () => {
     if (!spaceId || !backendBacked) return;
@@ -144,11 +148,21 @@ export function useModeration(spaceId: string | null, enabled = true) {
 
   const handleKickMember = useCallback(
     async (pubkey: string) => {
-      if (!spaceId || !backendBacked) return;
-      await moderationApi.kickMember(spaceId, pubkey);
+      if (!spaceId) return;
+      if (backendBacked) {
+        await moderationApi.kickMember(spaceId, pubkey);
+        dispatch(removeMemberLocallyThunk(spaceId, pubkey));
+        return;
+      }
+      // #40 — nip29-native spaces have no backend; kick by publishing a relay-
+      // enforced kind:9001 remove-user to the space's relay set. The host relay
+      // verifies is_admin and republishes its members list (39002), which
+      // resynthesizes membership; the optimistic local removal covers the gap.
+      if (!space || !myPubkey || !isNip29Native(space)) return;
+      await signAndPublish(buildRemoveUser(myPubkey, spaceId, pubkey), resolveRelaySet(space));
       dispatch(removeMemberLocallyThunk(spaceId, pubkey));
     },
-    [spaceId, backendBacked, dispatch],
+    [spaceId, backendBacked, space, myPubkey, dispatch],
   );
 
   return {

@@ -8,6 +8,15 @@ import {
 } from "../synthesizeNip29Roles";
 
 describe("synthesizeNip29Roles", () => {
+  // PROBE #40 — native admins must not be granted BAN/MUTE (NIP-29 has no such
+  // kinds; those menu items would silently no-op). Kick (MANAGE_MEMBERS) stays.
+  it("PROBE #40 — admin role omits BAN_MEMBERS/MUTE_MEMBERS but keeps MANAGE_MEMBERS", () => {
+    const admin = synthesizeNip29Roles("g1").find((r) => r.isAdmin)!;
+    expect(admin.permissions).not.toContain("BAN_MEMBERS");
+    expect(admin.permissions).not.toContain("MUTE_MEMBERS");
+    expect(admin.permissions).toContain("MANAGE_MEMBERS");
+  });
+
   it("produces an admin role and a default member role", () => {
     const roles = synthesizeNip29Roles("g1");
     expect(roles).toHaveLength(2);

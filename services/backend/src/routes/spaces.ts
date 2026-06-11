@@ -4,10 +4,11 @@ import { db } from "../db/connection.js";
 import { spaces, spaceTags } from "../db/schema/spaces.js";
 import { spaceMembers, spaceFeedSources } from "../db/schema/members.js";
 import { spaceChannels } from "../db/schema/channels.js";
-import { eq, inArray, asc } from "drizzle-orm";
+import { eq, and, inArray, asc } from "drizzle-orm";
 import { roleService } from "../services/roleService.js";
 import { channelService } from "../services/channelService.js";
 import { validate, nonEmptyString, limitParam, offsetParam } from "../lib/validation.js";
+import { requirePubkey, requireSpaceCreator } from "../lib/authz.js";
 
 const listQuerySchema = z.object({
   limit: limitParam(50, 100),
@@ -115,16 +116,43 @@ export const spacesRoutes: FastifyPluginAsync = async (server) => {
    * This avoids FK issues from multi-step fire-and-forget chains.
    */
   server.post("/", async (request, reply) => {
-    const pubkey = (request as any).pubkey as string | undefined;
-    if (!pubkey) return reply.status(401).send({ error: "Authentication required", code: "UNAUTHORIZED" });
+    const pubkey = requirePubkey(request, reply);
+    if (!pubkey) return;
 
     const body = validate(createSpaceBodySchema, request.body, reply);
     if (!body) return;
 
     const mode = body.mode === "read" ? "read" : "read-write";
 
-    // Step 1: Upsert the space record (FK parent for everything else)
-    await db
+    // Determine create-vs-update. POST /spaces is BOTH the creation call and the
+    // cache-wipe recovery call (re-register after IndexedDB loss), so the update
+    // branch must stay idempotent for the original creator — but it must NEVER
+    // let a non-creator claim or overwrite an existing space (#0 takeover).
+    const [existing] = await db.select().from(spaces).where(eq(spaces.id, body.id)).limit(1);
+
+    if (existing) {
+      // Legacy creator-less rows are not claimable via POST (no live path creates
+      // them; an operator backfills creator_pubkey by hand).
+      if (!existing.creatorPubkey || existing.creatorPubkey !== pubkey) {
+        return reply.status(403).send({
+          error: "A space with this id already exists and is owned by someone else",
+          code: "SPACE_EXISTS",
+        });
+      }
+      // Creator re-registration: update metadata only. creatorPubkey is NEVER in
+      // the set, and the where-clause re-asserts the creator guard so even an
+      // upstream bug cannot flip ownership. hostRelay/category/language are managed
+      // via the relay-registration flow, not here.
+      await db
+        .update(spaces)
+        .set({ name: body.name, picture: body.picture ?? null, about: body.about ?? null, mode })
+        .where(and(eq(spaces.id, body.id), eq(spaces.creatorPubkey, pubkey)));
+      return { data: { id: body.id } };
+    }
+
+    // Create branch. onConflictDoNothing guards a concurrent-create race; if we
+    // lost it, re-resolve ownership rules against the winner's row.
+    const inserted = await db
       .insert(spaces)
       .values({
         id: body.id,
@@ -139,16 +167,21 @@ export const spacesRoutes: FastifyPluginAsync = async (server) => {
         memberCount: 1,
         createdAt: Date.now(),
       })
-      .onConflictDoUpdate({
-        target: spaces.id,
-        set: {
-          name: body.name,
-          picture: body.picture ?? null,
-          about: body.about ?? null,
-          mode,
-          creatorPubkey: pubkey,
-        },
-      });
+      .onConflictDoNothing({ target: spaces.id })
+      .returning({ id: spaces.id });
+
+    if (inserted.length === 0) {
+      // Lost the create race — someone else just created it. Treat as the
+      // existing-space branch above (their row, not ours).
+      const [winner] = await db.select().from(spaces).where(eq(spaces.id, body.id)).limit(1);
+      if (!winner || winner.creatorPubkey !== pubkey) {
+        return reply.status(403).send({
+          error: "A space with this id already exists and is owned by someone else",
+          code: "SPACE_EXISTS",
+        });
+      }
+      // We somehow are the creator of the winner row — fall through to seeding.
+    }
 
     // Step 2: Register creator as a space member
     await db
@@ -156,15 +189,13 @@ export const spacesRoutes: FastifyPluginAsync = async (server) => {
       .values({ spaceId: body.id, pubkey })
       .onConflictDoNothing();
 
-    // Step 3: Seed default roles (idempotent + serialized — safe against concurrent calls)
+    // Step 3: Seed default roles (idempotent + serialized; the verified creator only)
     await roleService.seedDefaultRoles(body.id, pubkey);
 
     // Step 4: Seed channels
     if (body.channels) {
-      // User specified which channels to create (can be empty array for no channels)
       await channelService.seedChannels(body.id, body.channels);
     } else {
-      // No channels parameter — use legacy defaults (backward compat)
       await channelService.seedDefaultChannels(body.id);
     }
 
@@ -176,29 +207,13 @@ export const spacesRoutes: FastifyPluginAsync = async (server) => {
     const params = validate(idParamsSchema, request.params, reply);
     if (!params) return;
 
-    const pubkey = (request as any).pubkey as string | undefined;
-    if (!pubkey) return reply.status(401).send({ error: "Authentication required", code: "UNAUTHORIZED" });
+    const pubkey = requirePubkey(request, reply);
+    if (!pubkey) return;
 
     const id = params.id;
 
-    // Verify space exists
-    const [space] = await db.select().from(spaces).where(eq(spaces.id, id)).limit(1);
-    if (!space) {
-      return reply.status(404).send({ error: "Space not found", code: "NOT_FOUND" });
-    }
-
-    // Creator-only delete: if creator_pubkey is set, only the creator can delete.
-    // For legacy spaces without a creator, fall back to MANAGE_SPACE permission.
-    if (space.creatorPubkey) {
-      if (pubkey !== space.creatorPubkey) {
-        return reply.status(403).send({ error: "Only the space creator can delete this space", code: "CREATOR_ONLY" });
-      }
-    } else {
-      const perms = await roleService.getEffectivePermissions(id, pubkey);
-      if (!perms.includes("MANAGE_SPACE")) {
-        return reply.status(403).send({ error: "Insufficient permissions", code: "FORBIDDEN" });
-      }
-    }
+    // Creator-only delete (legacy creator-less spaces fall back to MANAGE_SPACE).
+    if (!(await requireSpaceCreator(id, pubkey, reply))) return;
 
     // Delete space — CASCADE foreign keys clean up channels, members, roles, invites, tags
     await db.delete(spaces).where(eq(spaces.id, id));
