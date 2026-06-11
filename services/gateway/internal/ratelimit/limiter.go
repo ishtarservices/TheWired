@@ -3,6 +3,8 @@ package ratelimit
 import (
 	"context"
 	"fmt"
+	"math/rand/v2"
+	"strconv"
 	"time"
 
 	"github.com/redis/go-redis/v9"
@@ -39,31 +41,37 @@ type Limiter struct {
 // rateLimitScript atomically cleans, counts, and conditionally adds.
 // KEYS[1] = sorted set key
 // ARGV[1] = window start (ms) — entries older than this are pruned
-// ARGV[2] = now (ms) — score + member for the new entry
+// ARGV[2] = now (ms) — score for the new entry
 // ARGV[3] = limit
 // ARGV[4] = TTL (seconds) for the key
 // ARGV[5] = reset time (ms) — end of the current window
+// ARGV[6] = per-request nonce — appended to the member so same-millisecond
+//
+//	requests don't collapse to a single ZSET entry (#66).
 //
 // Returns {allowed (0/1), remaining, resetMs}.
-var rateLimitScript = redis.NewScript(`
+const rateLimitScriptSrc = `
 local key = KEYS[1]
 local windowStart = ARGV[1]
 local now = ARGV[2]
 local limit = tonumber(ARGV[3])
 local ttl = tonumber(ARGV[4])
 local resetMs = ARGV[5]
+local nonce = ARGV[6]
 
 redis.call('ZREMRANGEBYSCORE', key, '-inf', windowStart)
 local count = redis.call('ZCARD', key)
 
 if count < limit then
-  redis.call('ZADD', key, now, now)
+  redis.call('ZADD', key, now, now .. ':' .. nonce)
   redis.call('EXPIRE', key, ttl)
   return {1, limit - count - 1, resetMs}
 end
 
 return {0, 0, resetMs}
-`)
+`
+
+var rateLimitScript = redis.NewScript(rateLimitScriptSrc)
 
 func NewLimiter(redisURL string, limits Limits) (*Limiter, error) {
 	opts, err := redis.ParseURL(redisURL)
@@ -98,12 +106,14 @@ func (l *Limiter) Allow(ctx context.Context, pubkey string, category string) (Al
 	// TTL = 2× window so the key outlives the sliding window
 	ttlSeconds := int64(window.Seconds()) * 2
 
+	nonce := strconv.FormatUint(rand.Uint64(), 36)
 	result, err := rateLimitScript.Run(ctx, l.client, []string{key},
 		windowStart.UnixMilli(),
 		now.UnixMilli(),
 		limit,
 		ttlSeconds,
 		resetAt.UnixMilli(),
+		nonce,
 	).Int64Slice()
 
 	if err != nil {

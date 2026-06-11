@@ -64,13 +64,33 @@ func main() {
 	)
 	mux.Handle("/hls/", hlsHandler)
 
-	// API routes: trusted-proxy (strip spoofed headers) -> logging -> CORS -> auth -> rate limit -> proxy
+	// #64 — single-use replay guard for API auth events (Redis SET NX EX). If
+	// Redis is unreachable at startup we run without it (fail-open) rather than
+	// refusing to boot; per-request errors also fail open inside the middleware.
+	replayGuard, err := auth.NewRedisReplayGuard(cfg.RedisURL)
+	if err != nil {
+		log.Printf("NIP-98 replay guard disabled (Redis init failed): %v", err)
+	}
+
+	// API routes: trusted-proxy -> logging -> CORS -> auth-fail guard -> auth ->
+	// rate limit -> proxy. The auth-fail guard sits OUTSIDE NIP-98 so it can count
+	// 401s and throttle per-IP brute-force of the (expensive) signature verify.
+	failOpen := cfg.RateLimitFailMode != "closed"
+	authFail := ratelimit.NewAuthFailGuard(cfg.AuthFailPerMin)
+	// A typed-nil *RedisReplayGuard in an interface is non-nil; pass the interface
+	// explicitly so a failed init really disables the guard.
+	var replay auth.ReplayGuard
+	if replayGuard != nil {
+		replay = replayGuard
+	}
 	apiHandler := proxy.TrustedProxyMiddleware(cfg.TrustedProxies,
 		gmiddleware.LoggingMiddleware(
 			cors.CORSMiddleware(cfg.AllowedOrigins)(
-				auth.NIP98Middleware(
-					ratelimit.RateLimitMiddleware(limiter,
-						router.Handler(),
+				authFail.Middleware(
+					auth.NIP98MiddlewareWithReplay(replay,
+						ratelimit.RateLimitMiddleware(limiter, failOpen,
+							router.Handler(),
+						),
 					),
 				),
 			),
@@ -100,8 +120,15 @@ func main() {
 
 	addr := fmt.Sprintf(":%d", cfg.Port)
 	srv := &http.Server{
-		Addr:    addr,
-		Handler: mux,
+		Addr: addr,
+		// Strip forgeable internal headers on EVERY route before routing (#108).
+		Handler: proxy.StripInternalHeaders(mux),
+		// #65 — bound slow-header/idle connections (Slowloris). Read/Write body
+		// timeouts are intentionally left unset because /upload streams large
+		// Blossom blobs and the catch-all streams them back to slow clients.
+		ReadHeaderTimeout: 10 * time.Second,
+		IdleTimeout:       120 * time.Second,
+		MaxHeaderBytes:    64 << 10,
 	}
 
 	// Start server in a goroutine
