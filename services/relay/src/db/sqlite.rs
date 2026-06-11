@@ -97,7 +97,34 @@ pub async fn connect(path: &str) -> anyhow::Result<SqlitePool> {
         .journal_mode(sqlx::sqlite::SqliteJournalMode::Wal);
     let pool = SqlitePoolOptions::new().connect_with(opts).await?;
     sqlx::raw_sql(SCHEMA).execute(&pool).await?;
+    backfill_event_tags(&pool).await?;
     Ok(pool)
+}
+
+/// One-time backfill: older builds indexed only p/e tags into `event_tags`, so
+/// generic `#x` filters would miss historical events. Re-derive the index to
+/// cover ALL single-letter tags, gated on `user_version` so it runs once (#69).
+async fn backfill_event_tags(pool: &SqlitePool) -> anyhow::Result<()> {
+    let version: i64 = sqlx::query_scalar("PRAGMA user_version")
+        .fetch_one(pool)
+        .await
+        .unwrap_or(0);
+    if version >= 1 {
+        return Ok(());
+    }
+    sqlx::query("DELETE FROM event_tags").execute(pool).await?;
+    sqlx::query(
+        "INSERT INTO event_tags (event_id, tag_name, tag_value) \
+         SELECT e.id, json_extract(t.value,'$[0]'), json_extract(t.value,'$[1]') \
+         FROM events e, json_each(e.tags) t \
+         WHERE json_extract(t.value,'$[1]') IS NOT NULL \
+           AND length(json_extract(t.value,'$[0]')) = 1 \
+           AND json_extract(t.value,'$[0]') GLOB '[A-Za-z]'",
+    )
+    .execute(pool)
+    .await?;
+    sqlx::query("PRAGMA user_version = 1").execute(pool).await?;
+    Ok(())
 }
 
 /// Open a fresh in-memory database with the schema applied. Pinned to a single
@@ -109,6 +136,7 @@ pub async fn connect_memory() -> anyhow::Result<SqlitePool> {
         .connect("sqlite::memory:")
         .await?;
     sqlx::raw_sql(SCHEMA).execute(&pool).await?;
+    backfill_event_tags(&pool).await?;
     Ok(pool)
 }
 
@@ -119,14 +147,6 @@ fn is_addressable(kind: i32) -> bool {
     (30000..40000).contains(&kind)
 }
 
-fn tag_values<'a>(event: &'a Event, name: &str) -> Vec<&'a String> {
-    event
-        .tags
-        .iter()
-        .filter(|t| t.first().map(String::as_str) == Some(name))
-        .filter_map(|t| t.get(1))
-        .collect()
-}
 
 /// Store an event, replacing older replaceable/addressable versions. Returns
 /// true if a new row was inserted (false on duplicate / superseded).
@@ -179,14 +199,18 @@ pub async fn store_event(pool: &SqlitePool, event: &Event) -> anyhow::Result<boo
         > 0;
 
     if inserted {
-        for name in ["p", "e"] {
-            for value in tag_values(event, name) {
-                sqlx::query("INSERT INTO event_tags (event_id, tag_name, tag_value) VALUES (?, ?, ?)")
-                    .bind(&event.id)
-                    .bind(name)
-                    .bind(value)
-                    .execute(&mut *tx)
-                    .await?;
+        // Index every single-letter tag (NIP-01 indexable tags), not just p/e, so
+        // generic `#x` filters work (#69).
+        for tag in &event.tags {
+            if let (Some(name), Some(value)) = (tag.first(), tag.get(1)) {
+                if name.len() == 1 && name.as_bytes()[0].is_ascii_alphabetic() {
+                    sqlx::query("INSERT INTO event_tags (event_id, tag_name, tag_value) VALUES (?, ?, ?)")
+                        .bind(&event.id)
+                        .bind(name)
+                        .bind(value)
+                        .execute(&mut *tx)
+                        .await?;
+                }
             }
         }
     }
@@ -218,12 +242,16 @@ fn row_to_event(r: EventRow) -> Event {
     }
 }
 
-/// Query events matching a filter. Mirrors the Postgres `query_events` core
-/// (no auth/visibility gating — the embedded relay applies relay-native
-/// membership gating separately).
-pub async fn query_events(pool: &SqlitePool, filter: &Filter) -> anyhow::Result<Vec<Event>> {
+/// Query events matching a filter. Applies the SAME visibility/membership gating
+/// as the Postgres path (#18): without this the embedded relay returned private
+/// and group-scoped content to any anonymous caller.
+pub async fn query_events(
+    pool: &SqlitePool,
+    filter: &Filter,
+    authed_pubkey: Option<&str>,
+) -> anyhow::Result<Vec<Event>> {
     if let Some(ref q) = filter.search {
-        return search_events(pool, q, filter.limit.unwrap_or(100).min(MAX_QUERY_LIMIT)).await;
+        return search_events(pool, q, filter.limit.unwrap_or(100), authed_pubkey).await;
     }
 
     let mut qb: QueryBuilder<Sqlite> =
@@ -236,6 +264,9 @@ pub async fn query_events(pool: &SqlitePool, filter: &Filter) -> anyhow::Result<
     push_in(&mut qb, "d_tag", &filter.d_tags);
     push_tag_subquery(&mut qb, "p", &filter.p_tags);
     push_tag_subquery(&mut qb, "e", &filter.e_tags);
+    for (name, values) in &filter.generic_tags {
+        push_tag_subquery(&mut qb, name, values);
+    }
 
     if let Some(since) = filter.since {
         qb.push(" AND created_at >= ").push_bind(since);
@@ -244,11 +275,38 @@ pub async fn query_events(pool: &SqlitePool, filter: &Filter) -> anyhow::Result<
         qb.push(" AND created_at <= ").push_bind(until);
     }
 
-    let limit = filter.limit.unwrap_or(MAX_QUERY_LIMIT).min(MAX_QUERY_LIMIT);
+    push_visibility_gate(&mut qb, authed_pubkey);
+
+    // Clamp to [0, MAX] so a negative limit can't return the whole table (#70).
+    let limit = filter.limit.unwrap_or(MAX_QUERY_LIMIT).clamp(0, MAX_QUERY_LIMIT);
     qb.push(" ORDER BY created_at DESC LIMIT ").push_bind(limit);
 
     let rows: Vec<EventRow> = qb.build_query_as().fetch_all(pool).await?;
     Ok(rows.into_iter().map(row_to_event).collect())
+}
+
+/// Append the visibility/membership predicates to a query over the `events`
+/// table (or an aliased copy via `col_prefix`, e.g. "e.").
+fn push_visibility_gate(qb: &mut QueryBuilder<Sqlite>, authed_pubkey: Option<&str>) {
+    match authed_pubkey {
+        Some(pk) => {
+            // private/unlisted: author or p-tagged collaborator
+            qb.push(" AND (visibility IS NULL OR pubkey = ")
+                .push_bind(pk.to_string())
+                .push(" OR id IN (SELECT event_id FROM event_tags WHERE tag_name = 'p' AND tag_value = ")
+                .push_bind(pk.to_string())
+                .push("))");
+            // h-tagged: author or relay-native group member
+            qb.push(" AND (h_tag IS NULL OR pubkey = ")
+                .push_bind(pk.to_string())
+                .push(" OR EXISTS (SELECT 1 FROM group_members WHERE group_id = events.h_tag AND pubkey = ")
+                .push_bind(pk.to_string())
+                .push("))");
+        }
+        None => {
+            qb.push(" AND visibility IS NULL AND h_tag IS NULL");
+        }
+    }
 }
 
 fn push_in(qb: &mut QueryBuilder<Sqlite>, col: &str, values: &[String]) {
@@ -290,17 +348,37 @@ fn push_tag_subquery(qb: &mut QueryBuilder<Sqlite>, name: &str, values: &[String
     qb.push("))");
 }
 
-/// NIP-50 full-text search via FTS5 (bm25 ranking).
-pub async fn search_events(pool: &SqlitePool, query: &str, limit: i64) -> anyhow::Result<Vec<Event>> {
-    let rows: Vec<EventRow> = sqlx::query_as(
+/// NIP-50 full-text search via FTS5 (bm25 ranking), visibility-gated (#18).
+pub async fn search_events(
+    pool: &SqlitePool,
+    query: &str,
+    limit: i64,
+    authed_pubkey: Option<&str>,
+) -> anyhow::Result<Vec<Event>> {
+    let mut qb: QueryBuilder<Sqlite> = QueryBuilder::new(
         "SELECT e.id, e.pubkey, e.created_at, e.kind, e.tags, e.content, e.sig \
-         FROM events_fts f JOIN events e ON e.rowid = f.rowid \
-         WHERE events_fts MATCH ? ORDER BY bm25(events_fts) LIMIT ?",
-    )
-    .bind(query)
-    .bind(limit.min(MAX_QUERY_LIMIT))
-    .fetch_all(pool)
-    .await?;
+         FROM events_fts f JOIN events e ON e.rowid = f.rowid WHERE events_fts MATCH ",
+    );
+    qb.push_bind(query.to_string());
+    match authed_pubkey {
+        Some(pk) => {
+            qb.push(" AND (e.visibility IS NULL OR e.pubkey = ")
+                .push_bind(pk.to_string())
+                .push(" OR e.id IN (SELECT event_id FROM event_tags WHERE tag_name = 'p' AND tag_value = ")
+                .push_bind(pk.to_string())
+                .push("))");
+            qb.push(" AND (e.h_tag IS NULL OR e.pubkey = ")
+                .push_bind(pk.to_string())
+                .push(" OR EXISTS (SELECT 1 FROM group_members WHERE group_id = e.h_tag AND pubkey = ")
+                .push_bind(pk.to_string())
+                .push("))");
+        }
+        None => {
+            qb.push(" AND e.visibility IS NULL AND e.h_tag IS NULL");
+        }
+    }
+    qb.push(" ORDER BY bm25(events_fts) LIMIT ").push_bind(limit.clamp(0, MAX_QUERY_LIMIT));
+    let rows: Vec<EventRow> = qb.build_query_as().fetch_all(pool).await?;
     Ok(rows.into_iter().map(row_to_event).collect())
 }
 
@@ -416,16 +494,16 @@ mod tests {
         assert!(store_event(&p, &ev("a", "alice", 1, 100, vec![], "hi")).await.unwrap());
         assert!(store_event(&p, &ev("b", "bob", 1, 101, vec![], "yo")).await.unwrap());
 
-        let by_id = query_events(&p, &filter(serde_json::json!({"ids": ["a"]}))).await.unwrap();
+        let by_id = query_events(&p, &filter(serde_json::json!({"ids": ["a"]})), None).await.unwrap();
         assert_eq!(by_id.len(), 1);
         assert_eq!(by_id[0].id, "a");
 
-        let by_author = query_events(&p, &filter(serde_json::json!({"authors": ["bob"]}))).await.unwrap();
+        let by_author = query_events(&p, &filter(serde_json::json!({"authors": ["bob"]})), None).await.unwrap();
         assert_eq!(by_author.len(), 1);
         assert_eq!(by_author[0].pubkey, "bob");
 
         // Ordered newest-first.
-        let by_kind = query_events(&p, &filter(serde_json::json!({"kinds": [1]}))).await.unwrap();
+        let by_kind = query_events(&p, &filter(serde_json::json!({"kinds": [1]})), None).await.unwrap();
         assert_eq!(by_kind.iter().map(|e| e.id.clone()).collect::<Vec<_>>(), vec!["b", "a"]);
     }
 
@@ -434,7 +512,7 @@ mod tests {
         let p = pool().await;
         assert!(store_event(&p, &ev("a", "alice", 1, 100, vec![], "hi")).await.unwrap());
         assert!(!store_event(&p, &ev("a", "alice", 1, 100, vec![], "hi")).await.unwrap());
-        let rows = query_events(&p, &filter(serde_json::json!({"ids": ["a"]}))).await.unwrap();
+        let rows = query_events(&p, &filter(serde_json::json!({"ids": ["a"]})), None).await.unwrap();
         assert_eq!(rows.len(), 1);
     }
 
@@ -447,7 +525,7 @@ mod tests {
         // An older one must be rejected (unique index conflict after no-op delete).
         assert!(!store_event(&p, &ev("v3", "alice", 0, 50, vec![], "older")).await.unwrap());
 
-        let rows = query_events(&p, &filter(serde_json::json!({"kinds": [0]}))).await.unwrap();
+        let rows = query_events(&p, &filter(serde_json::json!({"kinds": [0]})), None).await.unwrap();
         assert_eq!(rows.len(), 1);
         assert_eq!(rows[0].content, "new");
     }
@@ -460,10 +538,10 @@ mod tests {
         // Different d-tag coexists.
         store_event(&p, &ev("a3", "alice", 30023, 150, vec![vec!["d", "other"]], "second")).await.unwrap();
 
-        let rows = query_events(&p, &filter(serde_json::json!({"kinds": [30023], "#d": ["post"]}))).await.unwrap();
+        let rows = query_events(&p, &filter(serde_json::json!({"kinds": [30023], "#d": ["post"]})), None).await.unwrap();
         assert_eq!(rows.len(), 1);
         assert_eq!(rows[0].content, "final");
-        let all = query_events(&p, &filter(serde_json::json!({"kinds": [30023]}))).await.unwrap();
+        let all = query_events(&p, &filter(serde_json::json!({"kinds": [30023]})), None).await.unwrap();
         assert_eq!(all.len(), 2);
     }
 
@@ -473,13 +551,15 @@ mod tests {
         store_event(&p, &ev("c1", "alice", 9, 100, vec![vec!["h", "groupA"], vec!["p", "bob"]], "in A")).await.unwrap();
         store_event(&p, &ev("c2", "alice", 9, 101, vec![vec!["h", "groupB"], vec!["e", "evt1"]], "in B")).await.unwrap();
 
-        let h = query_events(&p, &filter(serde_json::json!({"#h": ["groupA"]}))).await.unwrap();
+        // Read as the author (alice) so the group-scoped events are visible —
+        // the tag filters, not visibility, are under test here.
+        let h = query_events(&p, &filter(serde_json::json!({"#h": ["groupA"]})), Some("alice")).await.unwrap();
         assert_eq!(h.iter().map(|e| e.id.clone()).collect::<Vec<_>>(), vec!["c1"]);
 
-        let p_tag = query_events(&p, &filter(serde_json::json!({"#p": ["bob"]}))).await.unwrap();
+        let p_tag = query_events(&p, &filter(serde_json::json!({"#p": ["bob"]})), Some("alice")).await.unwrap();
         assert_eq!(p_tag.iter().map(|e| e.id.clone()).collect::<Vec<_>>(), vec!["c1"]);
 
-        let e_tag = query_events(&p, &filter(serde_json::json!({"#e": ["evt1"]}))).await.unwrap();
+        let e_tag = query_events(&p, &filter(serde_json::json!({"#e": ["evt1"]})), Some("alice")).await.unwrap();
         assert_eq!(e_tag.iter().map(|e| e.id.clone()).collect::<Vec<_>>(), vec!["c2"]);
     }
 
@@ -489,10 +569,85 @@ mod tests {
         for i in 0..10 {
             store_event(&p, &ev(&format!("e{i}"), "alice", 1, 100 + i, vec![], "x")).await.unwrap();
         }
-        let windowed = query_events(&p, &filter(serde_json::json!({"since": 103, "until": 105}))).await.unwrap();
+        let windowed = query_events(&p, &filter(serde_json::json!({"since": 103, "until": 105})), None).await.unwrap();
         assert_eq!(windowed.len(), 3); // 103, 104, 105
-        let limited = query_events(&p, &filter(serde_json::json!({"kinds": [1], "limit": 2}))).await.unwrap();
+        let limited = query_events(&p, &filter(serde_json::json!({"kinds": [1], "limit": 2})), None).await.unwrap();
         assert_eq!(limited.len(), 2);
+    }
+
+    #[tokio::test]
+    async fn visibility_gating_h_tagged_events() {
+        // #18 — group-scoped (h-tagged) content must be hidden from anonymous and
+        // non-member readers, visible to the author and to group members.
+        let p = pool().await;
+        sqlx::query("INSERT INTO groups (group_id, name) VALUES ('g', 'G')").execute(&p).await.unwrap();
+        sqlx::query("INSERT INTO group_members (group_id, pubkey) VALUES ('g', 'bob')").execute(&p).await.unwrap();
+        store_event(&p, &ev("m1", "alice", 9, 100, vec![vec!["h", "g"]], "secret")).await.unwrap();
+
+        let f = || filter(serde_json::json!({"kinds": [9]}));
+        assert_eq!(query_events(&p, &f(), None).await.unwrap().len(), 0, "anon must not read group content");
+        assert_eq!(query_events(&p, &f(), Some("carol")).await.unwrap().len(), 0, "stranger must not read");
+        assert_eq!(query_events(&p, &f(), Some("bob")).await.unwrap().len(), 1, "member reads");
+        assert_eq!(query_events(&p, &f(), Some("alice")).await.unwrap().len(), 1, "author reads");
+    }
+
+    #[tokio::test]
+    async fn visibility_gating_private_events() {
+        // #18 — visibility-tagged (private/unlisted) content is visible to author
+        // and p-tagged collaborators only.
+        let p = pool().await;
+        store_event(&p, &ev("pv", "alice", 1, 100, vec![vec!["visibility", "private"], vec!["p", "bob"]], "dm")).await.unwrap();
+        let f = || filter(serde_json::json!({"kinds": [1]}));
+        assert_eq!(query_events(&p, &f(), None).await.unwrap().len(), 0, "anon hidden");
+        assert_eq!(query_events(&p, &f(), Some("carol")).await.unwrap().len(), 0, "stranger hidden");
+        assert_eq!(query_events(&p, &f(), Some("bob")).await.unwrap().len(), 1, "collaborator reads");
+        assert_eq!(query_events(&p, &f(), Some("alice")).await.unwrap().len(), 1, "author reads");
+    }
+
+    #[tokio::test]
+    async fn negative_limit_is_clamped() {
+        // #70 — a negative limit must NOT return the whole table (SQLite LIMIT -1).
+        let p = pool().await;
+        for i in 0..5 {
+            store_event(&p, &ev(&format!("n{i}"), "alice", 1, 100 + i, vec![], "x")).await.unwrap();
+        }
+        let rows = query_events(&p, &filter(serde_json::json!({"kinds": [1], "limit": -1})), None).await.unwrap();
+        assert!(rows.len() <= MAX_QUERY_LIMIT as usize, "negative limit bypassed the cap");
+        assert_eq!(rows.len(), 0, "negative limit clamps to 0");
+    }
+
+    #[tokio::test]
+    async fn anon_search_hides_group_content() {
+        // #18 — NIP-50 search must also gate visibility.
+        let p = pool().await;
+        sqlx::query("INSERT INTO groups (group_id, name) VALUES ('g', 'G')").execute(&p).await.unwrap();
+        store_event(&p, &ev("sg", "alice", 9, 100, vec![vec!["h", "g"]], "quick brown fox")).await.unwrap();
+        let anon = search_events(&p, "fox", 50, None).await.unwrap();
+        assert_eq!(anon.len(), 0, "anon search must not surface group content");
+        let author = search_events(&p, "fox", 50, Some("alice")).await.unwrap();
+        assert_eq!(author.len(), 1, "author search finds it");
+    }
+
+    #[tokio::test]
+    async fn generic_tag_filter_query() {
+        // #69 — `#a` / `#t` (any single-letter) filters work, not just #p/#e.
+        let p = pool().await;
+        store_event(&p, &ev("g1", "alice", 1, 100, vec![vec!["a", "31683:pk:album"], vec!["t", "nostr"]], "x")).await.unwrap();
+        store_event(&p, &ev("g2", "alice", 1, 101, vec![vec!["t", "other"]], "y")).await.unwrap();
+
+        let by_a = query_events(&p, &filter(serde_json::json!({"#a": ["31683:pk:album"]})), None).await.unwrap();
+        assert_eq!(by_a.iter().map(|e| e.id.clone()).collect::<Vec<_>>(), vec!["g1"]);
+
+        let by_t = query_events(&p, &filter(serde_json::json!({"#t": ["nostr"]})), None).await.unwrap();
+        assert_eq!(by_t.iter().map(|e| e.id.clone()).collect::<Vec<_>>(), vec!["g1"]);
+
+        // displacement guard: a tagged event isn't lost behind a low limit of
+        // untagged rows.
+        for i in 0..20 {
+            store_event(&p, &ev(&format!("u{i}"), "alice", 1, 200 + i, vec![], "z")).await.unwrap();
+        }
+        let tagged = query_events(&p, &filter(serde_json::json!({"#t": ["nostr"], "limit": 100})), None).await.unwrap();
+        assert!(tagged.iter().any(|e| e.id == "g1"));
     }
 
     #[tokio::test]
@@ -501,13 +656,13 @@ mod tests {
         store_event(&p, &ev("s1", "alice", 1, 100, vec![], "the quick brown fox")).await.unwrap();
         store_event(&p, &ev("s2", "alice", 1, 101, vec![], "lazy dog sleeps")).await.unwrap();
 
-        let hits = query_events(&p, &filter(serde_json::json!({"search": "fox"}))).await.unwrap();
+        let hits = query_events(&p, &filter(serde_json::json!({"search": "fox"})), None).await.unwrap();
         assert_eq!(hits.len(), 1);
         assert_eq!(hits[0].id, "s1");
 
         // FTS index stays consistent after a delete.
         delete_event(&p, "s1").await.unwrap();
-        let after = query_events(&p, &filter(serde_json::json!({"search": "fox"}))).await.unwrap();
+        let after = query_events(&p, &filter(serde_json::json!({"search": "fox"})), None).await.unwrap();
         assert_eq!(after.len(), 0);
     }
 }

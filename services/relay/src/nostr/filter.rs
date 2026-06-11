@@ -1,25 +1,88 @@
 use serde::Deserialize;
+use std::collections::BTreeMap;
 
-#[derive(Debug, Default, Deserialize)]
+#[derive(Debug, Default, Clone)]
 pub struct Filter {
-    #[serde(default)]
     pub ids: Vec<String>,
-    #[serde(default)]
     pub authors: Vec<String>,
-    #[serde(default)]
     pub kinds: Vec<i32>,
     pub since: Option<i64>,
     pub until: Option<i64>,
     pub limit: Option<i64>,
     pub search: Option<String>,
-    #[serde(rename = "#h", default)]
     pub h_tags: Vec<String>,
-    #[serde(rename = "#p", default)]
     pub p_tags: Vec<String>,
-    #[serde(rename = "#e", default)]
     pub e_tags: Vec<String>,
-    #[serde(rename = "#d", default)]
     pub d_tags: Vec<String>,
+    /// Any other single-letter `#x` tag filter (NIP-01) → its allowed values.
+    /// Previously dropped, returning over-broad results (#69).
+    pub generic_tags: Vec<(String, Vec<String>)>,
+}
+
+/// Intermediate shape for deserialization: the known fields are named, everything
+/// else falls into `extra`, from which we pluck single-letter `#x` tag filters.
+#[derive(Deserialize)]
+struct RawFilter {
+    #[serde(default)]
+    ids: Vec<String>,
+    #[serde(default)]
+    authors: Vec<String>,
+    #[serde(default)]
+    kinds: Vec<i32>,
+    since: Option<i64>,
+    until: Option<i64>,
+    limit: Option<i64>,
+    search: Option<String>,
+    #[serde(rename = "#h", default)]
+    h_tags: Vec<String>,
+    #[serde(rename = "#p", default)]
+    p_tags: Vec<String>,
+    #[serde(rename = "#e", default)]
+    e_tags: Vec<String>,
+    #[serde(rename = "#d", default)]
+    d_tags: Vec<String>,
+    #[serde(flatten)]
+    extra: BTreeMap<String, serde_json::Value>,
+}
+
+impl<'de> Deserialize<'de> for Filter {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        let raw = RawFilter::deserialize(deserializer)?;
+        let mut generic_tags = Vec::new();
+        for (key, value) in raw.extra {
+            // NIP-01: a single-letter `#x` key is a tag filter. The named fields
+            // above already captured #h/#p/#e/#d; ignore any other key shape.
+            if let Some(letter) = key.strip_prefix('#') {
+                if letter.len() == 1
+                    && letter.as_bytes()[0].is_ascii_alphabetic()
+                    && !matches!(letter, "h" | "p" | "e" | "d")
+                {
+                    if let Ok(values) = serde_json::from_value::<Vec<String>>(value) {
+                        if !values.is_empty() {
+                            generic_tags.push((letter.to_string(), values));
+                        }
+                    }
+                }
+            }
+        }
+        Ok(Filter {
+            ids: raw.ids,
+            authors: raw.authors,
+            kinds: raw.kinds,
+            since: raw.since,
+            until: raw.until,
+            limit: raw.limit,
+            search: raw.search,
+            h_tags: raw.h_tags,
+            p_tags: raw.p_tags,
+            e_tags: raw.e_tags,
+            d_tags: raw.d_tags,
+            generic_tags,
+        })
+    }
 }
 
 impl Filter {
@@ -59,6 +122,12 @@ impl Filter {
         // Check d-tag filter
         if !self.d_tags.is_empty() && !self.event_has_matching_tag(event, "d", &self.d_tags) {
             return false;
+        }
+        // Check any generic single-letter tag filters (#69).
+        for (name, values) in &self.generic_tags {
+            if !self.event_has_matching_tag(event, name, values) {
+                return false;
+            }
         }
         true
     }
@@ -289,5 +358,41 @@ mod tests {
             ..Default::default()
         };
         assert!(filter.matches(&make_event(None))); // kind 1, pubkey1 -- both match
+    }
+
+    // #69 — a generic single-letter `#x` filter is parsed (not dropped) and
+    // matched; the named #h/#p/#e/#d still route to their fields; junk ignored.
+    #[test]
+    fn test_generic_tag_filter_parsing() {
+        let f: Filter = serde_json::from_value(serde_json::json!({
+            "#t": ["nostr", "relay"],
+            "#a": ["31683:pk:album"],
+            "#h": ["group1"],
+            "#xx": ["ignored"],
+            "weird": ["ignored"]
+        }))
+        .unwrap();
+        assert_eq!(f.h_tags, vec!["group1"]); // named field, not generic
+        let mut names: Vec<&str> = f.generic_tags.iter().map(|(n, _)| n.as_str()).collect();
+        names.sort();
+        assert_eq!(names, vec!["a", "t"]); // only single-letter, excl h/p/e/d
+    }
+
+    #[test]
+    fn test_generic_tag_filter_matches() {
+        let event = Event {
+            tags: vec![
+                vec!["t".to_string(), "nostr".to_string()],
+                vec!["a".to_string(), "31683:pk:album".to_string()],
+            ],
+            ..make_event(None)
+        };
+        let hit: Filter = serde_json::from_value(serde_json::json!({"#t": ["nostr"]})).unwrap();
+        assert!(hit.matches(&event));
+        let miss: Filter = serde_json::from_value(serde_json::json!({"#t": ["other"]})).unwrap();
+        assert!(!miss.matches(&event));
+        // an `#a` filter requiring a value the event lacks excludes it
+        let miss2: Filter = serde_json::from_value(serde_json::json!({"#a": ["nope"]})).unwrap();
+        assert!(!miss2.matches(&event));
     }
 }

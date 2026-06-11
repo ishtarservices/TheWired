@@ -57,9 +57,8 @@ impl Db {
         }
     }
 
-    /// Query events matching a filter. `authed_pubkey` drives Postgres'
-    /// inline `app.space_members` visibility gating; the embedded relay ignores
-    /// it (membership gating is applied relay-native in the handler).
+    /// Query events matching a filter, with visibility/membership gating driven
+    /// by `authed_pubkey` on BOTH backends (#18).
     pub async fn query_events(
         &self,
         filter: &Filter,
@@ -68,7 +67,7 @@ impl Db {
         match self {
             Db::Pg(p) => event_store::query_events(p, filter, authed_pubkey).await,
             #[cfg(feature = "embedded")]
-            Db::Sqlite(p) => sqlite::query_events(p, filter).await,
+            Db::Sqlite(p) => sqlite::query_events(p, filter, authed_pubkey).await,
         }
     }
 
@@ -90,12 +89,17 @@ impl Db {
         }
     }
 
-    /// NIP-50 full-text search.
-    pub async fn search_events(&self, query: &str, limit: i64) -> anyhow::Result<Vec<Event>> {
+    /// NIP-50 full-text search, visibility-gated by `authed_pubkey` (#18).
+    pub async fn search_events(
+        &self,
+        query: &str,
+        limit: i64,
+        authed_pubkey: Option<&str>,
+    ) -> anyhow::Result<Vec<Event>> {
         match self {
-            Db::Pg(p) => nip50::search_events(p, query, limit).await,
+            Db::Pg(p) => nip50::search_events(p, query, limit, authed_pubkey).await,
             #[cfg(feature = "embedded")]
-            Db::Sqlite(p) => sqlite::search_events(p, query, limit).await,
+            Db::Sqlite(p) => sqlite::search_events(p, query, limit, authed_pubkey).await,
         }
     }
 
