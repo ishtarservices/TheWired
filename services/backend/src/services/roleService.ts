@@ -3,7 +3,17 @@ import { db } from "../db/connection.js";
 import { spaceRoles, rolePermissions, channelOverrides } from "../db/schema/permissions.js";
 import { memberRoles, spaceMembers } from "../db/schema/members.js";
 import { spaces } from "../db/schema/spaces.js";
-import { eq, and, asc } from "drizzle-orm";
+import { eq, and, asc, inArray } from "drizzle-orm";
+
+/** The full permission set an admin role grants (admins bypass per-permission checks). */
+const ADMIN_PERMISSIONS = [
+  "SEND_MESSAGES", "MANAGE_MESSAGES", "PIN_MESSAGES", "EMBED_LINKS",
+  "ATTACH_FILES", "ADD_REACTIONS", "MENTION_EVERYONE",
+  "CONNECT", "SPEAK", "VIDEO", "SCREEN_SHARE",
+  "VIEW_CHANNEL", "READ_MESSAGE_HISTORY", "MANAGE_CHANNELS",
+  "MANAGE_MEMBERS", "MANAGE_ROLES", "CREATE_INVITES", "MANAGE_INVITES",
+  "BAN_MEMBERS", "MUTE_MEMBERS", "MANAGE_SPACE", "VIEW_ANALYTICS",
+] as const;
 
 interface CreateRoleParams {
   name: string;
@@ -59,19 +69,18 @@ export const roleService = {
       if (roles.length === 0) return [];
     }
 
-    // Attach permissions to each role
-    const result = [];
-    for (const role of roles) {
-      const perms = await db
-        .select({ permission: rolePermissions.permission })
-        .from(rolePermissions)
-        .where(eq(rolePermissions.roleId, role.id));
-      result.push({
-        ...role,
-        permissions: perms.map((p) => p.permission),
-      });
+    // Attach permissions to each role — one batched query instead of one per role (#105).
+    const roleIds = roles.map((r) => r.id);
+    const permRows = roleIds.length
+      ? await db.select().from(rolePermissions).where(inArray(rolePermissions.roleId, roleIds))
+      : [];
+    const permsByRole = new Map<string, string[]>();
+    for (const pr of permRows) {
+      const arr = permsByRole.get(pr.roleId);
+      if (arr) arr.push(pr.permission);
+      else permsByRole.set(pr.roleId, [pr.permission]);
     }
-    return result;
+    return roles.map((role) => ({ ...role, permissions: permsByRole.get(role.id) ?? [] }));
   },
 
   /** Create a new role */
@@ -374,32 +383,18 @@ export const roleService = {
       return [];
     }
 
-    const allPerms = new Set<string>();
-
-    for (const { roleId } of roles) {
-      const [role] = await db.select().from(spaceRoles).where(eq(spaceRoles.id, roleId)).limit(1);
-      if (role?.isAdmin) {
-        // Admin gets all permissions
-        return [
-          "SEND_MESSAGES", "MANAGE_MESSAGES", "PIN_MESSAGES", "EMBED_LINKS",
-          "ATTACH_FILES", "ADD_REACTIONS", "MENTION_EVERYONE",
-          "CONNECT", "SPEAK", "VIDEO", "SCREEN_SHARE",
-          "VIEW_CHANNEL", "READ_MESSAGE_HISTORY", "MANAGE_CHANNELS",
-          "MANAGE_MEMBERS", "MANAGE_ROLES", "CREATE_INVITES", "MANAGE_INVITES",
-          "BAN_MEMBERS", "MUTE_MEMBERS", "MANAGE_SPACE", "VIEW_ANALYTICS",
-        ];
-      }
-
-      const perms = await db
-        .select({ permission: rolePermissions.permission })
-        .from(rolePermissions)
-        .where(eq(rolePermissions.roleId, roleId));
-      for (const p of perms) {
-        allPerms.add(p.permission);
-      }
+    // Batched (#105): load the member's roles + their permissions in 2 queries
+    // instead of 2 per role.
+    const roleIds = roles.map((r) => r.roleId);
+    const roleRows = await db.select().from(spaceRoles).where(inArray(spaceRoles.id, roleIds));
+    if (roleRows.some((r) => r.isAdmin)) {
+      return [...ADMIN_PERMISSIONS];
     }
-
-    return [...allPerms];
+    const permRows = await db
+      .select({ permission: rolePermissions.permission })
+      .from(rolePermissions)
+      .where(inArray(rolePermissions.roleId, roleIds));
+    return [...new Set(permRows.map((p) => p.permission))];
   },
 
   /** Get effective permissions for a user in a space, including per-channel overrides.
@@ -418,33 +413,33 @@ export const roleService = {
       .select({ roleId: memberRoles.roleId })
       .from(memberRoles)
       .where(and(eq(memberRoles.spaceId, spaceId), eq(memberRoles.pubkey, pubkey)));
+    const roleIds = roles.map((r) => r.roleId);
+    if (roleIds.length === 0) {
+      return { spacePermissions: spacePerms, channelOverrides: {} };
+    }
 
-    // Check if user is admin — admins have no overrides (all perms everywhere)
-    for (const { roleId } of roles) {
-      const [role] = await db.select().from(spaceRoles).where(eq(spaceRoles.id, roleId)).limit(1);
-      if (role?.isAdmin) {
-        return { spacePermissions: spacePerms, channelOverrides: {} };
-      }
+    // Check if user is admin — admins have no overrides (all perms everywhere).
+    // Batched (#105): one query for the roles + one for all their overrides.
+    const roleRows = await db.select().from(spaceRoles).where(inArray(spaceRoles.id, roleIds));
+    if (roleRows.some((r) => r.isAdmin)) {
+      return { spacePermissions: spacePerms, channelOverrides: {} };
     }
 
     // Aggregate channel overrides across all roles (deny-wins model)
     const aggregated: Record<string, { allow: Set<string>; deny: Set<string> }> = {};
+    const overrideRows = await db
+      .select()
+      .from(channelOverrides)
+      .where(inArray(channelOverrides.roleId, roleIds));
 
-    for (const { roleId } of roles) {
-      const rows = await db
-        .select()
-        .from(channelOverrides)
-        .where(eq(channelOverrides.roleId, roleId));
-
-      for (const row of rows) {
-        if (!aggregated[row.channelId]) {
-          aggregated[row.channelId] = { allow: new Set(), deny: new Set() };
-        }
-        if (row.effect === "deny") {
-          aggregated[row.channelId].deny.add(row.permission);
-        } else if (row.effect === "allow") {
-          aggregated[row.channelId].allow.add(row.permission);
-        }
+    for (const row of overrideRows) {
+      if (!aggregated[row.channelId]) {
+        aggregated[row.channelId] = { allow: new Set(), deny: new Set() };
+      }
+      if (row.effect === "deny") {
+        aggregated[row.channelId].deny.add(row.permission);
+      } else if (row.effect === "allow") {
+        aggregated[row.channelId].allow.add(row.permission);
       }
     }
 
