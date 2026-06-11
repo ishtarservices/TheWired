@@ -17,8 +17,9 @@ export const NIP29_ADMIN_PERMISSIONS: string[] = [
   "MANAGE_CHANNELS",
   "MANAGE_MEMBERS",
   "MANAGE_MESSAGES",
-  "BAN_MEMBERS",
-  "MUTE_MEMBERS",
+  // #40 — NIP-29 defines no ban/mute kinds (only kind:9001 remove-user), and our
+  // relay stores no ban/mute list, so these would render menu items that silently
+  // no-op. Omit them for native spaces; Kick (9001) is the supported action.
   "CREATE_INVITES",
   "MANAGE_INVITES",
   "SEND_MESSAGES",

@@ -10,6 +10,7 @@ import { useSpace } from "./useSpace";
 import { useAppSelector, useAppDispatch } from "../../store/hooks";
 import { setSidebarMode } from "../../store/slices/uiSlice";
 import { relayManager } from "../../lib/nostr/relayManager";
+import { verifyBridge } from "../../lib/nostr/verifyWorkerBridge";
 import { probeRelayNip11 } from "../../lib/nostr/relayInfo";
 import { signAndPublish } from "../../lib/nostr/publish";
 import { buildJoinRequest } from "../../lib/nostr/eventBuilder";
@@ -44,6 +45,22 @@ interface GroupPreview {
   isPrivate: boolean;
   adminPubkeys: string[];
   memberPubkeys: string[];
+  /** True only when the group's admin/member lists were proven to be signed by
+   *  the relay's pinned NIP-11 key. When false, the trust anchors are dropped on
+   *  import (#41) so a forged 39001/39002 from a malicious relay can't seed who
+   *  the admins are. */
+  verified: boolean;
+}
+
+/** A 39000-2 event is trustworthy only if it is schnorr-valid AND authored by the
+ *  relay's NIP-11 pubkey (NIP-29 relay-generated state). Exported for testing. */
+export async function isRelayAuthored(event: NostrEvent | null, relayPubkey: string | undefined): Promise<boolean> {
+  if (!event || !relayPubkey || event.pubkey !== relayPubkey) return false;
+  try {
+    return await verifyBridge.verify(event);
+  } catch {
+    return false;
+  }
 }
 
 /** Parse `<host>'<groupId>`, an `naddr`, or a `nostr:naddr` into a group target. */
@@ -69,7 +86,7 @@ function parseGroupInput(raw: string): GroupTarget | null {
 }
 
 /** One-shot fetch of a group's 39000/39001/39002 from a relay (preview). */
-function fetchGroupPreview(target: GroupTarget, timeoutMs = 6000): Promise<GroupPreview | null> {
+function fetchGroupPreview(target: GroupTarget, relayPubkey: string | undefined, timeoutMs = 6000): Promise<GroupPreview | null> {
   return new Promise((resolve) => {
     relayManager.connect(target.relayUrl, "read");
 
@@ -78,7 +95,7 @@ function fetchGroupPreview(target: GroupTarget, timeoutMs = 6000): Promise<Group
     let members: NostrEvent | null = null;
     let settled = false;
 
-    const finish = () => {
+    const finish = async () => {
       if (settled) return;
       settled = true;
       clearTimeout(timer);
@@ -87,14 +104,23 @@ function fetchGroupPreview(target: GroupTarget, timeoutMs = 6000): Promise<Group
         resolve(null);
         return;
       }
+      // Display fields (name/about/picture) are sanitized by parseGroupMetadata and
+      // safe to show even unverified. But the admin/member lists become the space's
+      // long-lived trust anchors, so they are ONLY taken from relay-key-signed
+      // events (#41).
       const meta = metadata ? parseGroupMetadata(metadata) : {};
+      const [adminsOk, membersOk] = await Promise.all([
+        isRelayAuthored(admins, relayPubkey),
+        isRelayAuthored(members, relayPubkey),
+      ]);
       resolve({
         name: meta.name ?? "Group",
         about: meta.about,
         picture: meta.picture,
         isPrivate: meta.isPrivate ?? false,
-        adminPubkeys: admins ? pubkeysOf(admins) : [],
-        memberPubkeys: members ? pubkeysOf(members) : [],
+        adminPubkeys: adminsOk && admins ? pubkeysOf(admins) : [],
+        memberPubkeys: membersOk && members ? pubkeysOf(members) : [],
+        verified: adminsOk,
       });
     };
 
@@ -182,11 +208,10 @@ export function ImportSpaceModal({ open, onClose, initialInput }: ImportSpaceMod
       relayManager.suppressAuth(parsed.relayUrl);
     }
     try {
-      // Probe NIP-11 (for the relay's signing key) and fetch group state together.
-      const [result, info] = await Promise.all([
-        fetchGroupPreview(parsed),
-        probeRelayNip11(parsed.relayUrl),
-      ]);
+      // Probe NIP-11 FIRST for the relay's signing key, then fetch group state so
+      // the admin/member lists can be verified against it (#41).
+      const info = await probeRelayNip11(parsed.relayUrl);
+      const result = await fetchGroupPreview(parsed, info?.pubkey);
       if (!result) {
         setError("No group found on that relay. Check the address, or the relay may be unreachable.");
         return;
@@ -350,6 +375,15 @@ export function ImportSpaceModal({ open, onClose, initialInput }: ImportSpaceMod
             {preview.isPrivate && (
               <p className="rounded-lg border border-amber-500/20 bg-amber-500/10 px-3 py-2 text-[11px] text-amber-300">
                 This group is private — reading its history may require the relay to approve you.
+              </p>
+            )}
+
+            {!preview.verified && (
+              <p className="flex items-start gap-1.5 rounded-lg border border-amber-500/20 bg-amber-500/10 px-3 py-2 text-[11px] text-amber-300">
+                <AlertCircle size={13} className="mt-px shrink-0" />
+                This relay doesn't publish a verifiable signing key, so its admin list
+                couldn't be confirmed. You can still join, but moderation roles won't be
+                trusted until the relay's identity is verified.
               </p>
             )}
 
