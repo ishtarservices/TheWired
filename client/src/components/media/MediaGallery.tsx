@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { memo, useCallback, useEffect, useState } from "react";
 import type { ExtractedMedia } from "@/lib/media/mediaUrlParser";
 import { imageCache } from "@/lib/cache/imageCache";
 import { MediaLightbox } from "../ui/MediaLightbox";
@@ -31,13 +31,22 @@ export interface MediaGalleryProps {
  *  - videos    → stacked SmartVideo (orientation-aware)
  *  - audio     → native <audio>
  */
-export function MediaGallery({ media, imeta, density = "feed" }: MediaGalleryProps) {
+export const MediaGallery = memo(function MediaGallery({
+  media,
+  imeta,
+  density = "feed",
+}: MediaGalleryProps) {
   const [lightboxIndex, setLightboxIndex] = useState<number | null>(null);
 
   const images = media.filter((m) => m.type === "image");
   const videos = media.filter((m) => m.type === "video");
   const audios = media.filter((m) => m.type === "audio");
   const imageUrls = images.map((m) => m.url);
+
+  // Stable so the memoized SmartImage / MediaGrid children don't re-render when
+  // the gallery re-renders to open/close its own lightbox.
+  const openLightbox = useCallback((i: number) => setLightboxIndex(i), []);
+  const openFirst = useCallback(() => setLightboxIndex(0), []);
 
   // Warm the decode cache for this post's images (idempotent).
   useEffect(() => {
@@ -54,14 +63,14 @@ export function MediaGallery({ media, imeta, density = "feed" }: MediaGalleryPro
           url={images[0].url}
           dim={imeta?.[images[0].url]?.dim}
           density={density}
-          onOpen={() => setLightboxIndex(0)}
+          onOpen={openFirst}
         />
       )}
 
       {images.length >= 2 && (
         <MediaGrid
           images={images.map((m) => ({ url: m.url, dim: imeta?.[m.url]?.dim }))}
-          onOpen={(i) => setLightboxIndex(i)}
+          onOpen={openLightbox}
         />
       )}
 
@@ -88,4 +97,4 @@ export function MediaGallery({ media, imeta, density = "feed" }: MediaGalleryPro
       )}
     </div>
   );
-}
+});

@@ -17,41 +17,26 @@ import { useScrollRestore } from "../../hooks/useScrollRestore";
 import { useFeedPagination } from "./useFeedPagination";
 import { FeedToolbar } from "./FeedToolbar";
 import { LoadMoreButton } from "./LoadMoreButton";
-import { useNoteEngagement } from "./useNoteEngagement";
-import { useNoteActions } from "./useNoteActions";
+import { RevealSentinel } from "../../components/ui/RevealSentinel";
 import { useNoteEngagementSub } from "./useNoteEngagementSub";
 import { parseQuoteRef } from "./noteParser";
 import { useIsBlocked } from "../../hooks/useIsBlocked";
 import { useUnblock } from "../../hooks/useUnblock";
 import { FRIENDS_FEED_ID } from "../friends/friendsFeedConstants";
 import { BlockedMessage } from "../../components/ui/BlockedMessage";
-import { NoteActionBar } from "./notes/NoteActionBar";
-import { selectFeatureEnabled, FEATURE_AI } from "@/store/slices/featuresSlice";
-import { useAskAI } from "@/features/ai/context/useAskAI";
-import { buildThreadContext, buildNoteContext } from "@/features/ai/context/aiContext";
-import { useZap } from "../wallet/WalletProvider";
 import { QuotedNote } from "./notes/QuotedNote";
-import { ReplyComposer } from "./notes/ReplyComposer";
-import { ThreadView } from "./notes/ThreadView";
-import { NoteShareMenu } from "../../components/sharing/NoteShareMenu";
+import { NoteFooter } from "./notes/NoteFooter";
 import type { NostrEvent } from "../../types/nostr";
+
+/** How many cards to add to the rendered window each time the sentinel is hit. */
+const RENDER_PAGE = 30;
 
 const NoteCard = memo(function NoteCard({ event }: { event: NostrEvent }) {
   const { profile } = useProfile(event.pubkey);
   const isBlocked = useIsBlocked(event.pubkey);
   const { openUserPopover } = useUserPopover();
   const [showMedia, setShowMedia] = useState(true);
-  const [showReplyComposer, setShowReplyComposer] = useState(false);
-  const [threadExpanded, setThreadExpanded] = useState(false);
-  const [shareAnchor, setShareAnchor] = useState<HTMLElement | null>(null);
   const avatarRef = useRef<HTMLButtonElement>(null);
-
-  const engagement = useNoteEngagement(event.id);
-  const actions = useNoteActions(event);
-  const activeSpace = useAppSelector(selectActiveSpace);
-  const askAI = useAskAI();
-  const aiEnabled = useAppSelector(selectFeatureEnabled(FEATURE_AI));
-  const { openZap } = useZap();
 
   const quoteRef = useMemo(() => parseQuoteRef(event), [event]);
 
@@ -87,39 +72,6 @@ const NoteCard = memo(function NoteCard({ event }: { event: NostrEvent }) {
 
   const imageCount = media.filter((m) => m.type === "image").length;
   const videoCount = media.filter((m) => m.type === "video").length;
-
-  const handleReply = useCallback(() => {
-    setShowReplyComposer((v) => !v);
-  }, []);
-
-  const handleRepost = useCallback(() => {
-    actions.repost();
-  }, [actions]);
-
-  const handleLike = useCallback(() => {
-    actions.like();
-  }, [actions]);
-
-  const handleQuote = useCallback(() => {
-    // For now, toggle reply composer -- future: dedicated quote modal
-    setShowReplyComposer((v) => !v);
-  }, []);
-
-  const handleSendReply = useCallback(
-    (content: string) => {
-      actions.reply(content);
-      setShowReplyComposer(false);
-    },
-    [actions],
-  );
-
-  const handleCancelReply = useCallback(() => {
-    setShowReplyComposer(false);
-  }, []);
-
-  const handleToggleThread = useCallback(() => {
-    setThreadExpanded((v) => !v);
-  }, []);
 
   const unblock = useUnblock(event.pubkey);
 
@@ -191,45 +143,10 @@ const NoteCard = memo(function NoteCard({ event }: { event: NostrEvent }) {
         </div>
       )}
 
-      <NoteActionBar
-        engagement={engagement}
-        canInteract={actions.canInteract}
-        canWrite={actions.canWrite}
-        onReply={handleReply}
-        onRepost={handleRepost}
-        onLike={handleLike}
-        onQuote={handleQuote}
-        onShare={setShareAnchor}
-        onZap={() => openZap({ recipientPubkey: event.pubkey, event })}
-        onAskAI={
-          aiEnabled
-            ? () => askAI(buildThreadContext(event.id) ?? buildNoteContext(event.id))
-            : undefined
-        }
-      />
-
-      {showReplyComposer && (
-        <ReplyComposer
-          targetPubkey={event.pubkey}
-          onSend={handleSendReply}
-          onCancel={handleCancelReply}
-        />
-      )}
-
-      {engagement.replyCount > 0 && (
-        <ThreadView
-          eventId={event.id}
-          expanded={threadExpanded}
-          onToggle={handleToggleThread}
-        />
-      )}
-
-      <NoteShareMenu
-        event={event}
-        anchorEl={shareAnchor}
-        onClose={() => setShareAnchor(null)}
-        relays={activeSpace?.hostRelay ? [activeSpace.hostRelay] : undefined}
-      />
+      {/* Engagement counts, actions, replies, thread, share — isolated in a
+          memoized subtree so the kind 7/6/1 event-storm (and interaction
+          toggles) never re-render the text or media above. */}
+      <NoteFooter event={event} />
     </div>
   );
 });
@@ -244,6 +161,19 @@ export function NotesFeed() {
   const { meta, refresh, loadMore } = useFeedPagination("notes");
   const { scrollPaddingClass } = usePlaybackBarSpacing();
 
+  // Render-cap: mount only a window of cards and grow it as the user scrolls,
+  // instead of mounting every fetched note (each card carries a profile sub,
+  // media, and an engagement subtree). Mirrors MediaFeed.
+  const [renderLimit, setRenderLimit] = useState(RENDER_PAGE);
+  // Switching channel/space starts a fresh window.
+  useEffect(() => {
+    setRenderLimit(RENDER_PAGE);
+  }, [activeChannelId, activeSpaceId]);
+  const revealMore = useCallback(() => setRenderLimit((n) => n + RENDER_PAGE), []);
+
+  const visibleNotes = useMemo(() => notes.slice(0, renderLimit), [notes, renderLimit]);
+  const hasMoreLocal = renderLimit < notes.length;
+
   // For Friends Feed and read-only spaces, replies/reactions live on repliers' own relays,
   // not a single host relay — use all read relays (undefined).
   const isFriendsFeed = activeSpaceId === FRIENDS_FEED_ID;
@@ -254,7 +184,14 @@ export function NotesFeed() {
         ? [activeSpace.hostRelay]
         : undefined;
 
-  useNoteEngagementSub(noteIds, engagementRelays);
+  // Only subscribe to engagement for the rendered window — no point pulling
+  // reactions for notes that aren't on screen yet. Grows with the window;
+  // the sub itself still caps at BATCH_LIMIT and debounces.
+  const visibleNoteIds = useMemo(
+    () => noteIds.slice(0, renderLimit),
+    [noteIds, renderLimit],
+  );
+  useNoteEngagementSub(visibleNoteIds, engagementRelays);
 
   return (
     <div className="flex flex-1 flex-col overflow-hidden">
@@ -270,7 +207,7 @@ export function NotesFeed() {
           </div>
         ) : (
           <div className="space-y-4">
-            {notes.map((event, index) => (
+            {visibleNotes.map((event, index) => (
               <div
                 key={event.id}
                 className={index < 15 ? "animate-fade-in-up" : undefined}
@@ -279,9 +216,12 @@ export function NotesFeed() {
                 <NoteCard event={event} />
               </div>
             ))}
+            {/* Reveal more rendered cards as you approach the end; once the whole
+                fetched set is shown, fall back to fetching more from the relay. */}
+            {hasMoreLocal && <RevealSentinel onReach={revealMore} />}
             <LoadMoreButton
               isLoading={meta.isLoadingMore}
-              hasMore={meta.hasMore}
+              hasMore={!hasMoreLocal && meta.hasMore}
               onLoadMore={loadMore}
             />
           </div>

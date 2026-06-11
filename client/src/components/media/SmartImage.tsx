@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { memo, useState } from "react";
 import { Download } from "lucide-react";
 import { MediaLightbox, downloadMedia } from "../ui/MediaLightbox";
 import { MediaBackdrop } from "./MediaBackdrop";
@@ -33,7 +33,7 @@ export interface SmartImageProps {
  *  - Portrait / panorama → shown whole (`object-contain`) inside a consistent card,
  *    with a blurred copy of itself filling the gaps (see `MediaBackdrop`).
  */
-export function SmartImage({
+export const SmartImage = memo(function SmartImage({
   url,
   alt = "",
   onOpen,
@@ -122,4 +122,4 @@ export function SmartImage({
       {lightbox && <MediaLightbox src={url} onClose={() => setLightbox(false)} />}
     </>
   );
-}
+});

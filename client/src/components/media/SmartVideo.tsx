@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { memo, useEffect, useRef, useState } from "react";
 import Hls from "hls.js";
 import { Download, Gauge } from "lucide-react";
 import { usePlaybackSpeed, VALID_SPEEDS } from "@/hooks/usePlaybackSpeed";
@@ -38,7 +38,7 @@ function isHlsUrl(url: string): boolean {
  * Carries the same speed menu + download affordances as the old `InlineVideo`,
  * and attaches hls.js for `.m3u8` sources where natively unsupported.
  */
-export function SmartVideo({
+export const SmartVideo = memo(function SmartVideo({
   url,
   poster,
   dim,
@@ -195,4 +195,4 @@ export function SmartVideo({
       {overlay}
     </div>
   );
-}
+});
