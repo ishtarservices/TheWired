@@ -134,13 +134,15 @@ export async function editDM(
   const ownRelays = getOwnDMRelays();
   relayManager.publish(selfWrap, ownRelays.length > 0 ? ownRelays : undefined);
 
-  // Optimistic local update
+  // Optimistic local update (I am the author of my own message I'm editing)
   store.dispatch(
     editDMMessage({
       partnerPubkey,
       rumorId: originalRumorId,
       newContent,
       editedAt: Math.round(Date.now() / 1000),
+      senderPubkey: myPubkey,
+      wrapId: selfWrap.id,
     }),
   );
 }
@@ -175,11 +177,13 @@ export async function deleteDMForEveryone(
   const ownRelays = getOwnDMRelays();
   relayManager.publish(selfWrap, ownRelays.length > 0 ? ownRelays : undefined);
 
-  // Optimistic local update
+  // Optimistic local update (I authored the message I'm deleting)
   store.dispatch(
     remoteDeleteDMMessage({
       partnerPubkey,
       rumorId: originalRumorId,
+      senderPubkey: myPubkey,
+      wrapId: selfWrap.id,
     }),
   );
 }

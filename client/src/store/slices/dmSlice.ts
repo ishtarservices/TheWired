@@ -62,6 +62,20 @@ function truncatePreview(text: string, max = 50): string {
   return summary.length > max ? summary.slice(0, max) + "..." : summary;
 }
 
+/** Record a gift-wrap id as processed. Returns false if it was already seen
+ *  (so edit/delete wraps — like messages — apply at most once). Bounded-eviction
+ *  mirrors addDMMessage. */
+function markWrapProcessed(state: DMState, wrapId: string): boolean {
+  if (state.processedWrapIdSet[wrapId]) return false;
+  state.processedWrapIds.push(wrapId);
+  state.processedWrapIdSet[wrapId] = true;
+  if (state.processedWrapIds.length > 5000) {
+    const evicted = state.processedWrapIds.splice(0, state.processedWrapIds.length - 3000);
+    for (const id of evicted) delete state.processedWrapIdSet[id];
+  }
+  return true;
+}
+
 /** Insert a message in sorted (ascending createdAt) order via binary search */
 function insertSorted(arr: DMMessage[], msg: DMMessage): void {
   let lo = 0;
@@ -221,7 +235,9 @@ export const dmSlice = createSlice({
       state.mutationCounter += 1;
     },
 
-    /** Edit a DM message (local state update) */
+    /** Edit a DM message (local state update).
+     *  Ownership-gated (#23/#32): only the ORIGINAL author may edit — a DM partner
+     *  cannot rewrite YOUR messages. senderPubkey is the inner rumor's author. */
     editDMMessage(
       state,
       action: PayloadAction<{
@@ -229,40 +245,62 @@ export const dmSlice = createSlice({
         rumorId: string;
         newContent: string;
         editedAt: number;
+        senderPubkey: string;
+        /** The edit wrap's id, for at-most-once application. */
+        wrapId?: string;
       }>,
     ) {
-      const { partnerPubkey, rumorId, newContent, editedAt } = action.payload;
+      const { partnerPubkey, rumorId, newContent, editedAt, senderPubkey, wrapId } = action.payload;
+      // Dedup the edit wrap (no-op on the self-wrap echo of an optimistic edit).
+      if (wrapId && !markWrapProcessed(state, wrapId)) return;
+
       const msgs = state.messages[partnerPubkey];
       if (!msgs) return;
       // Match by rumorId first, fall back to wrapId for legacy messages
       const msg = msgs.find((m) => m.rumorId === rumorId)
         ?? msgs.find((m) => m.wrapId === rumorId);
-      if (msg) {
-        msg.editedContent = newContent;
-        msg.editedAt = editedAt;
+      // Apply only when the editor authored the target message.
+      if (!msg || msg.senderPubkey !== senderPubkey) return;
+
+      msg.editedContent = newContent;
+      msg.editedAt = editedAt;
+
+      // #87: refresh the conversation-list preview when the latest message is edited.
+      const contact = state.contacts.find((c) => c.pubkey === partnerPubkey);
+      if (contact) {
+        const lastVisible = [...msgs].reverse().find((m) => !m.isDeleted);
+        if (lastVisible && lastVisible === msg) {
+          contact.lastMessagePreview = truncatePreview(lastVisible.editedContent ?? lastVisible.content);
+        }
       }
       state.mutationCounter += 1;
     },
 
-    /** Mark a DM message as remotely deleted */
+    /** Mark a DM message as remotely deleted.
+     *  Ownership-gated (#23/#32): only the original author may delete-for-everyone. */
     remoteDeleteDMMessage(
       state,
       action: PayloadAction<{
         partnerPubkey: string;
         rumorId: string;
+        senderPubkey: string;
+        wrapId?: string;
       }>,
     ) {
-      const { partnerPubkey, rumorId } = action.payload;
+      const { partnerPubkey, rumorId, senderPubkey, wrapId } = action.payload;
+      if (wrapId && !markWrapProcessed(state, wrapId)) return;
+
       const msgs = state.messages[partnerPubkey];
       if (!msgs) return;
       // Match by rumorId first, fall back to wrapId for legacy messages
       const msg = msgs.find((m) => m.rumorId === rumorId)
         ?? msgs.find((m) => m.wrapId === rumorId);
-      if (msg) {
-        msg.isDeleted = true;
-        msg.content = "";
-        msg.editedContent = undefined;
-      }
+      if (!msg || msg.senderPubkey !== senderPubkey) return;
+
+      msg.isDeleted = true;
+      msg.content = "";
+      msg.editedContent = undefined;
+
       // Update contact preview
       const contact = state.contacts.find((c) => c.pubkey === partnerPubkey);
       if (contact) {

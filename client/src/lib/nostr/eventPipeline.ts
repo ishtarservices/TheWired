@@ -1,6 +1,7 @@
 import type { NostrEvent } from "../../types/nostr";
 import { EVENT_KINDS } from "../../types/nostr";
 import { EventDeduplicator } from "./dedup";
+import { verifySpaceModAuthority } from "./mutationAuthority";
 import { isValidEventStructure } from "./validation";
 import { verifyBridge } from "./verifyWorkerBridge";
 import type { UnknownAction } from "@reduxjs/toolkit";
@@ -745,15 +746,37 @@ async function indexEvent(event: NostrEvent): Promise<void> {
       break;
     }
     case EVENT_KINDS.MOD_DELETE_EVENT: {
-      // NIP-29 kind:9005: moderator delete — admin removes a message from the group
+      // NIP-29 kind:9005: moderator delete — admin removes a message from the group.
       const groupId = event.tags.find((t) => t[0] === "h")?.[1];
       if (!groupId) break;
+
+      // #5 — authority check. The chat read set includes non-enforcing mirrors and
+      // imported relays, so anyone could publish a 9005 to wipe arbitrary messages.
+      // Require the author to be in the space's pinned authority set.
+      const space = store.getState().spaces.list.find((s) => s.id === groupId);
+      const verdict = verifySpaceModAuthority(event, space);
+      if (verdict === "defer-unknown-space") {
+        // Space not loaded yet (rare race: spaces hydrate before chat subs open).
+        // Drop without persisting and unmark so a relay redelivery can retry once
+        // the space metadata is present.
+        dedup.unmarkSeen(event.id);
+        break;
+      }
+      if (verdict === "drop-unauthorized") {
+        break;
+      }
+
       // Apply buffered adds first so refs to same-burst messages resolve.
       flushEventPipeline();
       for (const tag of event.tags) {
         if (tag[0] === "e" && tag[1]) {
           const refEvent = store.getState().events.entities[tag[1]];
           if (refEvent) {
+            // Scope hardening: only delete messages that actually belong to THIS
+            // group, so an admin of one (e.g. self-imported) group can't delete
+            // another group's messages via a forged h-tag mismatch.
+            const refHTag = refEvent.tags.find((t) => t[0] === "h")?.[1];
+            if (refHTag && refHTag !== groupId) continue;
             const refChannelTag = refEvent.tags.find((t) => t[0] === "channel")?.[1];
             const contextId = refChannelTag ? `${groupId}:${refChannelTag}` : groupId;
             store.dispatch(removeChatMessage({ contextId, eventId: tag[1] }));
@@ -1260,6 +1283,8 @@ function handleDMEditWrap(
       rumorId: originalRumorId,
       newContent: dm.content,
       editedAt: Math.round(Date.now() / 1000),
+      senderPubkey: dm.sender,
+      wrapId: dm.wrapId,
     }),
   );
 }
@@ -1281,6 +1306,8 @@ function handleDMDeleteWrap(
     remoteDeleteDMMessage({
       partnerPubkey,
       rumorId: originalRumorId,
+      senderPubkey: dm.sender,
+      wrapId: dm.wrapId,
     }),
   );
 }
