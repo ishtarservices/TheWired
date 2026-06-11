@@ -1,5 +1,6 @@
 import { createSlice, type PayloadAction } from "@reduxjs/toolkit";
 import type { Space, SpaceChannel } from "../../types/space";
+import { spaceLocalKey } from "../../features/spaces/spaceType";
 
 export interface PendingInvite {
   code: string;
@@ -36,11 +37,22 @@ export const spacesSlice = createSlice({
       state.list = action.payload;
     },
     addSpace(state, action: PayloadAction<Space>) {
-      const idx = state.list.findIndex((s) => s.id === action.payload.id);
+      const incoming = action.payload;
+      const idx = state.list.findIndex((s) => s.id === incoming.id);
       if (idx >= 0) {
-        state.list[idx] = action.payload;
+        // #42 — `space.id` is the NIP-29 group id; two unrelated native groups on
+        // different hosts can share one id. Only replace when the full local key
+        // (host'groupId for native, id otherwise) matches — otherwise an import
+        // would silently overwrite (hijack) an existing, different space.
+        if (spaceLocalKey(state.list[idx]) === spaceLocalKey(incoming)) {
+          state.list[idx] = incoming;
+        } else {
+          console.warn(
+            `[spaces] refusing to overwrite space ${incoming.id}: local key mismatch`,
+          );
+        }
       } else {
-        state.list.push(action.payload);
+        state.list.push(incoming);
       }
     },
     setActiveSpace(state, action: PayloadAction<string | null>) {

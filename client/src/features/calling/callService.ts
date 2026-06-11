@@ -177,7 +177,17 @@ export async function hangupCall(): Promise<void> {
 /** Handle a received RTC signal. */
 export async function handleRTCSignal(signal: RTCSignalPayload): Promise<void> {
   const activeCall = store.getState().call.activeCall;
-  if (!activeCall || signal.roomId !== activeCall.roomId) return;
+  // #6 — the roomId + both pubkeys are plaintext on relay-visible kind:25050
+  // events, so a passive observer could forge a `disconnect` (kill the call) or
+  // race a forged `offer` (hijack the media). Require the signal to come from the
+  // actual call partner for EVERY signal type.
+  if (
+    !activeCall ||
+    signal.roomId !== activeCall.roomId ||
+    signal.senderPubkey !== activeCall.partnerPubkey
+  ) {
+    return;
+  }
 
   switch (signal.type) {
     case "connect": {
@@ -194,7 +204,8 @@ export async function handleRTCSignal(signal: RTCSignalPayload): Promise<void> {
       await setRemoteDescription(pc, signal.data.offer);
       await flushPendingCandidates(pc);
       const answer = await createAnswer(pc);
-      await publishRTCSignal("answer", signal.roomId, signal.senderPubkey, { answer });
+      // Answer only the verified partner (== signal.senderPubkey after the guard).
+      await publishRTCSignal("answer", signal.roomId, activeCall.partnerPubkey, { answer });
       break;
     }
     case "answer": {

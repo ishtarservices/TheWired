@@ -22,14 +22,19 @@ function accountKey(key: string): string {
   return `${activePubkey}:${key}`;
 }
 
-/** Save a piece of user state (relay_list, follow_list, etc.) */
+/** Save a piece of user state (relay_list, follow_list, etc.).
+ *  #3 — resolve the per-account key prefix SYNCHRONOUSLY, before any await. If an
+ *  account switch flips `activePubkey` during the getDB() microtask, the write
+ *  would otherwise land under the WRONG account's prefix (cross-account private
+ *  data bleed + data loss). */
 export async function saveUserState(
   key: string,
   data: unknown,
 ): Promise<void> {
+  const storageKey = accountKey(key);
   const db = await getDB();
   await db.put("user_state", {
-    key: accountKey(key),
+    key: storageKey,
     data,
     _cachedAt: Date.now(),
   });
@@ -39,15 +44,17 @@ export async function saveUserState(
 export async function getUserState<T = unknown>(
   key: string,
 ): Promise<T | undefined> {
+  const storageKey = accountKey(key);
   const db = await getDB();
-  const stored = await db.get("user_state", accountKey(key));
+  const stored = await db.get("user_state", storageKey);
   return stored?.data as T | undefined;
 }
 
 /** Delete user state */
 export async function deleteUserState(key: string): Promise<void> {
+  const storageKey = accountKey(key);
   const db = await getDB();
-  await db.delete("user_state", accountKey(key));
+  await db.delete("user_state", storageKey);
 }
 
 /** Clear all user state (on full logout) */

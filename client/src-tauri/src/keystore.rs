@@ -421,6 +421,25 @@ fn parse_hex_secret_key(hex_str: &str) -> Result<SecretKey, String> {
     SecretKey::from_slice(&bytes).map_err(|e| format!("Invalid secret key: {e}"))
 }
 
+/// Verify the serialized NIP-01 event's pubkey (array index 1) matches `expected`.
+fn assert_event_pubkey(serialized_event: &str, expected: &str) -> Result<(), String> {
+    let v: serde_json::Value = serde_json::from_str(serialized_event)
+        .map_err(|_| "malformed serialized event".to_string())?;
+    let pk = v
+        .get(1)
+        .and_then(|p| p.as_str())
+        .ok_or_else(|| "malformed serialized event".to_string())?;
+    if pk.eq_ignore_ascii_case(expected) {
+        Ok(())
+    } else {
+        Err(format!(
+            "event pubkey {}… does not match the active signing key {}… (account switched mid-sign — retry)",
+            &pk[..8.min(pk.len())],
+            &expected[..8.min(expected.len())],
+        ))
+    }
+}
+
 fn compute_pubkey(sk: &SecretKey) -> String {
     let secp = Secp256k1::new();
     let (xonly, _) = sk.x_only_public_key(&secp);
@@ -799,6 +818,13 @@ pub fn keystore_clear_active() -> Result<(), String> {
 pub fn keystore_sign_event(serialized_event: String) -> Result<SignedEventResult, String> {
     let sk = get_active_secret_key(false)?;
 
+    // #116 — bind the signature to the active identity. The canonical NIP-01
+    // serialization is [0, pubkey, created_at, kind, tags, content]; index 1 is
+    // exactly what gets hashed. If it doesn't match the active key (e.g. the
+    // account was switched mid-sign), refuse rather than emit a silently
+    // misattributed / invalid signature.
+    assert_event_pubkey(&serialized_event, &compute_pubkey(&sk))?;
+
     let mut hasher = Sha256::new();
     hasher.update(serialized_event.as_bytes());
     let id_bytes = hasher.finalize();
@@ -1091,6 +1117,36 @@ pub fn keystore_delete_secret(key: String) -> Result<(), String> {
 pub struct SignedEventResult {
     pub id: String,
     pub sig: String,
+}
+
+#[cfg(test)]
+mod sign_guard_tests {
+    use super::*;
+
+    // PROBE #116 — keystore_sign_event must refuse to sign an event whose embedded
+    // pubkey doesn't match the active signing key.
+    const ACTIVE: &str = "1111111111111111111111111111111111111111111111111111111111111111";
+
+    fn event_with_pubkey(pk: &str) -> String {
+        format!(r#"[0,"{pk}",1700000000,1,[],"hi"]"#)
+    }
+
+    #[test]
+    fn accepts_matching_pubkey() {
+        assert!(assert_event_pubkey(&event_with_pubkey(ACTIVE), ACTIVE).is_ok());
+    }
+
+    #[test]
+    fn rejects_mismatched_pubkey() {
+        let other = "2222222222222222222222222222222222222222222222222222222222222222";
+        assert!(assert_event_pubkey(&event_with_pubkey(other), ACTIVE).is_err());
+    }
+
+    #[test]
+    fn rejects_malformed_event() {
+        assert!(assert_event_pubkey("not json", ACTIVE).is_err());
+        assert!(assert_event_pubkey("[0]", ACTIVE).is_err());
+    }
 }
 
 #[cfg(test)]
