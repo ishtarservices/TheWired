@@ -5,6 +5,7 @@ import { Avatar } from "../../components/ui/Avatar";
 import { RichContent } from "../../components/content/RichContent";
 import { MusicEmbedCard } from "../../components/content/MusicEmbedCard";
 import { NoteActionBar } from "../spaces/notes/NoteActionBar";
+import { ZapSummary } from "../wallet/ZapSummary";
 import { selectFeatureEnabled, FEATURE_AI } from "../../store/slices/featuresSlice";
 import { useAskAI } from "../ai/context/useAskAI";
 import { buildThreadContext, buildNoteContext } from "../ai/context/aiContext";
@@ -347,6 +348,9 @@ function NoteCardInner({
       {quoteRef && (
         <QuotedNote eventId={quoteRef.eventId} relayHint={quoteRef.relayHint} pubkey={quoteRef.pubkey} />
       )}
+
+      {/* Zaps received (who + comments), shown only when there are zaps */}
+      <ZapSummary eventId={event.id} className="mt-2" />
 
       {/* Engagement action bar */}
       <NoteActionBar

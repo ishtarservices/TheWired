@@ -10,6 +10,8 @@ import { store } from "../../store";
 import { putEvent, deleteEvent, deleteAddressableEvent } from "../db/eventStore";
 import { addEvent, addEvents, indexChatMessage, indexReel, indexLongForm, indexLiveStream, indexNote, indexSpaceFeed, removeEventFromAllSpaceFeeds, indexMusicTrack, indexMusicAlbum, indexReply, indexRepost, indexRepostByAuthor, indexQuote, removeChatMessage, hideMessage, removeEvent, removeManyEvents, removeNote, removeRepost, trackDeletedNote, trackDeletedAddr, indexEditedMessage, indexNotes, indexReplies, indexReposts, indexRepostsByAuthor, indexQuotes, indexChatMessages, indexReels, indexLongForms, indexLiveStreams, indexMusicTracks, indexMusicAlbums, indexSpaceFeeds } from "../../store/slices/eventsSlice";
 import { addReaction, addReactions, removeReactionByEventId, type ReactionInput } from "../../store/slices/reactionsSlice";
+import { addZap, addZaps, type ZapInput } from "../../store/slices/zapsSlice";
+import { getSatoshisAmountFromBolt11 } from "nostr-tools/nip57";
 import { addTrack, indexTrackByArtist, indexTrackByAlbum, indexTrackByArtistName, indexAlbumByArtist, indexAlbumByArtistName, addAlbum, addPlaylist, addAnnotation, removeAnnotation, removeTrack, removeAlbum, removePlaylist } from "../../store/slices/musicSlice";
 import { addDMMessage, editDMMessage, remoteDeleteDMMessage } from "../../store/slices/dmSlice";
 import { parseTrackEvent, parsePrivateTrackEvent } from "../../features/music/trackParser";
@@ -80,6 +82,7 @@ interface PipelineBuffer {
   counts: Record<string, number>;
   notes: { pubkey: string; eventId: string }[];
   reactions: ReactionInput[];
+  zaps: ZapInput[];
   replies: { parentEventId: string; eventId: string }[];
   reposts: { targetEventId: string; eventId: string }[];
   repostsByAuthor: { pubkey: string; eventId: string }[];
@@ -96,7 +99,7 @@ interface PipelineBuffer {
 
 function emptyBuffer(): PipelineBuffer {
   return {
-    events: [], counts: {}, notes: [], reactions: [], replies: [], reposts: [],
+    events: [], counts: {}, notes: [], reactions: [], zaps: [], replies: [], reposts: [],
     repostsByAuthor: [], quotes: [], chatMessages: [], reels: [], longform: [],
     liveStreams: [], musicTracks: [], musicAlbums: [], spaceFeeds: [], feedTimestamps: [],
   };
@@ -123,6 +126,7 @@ function emit(action: UnknownAction): void {
   }
   if (indexNote.match(action)) { buf.notes.push(action.payload); return; }
   if (addReaction.match(action)) { buf.reactions.push(action.payload); return; }
+  if (addZap.match(action)) { buf.zaps.push(action.payload); return; }
   if (indexReply.match(action)) { buf.replies.push(action.payload); return; }
   if (indexRepost.match(action)) { buf.reposts.push(action.payload); return; }
   if (indexRepostByAuthor.match(action)) { buf.repostsByAuthor.push(action.payload); return; }
@@ -141,6 +145,7 @@ function emit(action: UnknownAction): void {
 function bufferHasData(b: PipelineBuffer): boolean {
   return (
     b.events.length > 0 || b.notes.length > 0 || b.reactions.length > 0 ||
+    b.zaps.length > 0 ||
     b.replies.length > 0 || b.reposts.length > 0 || b.repostsByAuthor.length > 0 ||
     b.quotes.length > 0 || b.chatMessages.length > 0 || b.reels.length > 0 ||
     b.longform.length > 0 || b.liveStreams.length > 0 || b.musicTracks.length > 0 ||
@@ -254,6 +259,7 @@ export function flushEventPipeline(): void {
   if (Object.keys(b.counts).length) store.dispatch(incrementCounts(b.counts));
   if (b.notes.length) store.dispatch(indexNotes(b.notes));
   if (b.reactions.length) store.dispatch(addReactions(b.reactions));
+  if (b.zaps.length) store.dispatch(addZaps(b.zaps));
   if (b.replies.length) store.dispatch(indexReplies(b.replies));
   if (b.reposts.length) store.dispatch(indexReposts(b.reposts));
   if (b.repostsByAuthor.length) store.dispatch(indexRepostsByAuthor(b.repostsByAuthor));
@@ -427,9 +433,12 @@ export async function processIncomingEvent(
   }
 
   // Step 4: Dispatch to store (buffered on the burst path — see flushEventPipeline).
-  // Reactions (kind:7) are NOT stored as full events — they fold into the
-  // reaction aggregate (reactionsSlice) in indexEvent, saving memory on hot notes.
-  if (event.kind !== EVENT_KINDS.REACTION) emit(addEvent(event));
+  // Reactions (kind:7) and zap receipts (kind:9735) are NOT stored as full
+  // events — they fold into their aggregate slices in indexEvent, saving memory
+  // on hot notes.
+  if (event.kind !== EVENT_KINDS.REACTION && event.kind !== EVENT_KINDS.ZAP_RECEIPT) {
+    emit(addEvent(event));
+  }
   emit(incrementEventCount(relayUrl));
 
   // Gated receive-latency probe for group chat (kind:9 with an `h` tag), so a
@@ -503,6 +512,41 @@ async function indexEvent(event: NostrEvent): Promise<void> {
         emit(indexRepost({ targetEventId: eTag[1], eventId: event.id }));
       }
       emit(indexRepostByAuthor({ pubkey: event.pubkey, eventId: event.id }));
+      break;
+    }
+    case EVENT_KINDS.ZAP_RECEIPT: {
+      // NIP-57 kind:9735 receipt. Fold the bolt11 amount into the zap aggregate,
+      // keyed by the zapped event's id (the receipt's `e` tag). Client-agnostic:
+      // any client's zap shows up. We don't keep the full receipt event. The
+      // zapper pubkey + comment come from the embedded kind:9734 request in the
+      // `description` tag (best-effort, display-only — not re-verified).
+      const targetId = event.tags.find((t) => t[0] === "e")?.[1];
+      const bolt11 = event.tags.find((t) => t[0] === "bolt11")?.[1];
+      if (targetId && bolt11) {
+        const sats = getSatoshisAmountFromBolt11(bolt11);
+        if (sats > 0) {
+          let zapper: string | null = null;
+          let comment = "";
+          const desc = event.tags.find((t) => t[0] === "description")?.[1];
+          if (desc) {
+            try {
+              const req = JSON.parse(desc) as { pubkey?: unknown; content?: unknown };
+              if (typeof req.pubkey === "string") zapper = req.pubkey;
+              if (typeof req.content === "string") comment = req.content;
+            } catch {
+              /* malformed description — keep amount only */
+            }
+          }
+          emit(addZap({
+            targetEventId: targetId,
+            receiptId: event.id,
+            msat: sats * 1000,
+            zapper,
+            comment,
+            createdAt: event.created_at,
+          }));
+        }
+      }
       break;
     }
     case EVENT_KINDS.CHAT_MESSAGE: {

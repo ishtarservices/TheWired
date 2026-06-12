@@ -32,6 +32,7 @@ export function useNoteEngagementSub(noteEventIds: string[], relayUrls: string[]
           { kinds: [7], "#e": ids },
           { kinds: [6], "#e": ids },
           { kinds: [1], "#e": ids },
+          { kinds: [9735], "#e": ids },
         ],
         relayUrls,
       });

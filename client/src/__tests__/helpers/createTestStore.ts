@@ -8,6 +8,7 @@ import { relaysSlice } from "@/store/slices/relaysSlice";
 import { spacesSlice } from "@/store/slices/spacesSlice";
 import { eventsSlice } from "@/store/slices/eventsSlice";
 import { reactionsSlice } from "@/store/slices/reactionsSlice";
+import { zapsSlice } from "@/store/slices/zapsSlice";
 import { uiSlice } from "@/store/slices/uiSlice";
 import { feedSlice } from "@/store/slices/feedSlice";
 import { musicSlice } from "@/store/slices/musicSlice";
@@ -34,6 +35,7 @@ const appReducer = combineReducers({
   spaces: spacesSlice.reducer,
   events: eventsSlice.reducer,
   reactions: reactionsSlice.reducer,
+  zaps: zapsSlice.reducer,
   ui: uiSlice.reducer,
   feed: feedSlice.reducer,
   music: musicSlice.reducer,

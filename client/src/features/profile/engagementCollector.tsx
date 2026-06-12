@@ -63,6 +63,7 @@ export class EngagementWindow {
         { kinds: [EVENT_KINDS.REACTION], "#e": ids },
         { kinds: [EVENT_KINDS.REPOST], "#e": ids },
         { kinds: [EVENT_KINDS.SHORT_TEXT], "#e": ids },
+        { kinds: [EVENT_KINDS.ZAP_RECEIPT], "#e": ids },
       ],
       relayUrls: this.relayUrls,
     });

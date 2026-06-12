@@ -19,6 +19,7 @@ import {
   Music2,
   Repeat2,
   MessageSquare,
+  Zap,
 } from "lucide-react";
 
 // ── Flash hook: returns [flashing, trigger] ──
@@ -143,6 +144,8 @@ interface ActionsTabProps {
   onRepost?: () => void;
   repostFlash?: boolean;
   onPostWithNote?: () => void;
+  onZapArtist?: () => void;
+  zapArtistLabel?: string;
 }
 
 export function ActionsTab({
@@ -185,6 +188,8 @@ export function ActionsTab({
   onRepost,
   repostFlash,
   onPostWithNote,
+  onZapArtist,
+  zapArtistLabel,
 }: ActionsTabProps) {
   const [playNextFlash, triggerPlayNext] = useFlash();
   const [queueFlash, triggerQueue] = useFlash();
@@ -222,6 +227,20 @@ export function ActionsTab({
         confirmed={queueFlash}
         onClick={() => { onAddToQueue(); triggerQueue(); }}
       />
+
+      {/* ── Support ── */}
+      {onZapArtist && (
+        <>
+          <SectionDivider />
+          <SectionLabel>Support</SectionLabel>
+          <ActionButton
+            icon={<Zap size={14} className="text-yellow-400" />}
+            label={zapArtistLabel ?? "Tip Artist"}
+            onClick={onZapArtist}
+            fullWidth
+          />
+        </>
+      )}
 
       {/* ── Library (non-owner only) ── */}
       {!isOwner && !isLocal && (

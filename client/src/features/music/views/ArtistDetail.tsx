@@ -1,7 +1,8 @@
 import { useMemo, useRef } from "react";
-import { ArrowLeft, Music, Camera, UserSquare2 } from "lucide-react";
+import { ArrowLeft, Music, Camera, UserSquare2, Zap } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import { useAppSelector, useAppDispatch } from "@/store/hooks";
+import { useZap } from "@/features/wallet/WalletProvider";
 import { goBack, setActiveDetailId } from "@/store/slices/musicSlice";
 import { TrackRow } from "../TrackRow";
 import { AlbumCard } from "../AlbumCard";
@@ -127,6 +128,7 @@ function PubkeyArtistDetail({ pubkey }: { pubkey: string }) {
   const dispatch = useAppDispatch();
   const navigate = useNavigate();
   const { openUserPopover } = useUserPopover();
+  const { openZap } = useZap();
   // Subscribe to this artist's tracks/albums so viewers who don't follow or
   // own their content still see the full public catalog.
   const { loading: musicLoading } = useProfileMusic(pubkey);
@@ -249,6 +251,15 @@ function PubkeyArtistDetail({ pubkey }: { pubkey: string }) {
               title="Open full profile page"
             >
               Open full profile
+            </button>
+            <button
+              type="button"
+              onClick={() => openZap({ recipientPubkey: pubkey, displayName: name })}
+              className="flex items-center gap-1.5 rounded-full border border-border px-3 py-1 text-xs text-yellow-400 transition-colors hover:border-yellow-400/40 hover:bg-yellow-400/10 press-effect"
+              title="Send a zap"
+            >
+              <Zap size={12} />
+              Zap
             </button>
           </div>
         </div>

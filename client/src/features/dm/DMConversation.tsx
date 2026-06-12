@@ -13,8 +13,9 @@ import { markConversationRead, clearDMUnreadDivider } from "@/store/slices/dmSli
 import type { DMMessage as DMMessageType } from "@/store/slices/dmSlice";
 import { markDMNotificationsRead } from "@/store/slices/notificationSlice";
 import { getDisplayName } from "./dmUtils";
-import { ArrowLeft, ChevronDown, Phone, Video, X, Pencil, ArrowDown, Reply, Search } from "lucide-react";
+import { ArrowLeft, ChevronDown, Phone, Video, X, Pencil, ArrowDown, Reply, Search, Zap } from "lucide-react";
 import { useCall } from "@/features/calling/useCall";
+import { useZap } from "@/features/wallet/WalletProvider";
 import { SearchPanel } from "@/features/search/SearchPanel";
 import type { MessageSearchResult } from "@/features/search/useMessageSearch";
 
@@ -75,6 +76,7 @@ export function DMConversation({ partnerPubkey, onBack }: DMConversationProps) {
 
   const displayName = getDisplayName(profile, partnerPubkey);
   const { startCall, isInCall } = useCall();
+  const { openZap } = useZap();
   const [editingMessage, setEditingMessage] = useState<DMMessageType | null>(null);
   const [replyTo, setReplyTo] = useState<DMMessageType | null>(null);
 
@@ -317,6 +319,13 @@ export function DMConversation({ partnerPubkey, onBack }: DMConversationProps) {
             title="Video call"
           >
             <Video size={16} />
+          </button>
+          <button
+            onClick={() => openZap({ recipientPubkey: partnerPubkey, displayName })}
+            className="rounded-lg p-2 text-muted hover:text-yellow-400 hover:bg-surface-hover transition-colors"
+            title="Send a zap"
+          >
+            <Zap size={16} />
           </button>
         </div>
       </div>

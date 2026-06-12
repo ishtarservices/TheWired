@@ -31,6 +31,7 @@ import { useWaveform } from "../panel/useWaveform";
 import { selectAudioSource } from "../trackParser";
 import { ProgressBar } from "./ProgressBar";
 import { useResolvedArtist } from "../useResolvedArtist";
+import { ArtistZapButton } from "../ArtistZapButton";
 import type { MusicTrack } from "@/types/music";
 
 function OverlayTrackArtist({ track }: { track: MusicTrack }) {
@@ -225,6 +226,11 @@ export function NowPlayingOverlay() {
                   {resolvedArtist}
                 </p>
               </div>
+              <ArtistZapButton
+                item={currentTrack}
+                variant="icon"
+                className="shrink-0 rounded p-1.5 text-soft transition-colors hover:text-yellow-400"
+              />
               <button
                 onClick={handleFavoriteToggle}
                 className="shrink-0 rounded p-1.5 text-soft transition-colors hover:text-heading"

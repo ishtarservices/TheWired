@@ -6,6 +6,7 @@ import { setSidebarMode } from "@/store/slices/uiSlice";
 import { getTrackImage } from "./trackImage";
 import { AnnotationsPanel } from "./AnnotationsPanel";
 import { useResolvedArtist, resolveArtistDetailTarget } from "./useResolvedArtist";
+import { ArtistZapButton } from "./ArtistZapButton";
 
 export function NowPlayingDetail() {
   const dispatch = useAppDispatch();
@@ -93,6 +94,11 @@ export function NowPlayingDetail() {
             {album.title}
           </button>
         )}
+      </div>
+
+      {/* Zap the artist (or tip the uploader for name-only tracks) */}
+      <div>
+        <ArtistZapButton item={track} variant="labeled" />
       </div>
 
       {/* Metadata */}

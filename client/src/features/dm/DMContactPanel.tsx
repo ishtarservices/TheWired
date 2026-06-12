@@ -1,12 +1,14 @@
 import { useMemo } from "react";
-import { Phone, Video, VolumeX, Ban, UserCheck, UserPlus, Clock } from "lucide-react";
+import { Phone, Video, VolumeX, Ban, UserCheck, UserPlus, Clock, Zap } from "lucide-react";
 import { useAppSelector } from "@/store/hooks";
 import { Avatar } from "@/components/ui/Avatar";
 import { useProfile } from "../profile/useProfile";
+import { useZap } from "../wallet/WalletProvider";
 
 export function DMContactPanel() {
   const activePubkey = useAppSelector((s) => s.dm.activeConversation);
   const { profile } = useProfile(activePubkey);
+  const { openZap } = useZap();
   const friendRequests = useAppSelector((s) => s.friendRequests.requests);
   const muteList = useAppSelector((s) => s.identity.muteList);
 
@@ -92,6 +94,12 @@ export function DMContactPanel() {
         <h4 className="text-[10px] font-semibold uppercase tracking-wider text-muted mb-2">
           Actions
         </h4>
+        <ActionButton
+          icon={<Zap size={14} />}
+          label="Send Zap"
+          variant="zap"
+          onClick={() => openZap({ recipientPubkey: activePubkey, displayName })}
+        />
         <ActionButton icon={<Phone size={14} />} label="Voice Call" />
         <ActionButton icon={<Video size={14} />} label="Video Call" />
         <ActionButton
@@ -124,20 +132,25 @@ function ActionButton({
   label,
   active,
   variant,
+  onClick,
 }: {
   icon: React.ReactNode;
   label: string;
   active?: boolean;
-  variant?: "danger";
+  variant?: "danger" | "zap";
+  onClick?: () => void;
 }) {
   return (
     <button
+      onClick={onClick}
       className={`flex w-full items-center gap-2.5 rounded-lg px-3 py-2 text-xs transition-colors ${
         variant === "danger"
           ? "text-red-400/70 hover:bg-red-500/10 hover:text-red-400"
-          : active
-            ? "bg-surface text-heading"
-            : "text-soft hover:bg-surface hover:text-heading"
+          : variant === "zap"
+            ? "text-yellow-400/80 hover:bg-yellow-400/10 hover:text-yellow-400"
+            : active
+              ? "bg-surface text-heading"
+              : "text-soft hover:bg-surface hover:text-heading"
       }`}
     >
       {icon}
