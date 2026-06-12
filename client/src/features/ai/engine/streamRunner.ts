@@ -18,6 +18,7 @@ import {
   appendReasoningDelta,
   finishAssistantMessage,
   failAssistantMessage,
+  endTurn,
   setMessageToolCalls,
   setToolResult,
   removeMessage,
@@ -60,16 +61,14 @@ export function abortAllTurns(): void {
 }
 
 /** Drop an assistant bubble carrying a clear, actionable error (no provider
- *  round-trip) — e.g. a provider configured without its required API key. */
-function failTurnImmediately(
-  conversationId: string,
-  error: string,
-  account: string | null,
-): void {
+ *  round-trip) — e.g. a provider configured without its required API key.
+ *  Display-only: NEVER persisted — a zero-output error bubble re-serializes as
+ *  empty assistant content next session and 400s every later turn (audit #11). */
+function failTurnImmediately(conversationId: string, error: string): void {
   const messageId = nanoid();
   store.dispatch(startAssistantMessage({ conversationId, messageId, createdAt: Date.now() }));
   store.dispatch(failAssistantMessage({ conversationId, messageId, error }));
-  persistFinal(conversationId, messageId, account);
+  store.dispatch(endTurn(conversationId));
 }
 
 /** Run an assistant turn (with tool loop) for a conversation. */
@@ -106,7 +105,6 @@ export async function runTurn(conversationId: string): Promise<void> {
     failTurnImmediately(
       conversationId,
       `Add an API key for ${label} in Settings → AI to start chatting.`,
-      account,
     );
     return;
   }
@@ -145,11 +143,26 @@ export async function runTurn(conversationId: string): Promise<void> {
       // emitted some anyway, stop rather than loop on them forever.
       if (!offerTools) break;
       depth++;
-      await executeToolCalls(conversationId, turn.assistantId, turn.toolCalls, account);
+      await executeToolCalls(
+        conversationId,
+        turn.assistantId,
+        turn.toolCalls,
+        account,
+        controller.signal,
+      );
+      // Loop guards: a Stop/logout/account-switch during the tool phase, or the
+      // conversation being deleted mid-turn, must not trigger another provider
+      // round-trip (audit #12/#94).
+      if (controller.signal.aborted) break;
+      if (!store.getState().ai.conversations.entities[conversationId]) break;
       // Next iteration re-streams; buildEngineMessages now includes the results.
     }
   } finally {
     inFlight.delete(conversationId);
+    // The streaming flag is TURN-scoped: it stays set across tool execution so
+    // evictConversationMessages can't wipe the conversation mid-turn, and is
+    // cleared here on every exit path (audit #12).
+    store.dispatch(endTurn(conversationId));
   }
 }
 
@@ -206,6 +219,22 @@ async function streamAssistantMessage(opts: {
       lastCheckpoint = Date.now();
       const m = store.getState().ai.messages.entities[assistantId];
       if (m) void putMessage(m, account);
+    }
+  };
+
+  // Persist a FAILED message only when it carries something worth replaying
+  // (text, reasoning, or tool calls). A zero-output error bubble stays
+  // Redux-only — persisted, it re-serializes as empty assistant content and
+  // 400s every later turn in the conversation (audit #11).
+  const persistFailed = () => {
+    const gotOutput =
+      firstTextAt !== undefined || sawReasoning || (toolCalls?.length ?? 0) > 0;
+    if (gotOutput) {
+      persistFinal(conversationId, assistantId, account);
+    } else if (account) {
+      // No checkpoint can have fired with zero output, but clear defensively
+      // (serialized per-id, so it can't race a pending put).
+      void dbDeleteMessage(assistantId);
     }
   };
 
@@ -283,7 +312,7 @@ async function streamAssistantMessage(opts: {
         store.dispatch(
           failAssistantMessage({ conversationId, messageId: assistantId, error: chunk.message }),
         );
-        persistFinal(conversationId, assistantId, account);
+        persistFailed();
         return { assistantId, toolCalls: null, error: true };
       } else if (chunk.type === "done") {
         finishReason = chunk.finishReason;
@@ -317,23 +346,45 @@ async function streamAssistantMessage(opts: {
     flush();
     const message = e instanceof Error ? e.message : String(e);
     store.dispatch(failAssistantMessage({ conversationId, messageId: assistantId, error: message }));
-    persistFinal(conversationId, assistantId, account);
+    persistFailed();
     return { assistantId, toolCalls: null, error: true };
   }
 }
 
-/** Run every tool call from an assistant message and store the results. */
+/** Result recorded for tool calls skipped because the turn was aborted. EVERY
+ *  toolCall must end up with a result — an assistant message whose toolCalls
+ *  lack results re-serializes as orphan tool_calls and providers reject the
+ *  whole conversation (audit #94 feeding #12). */
+const CANCELLED_TOOL_RESULT =
+  "Cancelled — the user stopped this turn before the tool ran.";
+
+/** Run every tool call from an assistant message and store the results.
+ *  Checks the turn's AbortSignal between calls: a Stop / logout / account
+ *  switch stops further execution (metered web searches cost real money), and
+ *  the remaining calls get cancelled stubs so history stays provider-valid. */
 async function executeToolCalls(
   conversationId: string,
   messageId: string,
   toolCalls: StreamingToolCall[],
   account: string | null,
+  signal: AbortSignal,
 ): Promise<void> {
   for (const tc of toolCalls) {
+    if (signal.aborted) {
+      store.dispatch(
+        setToolResult({
+          messageId,
+          toolCallId: tc.id,
+          result: { ok: false, output: CANCELLED_TOOL_RESULT },
+        }),
+      );
+      continue;
+    }
     const result = await runTool(tc.name, tc.arguments, {
       conversationId,
       messageId,
       toolCallId: tc.id,
+      signal,
     });
     const ok =
       result.isError !== undefined ? !result.isError : !result.output.startsWith("Error");
@@ -341,7 +392,8 @@ async function executeToolCalls(
       setToolResult({ messageId, toolCallId: tc.id, result: { ok, output: result.output } }),
     );
   }
-  // Persist the message now that it carries its tool results.
+  // Persist the message now that it carries its tool results — including the
+  // aborted case, so cancelled stubs (not orphans) are what survive a reload.
   if (account) {
     const message = store.getState().ai.messages.entities[messageId];
     if (message) void putMessage(message, account);

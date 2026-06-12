@@ -4,7 +4,7 @@ import { motion, AnimatePresence } from "motion/react";
 import {
   X, Disc3, Play, Shuffle, Heart, Plus, Check, Link2, Send, Globe,
   Pencil, Trash2, ListPlus, SkipForward, CheckCircle2, Music2,
-  Repeat2, MessageSquare,
+  Repeat2, MessageSquare, Zap,
 } from "lucide-react";
 import type { MusicAlbum } from "@/types/music";
 import { useAppSelector, useAppDispatch } from "@/store/hooks";
@@ -29,6 +29,7 @@ import type { Space, SpaceChannel } from "@/types/space";
 
 import { NotesTab } from "./panel/NotesTab";
 import { useResolvedArtist } from "./useResolvedArtist";
+import { useArtistZap } from "./ArtistZapButton";
 import { HistoryTab } from "./panel/HistoryTab";
 import { RecipientPickerModal } from "@/components/sharing/RecipientPickerModal";
 import { SpacePickerModal } from "@/components/sharing/SpacePickerModal";
@@ -125,6 +126,8 @@ export function AlbumActionPanel({ album, open, onClose, onEdit }: AlbumActionPa
   const { addItem: addShowcaseItem, removeItem: removeShowcaseItem, isInShowcase } = useProfileShowcase(pubkey ?? null);
 
   const resolvedArtist = useResolvedArtist(album.artist, album.artistPubkeys);
+  // Tip the artist(s), or fall back to the uploader for name-only albums.
+  const artistZap = useArtistZap(album);
   const saved = isAlbumSaved(album.addressableId);
   const favorited = isAlbumFavorited(album.addressableId);
   const albumInShowcase = isInShowcase(album.addressableId);
@@ -361,6 +364,20 @@ export function AlbumActionPanel({ album, open, onClose, onEdit }: AlbumActionPa
                     </>
                   )}
 
+                  {/* ── Support ── */}
+                  {!isOwner && !isLocal && (
+                    <>
+                      <SectionDivider />
+                      <SectionLabel>Support</SectionLabel>
+                      <ActionButton
+                        icon={<Zap size={14} className="text-yellow-400" />}
+                        label={artistZap.label}
+                        onClick={artistZap.onZap}
+                        fullWidth
+                      />
+                    </>
+                  )}
+
                   {/* ── Library ── */}
                   {!isOwner && !isLocal && (
                     <>
@@ -500,6 +517,9 @@ export function AlbumActionPanel({ album, open, onClose, onEdit }: AlbumActionPa
   return (
     <>
       {createPortal(panelContent, document.body)}
+
+      {/* Artist picker for multi-artist albums */}
+      {artistZap.picker}
 
       {dmPickerOpen && (
         <RecipientPickerModal

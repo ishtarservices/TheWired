@@ -5,6 +5,9 @@ import type { RTCSignalPayload, RTCSignalType } from "@/types/calling";
 import { nip44Encrypt, nip44Decrypt } from "./nip44";
 import { signAndPublish } from "./publish";
 import { store } from "@/store";
+import { createLogger } from "../debug/logger";
+
+const log = createLogger("call");
 
 /**
  * Generate a new room secret key for a 1:1 call.
@@ -47,6 +50,7 @@ export async function publishRTCSignal(
   roomId: string,
   recipientPubkey: string | undefined,
   data?: RTCSignalPayload["data"],
+  targetRelays?: string[],
 ): Promise<void> {
   const myPubkey = store.getState().identity.pubkey;
   if (!myPubkey) throw new Error("Not logged in");
@@ -79,7 +83,10 @@ export async function publishRTCSignal(
     content,
   };
 
-  await signAndPublish(unsigned);
+  log.debug(
+    `signal → ${type} room=${roomId.slice(0, 8)} to=${recipientPubkey ? recipientPubkey.slice(0, 8) : "(no p-tag)"} relays=${targetRelays ? targetRelays.length : "(default write set)"}`,
+  );
+  await signAndPublish(unsigned, targetRelays);
 }
 
 /**

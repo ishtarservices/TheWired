@@ -7,6 +7,7 @@
  */
 import { store } from "@/store";
 import { updatePendingWrite } from "@/store/slices/aiSlice";
+import { putPendingWrite } from "@/lib/db/aiPendingWriteStore";
 import {
   buildRootNote,
   buildReply,
@@ -28,8 +29,18 @@ function writeRelayCount(): number {
   return relayManager.getWriteRelays().length;
 }
 
+/** Write the live entry through to IndexedDB after a status change, so the
+ *  card's state survives a reload (audit #98). */
+function persistWrite(id: string): void {
+  const state = store.getState();
+  const write = state.ai.pendingWrites[id];
+  const account = state.identity.pubkey;
+  if (write && account) void putPendingWrite(write, account);
+}
+
 export function cancelPendingWrite(id: string): void {
   store.dispatch(updatePendingWrite({ id, changes: { status: "cancelled" } }));
+  persistWrite(id);
 }
 
 export async function approvePendingWrite(
@@ -48,6 +59,7 @@ export async function approvePendingWrite(
   const title = (edits?.title ?? write.title)?.trim();
   if (!content) {
     store.dispatch(updatePendingWrite({ id: write.id, changes: { status: "error", error: "Empty content." } }));
+    persistWrite(write.id);
     return;
   }
   const pubkey = store.getState().identity.pubkey;
@@ -59,6 +71,7 @@ export async function approvePendingWrite(
   store.dispatch(
     updatePendingWrite({ id: write.id, changes: { status: "publishing", content, title, error: undefined } }),
   );
+  persistWrite(write.id);
 
   try {
     let result: string;
@@ -127,5 +140,7 @@ export async function approvePendingWrite(
         changes: { status: "error", error: e instanceof Error ? e.message : "Failed to publish" },
       }),
     );
+  } finally {
+    persistWrite(write.id);
   }
 }

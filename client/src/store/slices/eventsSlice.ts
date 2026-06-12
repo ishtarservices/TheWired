@@ -72,6 +72,18 @@ const FEED_INDEX_CAP = 500;
  *  counts on very hot notes saturate at the cap (display reads "300+"). */
 const ENGAGEMENT_INDEX_CAP = 300;
 
+/** Per-author note index cap. Profile feeds reload older notes via REQ, so
+ *  trimming the in-memory index is recoverable, and it lets the entity sweep
+ *  reclaim the dropped notes. */
+const AUTHOR_INDEX_CAP = 1000;
+
+/** Media/library index caps (reels, articles, live streams, music). All
+ *  recoverable — addressable kinds are IDB-persisted and reload; reels/streams
+ *  re-REQ from relays. NOTE: `chatMessages` is deliberately left UNCAPPED so its
+ *  ids stay referenced and the entity sweep never evicts chat — received chat has
+ *  no recovery path (see sweepEvents / docs/AUDIT_FIX_2026-06_C3_SUBSCRIPTIONS.md). */
+const MEDIA_INDEX_CAP = 500;
+
 function pushToIndex(
   index: Record<string, string[]>,
   contextId: string,
@@ -103,6 +115,13 @@ export const eventsSlice = createSlice({
     removeEvent(state, action: PayloadAction<string>) {
       eventsAdapter.removeOne(state, action.payload);
     },
+    /** Bulk-evict entities by id (entity-store mark-and-sweep, B2). Only ever
+     *  called with UNREFERENCED ids (no secondary index points at them), so this
+     *  creates no dangling index refs. Secondary indices and deletion-tracking
+     *  maps are intentionally untouched. */
+    removeManyEvents(state, action: PayloadAction<string[]>) {
+      eventsAdapter.removeMany(state, action.payload);
+    },
     indexChatMessage(
       state,
       action: PayloadAction<{ groupId: string; eventId: string }>,
@@ -121,6 +140,7 @@ export const eventsSlice = createSlice({
         state.reels,
         action.payload.contextId,
         action.payload.eventId,
+        MEDIA_INDEX_CAP,
       );
     },
     indexLongForm(
@@ -131,6 +151,7 @@ export const eventsSlice = createSlice({
         state.longform,
         action.payload.contextId,
         action.payload.eventId,
+        MEDIA_INDEX_CAP,
       );
     },
     indexLiveStream(
@@ -141,6 +162,7 @@ export const eventsSlice = createSlice({
         state.liveStreams,
         action.payload.contextId,
         action.payload.eventId,
+        MEDIA_INDEX_CAP,
       );
     },
     indexNote(
@@ -151,6 +173,7 @@ export const eventsSlice = createSlice({
         state.notesByAuthor,
         action.payload.pubkey,
         action.payload.eventId,
+        AUTHOR_INDEX_CAP,
       );
     },
     indexSpaceFeed(
@@ -188,6 +211,7 @@ export const eventsSlice = createSlice({
         state.musicTracks,
         action.payload.contextId,
         action.payload.eventId,
+        MEDIA_INDEX_CAP,
       );
     },
     indexMusicAlbum(
@@ -198,6 +222,7 @@ export const eventsSlice = createSlice({
         state.musicAlbums,
         action.payload.contextId,
         action.payload.eventId,
+        MEDIA_INDEX_CAP,
       );
     },
     indexReply(
@@ -248,7 +273,7 @@ export const eventsSlice = createSlice({
     // dispatch density. Each mirrors its single-item counterpart above
     // and reuses pushToIndex, so cap/dedup behaviour is identical.
     indexNotes(state, action: PayloadAction<{ pubkey: string; eventId: string }[]>) {
-      for (const it of action.payload) pushToIndex(state.notesByAuthor, it.pubkey, it.eventId);
+      for (const it of action.payload) pushToIndex(state.notesByAuthor, it.pubkey, it.eventId, AUTHOR_INDEX_CAP);
     },
     indexReplies(state, action: PayloadAction<{ parentEventId: string; eventId: string }[]>) {
       for (const it of action.payload) pushToIndex(state.replies, it.parentEventId, it.eventId, ENGAGEMENT_INDEX_CAP);
@@ -266,19 +291,19 @@ export const eventsSlice = createSlice({
       for (const it of action.payload) pushToIndex(state.chatMessages, it.groupId, it.eventId);
     },
     indexReels(state, action: PayloadAction<{ contextId: string; eventId: string }[]>) {
-      for (const it of action.payload) pushToIndex(state.reels, it.contextId, it.eventId);
+      for (const it of action.payload) pushToIndex(state.reels, it.contextId, it.eventId, MEDIA_INDEX_CAP);
     },
     indexLongForms(state, action: PayloadAction<{ contextId: string; eventId: string }[]>) {
-      for (const it of action.payload) pushToIndex(state.longform, it.contextId, it.eventId);
+      for (const it of action.payload) pushToIndex(state.longform, it.contextId, it.eventId, MEDIA_INDEX_CAP);
     },
     indexLiveStreams(state, action: PayloadAction<{ contextId: string; eventId: string }[]>) {
-      for (const it of action.payload) pushToIndex(state.liveStreams, it.contextId, it.eventId);
+      for (const it of action.payload) pushToIndex(state.liveStreams, it.contextId, it.eventId, MEDIA_INDEX_CAP);
     },
     indexMusicTracks(state, action: PayloadAction<{ contextId: string; eventId: string }[]>) {
-      for (const it of action.payload) pushToIndex(state.musicTracks, it.contextId, it.eventId);
+      for (const it of action.payload) pushToIndex(state.musicTracks, it.contextId, it.eventId, MEDIA_INDEX_CAP);
     },
     indexMusicAlbums(state, action: PayloadAction<{ contextId: string; eventId: string }[]>) {
-      for (const it of action.payload) pushToIndex(state.musicAlbums, it.contextId, it.eventId);
+      for (const it of action.payload) pushToIndex(state.musicAlbums, it.contextId, it.eventId, MEDIA_INDEX_CAP);
     },
     indexSpaceFeeds(state, action: PayloadAction<{ contextId: string; eventId: string }[]>) {
       for (const it of action.payload) pushToIndex(state.spaceFeeds, it.contextId, it.eventId, FEED_INDEX_CAP);
@@ -373,6 +398,7 @@ export const {
   addEvent,
   addEvents,
   removeEvent,
+  removeManyEvents,
   indexChatMessage,
   indexReel,
   indexLongForm,

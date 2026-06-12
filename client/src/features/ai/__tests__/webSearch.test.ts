@@ -4,6 +4,8 @@ const h = vi.hoisted(() => ({
   state: { ai: { prefs: {} as Record<string, unknown> } } as Record<string, unknown>,
   fetchImpl: (async () => ({})) as (url: string, init?: unknown) => Promise<unknown>,
   secrets: {} as Record<string, string>,
+  /** Optional per-test override to defer specific keychain reads (race probes). */
+  getSecretImpl: undefined as undefined | ((k: string) => Promise<string | null>),
 }));
 
 vi.mock("@/store", () => ({ store: { getState: () => h.state, dispatch: vi.fn() } }));
@@ -12,7 +14,8 @@ vi.mock("../engine/httpFetch", () => ({
 }));
 vi.mock("@/lib/nostr/secretStore", () => ({
   webSearchKeySecret: (pk: string) => `ws_${pk}`,
-  getSecret: async (k: string) => h.secrets[k] ?? null,
+  getSecret: (k: string) =>
+    h.getSecretImpl ? h.getSecretImpl(k) : Promise.resolve(h.secrets[k] ?? null),
   setSecret: async (k: string, v: string) => {
     h.secrets[k] = v;
   },
@@ -27,6 +30,7 @@ import {
   webSearchTool,
   isWebSearchConfigured,
   loadWebSearchKey,
+  getWebSearchKey,
   resetWebSearch,
   resetWebSearchBudget,
 } from "../tools/webSearch";
@@ -36,6 +40,7 @@ const CTX = { conversationId: "c1", messageId: "m1", toolCallId: "t1" };
 beforeEach(() => {
   h.state = { ai: { prefs: { webSearchEnabled: true, webSearchProvider: "tavily" } } };
   h.secrets = {};
+  h.getSecretImpl = undefined;
   resetWebSearch();
   resetWebSearchBudget();
 });
@@ -142,5 +147,41 @@ describe("isWebSearchConfigured", () => {
     expect(isWebSearchConfigured()).toBe(true);
     h.state = { ai: { prefs: { webSearchEnabled: false } } };
     expect(isWebSearchConfigured()).toBe(false); // toggle off
+  });
+});
+
+describe("abort + lifecycle (audit #94/#49 probes)", () => {
+  it("PROBE #94: threads the turn's AbortSignal into the search fetch", async () => {
+    h.secrets["ws_pk"] = "k";
+    await loadWebSearchKey("pk");
+    let seenSignal: AbortSignal | undefined;
+    h.fetchImpl = async (_url, init) => {
+      seenSignal = (init as RequestInit | undefined)?.signal ?? undefined;
+      return { ok: true, json: async () => ({ results: [] }) };
+    };
+    const controller = new AbortController();
+    await webSearchTool.run({ query: "abortable" }, { ...CTX, signal: controller.signal });
+    // Pre-fix: ToolContext had no signal field and engineFetch was called
+    // without one — Stop could not cancel a paid in-flight search.
+    expect(seenSignal).toBe(controller.signal);
+  });
+
+  it("PROBE #49: a key load resolving after an account switch is discarded", async () => {
+    // Account A's keychain read is slow; the user switches to B (no key) while
+    // it's in flight. Pre-fix, A's late resolution stomped the module key cache
+    // and A's paid search key was used for B's session.
+    let resolveA!: (v: string | null) => void;
+    h.getSecretImpl = (k) =>
+      k === "ws_A"
+        ? new Promise<string | null>((r) => {
+            resolveA = r;
+          })
+        : Promise.resolve(null);
+    const loadA = loadWebSearchKey("A");
+    const loadB = loadWebSearchKey("B");
+    await loadB;
+    resolveA("sk-A-search-key");
+    await loadA;
+    expect(getWebSearchKey()).toBeNull();
   });
 });

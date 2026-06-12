@@ -41,6 +41,10 @@ import {
   getWebSearchKey,
 } from "../../features/ai/tools/webSearch";
 
+// Storage copy must match reality per platform: desktop = OS keychain; web =
+// session memory unless the user opts into persistence (audit #95).
+const IS_TAURI = typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
+
 export function AISettingsTab() {
   const providers = useAppSelector(selectProviderConfigs);
   const [showAdd, setShowAdd] = useState(false);
@@ -68,8 +72,10 @@ export function AISettingsTab() {
         <div>
           <h3 className="text-sm font-semibold text-heading">AI Engines</h3>
           <p className="mt-1 text-xs text-muted">
-            Connect local engines or your own API keys. Keys are stored in your OS
-            keychain (never synced); conversations stay on this device.
+            Connect local engines or your own API keys.{" "}
+            {IS_TAURI
+              ? "Keys are stored in your OS keychain (never synced); conversations stay on this device."
+              : "On the web, keys are kept in memory for this session only (see Settings → Security to persist them); conversations stay on this device."}
           </p>
         </div>
 
@@ -193,7 +199,8 @@ function WebSearchSection() {
               {hasKey ? (
                 <div className="mt-1 flex items-center gap-2">
                   <span className="flex flex-1 items-center gap-1.5 rounded-lg bg-panel px-3 py-2 text-sm text-soft ring-1 ring-border">
-                    <Check size={13} className="text-green-400" /> Key saved (kept in your OS keychain)
+                    <Check size={13} className="text-green-400" /> Key saved (
+                    {IS_TAURI ? "kept in your OS keychain" : "kept for this session"})
                   </span>
                   <button
                     onClick={clearKey}

@@ -7,6 +7,7 @@ import { useAskAI } from "@/features/ai/context/useAskAI";
 import { buildThreadContext, buildNoteContext } from "@/features/ai/context/aiContext";
 import { selectFeatureEnabled, FEATURE_AI } from "@/store/slices/featuresSlice";
 import { useZap } from "../../wallet/WalletProvider";
+import { ZapSummary } from "../../wallet/ZapSummary";
 import { NoteActionBar } from "./NoteActionBar";
 import { ReplyComposer } from "./ReplyComposer";
 import { ThreadView } from "./ThreadView";
@@ -58,6 +59,8 @@ export const NoteFooter = memo(function NoteFooter({ event }: { event: NostrEven
 
   return (
     <>
+      <ZapSummary eventId={event.id} className="mt-2" />
+
       <NoteActionBar
         engagement={engagement}
         canInteract={actions.canInteract}

@@ -87,7 +87,11 @@ describe("messagesToEngineMessages", () => {
     expect(out[0].toolCalls).toBeUndefined();
   });
 
-  it("omits a tool message for a call with no result (no orphan tool message)", () => {
+  it("emits a stub tool result for a call with no stored result (no orphan tool_calls)", () => {
+    // Pre-fix this omitted the tool message entirely, leaving an assistant
+    // tool_calls message with a missing result — providers reject the whole
+    // conversation with a 400 from then on (audit #12). The stub heals
+    // already-bricked histories with zero migration.
     const out = messagesToEngineMessages([
       msg({
         role: "assistant",
@@ -99,9 +103,92 @@ describe("messagesToEngineMessages", () => {
         toolResults: { t1: { ok: true, output: "done" } },
       }),
     ]);
-    // assistant + only the resolved tool result
+    expect(out).toHaveLength(3);
+    expect(out[1]).toMatchObject({ role: "tool", toolCallId: "t1", content: "done" });
+    expect(out[2]).toMatchObject({ role: "tool", toolCallId: "t2" });
+    expect(out[2].content).toMatch(/interrupted|no result/i);
+  });
+});
+
+describe("provider-history integrity (audit #11/#12 probes)", () => {
+  /** Flatten an EngineChatMessage's content for emptiness checks. */
+  function flat(content: unknown): string {
+    if (typeof content === "string") return content;
+    if (Array.isArray(content)) {
+      return content
+        .map((p) => (p && typeof p === "object" && "text" in p ? String(p.text) : ""))
+        .join("");
+    }
+    return "";
+  }
+
+  it("PROBE #11: zero-output error bubbles are filtered from provider history", () => {
+    // Pre-fix repro: a failed turn (missing key / 401) persisted an assistant
+    // message with parts:[] and status:"error"; re-sending it serializes to
+    // {role:"assistant", content:""} which Anthropic rejects — bricking the
+    // conversation in a compounding 400 loop.
+    const out = messagesToEngineMessages([
+      msg({ role: "user", parts: [{ type: "text", text: "hi" }] }),
+      msg({ role: "assistant", parts: [], status: "error", error: "Add an API key…" }),
+      msg({ role: "user", parts: [{ type: "text", text: "retry" }] }),
+    ]);
     expect(out).toHaveLength(2);
-    expect(out[1]).toMatchObject({ role: "tool", toolCallId: "t1" });
+    expect(out.every((m) => m.role === "user")).toBe(true);
+  });
+
+  it("PROBE #11: reasoning-only assistant messages are filtered (reasoning is never resent)", () => {
+    const out = messagesToEngineMessages([
+      msg({ role: "user", parts: [{ type: "text", text: "think" }] }),
+      msg({ role: "assistant", parts: [], reasoning: "chain of thought…" }),
+    ]);
+    expect(out).toHaveLength(1);
+    expect(out[0].role).toBe("user");
+  });
+
+  it("keeps an empty-text assistant message that carries toolCalls (round-trip contract)", () => {
+    const out = messagesToEngineMessages([
+      msg({
+        role: "assistant",
+        parts: [],
+        toolCalls: [{ id: "t1", name: "get_profile", arguments: "{}" }],
+        toolResults: { t1: { ok: true, output: "x" } },
+      }),
+    ]);
+    expect(out[0]).toMatchObject({ role: "assistant", toolCalls: [{ id: "t1" }] });
+  });
+
+  it("PROBE #11/#12: a bricked-history fixture serializes provider-valid", () => {
+    // Exactly what the pre-fix code persisted: several empty error bubbles plus
+    // an assistant message whose tool loop was wiped mid-turn (toolCalls, no
+    // results). The serialized history must contain no empty assistant content
+    // and no toolCall without a matching tool result.
+    const out = messagesToEngineMessages([
+      msg({ role: "user", parts: [{ type: "text", text: "q1" }] }),
+      msg({ id: "e1", role: "assistant", parts: [], status: "error", error: "401" }),
+      msg({ id: "e2", role: "assistant", parts: [], status: "error", error: "401" }),
+      msg({
+        id: "orphan",
+        role: "assistant",
+        parts: [{ type: "text", text: "let me check" }],
+        toolCalls: [
+          { id: "t1", name: "web_search", arguments: "{}" },
+          { id: "t2", name: "get_profile", arguments: "{}" },
+        ],
+      }),
+      msg({ role: "user", parts: [{ type: "text", text: "q2" }] }),
+    ]);
+    const toolCallIds = new Set<string>();
+    const toolResultIds = new Set<string>();
+    for (const m of out) {
+      if (m.role === "assistant") {
+        for (const tc of m.toolCalls ?? []) toolCallIds.add(tc.id);
+        if (!m.toolCalls?.length) {
+          expect(flat(m.content).trim()).not.toBe("");
+        }
+      }
+      if (m.role === "tool" && m.toolCallId) toolResultIds.add(m.toolCallId);
+    }
+    expect([...toolCallIds].every((id) => toolResultIds.has(id))).toBe(true);
   });
 });
 

@@ -1,7 +1,8 @@
-import { Copy, Trash2, EyeOff, Pencil, Reply, BrainCircuit } from "lucide-react";
+import { Copy, Trash2, EyeOff, Pencil, Reply, BrainCircuit, Zap } from "lucide-react";
 import { useAppDispatch } from "@/store/hooks";
 import { deleteDMMessage } from "@/store/slices/dmSlice";
 import { PopoverMenu, PopoverMenuItem, PopoverMenuSeparator } from "@/components/ui/PopoverMenu";
+import { useZap } from "@/features/wallet/WalletProvider";
 import { useRef } from "react";
 import { useAskAI } from "@/features/ai/context/useAskAI";
 import { buildDMMessageContext } from "@/features/ai/context/aiContext";
@@ -38,6 +39,7 @@ export function DMMessageContextMenu({
   const dispatch = useAppDispatch();
   const anchorRef = useRef<HTMLDivElement>(null);
   const askAI = useAskAI();
+  const { openZap } = useZap();
   const aiEnabled = useAppSelector(selectFeatureEnabled(FEATURE_AI));
 
   function handleCopy() {
@@ -77,6 +79,13 @@ export function DMMessageContextMenu({
           label="Copy text"
           onClick={handleCopy}
         />
+        {!isOwnMessage && (
+          <PopoverMenuItem
+            icon={<Zap size={14} />}
+            label="Zap"
+            onClick={() => { openZap({ recipientPubkey: partnerPubkey }); onClose(); }}
+          />
+        )}
         {aiEnabled && (
           <PopoverMenuItem
             icon={<BrainCircuit size={14} />}

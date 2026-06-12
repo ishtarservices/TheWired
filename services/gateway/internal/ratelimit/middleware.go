@@ -3,42 +3,67 @@ package ratelimit
 import (
 	"fmt"
 	"log"
+	"net"
 	"net/http"
 	"strings"
 	"time"
 )
 
-// RateLimitMiddleware applies per-pubkey rate limiting.
-func RateLimitMiddleware(limiter *Limiter, next http.Handler) http.Handler {
+// readOverrides classifies semantically-read POST endpoints as reads so they get
+// the read budget, not the much smaller write budget (#122).
+var readOverrides = map[string]bool{
+	"POST /api/profiles/batch": true,
+}
+
+// clientIP returns the rate-limit key IP for an unauthenticated request. XFF only
+// reaches here from a trusted proxy (untrusted XFF is stripped upstream); take the
+// RIGHTMOST entry (the hop the trusted proxy vouches for), and strip the ephemeral
+// port from a direct RemoteAddr so one client isn't N separate buckets (#109).
+func clientIP(r *http.Request) string {
+	if xff := r.Header.Get("X-Forwarded-For"); xff != "" {
+		parts := strings.Split(xff, ",")
+		return strings.TrimSpace(parts[len(parts)-1])
+	}
+	if host, _, err := net.SplitHostPort(r.RemoteAddr); err == nil {
+		return host
+	}
+	return r.RemoteAddr
+}
+
+// classify picks the rate-limit category for a (method, path). Search wins; then
+// the read overrides; then write methods; else read.
+func classify(method, path string) string {
+	if strings.Contains(path, "/search") {
+		return "search"
+	}
+	if readOverrides[method+" "+path] {
+		return "read"
+	}
+	if method == "POST" || method == "PUT" || method == "DELETE" {
+		return "write"
+	}
+	return "read"
+}
+
+// RateLimitMiddleware applies per-pubkey rate limiting. `failOpen` controls the
+// behavior on a Redis error: true (default) lets the request through so a cache
+// blip can't 503 the whole API; false returns 503 (#67).
+func RateLimitMiddleware(limiter *Limiter, failOpen bool, next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		pubkey := r.Header.Get("X-Auth-Pubkey")
 		if pubkey == "" {
-			// No auth = use real client IP for limiting.
-			// Behind a reverse proxy, RemoteAddr is the proxy's IP;
-			// use X-Forwarded-For (first entry) to get the real client IP.
-			ip := r.RemoteAddr
-			if xff := r.Header.Get("X-Forwarded-For"); xff != "" {
-				if first, _, ok := strings.Cut(xff, ","); ok {
-					ip = strings.TrimSpace(first)
-				} else {
-					ip = strings.TrimSpace(xff)
-				}
-			}
-			pubkey = "anon:" + ip
+			pubkey = "anon:" + clientIP(r)
 		}
 
-		// Determine category
-		category := "read"
-		if r.Method == "POST" || r.Method == "PUT" || r.Method == "DELETE" {
-			category = "write"
-		}
-		if strings.Contains(r.URL.Path, "/search") {
-			category = "search"
-		}
+		category := classify(r.Method, r.URL.Path)
 
 		result, err := limiter.Allow(r.Context(), pubkey, category)
 		if err != nil {
-			log.Printf("Rate limiter error: %v", err)
+			log.Printf("Rate limiter error (fail-open=%v): %v", failOpen, err)
+			if failOpen {
+				next.ServeHTTP(w, r) // degraded: don't take the API down with Redis
+				return
+			}
 			w.Header().Set("Content-Type", "application/json")
 			w.WriteHeader(http.StatusServiceUnavailable)
 			w.Write([]byte(`{"error":"service temporarily unavailable","code":"SERVICE_UNAVAILABLE"}`))

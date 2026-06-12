@@ -30,7 +30,7 @@ afterEach(() => {
 });
 
 describe("EngagementWindow", () => {
-  it("fetches engagement for visible notes in document order, kinds [7,6,1]", () => {
+  it("fetches engagement for visible notes in document order, kinds [7,6,1,9735]", () => {
     const w = new EngagementWindow(["wss://r"]);
     w.report("b", 1, true);
     w.report("a", 0, true);
@@ -38,7 +38,7 @@ describe("EngagementWindow", () => {
     expect(subscribe).toHaveBeenCalledTimes(1);
     expect(eIds(0)).toEqual(["a", "b"]); // sorted by feed index
     const filters = (subscribe.mock.calls[0][0] as { filters: { kinds: number[] }[] }).filters;
-    expect(filters.map((f) => f.kinds)).toEqual([[7], [6], [1]]);
+    expect(filters.map((f) => f.kinds)).toEqual([[7], [6], [1], [9735]]);
     w.dispose();
   });
 

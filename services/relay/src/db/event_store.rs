@@ -135,8 +135,8 @@ pub async fn query_events(pool: &PgPool, filter: &Filter, authed_pubkey: Option<
     if let Some(ref search_query) = filter.search {
         // Clamp to MAX_LIMIT so a search REQ can't tie up a DB connection (strfry
         // caps at 500). See RELAY_OPTIMIZATIONS §1.
-        let limit = filter.limit.unwrap_or(100).min(MAX_QUERY_LIMIT);
-        return crate::protocol::nip50::search_events(pool, search_query, limit).await;
+        let limit = filter.limit.unwrap_or(100).clamp(0, MAX_QUERY_LIMIT);
+        return crate::protocol::nip50::search_events(pool, search_query, limit, authed_pubkey).await;
     }
 
     let start = std::time::Instant::now();
@@ -153,6 +153,7 @@ pub async fn query_events(pool: &PgPool, filter: &Filter, authed_pubkey: Option<
         StringVec(Vec<String>),
         IntVec(Vec<i32>),
         Int64(i64),
+        Str(String),
     }
     let mut binds: Vec<BindValue> = Vec::new();
 
@@ -220,6 +221,25 @@ pub async fn query_events(pool: &PgPool, filter: &Filter, authed_pubkey: Option<
         binds.push(BindValue::StringVec(filter.e_tags.clone()));
     }
 
+    // Generic single-letter `#x` tag filters (#69). Not column-indexed like
+    // p_tags/e_tags, so match against the jsonb `tags` array. Only evaluated when
+    // a generic tag filter is actually present.
+    for (name, values) in &filter.generic_tags {
+        let name_param = {
+            param_counter += 1;
+            binds.push(BindValue::Str(name.clone()));
+            param_counter
+        };
+        let values_param = {
+            param_counter += 1;
+            binds.push(BindValue::StringVec(values.clone()));
+            param_counter
+        };
+        conditions.push(format!(
+            "EXISTS (SELECT 1 FROM jsonb_array_elements(tags) t WHERE t->>0 = ${name_param} AND t->>1 = ANY(${values_param}))"
+        ));
+    }
+
     // Visibility access control: filter protected events based on authenticated pubkey.
     // - Private/unlisted events: only visible to author or p-tagged collaborators
     // - Space-scoped events (h_tag): only visible to author or space members
@@ -230,20 +250,21 @@ pub async fn query_events(pool: &PgPool, filter: &Filter, authed_pubkey: Option<
             let auth_param = param_counter;
             binds.push(BindValue::StringVec(vec![pk.to_string()]));
 
-            // Private/unlisted: author or collaborator
+            // Private/unlisted: author or p-tagged collaborator. Use the indexed
+            // `p_tags` text[] column instead of a per-row jsonb_array_elements
+            // scan (#114).
             conditions.push(format!(
-                "(visibility IS NULL OR pubkey = ${auth_param}[1] OR EXISTS (\
-                    SELECT 1 FROM jsonb_array_elements(tags) t \
-                    WHERE t->>0 = 'p' AND t->>1 = ${auth_param}[1]\
-                ))"
+                "(visibility IS NULL OR pubkey = ${auth_param}[1] OR ${auth_param}[1] = ANY(p_tags))"
             ));
 
-            // Space-scoped: author or space member
+            // Space-scoped: author or member of EITHER the backend space
+            // (app.space_members) OR the relay-native group (relay.group_members).
+            // The native-group UNION was missing, so NIP-29-native members couldn't
+            // read their own group's history (#18 verifier).
             conditions.push(format!(
-                "(h_tag IS NULL OR pubkey = ${auth_param}[1] OR EXISTS (\
-                    SELECT 1 FROM app.space_members \
-                    WHERE space_id = h_tag AND pubkey = ${auth_param}[1]\
-                ))"
+                "(h_tag IS NULL OR pubkey = ${auth_param}[1] \
+                 OR EXISTS (SELECT 1 FROM app.space_members WHERE space_id = h_tag AND pubkey = ${auth_param}[1]) \
+                 OR EXISTS (SELECT 1 FROM relay.group_members WHERE group_id = h_tag AND pubkey = ${auth_param}[1]))"
             ));
         }
         None => {
@@ -259,7 +280,8 @@ pub async fn query_events(pool: &PgPool, filter: &Filter, authed_pubkey: Option<
         format!("WHERE {}", conditions.join(" AND "))
     };
 
-    let limit = filter.limit.unwrap_or(MAX_QUERY_LIMIT).min(MAX_QUERY_LIMIT);
+    // Clamp to [0, MAX] so a negative limit can't bypass the cap (#70).
+    let limit = filter.limit.unwrap_or(MAX_QUERY_LIMIT).clamp(0, MAX_QUERY_LIMIT);
     let sql = format!(
         "SELECT id, pubkey, created_at, kind, tags, content, sig FROM relay.events {where_clause} ORDER BY created_at DESC LIMIT {limit}"
     );
@@ -276,6 +298,9 @@ pub async fn query_events(pool: &PgPool, filter: &Filter, authed_pubkey: Option<
                 query = query.bind(v);
             }
             BindValue::Int64(v) => {
+                query = query.bind(v);
+            }
+            BindValue::Str(v) => {
                 query = query.bind(v);
             }
         }

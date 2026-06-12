@@ -38,6 +38,7 @@ import { useProfileShowcase } from "@/features/profile/useProfileShowcase";
 import { buildRepost } from "@/lib/nostr/eventBuilder";
 import { getTrackImage } from "./trackImage";
 import { useResolvedArtist } from "./useResolvedArtist";
+import { useArtistZap } from "./ArtistZapButton";
 
 type TabId = "actions" | "notes" | "audio" | "history";
 
@@ -116,6 +117,9 @@ export function TrackActionPanel({
   const isDownloading = downloading === track.addressableId;
   const sharingDisabled = !!track.sharingDisabled;
   const resolvedArtist = useResolvedArtist(track.artist, track.artistPubkeys);
+  // Tip the artist(s), or fall back to the uploader for name-only tracks. Hidden
+  // for your own / local-only tracks (no point tipping yourself).
+  const artistZap = useArtistZap(track);
 
   // Tab state
   const [activeTab, setActiveTab] = useState<TabId>("actions");
@@ -436,6 +440,8 @@ export function TrackActionPanel({
                   onRepost={!isLocal && originalEvent ? handleRepost : undefined}
                   repostFlash={repostFlash}
                   onPostWithNote={!isLocal ? () => setPostModalOpen(true) : undefined}
+                  onZapArtist={!isOwner && !isLocal ? artistZap.onZap : undefined}
+                  zapArtistLabel={artistZap.label}
                 />
               )}
               {activeTab === "notes" && (
@@ -468,6 +474,9 @@ export function TrackActionPanel({
   return (
     <>
       {createPortal(panelContent, document.body)}
+
+      {/* Artist picker for multi-artist tracks */}
+      {artistZap.picker}
 
       {/* Modals rendered outside the panel */}
       {replaceAudioOpen && (

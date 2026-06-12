@@ -5,6 +5,7 @@ import { relayManager } from "./relayManager";
 import { processIncomingEvent } from "./eventPipeline";
 import { putEvent } from "../db/eventStore";
 import { addLocalEventId } from "../db/musicStore";
+import { publishOutbox } from "./publishOutbox";
 
 /** Sign and publish an event to write relays */
 export async function signAndPublish(
@@ -19,6 +20,12 @@ export async function signAndPublish(
     getSignerTimeoutMs(),
   );
   const sentTo = relayManager.publish(signed, targetRelays);
+
+  // Durability backstop: record before/independent of the relay result so a relay
+  // drop or refresh can't lose the publish. Fire-and-forget — never blocks the
+  // send. The first relay OK clears the row; un-acked rows replay on reconnect
+  // and next launch (audit #34).
+  publishOutbox.record(signed, targetRelays);
 
   if (sentTo === 0) {
     console.warn("[publish] event sent to 0 relays", {

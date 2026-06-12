@@ -365,7 +365,9 @@ fn nip11_response(state: &AppState) -> impl IntoResponse {
         "version": env!("CARGO_PKG_VERSION"),
         "limitation": {
             "max_subscriptions": 100,
-            "max_filters": 10,
+            // Must match the enforced cap in handler.rs (MAX_FILTERS) so clients
+            // that respect NIP-11 don't build REQs the relay then rejects.
+            "max_filters": 16,
             "max_event_tags": 2500,
             "max_content_length": 102400
         }

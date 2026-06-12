@@ -1,8 +1,8 @@
 import { openDB, type IDBPDatabase } from "idb";
-import type { AIConversation, AIMessage } from "@/types/ai";
+import type { AIConversation, AIMessage, PendingWrite } from "@/types/ai";
 
 const DB_NAME = "thewired_v1";
-const DB_VERSION = 2;
+const DB_VERSION = 4;
 
 export interface TheWiredDB {
   events: {
@@ -48,12 +48,27 @@ export interface TheWiredDB {
       by_cached_at: number;
     };
   };
-  subscriptions: {
+  /** Persistent publish outbox (audit #34): signed events awaiting a relay OK so
+   *  a relay drop / refresh can't lose a publish. First OK deletes the row;
+   *  un-acked rows are replayed on reconnect + next launch (<24h). */
+  outbox: {
     key: string;
     value: {
-      sub_id: string;
-      last_eose: Record<string, number>;
-      filters: unknown[];
+      id: string;
+      event: {
+        id: string;
+        pubkey: string;
+        created_at: number;
+        kind: number;
+        tags: string[][];
+        content: string;
+        sig: string;
+      };
+      targetRelays?: string[];
+      queuedAt: number;
+    };
+    indexes: {
+      by_queued: number;
     };
   };
   user_state: {
@@ -78,6 +93,14 @@ export interface TheWiredDB {
     indexes: {
       by_conversation: string;
       by_account: string;
+    };
+  };
+  aiPendingWrites: {
+    key: string;
+    value: PendingWrite & { _account: string; _cachedAt: number };
+    indexes: {
+      by_account: string;
+      by_conversation: string;
     };
   };
 }
@@ -129,7 +152,48 @@ export function getDB(): Promise<IDBPDatabase<TheWiredDB>> {
           messageStore.createIndex("by_conversation", "conversationId");
           messageStore.createIndex("by_account", "_account");
         }
+
+        if (oldVersion < 3) {
+          // AI pending writes — model-proposed drafts awaiting human approval
+          // survive a reload instead of silently vanishing (audit #98).
+          const pendingWriteStore = db.createObjectStore("aiPendingWrites", {
+            keyPath: "id",
+          });
+          pendingWriteStore.createIndex("by_account", "_account");
+          pendingWriteStore.createIndex("by_conversation", "conversationId");
+        }
+
+        if (oldVersion < 4) {
+          // Persistent publish outbox (audit #34).
+          const outboxStore = db.createObjectStore("outbox", { keyPath: "id" });
+          outboxStore.createIndex("by_queued", "queuedAt");
+
+          // Drop the dead `subscriptions` store — it was never written to; the
+          // in-memory reconnect-`since` path superseded it (audit #83).
+          if (db.objectStoreNames.contains("subscriptions")) {
+            db.deleteObjectStore("subscriptions");
+          }
+        }
       },
+      // #84 — survive the multi-tab / unexpected-close cases instead of caching a
+      // wedged connection. `terminated` (and a rejected open) reset the cached
+      // promise so the next getDB() reopens cleanly.
+      blocked() {
+        console.warn("[db] open blocked — another tab holds an older DB version open");
+      },
+      blocking() {
+        // A newer version wants to open in another context; close ours so it can.
+        void dbPromise?.then((db) => db.close()).catch(() => {});
+        dbPromise = null;
+      },
+      terminated() {
+        console.error("[db] connection terminated unexpectedly — will reopen on next use");
+        dbPromise = null;
+      },
+    }).catch((err) => {
+      // Don't cache a rejected promise — let the next call retry (#84).
+      dbPromise = null;
+      throw err;
     });
   }
   return dbPromise;

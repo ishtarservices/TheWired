@@ -9,9 +9,10 @@ use crate::nostr::filter::Filter;
 /// advertised by `server.rs`.
 const MAX_SUBSCRIPTIONS: usize = 100;
 
-/// Manages subscriptions for a single WebSocket connection
+/// Manages subscriptions for a single WebSocket connection. Each subscription
+/// holds one or more filters (NIP-01) — an event matches if it matches ANY.
 pub struct SubscriptionManager {
-    subscriptions: HashMap<String, Filter>,
+    subscriptions: HashMap<String, Vec<Filter>>,
 }
 
 impl SubscriptionManager {
@@ -21,11 +22,11 @@ impl SubscriptionManager {
         }
     }
 
-    pub fn add(&mut self, id: String, filter: Filter) -> Result<(), &'static str> {
+    pub fn add(&mut self, id: String, filters: Vec<Filter>) -> Result<(), &'static str> {
         if !self.subscriptions.contains_key(&id) && self.subscriptions.len() >= MAX_SUBSCRIPTIONS {
             return Err("too many subscriptions");
         }
-        self.subscriptions.insert(id, filter);
+        self.subscriptions.insert(id, filters);
         Ok(())
     }
 
@@ -33,11 +34,11 @@ impl SubscriptionManager {
         self.subscriptions.remove(id);
     }
 
-    /// Check which subscriptions match a given event
+    /// Check which subscriptions match a given event (any filter matches).
     pub fn matching_subs(&self, event: &Event) -> Vec<String> {
         self.subscriptions
             .iter()
-            .filter(|(_, filter)| filter.matches(event))
+            .filter(|(_, filters)| filters.iter().any(|f| f.matches(event)))
             .map(|(id, _)| id.clone())
             .collect()
     }
@@ -52,8 +53,8 @@ impl SubscriptionManager {
 mod tests {
     use super::*;
 
-    fn empty_filter() -> Filter {
-        Filter::default()
+    fn empty_filter() -> Vec<Filter> {
+        vec![Filter::default()]
     }
 
     /// Cap behavior: accepts exactly MAX_SUBSCRIPTIONS subs.
@@ -104,6 +105,25 @@ mod tests {
     /// Re-adding an existing sub_id is an upsert (replaces the filter)
     /// and does NOT count against the cap. Critical because clients re-send
     /// the same sub_id on reconnect via resubscribe().
+    // #19 — a single subscription with MULTIPLE filters matches an event that
+    // satisfies ANY of them.
+    #[test]
+    fn multi_filter_subscription_matches_any() {
+        use crate::nostr::event::Event;
+        let mut subs = SubscriptionManager::new();
+        let f1 = Filter { kinds: vec![1], ..Default::default() };
+        let f2 = Filter { kinds: vec![9], ..Default::default() };
+        subs.add("s".to_string(), vec![f1, f2]).unwrap();
+
+        let mk = |kind: i32| Event {
+            id: format!("e{kind}"), pubkey: "a".into(), created_at: 1, kind,
+            tags: vec![], content: "".into(), sig: "s".into(),
+        };
+        assert_eq!(subs.matching_subs(&mk(1)), vec!["s"]); // matches f1
+        assert_eq!(subs.matching_subs(&mk(9)), vec!["s"]); // matches f2
+        assert!(subs.matching_subs(&mk(7)).is_empty()); // matches neither
+    }
+
     #[test]
     fn reusing_sub_id_does_not_consume_cap_slot() {
         let mut subs = SubscriptionManager::new();
@@ -113,7 +133,7 @@ mod tests {
         // Re-add an existing id with a different filter — must succeed even at cap
         let mut updated = Filter::default();
         updated.kinds = vec![9];
-        assert!(subs.add("sub_0".to_string(), updated).is_ok());
+        assert!(subs.add("sub_0".to_string(), vec![updated]).is_ok());
         assert_eq!(subs.len(), MAX_SUBSCRIPTIONS);
     }
 }

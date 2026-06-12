@@ -1,8 +1,9 @@
 import { useState, useCallback } from "react";
-import { Lock, Trash2, Pin, Link2, Check, Repeat2, Quote } from "lucide-react";
+import { Lock, Trash2, Pin, Link2, Check, Repeat2, Quote, Zap } from "lucide-react";
 import type { MusicAnnotation } from "@/types/music";
 import { Avatar } from "@/components/ui/Avatar";
 import { useProfile } from "@/features/profile/useProfile";
+import { useZap } from "@/features/wallet/WalletProvider";
 import { useAppSelector } from "@/store/hooks";
 import { eventsSelectors } from "@/store/slices/eventsSlice";
 import { buildRepost, buildQuoteNote } from "@/lib/nostr/eventBuilder";
@@ -91,6 +92,7 @@ interface AnnotationCardProps {
 
 export function AnnotationCard({ annotation, isArtistNote, onDelete, onTogglePin }: AnnotationCardProps) {
   const { profile } = useProfile(annotation.authorPubkey);
+  const { openZap } = useZap();
   const myPubkey = useAppSelector((s) => s.identity.pubkey);
   const isOwn = myPubkey === annotation.authorPubkey;
   const name = profile?.display_name || profile?.name || annotation.authorPubkey.slice(0, 8) + "...";
@@ -231,6 +233,17 @@ export function AnnotationCard({ annotation, isArtistNote, onDelete, onTogglePin
 
       {/* Actions (visible on hover) */}
       <div className="absolute right-2 top-2 flex items-center gap-0.5 opacity-0 transition-opacity group-hover:opacity-100">
+        {/* Zap the note author (not your own notes) */}
+        {!isOwn && (
+          <button
+            onClick={() => openZap({ recipientPubkey: annotation.authorPubkey, displayName: name })}
+            className="rounded-lg p-1 text-muted transition-all hover:bg-yellow-400/10 hover:text-yellow-400"
+            title={`Zap ${name}`}
+          >
+            <Zap size={12} />
+          </button>
+        )}
+
         {/* Pin toggle (own artist notes only) */}
         {onTogglePin && (
           <button

@@ -15,6 +15,7 @@ import {
   setConversations,
   setConversationMessages,
   setConversationModel,
+  setPendingWrites,
   removeMessage,
 } from "@/store/slices/aiSlice";
 import {
@@ -25,30 +26,54 @@ import {
   getConversationsForAccount,
   getMessagesForConversation,
 } from "@/lib/db/aiConversationStore";
+import { loadPendingWritesForAccount } from "@/lib/db/aiPendingWriteStore";
 import type { AIContext, AIConversation, AIMessage } from "@/types/ai";
-import { runTurn } from "./engine/streamRunner";
+import { partsToText } from "./engine/buildEngineMessages";
+import { runTurn, stopTurn } from "./engine/streamRunner";
 import { syncArtifactsForMessage } from "./artifacts/artifactSync";
 
 function account(): string | null {
   return store.getState().identity.pubkey;
 }
 
-/** Load all conversations for an account into Redux (on login). */
+/** Load all conversations (and persisted pending writes) for an account into
+ *  Redux on login. */
 export async function loadConversationsForAccount(pubkey: string): Promise<void> {
   const conversations = await getConversationsForAccount(pubkey);
   store.dispatch(setConversations(conversations));
+  // Drafts awaiting approval survive a reload; stale ones hydrate as expired
+  // (unsignable) — audit #98.
+  const pendingWrites = await loadPendingWritesForAccount(pubkey);
+  store.dispatch(setPendingWrites(pendingWrites));
+}
+
+/** A persisted assistant bubble that would neither render content nor survive
+ *  serialization: no text, no reasoning, no tool calls. Pre-fix builds persisted
+ *  these for failed turns; replayed, each one 400s the conversation (audit #11). */
+function isJunkAssistantBubble(m: AIMessage): boolean {
+  return (
+    m.role === "assistant" &&
+    partsToText(m.parts).trim() === "" &&
+    !m.reasoning?.trim() &&
+    !m.toolCalls?.length
+  );
 }
 
 /** Lazy-load a conversation's persisted messages (read-first on open). Artifacts
  *  are re-derived from message text (deterministic ids) so they survive reload. */
 export async function hydrateConversation(conversationId: string): Promise<void> {
   if (store.getState().ai.hydratedConversations.includes(conversationId)) return;
+  const stored = await getMessagesForConversation(conversationId);
+  // Scrub junk persisted by pre-fix builds (empty error bubbles) — delete the
+  // stored rows so the conversation heals permanently, not just per-hydrate.
+  const junk = stored.filter(isJunkAssistantBubble);
+  for (const m of junk) void dbDeleteMessage(m.id);
   // A message persisted as "streaming" is a checkpoint from a generation that
   // was interrupted by a reload/crash — no stream is running now, so surface its
   // partial text as a normal (complete) bubble rather than a stuck spinner.
-  const messages = (await getMessagesForConversation(conversationId)).map((m) =>
-    m.status === "streaming" ? { ...m, status: "complete" as const } : m,
-  );
+  const messages = stored
+    .filter((m) => !isJunkAssistantBubble(m))
+    .map((m) => (m.status === "streaming" ? { ...m, status: "complete" as const } : m));
   store.dispatch(setConversationMessages({ conversationId, messages }));
   for (const message of messages) {
     if (message.role === "assistant") syncArtifactsForMessage(message);
@@ -126,6 +151,7 @@ export function setConversationModelEverywhere(
 }
 
 export async function deleteConversationEverywhere(id: string): Promise<void> {
+  stopTurn(id); // abort an in-flight turn before its state vanishes (audit #12)
   store.dispatch(removeConversation(id));
   await dbDeleteConversation(id);
 }

@@ -46,6 +46,14 @@ fn event_frame(event: &thewired_relay::nostr::event::Event) -> Message {
     Message::Text(format!(r#"["EVENT",{}]"#, serde_json::to_string(event).unwrap()).into())
 }
 
+/// Current unix time — AUTH events (kind:22242) must be fresh (±10 min).
+fn now() -> i64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_secs() as i64
+}
+
 #[tokio::test]
 async fn embedded_relay_round_trips_nip29_group() {
     // Boot the embedded relay: loopback bind, OS-assigned port, in-memory SQLite.
@@ -63,7 +71,12 @@ async fn embedded_relay_round_trips_nip29_group() {
     let (mut tx, mut rx) = ws.split();
 
     // The relay greets every connection with a NIP-42 AUTH challenge.
-    assert!(read_until(&mut rx, "AUTH").await.is_some(), "no AUTH challenge");
+    let auth_frame = read_until(&mut rx, "AUTH").await.expect("no AUTH challenge");
+    let challenge = auth_frame
+        .get(1)
+        .and_then(|v| v.as_str())
+        .expect("AUTH challenge string")
+        .to_string();
 
     // 9007 create-group "g1" → creator becomes admin + member.
     let create = sign_event(
@@ -98,7 +111,31 @@ async fn embedded_relay_round_trips_nip29_group() {
         "kind:9 rejected: {ok2}"
     );
 
-    // REQ the group's chat history back.
+    // Authenticate as the member (alice) — group-scoped history is no longer
+    // readable anonymously (#18/#73). Respond to the NIP-42 challenge.
+    let auth_event = sign_event(
+        &alice,
+        22242,
+        vec![
+            vec!["relay".into(), relay.ws_url().to_string()],
+            vec!["challenge".into(), challenge.clone()],
+        ],
+        "",
+        now(),
+    );
+    tx.send(Message::Text(
+        format!(r#"["AUTH",{}]"#, serde_json::to_string(&auth_event).unwrap()).into(),
+    ))
+    .await
+    .unwrap();
+    let auth_ok = read_until(&mut rx, "OK").await.expect("no OK for AUTH");
+    assert_eq!(
+        auth_ok.get(2).and_then(|v| v.as_bool()),
+        Some(true),
+        "AUTH rejected: {auth_ok}"
+    );
+
+    // REQ the group's chat history back (now authenticated as a member).
     tx.send(Message::Text(
         r##"["REQ","s1",{"#h":["g1"],"kinds":[9]}]"##.into(),
     ))
@@ -221,6 +258,94 @@ async fn embedded_relay_is_not_an_open_relay() {
         Some(true),
         "owner 9007 must succeed: {ok3}"
     );
+
+    relay.stop().await;
+}
+
+/// #112 — kind 39000-39009 (NIP-29 group metadata) is relay-generated. An inbound
+/// one is a forgery trying to spoof who the admins/members are; it must be rejected.
+#[tokio::test]
+async fn embedded_relay_rejects_forged_group_metadata() {
+    let owner = TestIdentity::from_seed(7);
+    let mallory = TestIdentity::from_seed(42);
+    let db = Db::Sqlite(sqlite::connect_memory().await.unwrap());
+    let relay = server::run_embedded(db, 0, "t".into(), None, Some(owner.pubkey.clone()), false)
+        .await
+        .unwrap();
+    let (ws, _) = connect_async(relay.ws_url()).await.unwrap();
+    let (mut tx, mut rx) = ws.split();
+    assert!(read_until(&mut rx, "AUTH").await.is_some());
+
+    // Forged 39001 admin list claiming mallory is an admin of group "g".
+    let forged = sign_event(
+        &mallory,
+        39001,
+        vec![
+            vec!["d".into(), "g".into()],
+            vec!["p".into(), mallory.pubkey.clone()],
+        ],
+        "",
+        1_700_000_000,
+    );
+    tx.send(event_frame(&forged)).await.unwrap();
+    let ok = read_until(&mut rx, "OK").await.expect("no OK for forged 39001");
+    assert_eq!(
+        ok.get(2).and_then(|v| v.as_bool()),
+        Some(false),
+        "forged 39001 must be rejected: {ok}"
+    );
+
+    relay.stop().await;
+}
+
+/// #68 — a non-admin's management event (e.g. 9005 moderator-delete) must be
+/// rejected AND not stored/broadcast. Previously it was stored+broadcast even
+/// though the OK frame said false.
+#[tokio::test]
+async fn embedded_relay_nonadmin_moddelete_not_stored() {
+    let owner = TestIdentity::from_seed(7);
+    let mallory = TestIdentity::from_seed(42);
+    let db = Db::Sqlite(sqlite::connect_memory().await.unwrap());
+    let relay = server::run_embedded(db, 0, "t".into(), None, Some(owner.pubkey.clone()), false)
+        .await
+        .unwrap();
+
+    // Owner connection: create the group + authenticate (so it can read back).
+    let (ws1, _) = connect_async(relay.ws_url()).await.unwrap();
+    let (mut tx1, mut rx1) = ws1.split();
+    let ch1 = read_until(&mut rx1, "AUTH").await.unwrap();
+    let challenge1 = ch1.get(1).and_then(|v| v.as_str()).unwrap().to_string();
+    let create = sign_event(&owner, 9007, vec![vec!["h".into(), "g".into()]], "G", 1_700_000_000);
+    tx1.send(event_frame(&create)).await.unwrap();
+    assert_eq!(read_until(&mut rx1, "OK").await.unwrap().get(2).and_then(|v| v.as_bool()), Some(true));
+    let auth = sign_event(&owner, 22242, vec![vec!["relay".into(), relay.ws_url().to_string()], vec!["challenge".into(), challenge1]], "", now());
+    tx1.send(Message::Text(format!(r#"["AUTH",{}]"#, serde_json::to_string(&auth).unwrap()).into())).await.unwrap();
+    assert_eq!(read_until(&mut rx1, "OK").await.unwrap().get(2).and_then(|v| v.as_bool()), Some(true));
+
+    // Mallory (not an admin) sends a 9005 moderator-delete on a separate conn.
+    let (ws2, _) = connect_async(relay.ws_url()).await.unwrap();
+    let (mut tx2, mut rx2) = ws2.split();
+    assert!(read_until(&mut rx2, "AUTH").await.is_some());
+    let mod_del = sign_event(
+        &mallory,
+        9005,
+        vec![vec!["h".into(), "g".into()], vec!["e".into(), "someid".into()]],
+        "",
+        1_700_000_002,
+    );
+    tx2.send(event_frame(&mod_del)).await.unwrap();
+    let ok = read_until(&mut rx2, "OK").await.expect("no OK for 9005");
+    assert_eq!(ok.get(2).and_then(|v| v.as_bool()), Some(false), "non-admin 9005 must be rejected: {ok}");
+
+    // It must NOT have been stored: owner REQs kind:9005 and gets none.
+    tx1.send(Message::Text(r##"["REQ","s",{"kinds":[9005],"#h":["g"]}]"##.into())).await.unwrap();
+    // Either an EVENT (bad) or EOSE (good) comes next.
+    loop {
+        match read_until(&mut rx1, "EVENT").await {
+            Some(_) => panic!("rejected 9005 was stored + returned by REQ"),
+            None => break, // timed out waiting for EVENT — none stored
+        }
+    }
 
     relay.stop().await;
 }

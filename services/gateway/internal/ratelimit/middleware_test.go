@@ -88,16 +88,17 @@ func TestMiddleware_AnonymousUsesIP(t *testing.T) {
 		w.WriteHeader(http.StatusOK)
 	})
 
-	handler := RateLimitMiddleware(limiter, inner)
+	handler := RateLimitMiddleware(limiter, true, inner)
 
 	req := httptest.NewRequest("GET", "http://localhost:9080/api/spaces", nil)
 	// No X-Auth-Pubkey, so it should use IP
 	rr := httptest.NewRecorder()
 	handler.ServeHTTP(rr, req)
 
-	// Redis is unreachable, so we expect 503.
-	if rr.Code != http.StatusServiceUnavailable {
-		t.Errorf("expected 503 when Redis is down, got %d", rr.Code)
+	// failOpen=true: Redis unreachable -> request passes through (200), so a cache
+	// blip can't 503 the whole API (#67). The IP-keying path still executed.
+	if rr.Code != http.StatusOK {
+		t.Errorf("expected 200 (fail-open) when Redis is down, got %d", rr.Code)
 	}
 }
 
@@ -113,16 +114,16 @@ func TestMiddleware_XForwardedForUsedForAnonymous(t *testing.T) {
 		w.WriteHeader(http.StatusOK)
 	})
 
-	handler := RateLimitMiddleware(limiter, inner)
+	handler := RateLimitMiddleware(limiter, true, inner)
 
 	req := httptest.NewRequest("GET", "http://localhost:9080/api/spaces", nil)
 	req.Header.Set("X-Forwarded-For", "203.0.113.50, 10.0.0.1")
 	rr := httptest.NewRecorder()
 	handler.ServeHTTP(rr, req)
 
-	// Redis down -> 503, but the middleware ran and attempted limiting.
-	if rr.Code != http.StatusServiceUnavailable {
-		t.Errorf("expected 503 when Redis is down, got %d", rr.Code)
+	// failOpen=true: Redis down -> pass-through (200); the XFF parsing path still ran.
+	if rr.Code != http.StatusOK {
+		t.Errorf("expected 200 (fail-open) when Redis is down, got %d", rr.Code)
 	}
 }
 
@@ -136,15 +137,38 @@ func TestMiddleware_AuthenticatedUsesPubkey(t *testing.T) {
 		w.WriteHeader(http.StatusOK)
 	})
 
-	handler := RateLimitMiddleware(limiter, inner)
+	handler := RateLimitMiddleware(limiter, true, inner)
 
 	req := httptest.NewRequest("GET", "http://localhost:9080/api/spaces", nil)
 	req.Header.Set("X-Auth-Pubkey", "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890")
 	rr := httptest.NewRecorder()
 	handler.ServeHTTP(rr, req)
 
-	// Redis down -> 503, but confirms pubkey path was taken
+	// failOpen=true: Redis down -> pass-through (200); the pubkey-keying path still ran.
+	if rr.Code != http.StatusOK {
+		t.Errorf("expected 200 (fail-open) when Redis is down, got %d", rr.Code)
+	}
+}
+
+// TestMiddleware_FailClosedReturns503 pins the opt-in abuse-proof mode: with
+// failOpen=false a Redis outage returns 503 rather than letting traffic through (#67).
+func TestMiddleware_FailClosedReturns503(t *testing.T) {
+	limiter, err := NewLimiter("redis://localhost:1", DefaultLimits)
+	if err != nil {
+		t.Fatalf("unexpected parse error: %v", err)
+	}
+
+	inner := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	})
+
+	handler := RateLimitMiddleware(limiter, false, inner)
+
+	req := httptest.NewRequest("GET", "http://localhost:9080/api/spaces", nil)
+	rr := httptest.NewRecorder()
+	handler.ServeHTTP(rr, req)
+
 	if rr.Code != http.StatusServiceUnavailable {
-		t.Errorf("expected 503 when Redis is down, got %d", rr.Code)
+		t.Errorf("expected 503 (fail-closed) when Redis is down, got %d", rr.Code)
 	}
 }

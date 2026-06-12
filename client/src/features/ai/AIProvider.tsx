@@ -33,7 +33,11 @@ export function AIProvider() {
       void loadProvidersForAccount(pubkey);
       void loadConversationsForAccount(pubkey);
       void loadWebSearchKey(pubkey);
-    } else if (!pubkey) {
+    } else {
+      // Logout OR the feature flag turning off: quiesce fully — decrypted API
+      // keys leave memory and in-flight probes stop dispatching (audit #96).
+      // Conversations/prefs are non-secret and persist untouched, matching the
+      // Features-tab copy.
       resetLLMManager();
       resetWebSearch();
     }

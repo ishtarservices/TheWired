@@ -8,11 +8,14 @@ import { useCallSignaling } from "./useCallSignaling";
 import { playCallEnd } from "./callRingtone";
 import { getLocalStream, getRemoteStream } from "./callService";
 import { getLivekitRoom } from "@/lib/webrtc/livekitClient";
-import { Loader2, Wifi, Maximize2, Minimize2 } from "lucide-react";
+import { Loader2, Wifi, Maximize2, Minimize2, Volume2 } from "lucide-react";
+import { createLogger } from "@/lib/debug/logger";
 import { usePlaybackBarSpacing } from "@/hooks/usePlaybackBarSpacing";
 import { CallNowPlaying } from "@/features/listenTogether/CallNowPlaying";
 import { ListenTogetherPicker } from "@/features/listenTogether/ListenTogetherPicker";
 import { ListenTogetherInvite } from "@/features/listenTogether/ListenTogetherInvite";
+
+const log = createLogger("call");
 
 /**
  * Active call overlay for 1:1 DM calls.
@@ -37,13 +40,17 @@ export function CallController() {
 
   const localVideoRef = useRef<HTMLVideoElement>(null);
   const remoteVideoRef = useRef<HTMLVideoElement>(null);
+  const remoteAudioRef = useRef<HTMLAudioElement>(null);
+  const [p2pAudioBlocked, setP2pAudioBlocked] = useState(false);
+  const lkAudioBlocked = useAppSelector((s) => s.voice.audioPlaybackBlocked);
 
-  // Attach P2P streams or LiveKit tracks to video elements
+  // Attach P2P streams or LiveKit tracks to media elements
   const attachStreams = useCallback(() => {
     if (!activeCall) return;
 
     if (activeCall.isSfuFallback) {
-      // SFU mode: get tracks from LiveKit room
+      // SFU mode: video tracks from the LiveKit room. Audio is handled by
+      // the remoteAudio registry — do NOT also attach it here (double-play).
       const room = getLivekitRoom();
       if (!room) return;
 
@@ -62,7 +69,9 @@ export function CallController() {
         }
       }
     } else {
-      // P2P mode: attach MediaStreams directly
+      // P2P mode: attach MediaStreams directly. Audio goes to the
+      // always-mounted <audio> sink — the remote <video> is muted, and it
+      // unmounts in minimized/audio-only modes anyway.
       const localStream = getLocalStream();
       const remoteStream = getRemoteStream();
 
@@ -72,10 +81,20 @@ export function CallController() {
       if (remoteVideoRef.current && remoteStream) {
         remoteVideoRef.current.srcObject = remoteStream;
       }
+      if (remoteAudioRef.current && remoteStream) {
+        if (remoteAudioRef.current.srcObject !== remoteStream) {
+          remoteAudioRef.current.srcObject = remoteStream;
+        }
+        remoteAudioRef.current
+          .play()
+          .then(() => setP2pAudioBlocked(false))
+          .catch(() => setP2pAudioBlocked(true));
+      }
     }
-  }, [activeCall?.isSfuFallback, activeCall?.state]);
+  }, [activeCall?.isSfuFallback, activeCall?.state, minimized]);
 
-  // Re-attach when streams change
+  // Re-attach when streams change (or the panel is restored from minimized —
+  // the video elements remount and need their srcObject/track again)
   useEffect(() => {
     attachStreams();
     // Poll briefly for stream availability during connection
@@ -89,6 +108,28 @@ export function CallController() {
     }
   }, [attachStreams, activeCall?.state]);
 
+  // Autoplay-policy escape hatch — retry playback from a user gesture.
+  const enableAudio = useCallback(() => {
+    remoteAudioRef.current
+      ?.play()
+      .then(() => setP2pAudioBlocked(false))
+      .catch(() => {});
+    getLivekitRoom()
+      ?.startAudio()
+      .catch(() => {});
+  }, []);
+
+  const audioBlocked = p2pAudioBlocked || lkAudioBlocked;
+
+  // Always-print warn — this IS the "call connected but silent" symptom.
+  useEffect(() => {
+    if (audioBlocked) {
+      log.warn(
+        `call audio blocked by autoplay policy (p2p=${p2pAudioBlocked} livekit=${lkAudioBlocked}) — showing enable pill`,
+      );
+    }
+  }, [audioBlocked, p2pAudioBlocked, lkAudioBlocked]);
+
   // Play end sound on unmount
   useEffect(() => {
     return () => {
@@ -101,9 +142,16 @@ export function CallController() {
   const isVideo = activeCall.callType === "video";
   const isConnecting = activeCall.state === "connecting" || activeCall.state === "ringing";
 
+  // P2P remote audio sink. Rendered in BOTH the minimized and expanded
+  // branches (same position, so React keeps the DOM node and its srcObject) —
+  // hanging it inside only the expanded panel killed audio on minimize.
+  const audioSink = <audio ref={remoteAudioRef} autoPlay />;
+
   // ─── Minimized chip ─────────────────────────────────────────
   if (minimized) {
     return (
+      <>
+      {audioSink}
       <div
         className={`fixed bottom-4 right-4 z-40 flex items-center gap-3 rounded-2xl card-glass px-4 py-3 shadow-xl cursor-pointer hover:bg-surface-hover transition-colors ${inputMarginClass}`}
         onClick={() => setMinimized(false)}
@@ -122,11 +170,14 @@ export function CallController() {
         </div>
         <Maximize2 size={14} className="text-muted shrink-0" />
       </div>
+      </>
     );
   }
 
   // ─── Expanded overlay ───────────────────────────────────────
   return (
+    <>
+    {audioSink}
     <div className={`fixed bottom-4 right-4 z-40 flex flex-col w-[380px] max-w-[calc(100vw-2rem)] rounded-2xl card-glass shadow-2xl overflow-hidden ${inputMarginClass}`}>
       {/* Header */}
       <div className="flex items-center justify-between px-4 py-2 bg-surface/50">
@@ -155,13 +206,26 @@ export function CallController() {
         </button>
       </div>
 
+      {/* Audio blocked by autoplay policy — recover via user gesture */}
+      {audioBlocked && (
+        <button
+          onClick={enableAudio}
+          className="flex items-center justify-center gap-2 bg-amber-500/15 px-4 py-1.5 text-xs font-medium text-amber-400 hover:bg-amber-500/25 transition-colors"
+        >
+          <Volume2 size={14} />
+          Audio is blocked — click to enable
+        </button>
+      )}
+
       {/* Video / avatar area */}
       {isVideo ? (
         <div className="relative aspect-video w-full bg-black">
-          {/* Remote video (full area) */}
+          {/* Remote video (full area) — muted: call audio plays through the
+              always-mounted audio sink / remoteAudio registry, not here */}
           <video
             ref={remoteVideoRef}
             autoPlay
+            muted
             playsInline
             className="h-full w-full object-cover"
           />
@@ -233,6 +297,7 @@ export function CallController() {
       {/* Listen Together: music picker — overlays the call panel */}
       {ltPickerOpen && <ListenTogetherPicker />}
     </div>
+    </>
   );
 }
 

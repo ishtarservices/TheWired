@@ -4,11 +4,17 @@ import { Button } from "@/components/ui/Button";
 import { Spinner } from "@/components/ui/Spinner";
 import { useAppSelector } from "@/store/hooks";
 import { performLogin, performCleanup, removeAccount } from "@/lib/nostr/loginFlow";
+import {
+  isSecretPersistEnabled,
+  setSecretPersistEnabled,
+} from "@/lib/nostr/secretStore";
 import { resetAll } from "@/store";
 import { setSwitchingAccount } from "@/store/slices/identitySlice";
 import { useAppDispatch } from "@/store/hooks";
 
 const AUTO_HIDE_MS = 30_000;
+
+const IS_TAURI = typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
 
 function truncate(str: string, start = 12, end = 8): string {
   if (str.length <= start + end + 3) return str;
@@ -349,6 +355,73 @@ function DangerZoneSection() {
   );
 }
 
+/**
+ * Web-only (audit #95): transport secrets (AI provider keys, web-search key,
+ * NWC wallet URI, NIP-46 bunker URI) default to session memory and die with the
+ * tab. Persisting them means PLAINTEXT localStorage — any script running on
+ * this origin can read them — so it's an explicit, risk-acknowledged opt-in
+ * with a two-step confirm.
+ */
+function WebSecretStorageSection() {
+  const [persist, setPersist] = useState(isSecretPersistEnabled());
+  const [confirming, setConfirming] = useState(false);
+
+  const enable = () => {
+    setSecretPersistEnabled(true);
+    setPersist(true);
+    setConfirming(false);
+  };
+  const disable = () => {
+    setSecretPersistEnabled(false);
+    setPersist(false);
+  };
+
+  return (
+    <section className="space-y-3">
+      <h3 className="text-sm font-semibold text-heading">Key &amp; Secret Storage</h3>
+      <p className="text-xs text-muted">
+        API keys and wallet/bunker secrets are kept in memory and forgotten when
+        you close this tab. You&apos;ll re-enter them next session unless you
+        enable persistent storage below.
+      </p>
+      {persist ? (
+        <div className="space-y-2">
+          <p className="flex items-center gap-1.5 text-xs text-amber-400">
+            <AlertTriangle size={13} className="shrink-0" />
+            Persistent storage is ON — secrets are saved as plaintext in this
+            browser and readable by any script on this origin.
+          </p>
+          <Button variant="secondary" onClick={disable}>
+            Switch back to session-only
+          </Button>
+        </div>
+      ) : confirming ? (
+        <div className="space-y-2 rounded-lg border border-amber-500/40 bg-amber-500/5 p-3">
+          <p className="flex items-start gap-1.5 text-xs text-amber-400">
+            <AlertTriangle size={13} className="mt-0.5 shrink-0" />
+            Secrets will be stored as PLAINTEXT in this browser&apos;s
+            localStorage. Any malicious script that runs on this site (XSS, a
+            compromised extension) can read every saved key. Only enable this on
+            a private, trusted machine.
+          </p>
+          <div className="flex items-center gap-2">
+            <Button variant="secondary" onClick={enable}>
+              I understand the risk — enable
+            </Button>
+            <Button variant="ghost" onClick={() => setConfirming(false)}>
+              Cancel
+            </Button>
+          </div>
+        </div>
+      ) : (
+        <Button variant="secondary" onClick={() => setConfirming(true)}>
+          Enable persistent storage…
+        </Button>
+      )}
+    </section>
+  );
+}
+
 export function SecuritySettingsTab() {
   return (
     <div className="mx-auto max-w-lg space-y-6">
@@ -362,6 +435,12 @@ export function SecuritySettingsTab() {
       <SecretKeySection />
       <hr className="border-border" />
       <ImportKeySection />
+      {!IS_TAURI && (
+        <>
+          <hr className="border-border" />
+          <WebSecretStorageSection />
+        </>
+      )}
       <hr className="border-border" />
       <DangerZoneSection />
     </div>

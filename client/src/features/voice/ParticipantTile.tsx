@@ -4,7 +4,7 @@ import { cn } from "@/lib/utils";
 import { Avatar } from "@/components/ui/Avatar";
 import { useProfile } from "@/features/profile/useProfile";
 import { Mic, MicOff, Hand, Monitor } from "lucide-react";
-import { getLivekitRoom } from "@/lib/webrtc/livekitClient";
+import { useLiveKitTrack } from "./useLiveKitTrack";
 import type { VoiceParticipant as VoiceParticipantType } from "@/types/calling";
 
 interface ParticipantTileProps {
@@ -24,32 +24,20 @@ export function ParticipantTile({ participant, isLocal, compact }: ParticipantTi
   const displayName = profile?.name ?? profile?.display_name ?? participant.displayName;
   const videoRef = useRef<HTMLVideoElement>(null);
 
-  // Attach/detach LiveKit video track to the DOM element
-  useEffect(() => {
-    const room = getLivekitRoom();
-    if (!room || !videoRef.current) return;
-
-    const lkParticipant = isLocal
-      ? room.localParticipant
-      : room.remoteParticipants.get(participant.pubkey);
-
-    if (!lkParticipant) return;
-
-    const cameraPub = lkParticipant.getTrackPublication(Track.Source.Camera);
-    const track = cameraPub?.track;
-
-    if (track) {
-      track.attach(videoRef.current);
-    }
-
-    return () => {
-      if (track && videoRef.current) {
-        track.detach(videoRef.current);
-      }
-    };
-  }, [participant.pubkey, participant.hasVideo, isLocal]);
-
+  const videoTrack = useLiveKitTrack(participant.pubkey, Track.Source.Camera, isLocal);
   const hasVideo = participant.hasVideo;
+
+  // Attach/detach the LiveKit video track to the DOM element. hasVideo is a
+  // dep because the <video> element itself mounts/unmounts with it.
+  useEffect(() => {
+    const el = videoRef.current;
+    if (!videoTrack || !el) return;
+
+    videoTrack.attach(el);
+    return () => {
+      videoTrack.detach(el);
+    };
+  }, [videoTrack, hasVideo]);
 
   return (
     <div

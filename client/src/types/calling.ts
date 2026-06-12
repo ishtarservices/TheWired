@@ -17,6 +17,7 @@ export interface CallInvite {
 export interface ActiveCall {
   partnerPubkey: string;
   callType: CallType;
+  direction: "incoming" | "outgoing";
   roomId: string;
   roomSecretKey: string;
   state: CallState;
@@ -60,6 +61,8 @@ export interface ConnectedRoom {
 export interface VoiceLocalState {
   muted: boolean;
   deafened: boolean;
+  /** Mute state before deafening, restored on un-deafen. */
+  mutedBeforeDeafen?: boolean;
   screenSharing: boolean;
   videoEnabled: boolean;
 }

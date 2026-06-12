@@ -1,6 +1,7 @@
 package auth
 
 import (
+	"bytes"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
@@ -61,14 +62,7 @@ func VerifyNIP98(event *NostrEvent, expectedURL, expectedMethod string) error {
 }
 
 func verifyEventID(event *NostrEvent) error {
-	serialized, err := json.Marshal([]interface{}{
-		0,
-		event.PubKey,
-		event.CreatedAt,
-		event.Kind,
-		event.Tags,
-		event.Content,
-	})
+	serialized, err := serializeEvent(event)
 	if err != nil {
 		return err
 	}
@@ -80,6 +74,29 @@ func verifyEventID(event *NostrEvent) error {
 		return fmt.Errorf("ID mismatch: expected %s, got %s", expectedID, event.ID)
 	}
 	return nil
+}
+
+// serializeEvent produces the NIP-01 canonical serialization for event-id
+// recomputation. It MUST NOT HTML-escape <, >, & or U+2028/2029 — json.Marshal
+// does, which diverges from the client's JSON.stringify and makes every event
+// whose URL/content contains `&` (i.e. any multi-param query string) fail the
+// id check (#110). The standard encoder with SetEscapeHTML(false) matches.
+func serializeEvent(event *NostrEvent) ([]byte, error) {
+	var buf bytes.Buffer
+	enc := json.NewEncoder(&buf)
+	enc.SetEscapeHTML(false)
+	if err := enc.Encode([]interface{}{
+		0,
+		event.PubKey,
+		event.CreatedAt,
+		event.Kind,
+		event.Tags,
+		event.Content,
+	}); err != nil {
+		return nil, err
+	}
+	// Encoder.Encode appends a trailing newline; the hash is over the bare array.
+	return bytes.TrimRight(buf.Bytes(), "\n"), nil
 }
 
 func verifySignature(event *NostrEvent) error {

@@ -189,3 +189,67 @@ describe("subscriptionManager EOSE quorum", () => {
     expect(onEOSE).toHaveBeenCalledTimes(1);
   });
 });
+
+// Discriminated EOSE reason (#78) + subscribeOnce one-shot helper.
+describe("subscriptionManager — discriminated EOSE reason", () => {
+  it("reports 'all-eose' when every tracked relay EOSEs", () => {
+    const onEOSE = vi.fn();
+    subscriptionManager.subscribe({
+      filters: [{ kinds: [1], authors: ["a".repeat(64)] }],
+      relayUrls: [LOCAL, DAMUS],
+      onEOSE,
+    });
+    const opts = lastSubOpts();
+    opts.onEOSE("sub", LOCAL);
+    opts.onEOSE("sub", DAMUS);
+    expect(onEOSE).toHaveBeenCalledWith({ reason: "all-eose" });
+  });
+
+  it("reports 'no-relays' when every relay is stripped (nothing to wait on)", async () => {
+    const onEOSE = vi.fn();
+    // kind:[1] is non-indexer-safe, so the indexer relays are stripped → empty quorum.
+    subscriptionManager.subscribe({
+      filters: [{ kinds: [1], authors: ["a".repeat(64)] }],
+      relayUrls: [PURPLEPAG, KINDPAG],
+      onEOSE,
+    });
+    await Promise.resolve(); // the no-relays EOSE fires on a microtask
+    expect(onEOSE).toHaveBeenCalledWith({ reason: "no-relays" });
+  });
+
+  it("reports 'timeout' when a tracked relay never EOSEs", () => {
+    vi.useFakeTimers();
+    const onEOSE = vi.fn();
+    subscriptionManager.subscribe({
+      filters: [{ kinds: [1], authors: ["a".repeat(64)] }],
+      relayUrls: [LOCAL, DAMUS],
+      onEOSE,
+      timeoutMs: 1000,
+    });
+    expect(onEOSE).not.toHaveBeenCalled();
+    vi.advanceTimersByTime(1000);
+    expect(onEOSE).toHaveBeenCalledWith({ reason: "timeout" });
+    vi.useRealTimers();
+  });
+});
+
+describe("subscriptionManager — subscribeOnce", () => {
+  it("resolves with the EOSE reason and auto-closes the sub", async () => {
+    const p = subscriptionManager.subscribeOnce({
+      filters: [{ kinds: [1], authors: ["a".repeat(64)] }],
+      relayUrls: [LOCAL],
+    });
+    lastSubOpts().onEOSE("sub", LOCAL); // all-eose
+    await expect(p).resolves.toEqual({ reason: "all-eose" });
+    expect(relayCloseMock).toHaveBeenCalled(); // guaranteed close (no leak)
+  });
+
+  it("resolves 'no-relays' (and closes) when there's nothing to wait on", async () => {
+    const p = subscriptionManager.subscribeOnce({
+      filters: [{ kinds: [1], authors: ["a".repeat(64)] }],
+      relayUrls: [PURPLEPAG],
+    });
+    await expect(p).resolves.toEqual({ reason: "no-relays" });
+    expect(relayCloseMock).toHaveBeenCalled();
+  });
+});

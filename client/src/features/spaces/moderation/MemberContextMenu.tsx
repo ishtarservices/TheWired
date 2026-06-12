@@ -1,10 +1,11 @@
 import { useState, useMemo, type RefObject } from "react";
-import { User, VolumeX, LogOut, Ban, Clock } from "lucide-react";
+import { User, VolumeX, LogOut, Ban, Clock, Zap } from "lucide-react";
 import { PopoverMenu, PopoverMenuItem, PopoverMenuSeparator } from "../../../components/ui/PopoverMenu";
 import { usePermissions } from "../usePermissions";
 import { useModeration } from "./useModeration";
 import { useNavigate } from "react-router-dom";
 import { useAppSelector } from "../../../store/hooks";
+import { useZap } from "../../wallet/WalletProvider";
 
 const MUTE_DURATIONS = [
   { label: "5 minutes", seconds: 300 },
@@ -31,6 +32,7 @@ export function MemberContextMenu({
   anchorRef,
 }: MemberContextMenuProps) {
   const navigate = useNavigate();
+  const { openZap } = useZap();
   const { can } = usePermissions(spaceId);
   const hasModerationPerms = can("BAN_MEMBERS") || can("MUTE_MEMBERS") || can("MANAGE_MEMBERS");
   const { banMember, muteMember, kickMember } = useModeration(spaceId, hasModerationPerms);
@@ -79,6 +81,11 @@ export function MemberContextMenu({
 
   function handleViewProfile() {
     navigate(`/profile/${pubkey}`);
+    onClose();
+  }
+
+  function handleZap() {
+    openZap({ recipientPubkey: pubkey });
     onClose();
   }
 
@@ -183,6 +190,11 @@ export function MemberContextMenu({
         icon={<User size={14} />}
         label="View Profile"
         onClick={handleViewProfile}
+      />
+      <PopoverMenuItem
+        icon={<Zap size={14} />}
+        label="Zap"
+        onClick={handleZap}
       />
       {canModerate && can("MUTE_MEMBERS") && (
         <PopoverMenuItem

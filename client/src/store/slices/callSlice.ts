@@ -47,6 +47,7 @@ export const callSlice = createSlice({
     ) {
       state.activeCall = {
         ...action.payload,
+        direction: "outgoing",
         state: "ringing",
         startedAt: Date.now(),
         isMuted: false,
@@ -61,6 +62,7 @@ export const callSlice = createSlice({
         state.activeCall = {
           partnerPubkey: state.incomingCall.callerPubkey,
           callType: state.incomingCall.callType,
+          direction: "incoming",
           roomId: "", // Will be derived from roomSecretKey
           roomSecretKey: state.incomingCall.roomSecretKey,
           state: "connecting",
@@ -107,7 +109,7 @@ export const callSlice = createSlice({
         state.callHistory.unshift({
           partnerPubkey: state.activeCall.partnerPubkey,
           callType: state.activeCall.callType,
-          direction: "outgoing",
+          direction: state.activeCall.direction,
           startedAt: state.activeCall.startedAt,
           endedAt: Date.now(),
           duration: state.activeCall.state === "active"

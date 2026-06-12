@@ -1,8 +1,9 @@
-import { Shield, Lock, Globe, Calendar, Copy, Check } from "lucide-react";
+import { Shield, Lock, Globe, Calendar, Copy, Check, Zap } from "lucide-react";
 import { useState } from "react";
 import { useAppSelector } from "@/store/hooks";
 import { Avatar } from "@/components/ui/Avatar";
 import { useProfile } from "../profile/useProfile";
+import { useZap } from "../wallet/WalletProvider";
 
 export function SpaceInfoPanel() {
   const activeSpaceId = useAppSelector((s) => s.spaces.activeSpaceId);
@@ -108,13 +109,23 @@ export function SpaceInfoPanel() {
 
 function AdminRow({ pubkey }: { pubkey: string }) {
   const { profile } = useProfile(pubkey);
+  const { openZap } = useZap();
+  const displayName =
+    profile?.display_name || profile?.name || pubkey.slice(0, 12) + "...";
 
   return (
-    <div className="flex items-center gap-2">
+    <div className="group flex items-center gap-2">
       <Avatar src={profile?.picture} size="xs" />
-      <span className="text-xs text-body truncate">
-        {profile?.display_name || profile?.name || pubkey.slice(0, 12) + "..."}
+      <span className="flex-1 min-w-0 text-xs text-body truncate">
+        {displayName}
       </span>
+      <button
+        onClick={() => openZap({ recipientPubkey: pubkey, displayName })}
+        className="shrink-0 rounded-md p-1 text-muted opacity-0 transition-all hover:bg-yellow-400/10 hover:text-yellow-400 group-hover:opacity-100"
+        title={`Zap ${displayName}`}
+      >
+        <Zap size={12} />
+      </button>
     </div>
   );
 }

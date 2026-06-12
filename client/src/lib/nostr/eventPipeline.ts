@@ -8,8 +8,10 @@ import { verifyBridge } from "./verifyWorkerBridge";
 import type { UnknownAction } from "@reduxjs/toolkit";
 import { store } from "../../store";
 import { putEvent, deleteEvent, deleteAddressableEvent } from "../db/eventStore";
-import { addEvent, addEvents, indexChatMessage, indexReel, indexLongForm, indexLiveStream, indexNote, indexSpaceFeed, removeEventFromAllSpaceFeeds, indexMusicTrack, indexMusicAlbum, indexReply, indexRepost, indexRepostByAuthor, indexQuote, removeChatMessage, hideMessage, removeEvent, removeNote, removeRepost, trackDeletedNote, trackDeletedAddr, indexEditedMessage, indexNotes, indexReplies, indexReposts, indexRepostsByAuthor, indexQuotes, indexChatMessages, indexReels, indexLongForms, indexLiveStreams, indexMusicTracks, indexMusicAlbums, indexSpaceFeeds } from "../../store/slices/eventsSlice";
+import { addEvent, addEvents, indexChatMessage, indexReel, indexLongForm, indexLiveStream, indexNote, indexSpaceFeed, removeEventFromAllSpaceFeeds, indexMusicTrack, indexMusicAlbum, indexReply, indexRepost, indexRepostByAuthor, indexQuote, removeChatMessage, hideMessage, removeEvent, removeManyEvents, removeNote, removeRepost, trackDeletedNote, trackDeletedAddr, indexEditedMessage, indexNotes, indexReplies, indexReposts, indexRepostsByAuthor, indexQuotes, indexChatMessages, indexReels, indexLongForms, indexLiveStreams, indexMusicTracks, indexMusicAlbums, indexSpaceFeeds } from "../../store/slices/eventsSlice";
 import { addReaction, addReactions, removeReactionByEventId, type ReactionInput } from "../../store/slices/reactionsSlice";
+import { addZap, addZaps, type ZapInput } from "../../store/slices/zapsSlice";
+import { getSatoshisAmountFromBolt11 } from "nostr-tools/nip57";
 import { addTrack, indexTrackByArtist, indexTrackByAlbum, indexTrackByArtistName, indexAlbumByArtist, indexAlbumByArtistName, addAlbum, addPlaylist, addAnnotation, removeAnnotation, removeTrack, removeAlbum, removePlaylist } from "../../store/slices/musicSlice";
 import { addDMMessage, editDMMessage, remoteDeleteDMMessage } from "../../store/slices/dmSlice";
 import { parseTrackEvent, parsePrivateTrackEvent } from "../../features/music/trackParser";
@@ -23,6 +25,7 @@ import { hasMediaUrls, hasEmbedUrls } from "../media/mediaUrlParser";
 import { parseThreadRef, parseQuoteRef } from "../../features/spaces/noteParser";
 import { profileCache } from "./profileCache";
 import { unwrapGiftWrap } from "./giftWrap";
+import { decryptQueue } from "./decryptQueue";
 import { evaluateNotification, evaluateDMNotification, evaluateFriendRequestNotification, evaluateFriendAcceptNotification, evaluateCollaboratorNotification } from "./notificationEvaluator";
 import { addFriendRequest, markOutgoingAccepted, acceptFriendRequest, addProcessedWrapId, removeFriend, clearRemovedPubkey } from "../../store/slices/friendRequestSlice";
 import { addKnownFollower } from "../../store/slices/identitySlice";
@@ -43,6 +46,7 @@ import { createLogger, shortKey, shortRelay } from "../debug/logger";
 
 const log = createLogger("pipeline");
 const latencyLog = createLogger("latency");
+const callLog = createLogger("call");
 
 /** Gated per-message receive-latency probe (enable with `wiredDebug.enable("latency")`).
  *  Splits the delay into transit (sender→here) and pipeline (verify+dispatch here),
@@ -78,6 +82,7 @@ interface PipelineBuffer {
   counts: Record<string, number>;
   notes: { pubkey: string; eventId: string }[];
   reactions: ReactionInput[];
+  zaps: ZapInput[];
   replies: { parentEventId: string; eventId: string }[];
   reposts: { targetEventId: string; eventId: string }[];
   repostsByAuthor: { pubkey: string; eventId: string }[];
@@ -94,7 +99,7 @@ interface PipelineBuffer {
 
 function emptyBuffer(): PipelineBuffer {
   return {
-    events: [], counts: {}, notes: [], reactions: [], replies: [], reposts: [],
+    events: [], counts: {}, notes: [], reactions: [], zaps: [], replies: [], reposts: [],
     repostsByAuthor: [], quotes: [], chatMessages: [], reels: [], longform: [],
     liveStreams: [], musicTracks: [], musicAlbums: [], spaceFeeds: [], feedTimestamps: [],
   };
@@ -121,6 +126,7 @@ function emit(action: UnknownAction): void {
   }
   if (indexNote.match(action)) { buf.notes.push(action.payload); return; }
   if (addReaction.match(action)) { buf.reactions.push(action.payload); return; }
+  if (addZap.match(action)) { buf.zaps.push(action.payload); return; }
   if (indexReply.match(action)) { buf.replies.push(action.payload); return; }
   if (indexRepost.match(action)) { buf.reposts.push(action.payload); return; }
   if (indexRepostByAuthor.match(action)) { buf.repostsByAuthor.push(action.payload); return; }
@@ -139,6 +145,7 @@ function emit(action: UnknownAction): void {
 function bufferHasData(b: PipelineBuffer): boolean {
   return (
     b.events.length > 0 || b.notes.length > 0 || b.reactions.length > 0 ||
+    b.zaps.length > 0 ||
     b.replies.length > 0 || b.reposts.length > 0 || b.repostsByAuthor.length > 0 ||
     b.quotes.length > 0 || b.chatMessages.length > 0 || b.reels.length > 0 ||
     b.longform.length > 0 || b.liveStreams.length > 0 || b.musicTracks.length > 0 ||
@@ -164,6 +171,77 @@ function scheduleFlush(kind: number): void {
   flushTimer = setTimeout(flushEventPipeline, delay);
 }
 
+// ── Entity-store soft cap (B2) ───────────────────────────────────────────────
+// The Redux event entity store is otherwise unbounded — it grows all session and
+// the adapter's sortComparer pays an insertion-sort on every upsert. sweepEvents
+// trims the OLDEST UNREFERENCED entities back under a soft cap. "Unreferenced" =
+// no secondary index points at the id, so chat (chatMessages is uncapped) and any
+// open feed are protected by construction. Evicted ids are UNMARKED from the
+// dedup LRU so a later re-delivery / re-REQ can bring them back — without that the
+// 100k dedup cache would silently swallow the re-fetch.
+const ENTITY_SOFT_CAP = 20_000;
+const ENTITY_SWEEP_TARGET = 18_000; // hysteresis: once over cap, trim down to this
+const SWEEP_CHECK_EVERY = 4; // only run the O(n) scan every Nth flush
+let flushesSinceSweepCheck = 0;
+
+/** Pure: pick the ids to evict. `ids` MUST be oldest-first (the entity adapter
+ *  keeps them sorted by created_at asc). Returns the oldest ids NOT referenced by
+ *  any secondary index (or the editedMessages map), capped at the amount needed to
+ *  reach `target`. Exported for tests. Returns [] when at/under `softCap`. */
+export function computeSweep(
+  ids: readonly string[],
+  indices: ReadonlyArray<Record<string, string[]>>,
+  editedMessages: Record<string, string>,
+  softCap: number,
+  target: number,
+): string[] {
+  if (ids.length <= softCap) return [];
+  const referenced = new Set<string>();
+  for (const index of indices) {
+    for (const key in index) {
+      const list = index[key];
+      for (let i = 0; i < list.length; i++) referenced.add(list[i]);
+    }
+  }
+  // Edit events are referenced via editedMessages, not a string[] index.
+  for (const originalId in editedMessages) {
+    referenced.add(originalId);
+    referenced.add(editedMessages[originalId]);
+  }
+  const need = ids.length - target;
+  const evict: string[] = [];
+  for (let i = 0; i < ids.length && evict.length < need; i++) {
+    if (!referenced.has(ids[i])) evict.push(ids[i]);
+  }
+  return evict;
+}
+
+function sweepWithCaps(softCap: number, target: number): void {
+  const events = store.getState().events;
+  const indices: Array<Record<string, string[]>> = [
+    events.chatMessages, events.reels, events.longform, events.liveStreams,
+    events.notesByAuthor, events.spaceFeeds, events.musicTracks, events.musicAlbums,
+    events.replies, events.reposts, events.repostsByAuthor, events.quotes,
+  ];
+  const evict = computeSweep(events.ids, indices, events.editedMessages, softCap, target);
+  if (evict.length === 0) return;
+  store.dispatch(removeManyEvents(evict));
+  // CRITICAL: unmark from the dedup LRU so a re-delivery / re-REQ can bring the
+  // event back. Skipping this makes evicted events un-refetchable for the session.
+  for (let i = 0; i < evict.length; i++) dedup.unmarkSeen(evict[i]);
+}
+
+function sweepEvents(): void {
+  if (++flushesSinceSweepCheck < SWEEP_CHECK_EVERY) return;
+  flushesSinceSweepCheck = 0;
+  sweepWithCaps(ENTITY_SOFT_CAP, ENTITY_SWEEP_TARGET);
+}
+
+/** Test-only: run the sweep with explicit caps (so a test needn't seed 20k events). */
+export function __sweepForTest(softCap: number, target: number): void {
+  sweepWithCaps(softCap, target);
+}
+
 /** Apply all buffered burst-path ops in one batch — events first, then indices,
  *  so every index entry's event is already in the adapter. Exported for tests
  *  and for synchronous flushing on logout / account switch. */
@@ -181,6 +259,7 @@ export function flushEventPipeline(): void {
   if (Object.keys(b.counts).length) store.dispatch(incrementCounts(b.counts));
   if (b.notes.length) store.dispatch(indexNotes(b.notes));
   if (b.reactions.length) store.dispatch(addReactions(b.reactions));
+  if (b.zaps.length) store.dispatch(addZaps(b.zaps));
   if (b.replies.length) store.dispatch(indexReplies(b.replies));
   if (b.reposts.length) store.dispatch(indexReposts(b.reposts));
   if (b.repostsByAuthor.length) store.dispatch(indexRepostsByAuthor(b.repostsByAuthor));
@@ -193,6 +272,10 @@ export function flushEventPipeline(): void {
   if (b.musicAlbums.length) store.dispatch(indexMusicAlbums(b.musicAlbums));
   if (b.spaceFeeds.length) store.dispatch(indexSpaceFeeds(b.spaceFeeds));
   if (b.feedTimestamps.length) store.dispatch(trackFeedTimestamps(b.feedTimestamps));
+
+  // Bound the entity store after the batch lands (indices are populated, so
+  // freshly-added events are already referenced and won't be swept).
+  sweepEvents();
 }
 
 /** Clear all module-level caches (used during account switch) */
@@ -205,7 +288,9 @@ export function resetEventPipelineCaches(): void {
   }
   buf = emptyBuffer();
   scheduledDelay = FLUSH_MS;
+  flushesSinceSweepCheck = 0;
   dedup.clear();
+  decryptQueue.clear(); // drop queued wraps for the previous account
   authorSetCache.clear();
 }
 
@@ -284,10 +369,15 @@ export async function processIncomingEvent(
     return;
   }
 
-  // Step 4: Handle gift wraps specially (don't add to general event store)
+  // Step 4: Handle gift wraps specially (don't add to general event store).
+  // Route the decrypt through a concurrency-limited queue so a cold-start backlog
+  // can't saturate the signer / flood a NIP-46 bunker (#4/#25). On overflow, drop
+  // and unmark so a later redelivery retries.
   if (event.kind === EVENT_KINDS.GIFT_WRAP) {
     store.dispatch(incrementEventCount(relayUrl));
-    handleGiftWrap(event);
+    if (!decryptQueue.submit(event)) {
+      dedup.unmarkSeen(event.id);
+    }
     return;
   }
 
@@ -343,9 +433,12 @@ export async function processIncomingEvent(
   }
 
   // Step 4: Dispatch to store (buffered on the burst path — see flushEventPipeline).
-  // Reactions (kind:7) are NOT stored as full events — they fold into the
-  // reaction aggregate (reactionsSlice) in indexEvent, saving memory on hot notes.
-  if (event.kind !== EVENT_KINDS.REACTION) emit(addEvent(event));
+  // Reactions (kind:7) and zap receipts (kind:9735) are NOT stored as full
+  // events — they fold into their aggregate slices in indexEvent, saving memory
+  // on hot notes.
+  if (event.kind !== EVENT_KINDS.REACTION && event.kind !== EVENT_KINDS.ZAP_RECEIPT) {
+    emit(addEvent(event));
+  }
   emit(incrementEventCount(relayUrl));
 
   // Gated receive-latency probe for group chat (kind:9 with an `h` tag), so a
@@ -419,6 +512,41 @@ async function indexEvent(event: NostrEvent): Promise<void> {
         emit(indexRepost({ targetEventId: eTag[1], eventId: event.id }));
       }
       emit(indexRepostByAuthor({ pubkey: event.pubkey, eventId: event.id }));
+      break;
+    }
+    case EVENT_KINDS.ZAP_RECEIPT: {
+      // NIP-57 kind:9735 receipt. Fold the bolt11 amount into the zap aggregate,
+      // keyed by the zapped event's id (the receipt's `e` tag). Client-agnostic:
+      // any client's zap shows up. We don't keep the full receipt event. The
+      // zapper pubkey + comment come from the embedded kind:9734 request in the
+      // `description` tag (best-effort, display-only — not re-verified).
+      const targetId = event.tags.find((t) => t[0] === "e")?.[1];
+      const bolt11 = event.tags.find((t) => t[0] === "bolt11")?.[1];
+      if (targetId && bolt11) {
+        const sats = getSatoshisAmountFromBolt11(bolt11);
+        if (sats > 0) {
+          let zapper: string | null = null;
+          let comment = "";
+          const desc = event.tags.find((t) => t[0] === "description")?.[1];
+          if (desc) {
+            try {
+              const req = JSON.parse(desc) as { pubkey?: unknown; content?: unknown };
+              if (typeof req.pubkey === "string") zapper = req.pubkey;
+              if (typeof req.content === "string") comment = req.content;
+            } catch {
+              /* malformed description — keep amount only */
+            }
+          }
+          emit(addZap({
+            targetEventId: targetId,
+            receiptId: event.id,
+            msat: sats * 1000,
+            zapper,
+            comment,
+            createdAt: event.created_at,
+          }));
+        }
+      }
       break;
     }
     case EVENT_KINDS.CHAT_MESSAGE: {
@@ -943,6 +1071,10 @@ function indexEventIntoSpaceFeeds(event: NostrEvent): void {
 /** Validate that a string is a 64-character hex pubkey */
 const HEX64_RE = /^[0-9a-f]{64}$/i;
 
+// The decrypt queue defers gift-wrap handling with bounded concurrency; wire the
+// real handler once (function declaration is hoisted, so this is safe here).
+decryptQueue.setHandler(handleGiftWrap);
+
 /** Handle incoming gift wrap (kind:1059) — decrypt and route to DM or friend request */
 async function handleGiftWrap(event: NostrEvent): Promise<void> {
   const myPubkey = store.getState().identity.pubkey;
@@ -1234,7 +1366,7 @@ function handleCallInviteWrap(
       callerName: string;
     };
 
-    console.log(`[call] incoming invite from=${dm.sender.slice(0, 8)} type=${payload.callType}`);
+    callLog.info(`incoming invite from=${shortKey(dm.sender)} type=${payload.callType}`);
 
     store.dispatch(
       setIncomingCall({
@@ -1342,6 +1474,23 @@ async function handleWebRTCSignal(event: NostrEvent): Promise<void> {
   // Only process signals addressed to us
   const recipientTag = event.tags.find((t) => t[0] === "p")?.[1];
   if (recipientTag && recipientTag !== myPubkey) return;
+
+  // #6 defense-in-depth: gate on the active call BEFORE decrypting.
+  // parseRTCSignal runs a NIP-44 decrypt through the signer — on NIP-46
+  // that's a bunker round-trip per event, so forged ciphertexts would be
+  // a cheap way to spam the user with approval prompts/latency.
+  const activeCall = store.getState().call.activeCall;
+  if (!activeCall || event.pubkey !== activeCall.partnerPubkey) {
+    callLog.debug(
+      `kind:25050 dropped pre-decrypt (${!activeCall ? "no active call" : "non-partner sender"}) from=${shortKey(event.pubkey)}`,
+    );
+    return;
+  }
+  const roomTag = event.tags.find((t) => t[0] === "r")?.[1];
+  if (roomTag !== activeCall.roomId) {
+    callLog.debug(`kind:25050 dropped pre-decrypt (wrong room) from=${shortKey(event.pubkey)}`);
+    return;
+  }
 
   try {
     const signal = await parseRTCSignal(event);

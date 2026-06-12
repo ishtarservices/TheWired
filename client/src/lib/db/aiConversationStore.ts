@@ -71,7 +71,10 @@ export async function getConversationsForAccount(
 
 export async function deleteConversation(conversationId: string): Promise<void> {
   const db = await getDB();
-  const tx = db.transaction(["aiConversations", "aiMessages"], "readwrite");
+  const tx = db.transaction(
+    ["aiConversations", "aiMessages", "aiPendingWrites"],
+    "readwrite",
+  );
   await tx.objectStore("aiConversations").delete(conversationId);
   // Cascade: remove every message belonging to this conversation.
   const messageStore = tx.objectStore("aiMessages");
@@ -81,6 +84,15 @@ export async function deleteConversation(conversationId: string): Promise<void> 
   while (cursor) {
     await cursor.delete();
     cursor = await cursor.continue();
+  }
+  // Cascade: persisted pending writes too (audit #98).
+  const writeStore = tx.objectStore("aiPendingWrites");
+  let writeCursor = await writeStore
+    .index("by_conversation")
+    .openCursor(conversationId);
+  while (writeCursor) {
+    await writeCursor.delete();
+    writeCursor = await writeCursor.continue();
   }
   await tx.done;
 }

@@ -13,7 +13,7 @@ import {
 import { cn } from "@/lib/utils";
 import { useAppSelector } from "@/store/hooks";
 import { useRelativeTime } from "@/hooks/useRelativeTime";
-import { selectMessageById, selectAIPrefs } from "@/store/slices/aiSlice";
+import { selectMessageById, selectAIPrefs, selectIsStreaming } from "@/store/slices/aiSlice";
 import type { AIMessage } from "@/types/ai";
 import { partsToText } from "./engine/buildEngineMessages";
 import { AIMarkdown } from "./markdown/AIMarkdown";
@@ -57,6 +57,10 @@ export const AIMessageBubble = memo(function AIMessageBubble({
 }) {
   const message = useAppSelector(selectMessageById(messageId));
   const prefs = useAppSelector(selectAIPrefs);
+  // TURN-scoped (set through tool execution, not just while a message streams):
+  // gates Regenerate so it can't remove the message the tool loop is writing
+  // into (audit #12).
+  const turnInFlight = useAppSelector(selectIsStreaming(conversationId));
   if (!message || message.role === "system") return null;
 
   const isUser = message.role === "user";
@@ -141,7 +145,7 @@ export const AIMessageBubble = memo(function AIMessageBubble({
           )}
         </div>
 
-        {!isUser && !isStreaming && (text || message.status === "error") && (
+        {!isUser && !isStreaming && !turnInFlight && (text || message.status === "error") && (
           <MessageFooter
             text={text}
             message={message}

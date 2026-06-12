@@ -288,7 +288,15 @@ export const aiSlice = createSlice({
           ...(finishReason !== undefined ? { finishReason } : {}),
         },
       });
-      delete state.streamingByConversation[action.payload.conversationId];
+      // Deliberately does NOT clear streamingByConversation: the flag is
+      // TURN-scoped (a turn can continue into tool execution and further
+      // messages). Only endTurn clears it — see audit #12.
+    },
+    /** A whole turn (stream + tool loop) ended — clear the streaming flag.
+     *  Dispatched from runTurn's finally so evictConversationMessages can never
+     *  wipe a conversation while its tool loop is still writing (audit #12). */
+    endTurn(state, action: PayloadAction<string>) {
+      delete state.streamingByConversation[action.payload];
     },
     removeMessage(
       state,
@@ -325,7 +333,7 @@ export const aiSlice = createSlice({
         id: action.payload.messageId,
         changes: { status: "error", error: action.payload.error },
       });
-      delete state.streamingByConversation[action.payload.conversationId];
+      // Turn-scoped: the flag survives until endTurn (see finishAssistantMessage).
     },
 
     addArtifact(state, action: PayloadAction<AIArtifact>) {
@@ -414,9 +422,23 @@ export const aiSlice = createSlice({
     /** A model-proposed write awaiting the human approval gate. */
     addPendingWrite(state, action: PayloadAction<PendingWrite>) {
       const w = action.payload;
+      // Refuse id reuse: an existing entry must never be overwritten (a colliding
+      // call could replace a draft still awaiting approval, or flip a done write
+      // back to re-approvable — audit #48). Ids are internal nanoids, so a
+      // collision here is a caller bug, not a normal path.
+      if (state.pendingWrites[w.id]) return;
       state.pendingWrites[w.id] = w;
       const index = (state.pendingWriteIdsByConversation[w.conversationId] ??= []);
       if (!index.includes(w.id)) index.push(w.id);
+    },
+    /** Replace all pending writes (login hydration from IndexedDB). */
+    setPendingWrites(state, action: PayloadAction<PendingWrite[]>) {
+      state.pendingWrites = {};
+      state.pendingWriteIdsByConversation = {};
+      for (const w of action.payload) {
+        state.pendingWrites[w.id] = w;
+        (state.pendingWriteIdsByConversation[w.conversationId] ??= []).push(w.id);
+      }
     },
     updatePendingWrite(
       state,
@@ -456,6 +478,7 @@ export const {
   setToolResult,
   finishAssistantMessage,
   failAssistantMessage,
+  endTurn,
   removeMessage,
   addArtifact,
   setOpenArtifact,
@@ -470,6 +493,7 @@ export const {
   setPrefs,
   setPendingContext,
   addPendingWrite,
+  setPendingWrites,
   updatePendingWrite,
   removePendingWrite,
 } = aiSlice.actions;

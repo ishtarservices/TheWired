@@ -1,5 +1,6 @@
 import { subscriptionManager } from "./subscriptionManager";
 import { relayManager } from "./relayManager";
+import { flushEventPipeline } from "./eventPipeline";
 import { buildChannelFilter, buildSpaceFeedFilter } from "./filterBuilder";
 import { getChannelRoute } from "./channelRoutes";
 import { getSpaceChannelRoute } from "../../features/spaces/spaceChannelRoutes";
@@ -121,6 +122,17 @@ export function stopAllBgChatSubs(): void {
   hostRelaySubs.clear();
   spacesByHost.clear();
   spaceHost.clear();
+
+  // Also tear down per-space metadata/layout subs and the client-space marker
+  // map. Their underlying subs are closed by subscriptionManager.closeAll() at
+  // teardown, but if the MAPS aren't cleared, enterSpace()/enterClientSpace()
+  // early-return after an account switch (`if (spaceMetaSubs.has(id)) return;`)
+  // and silently never re-subscribe metadata/layout for the new account.
+  for (const subId of spaceMetaSubs.values()) subscriptionManager.close(subId);
+  for (const subId of spaceLayoutSubs.values()) subscriptionManager.close(subId);
+  spaceMetaSubs.clear();
+  spaceLayoutSubs.clear();
+  clientSpaceMetaSubs.clear();
 }
 
 // On reconnect, RelayConnection.resubscribe() re-sends the bg sub's original
@@ -190,6 +202,24 @@ export function enterSpace(groupId: string, relayUrl: string, relayPubkey?: stri
   spaceLayoutSubs.set(groupId, layoutSub);
 }
 
+/** Close every channel subscription whose Redux key starts with `prefix` and
+ *  drop it from `spaces.subscriptions`. Channel subs are keyed `spaceId:...`;
+ *  the always-on background chat sub is NOT in this map (it lives in
+ *  `hostRelaySubs`), so this never affects notifications. Used by the switch and
+ *  leave entry points so the prior channel's REQ is always closed — even when the caller has
+ *  already overwritten `activeChannelId` with the new channel before switching
+ *  (the #38 leak: the old key was then unrecoverable from Redux). Also self-heals
+ *  any prior-channel subs that leaked earlier in the session. */
+function closeSpaceChannelSubs(prefix: string): void {
+  const subs = store.getState().spaces.subscriptions;
+  for (const [channelId, subId] of Object.entries(subs)) {
+    if (channelId.startsWith(prefix)) {
+      subscriptionManager.close(subId);
+      store.dispatch(removeChannelSubscription(channelId));
+    }
+  }
+}
+
 /** Leave a space: close metadata sub + all channel subs */
 export function leaveSpace(groupId: string): void {
   const metaSub = spaceMetaSubs.get(groupId);
@@ -203,14 +233,7 @@ export function leaveSpace(groupId: string): void {
     spaceLayoutSubs.delete(groupId);
   }
 
-  // Close all channel subs for this space
-  const state = store.getState();
-  for (const [channelId, subId] of Object.entries(state.spaces.subscriptions)) {
-    if (channelId.startsWith(groupId + ":")) {
-      subscriptionManager.close(subId);
-      store.dispatch(removeChannelSubscription(channelId));
-    }
-  }
+  closeSpaceChannelSubs(groupId + ":");
 }
 
 /** Switch to a channel: close old sub, open new one */
@@ -221,17 +244,10 @@ export function switchChannel(
   adminPubkeys?: string[],
 ): void {
   const channelId = `${groupId}:${channelType}`;
-  const state = store.getState();
 
-  // Close previous channel subscription for this space
-  const activeChannelId = state.spaces.activeChannelId;
-  if (activeChannelId) {
-    const oldSubId = state.spaces.subscriptions[activeChannelId];
-    if (oldSubId) {
-      subscriptionManager.close(oldSubId);
-      store.dispatch(removeChannelSubscription(activeChannelId));
-    }
-  }
+  // Close the previous channel sub(s) for this space (#38). The bg chat sub is
+  // untouched (it's in hostRelaySubs, not Redux).
+  closeSpaceChannelSubs(groupId + ":");
 
   // Open new subscription
   const route = getChannelRoute(channelType);
@@ -271,17 +287,10 @@ export function switchSpaceChannel(
   // Use channel ID for the subscription key when available (supports multiple channels per type).
   // Falls back to channel type for legacy callers.
   const subKey = channelId ? `${space.id}:${channelId}` : `${space.id}:${channelType}`;
-  const state = store.getState();
 
-  // Close previous channel subscription for this space
-  const activeChannelId = state.spaces.activeChannelId;
-  if (activeChannelId) {
-    const oldSubId = state.spaces.subscriptions[activeChannelId];
-    if (oldSubId) {
-      subscriptionManager.close(oldSubId);
-      store.dispatch(removeChannelSubscription(activeChannelId));
-    }
-  }
+  // Close the previous channel sub(s) for this space (#38). The bg chat sub is
+  // untouched (it's in hostRelaySubs, not Redux).
+  closeSpaceChannelSubs(space.id + ":");
 
   const route = getSpaceChannelRoute(channelType);
   if (!route) return;
@@ -321,14 +330,7 @@ export function switchSpaceChannel(
 /** Leave a client-defined space: close all subscriptions */
 export function leaveClientSpace(spaceId: string): void {
   clientSpaceMetaSubs.delete(spaceId);
-
-  const state = store.getState();
-  for (const [channelId, subId] of Object.entries(state.spaces.subscriptions)) {
-    if (channelId.startsWith(spaceId + ":")) {
-      subscriptionManager.close(subId);
-      store.dispatch(removeChannelSubscription(channelId));
-    }
-  }
+  closeSpaceChannelSubs(spaceId + ":");
 }
 
 // ── Unified entry points (work for all three space modes) ───────────────
@@ -403,30 +405,15 @@ export function enterFriendsFeed(channelType: string): void {
 
 /** Switch channel within the Friends Feed */
 export function switchFriendsFeedChannel(channelType: string): void {
-  const state = store.getState();
-
-  // Close previous Friends Feed channel subscription
-  const activeChannelId = state.spaces.activeChannelId;
-  if (activeChannelId && activeChannelId.startsWith(FRIENDS_FEED_ID + ":")) {
-    const oldSubId = state.spaces.subscriptions[activeChannelId];
-    if (oldSubId) {
-      subscriptionManager.close(oldSubId);
-      store.dispatch(removeChannelSubscription(activeChannelId));
-    }
-  }
-
+  // Close the previous Friends Feed channel sub(s) (#38 twin) before enterFriendsFeed
+  // opens the new one. Reads from Redux, not the caller-mutated activeChannelId.
+  closeSpaceChannelSubs(FRIENDS_FEED_ID + ":");
   enterFriendsFeed(channelType);
 }
 
 /** Leave the Friends Feed: close all subscriptions */
 export function leaveFriendsFeed(): void {
-  const state = store.getState();
-  for (const [channelId, subId] of Object.entries(state.spaces.subscriptions)) {
-    if (channelId.startsWith(FRIENDS_FEED_ID + ":")) {
-      subscriptionManager.close(subId);
-      store.dispatch(removeChannelSubscription(channelId));
-    }
-  }
+  closeSpaceChannelSubs(FRIENDS_FEED_ID + ":");
 }
 
 /**
@@ -456,24 +443,11 @@ export function refreshFriendsFeed(channelType: string, initial = false): void {
     filter.since = meta.newestAt;
   }
 
-  let settled = false;
-  const subId = subscriptionManager.subscribe({
-    filters: [filter],
-    relayUrls: undefined,
-    onEOSE: () => {
-      if (settled) return;
-      settled = true;
-      clearTimeout(timeout);
-      store.dispatch(setRefreshing({ contextId, value: false }));
-    },
-  });
-
-  const timeout = setTimeout(() => {
-    if (settled) return;
-    settled = true;
-    store.dispatch(setRefreshing({ contextId, value: false }));
-    subscriptionManager.close(subId);
-  }, PAGINATION_TIMEOUT_MS);
+  // One-shot: subscribeOnce closes the sub on EOSE/timeout/no-relays, so it can't
+  // leak (this previously needed a manual settled flag + timeout + close).
+  subscriptionManager
+    .subscribeOnce({ filters: [filter], timeoutMs: PAGINATION_TIMEOUT_MS })
+    .then(() => store.dispatch(setRefreshing({ contextId, value: false })));
 }
 
 /** Load older Friends Feed events */
@@ -500,32 +474,19 @@ export function loadMoreFriendsFeed(channelType: string): void {
 
   const previousOldest = meta.oldestAt;
 
-  let settled = false;
-  const subId = subscriptionManager.subscribe({
-    filters: [filter],
-    relayUrls: undefined,
-    onEOSE: () => {
-      if (settled) return;
-      settled = true;
-      clearTimeout(timeout);
-
+  subscriptionManager
+    .subscribeOnce({ filters: [filter], timeoutMs: PAGINATION_TIMEOUT_MS })
+    .then(({ reason }) => {
       store.dispatch(setLoadingMore({ contextId, value: false }));
-
+      // #78: only an honest all-relays EOSE concludes "no more older events". A
+      // timeout/no-relays says nothing about whether more exist → keep hasMore.
+      if (reason !== "all-eose") return;
+      flushEventPipeline(); // apply buffered events so oldestAt reflects this page
       const updatedMeta = store.getState().feed.meta[contextId];
       if (!updatedMeta || updatedMeta.oldestAt >= previousOldest) {
         store.dispatch(setHasMore({ contextId, value: false }));
       }
-
-      subscriptionManager.close(subId);
-    },
-  });
-
-  const timeout = setTimeout(() => {
-    if (settled) return;
-    settled = true;
-    store.dispatch(setLoadingMore({ contextId, value: false }));
-    subscriptionManager.close(subId);
-  }, PAGINATION_TIMEOUT_MS);
+    });
 }
 
 // ── Feed pagination ──────────────────────────────────────────────
@@ -574,29 +535,11 @@ export function refreshSpaceFeed(
     filter.since = meta.newestAt;
   }
 
-  // Feed channels always use all read relays — members publish notes to
-  // their own relays, not the space's host relay.
-  const relayUrls: string[] | undefined = undefined;
-
-  let settled = false;
-  const subId = subscriptionManager.subscribe({
-    filters: [filter],
-    relayUrls,
-    onEOSE: () => {
-      if (settled) return;
-      settled = true;
-      clearTimeout(timeout);
-      store.dispatch(setRefreshing({ contextId, value: false }));
-    },
-  });
-
-  // Safety timeout: if EOSE never arrives, unblock UI and close sub
-  const timeout = setTimeout(() => {
-    if (settled) return;
-    settled = true;
-    store.dispatch(setRefreshing({ contextId, value: false }));
-    subscriptionManager.close(subId);
-  }, PAGINATION_TIMEOUT_MS);
+  // Feed channels always use all read relays — members publish notes to their own
+  // relays. One-shot: subscribeOnce closes the sub on every path (no leak).
+  subscriptionManager
+    .subscribeOnce({ filters: [filter], timeoutMs: PAGINATION_TIMEOUT_MS })
+    .then(() => store.dispatch(setRefreshing({ contextId, value: false })));
 }
 
 /**
@@ -630,33 +573,17 @@ export function loadMoreSpaceFeed(
 
   const previousOldest = meta.oldestAt;
 
-  let settled = false;
-  const subId = subscriptionManager.subscribe({
-    filters: [filter],
-    relayUrls: undefined, // all read relays — members publish to their own relays
-    onEOSE: () => {
-      if (settled) return;
-      settled = true;
-      clearTimeout(timeout);
-
+  subscriptionManager
+    .subscribeOnce({ filters: [filter], timeoutMs: PAGINATION_TIMEOUT_MS })
+    .then(({ reason }) => {
       store.dispatch(setLoadingMore({ contextId, value: false }));
-
-      // Check if oldestAt changed -- if not, no new events arrived => no more to load
+      // #78: only an honest all-relays EOSE concludes "no more older events". A
+      // timeout/no-relays says nothing about whether more exist → keep hasMore.
+      if (reason !== "all-eose") return;
+      flushEventPipeline(); // apply buffered events so oldestAt reflects this page
       const updatedMeta = store.getState().feed.meta[contextId];
       if (!updatedMeta || updatedMeta.oldestAt >= previousOldest) {
         store.dispatch(setHasMore({ contextId, value: false }));
       }
-
-      // Close the one-shot subscription
-      subscriptionManager.close(subId);
-    },
-  });
-
-  // Safety timeout: if EOSE never arrives, unblock UI and close sub
-  const timeout = setTimeout(() => {
-    if (settled) return;
-    settled = true;
-    store.dispatch(setLoadingMore({ contextId, value: false }));
-    subscriptionManager.close(subId);
-  }, PAGINATION_TIMEOUT_MS);
+    });
 }

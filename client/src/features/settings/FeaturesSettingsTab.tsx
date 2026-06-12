@@ -15,6 +15,10 @@ interface FeatureRow {
   description: string;
 }
 
+// Storage copy must match reality per platform: desktop = OS keychain; web =
+// session memory unless the user opts into persistence (audit #95).
+const IS_TAURI = typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
+
 const FEATURES: FeatureRow[] = [
   {
     id: FEATURE_DECENTRALIZED_SPACES,
@@ -25,8 +29,11 @@ const FEATURES: FeatureRow[] = [
   {
     id: FEATURE_AI,
     label: "AI",
-    description:
-      "An AI chat tab. Connect a local engine (Ollama, LM Studio) or your own API keys (Claude, OpenAI, OpenRouter, Deepseek, Kimi). Conversations stay on this device; keys are stored in your OS keychain.",
+    description: `An AI chat tab. Connect a local engine (Ollama, LM Studio) or your own API keys (Claude, OpenAI, OpenRouter, Deepseek, Kimi). Conversations stay on this device; ${
+      IS_TAURI
+        ? "keys are stored in your OS keychain."
+        : "keys stay in memory for this session unless you opt into persistent storage in Settings → Security."
+    }`,
   },
 ];
 

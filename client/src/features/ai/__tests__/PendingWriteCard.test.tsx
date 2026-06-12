@@ -11,6 +11,7 @@ import type { PendingWrite } from "@/types/ai";
 function seed(over: Partial<PendingWrite> = {}): string {
   const write: PendingWrite = {
     id: "gate-test-1",
+    toolCallId: "call-1",
     conversationId: "c1",
     messageId: "m1",
     kind: "note",

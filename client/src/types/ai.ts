@@ -144,11 +144,17 @@ export type PendingWriteStatus =
   | "publishing"
   | "done"
   | "error"
-  | "cancelled";
+  | "cancelled"
+  /** Persisted draft older than 24h — shown for context but unsignable. */
+  | "expired";
 
 export interface PendingWrite {
-  /** Equals the originating toolCallId — binds the approval to the exact call. */
+  /** Internal id (nanoid). NOT the provider toolCallId: id-reusing
+   *  OpenAI-compat servers emit e.g. "call_0" every turn, which would let a
+   *  later call overwrite a draft still awaiting approval (audit #48). */
   id: string;
+  /** The originating provider tool-call id, kept for linkage/debugging. */
+  toolCallId: string;
   conversationId: string;
   /** Assistant message that proposed the write. */
   messageId: string;

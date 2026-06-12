@@ -16,7 +16,7 @@ import {
 import {
   joinVoiceChannel,
   leaveVoiceChannel,
-  toggleMicrophone,
+  syncLocalAudioState,
   toggleCamera,
   toggleScreenShare as toggleScreenShareService,
 } from "./voiceService";
@@ -55,15 +55,21 @@ export function useVoiceChannel() {
   const handleToggleMute = useCallback(async () => {
     dispatch(toggleMute());
     try {
-      await toggleMicrophone();
+      await syncLocalAudioState();
     } catch {
       // Revert state on failure
       dispatch(toggleMute());
     }
   }, [dispatch]);
 
-  const handleToggleDeafen = useCallback(() => {
+  const handleToggleDeafen = useCallback(async () => {
     dispatch(toggleDeafen());
+    try {
+      await syncLocalAudioState();
+    } catch {
+      // Revert state on failure (toggleDeafen is symmetric)
+      dispatch(toggleDeafen());
+    }
   }, [dispatch]);
 
   const handleToggleVideo = useCallback(async () => {

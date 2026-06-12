@@ -10,6 +10,17 @@ use crate::nostr::verify::verify_event;
 use crate::protocol::subscription::SubscriptionManager;
 use crate::server::AppState;
 
+/// Char-boundary-safe prefix for logging untrusted strings (#113). Slicing an
+/// unverified event's id/pubkey with `&s[..12]` panics on a short string or a
+/// multi-byte char straddling the boundary; this never panics.
+fn log_prefix(s: &str) -> &str {
+    let mut end = s.len().min(12);
+    while end > 0 && !s.is_char_boundary(end) {
+        end -= 1;
+    }
+    &s[..end]
+}
+
 /// Route incoming client messages to appropriate handlers
 pub async fn handle_message(
     text: &str,
@@ -70,6 +81,23 @@ async fn republish_metadata_if_ok(
     }
 }
 
+/// Store + broadcast a NIP-29 management event ONLY if its handler reported
+/// success (#68). Previously these were stored/broadcast unconditionally, so a
+/// non-admin's rejected 9000/9001/9005/... still propagated to every subscriber.
+async fn store_and_broadcast_if_ok(
+    state: &Arc<AppState>,
+    broadcast_tx: &broadcast::Sender<Event>,
+    result: &[String],
+    event: Event,
+) {
+    if !op_succeeded(result) {
+        return;
+    }
+    if let Ok(true) = state.pool.store_event(&event).await {
+        let _ = broadcast_tx.send(event);
+    }
+}
+
 async fn handle_event(
     msg: serde_json::Value,
     state: &Arc<AppState>,
@@ -88,12 +116,33 @@ async fn handle_event(
         .unwrap_or(false);
     if !valid {
         tracing::debug!(
-            event_id = &event.id[..12],
-            pubkey = &event.pubkey[..12],
+            event_id = log_prefix(&event.id),
+            pubkey = log_prefix(&event.pubkey),
             "Rejected: invalid signature"
         );
         return vec![format!(
             r#"["OK","{}",false,"invalid: signature verification failed"]"#,
+            event.id
+        )];
+    }
+
+    // NIP-29 group metadata (39000-39009) is RELAY-generated: the relay signs and
+    // writes its own group state directly (never accepting it over EVENT), so any
+    // inbound one is a forgery trying to spoof the admin/member lists (#112).
+    if (39000..=39009).contains(&event.kind) {
+        return vec![format!(
+            r#"["OK","{}",false,"restricted: kind {} is relay-generated"]"#,
+            event.id, event.kind
+        )];
+    }
+
+    // #115 — music events (31683/33123/30119) must carry the structural tags the
+    // client relies on (title + d). Previously stored unvalidated.
+    if crate::music::kinds::is_music_kind(event.kind)
+        && !crate::music::kinds::validate_music_event(event.kind, &event.tags)
+    {
+        return vec![format!(
+            r#"["OK","{}",false,"invalid: music events require title and d tags"]"#,
             event.id
         )];
     }
@@ -106,9 +155,7 @@ async fn handle_event(
                 .await
                 .unwrap_or_else(|e| vec![format!(r#"["OK","{}",false,"error: {e}"]"#, event.id)]);
             // Also store and broadcast NIP-29 events
-            if let Ok(true) = state.pool.store_event(&event).await {
-                let _ = broadcast_tx.send(event);
-            }
+            store_and_broadcast_if_ok(state, broadcast_tx, &result, event).await;
             republish_metadata_if_ok(state, broadcast_tx, &result, group_id).await;
             return result;
         }
@@ -120,9 +167,7 @@ async fn handle_event(
                     .unwrap_or_else(|e| {
                         vec![format!(r#"["OK","{}",false,"error: {e}"]"#, event.id)]
                     });
-            if let Ok(true) = state.pool.store_event(&event).await {
-                let _ = broadcast_tx.send(event);
-            }
+            store_and_broadcast_if_ok(state, broadcast_tx, &result, event).await;
             republish_metadata_if_ok(state, broadcast_tx, &result, group_id).await;
             return result;
         }
@@ -131,9 +176,7 @@ async fn handle_event(
             let result = crate::nostr::nip29::groups::handle_edit_metadata(&state.pool, &event)
                 .await
                 .unwrap_or_else(|e| vec![format!(r#"["OK","{}",false,"error: {e}"]"#, event.id)]);
-            if let Ok(true) = state.pool.store_event(&event).await {
-                let _ = broadcast_tx.send(event);
-            }
+            store_and_broadcast_if_ok(state, broadcast_tx, &result, event).await;
             republish_metadata_if_ok(state, broadcast_tx, &result, group_id).await;
             return result;
         }
@@ -153,9 +196,7 @@ async fn handle_event(
             let result = crate::nostr::nip29::groups::handle_create_group(&state.pool, &event)
                 .await
                 .unwrap_or_else(|e| vec![format!(r#"["OK","{}",false,"error: {e}"]"#, event.id)]);
-            if let Ok(true) = state.pool.store_event(&event).await {
-                let _ = broadcast_tx.send(event);
-            }
+            store_and_broadcast_if_ok(state, broadcast_tx, &result, event).await;
             republish_metadata_if_ok(state, broadcast_tx, &result, group_id).await;
             return result;
         }
@@ -163,9 +204,7 @@ async fn handle_event(
             let result = crate::nostr::nip29::groups::handle_delete_group(&state.pool, &event)
                 .await
                 .unwrap_or_else(|e| vec![format!(r#"["OK","{}",false,"error: {e}"]"#, event.id)]);
-            if let Ok(true) = state.pool.store_event(&event).await {
-                let _ = broadcast_tx.send(event);
-            }
+            store_and_broadcast_if_ok(state, broadcast_tx, &result, event).await;
             return result;
         }
         5 => {
@@ -173,9 +212,7 @@ async fn handle_event(
                 .await
                 .unwrap_or_else(|e| vec![format!(r#"["OK","{}",false,"error: {e}"]"#, event.id)]);
             // Store the deletion event itself for history
-            if let Ok(true) = state.pool.store_event(&event).await {
-                let _ = broadcast_tx.send(event);
-            }
+            store_and_broadcast_if_ok(state, broadcast_tx, &result, event).await;
             return result;
         }
         9005 => {
@@ -185,9 +222,7 @@ async fn handle_event(
                     .unwrap_or_else(|e| {
                         vec![format!(r#"["OK","{}",false,"error: {e}"]"#, event.id)]
                     });
-            if let Ok(true) = state.pool.store_event(&event).await {
-                let _ = broadcast_tx.send(event);
-            }
+            store_and_broadcast_if_ok(state, broadcast_tx, &result, event).await;
             return result;
         }
         9021 => {
@@ -198,9 +233,7 @@ async fn handle_event(
                     .unwrap_or_else(|e| {
                         vec![format!(r#"["OK","{}",false,"error: {e}"]"#, event.id)]
                     });
-            if let Ok(true) = state.pool.store_event(&event).await {
-                let _ = broadcast_tx.send(event);
-            }
+            store_and_broadcast_if_ok(state, broadcast_tx, &result, event).await;
             republish_metadata_if_ok(state, broadcast_tx, &result, group_id).await;
             return result;
         }
@@ -209,9 +242,7 @@ async fn handle_event(
             let result = crate::nostr::nip29::membership::handle_leave(&state.pool, &event)
                 .await
                 .unwrap_or_else(|e| vec![format!(r#"["OK","{}",false,"error: {e}"]"#, event.id)]);
-            if let Ok(true) = state.pool.store_event(&event).await {
-                let _ = broadcast_tx.send(event);
-            }
+            store_and_broadcast_if_ok(state, broadcast_tx, &result, event).await;
             republish_metadata_if_ok(state, broadcast_tx, &result, group_id).await;
             return result;
         }
@@ -254,14 +285,14 @@ async fn handle_event(
                     tracing::error!(
                         error = %e,
                         space_id = %h,
-                        pubkey = &event.pubkey[..12],
+                        pubkey = log_prefix(&event.pubkey),
                         "Membership lookup failed; rejecting publish",
                     );
                     false
                 });
             if let PublishVerdict::Reject(reason) = evaluate_publish_gate(&event, is_member) {
                 tracing::info!(
-                    pubkey = &event.pubkey[..12],
+                    pubkey = log_prefix(&event.pubkey),
                     space_id = %h,
                     kind = event.kind,
                     "Rejected publish: not a member of group",
@@ -278,21 +309,21 @@ async fn handle_event(
     match state.pool.store_event(&event).await {
         Ok(true) => {
             tracing::debug!(
-                event_id = &event.id[..12],
+                event_id = log_prefix(&event.id),
                 kind = event.kind,
-                pubkey = &event.pubkey[..12],
+                pubkey = log_prefix(&event.pubkey),
                 "Event stored"
             );
             let _ = broadcast_tx.send(event.clone());
             vec![format!(r#"["OK","{}",true,""]"#, event.id)]
         }
         Ok(false) => {
-            tracing::trace!(event_id = &event.id[..12], "Duplicate event");
+            tracing::trace!(event_id = log_prefix(&event.id), "Duplicate event");
             vec![format!(r#"["OK","{}",true,"duplicate:"]"#, event.id)]
         }
         Err(e) => {
             tracing::error!(
-                event_id = &event.id[..12],
+                event_id = log_prefix(&event.id),
                 kind = event.kind,
                 error = %e,
                 "Failed to store event"
@@ -313,50 +344,69 @@ async fn handle_req(
         None => return vec![r#"["NOTICE","missing subscription ID"]"#.to_string()],
     };
 
-    let filter: Filter = match serde_json::from_value(msg.get(2).cloned().unwrap_or_default()) {
-        Ok(f) => f,
-        Err(_) => return vec![r#"["NOTICE","invalid filter"]"#.to_string()],
+    // NIP-01: a REQ may carry MULTIPLE filters (msg[2..]); an event matches the
+    // subscription if it matches ANY of them. Previously only the first was honored
+    // (#19), silently dropping the rest.
+    const MAX_FILTERS: usize = 16;
+    let raw = msg.as_array().map(|a| &a[2..]);
+    let filters: Vec<Filter> = match raw {
+        Some(items) if !items.is_empty() => {
+            if items.len() > MAX_FILTERS {
+                return vec![format!(r#"["CLOSED","{}","invalid: too many filters"]"#, sub_id)];
+            }
+            let mut out = Vec::with_capacity(items.len());
+            for item in items {
+                match serde_json::from_value::<Filter>(item.clone()) {
+                    Ok(f) => out.push(f),
+                    Err(_) => return vec![r#"["NOTICE","invalid filter"]"#.to_string()],
+                }
+            }
+            out
+        }
+        _ => return vec![r#"["NOTICE","invalid filter"]"#.to_string()],
     };
 
     // NIP-42: an anonymous client REQ-ing a private group gets an explicit
     // `auth-required` CLOSED so it knows to AUTH and retry (rather than a silent
-    // empty EOSE). Members / public groups are unaffected.
-    if authed_pubkey.is_none()
-        && !filter.h_tags.is_empty()
-        && state.pool.any_private(&filter.h_tags)
-            .await
-            .unwrap_or(false)
-    {
-        return vec![format!(
-            r#"["CLOSED","{}","auth-required: this group requires authentication"]"#,
-            sub_id
-        )];
+    // empty EOSE). Members / public groups are unaffected. Check the union of all
+    // filters' h_tags.
+    if authed_pubkey.is_none() {
+        let h_union: Vec<String> = filters.iter().flat_map(|f| f.h_tags.clone()).collect();
+        if !h_union.is_empty() && state.pool.any_private(&h_union).await.unwrap_or(false) {
+            return vec![format!(
+                r#"["CLOSED","{}","auth-required: this group requires authentication"]"#,
+                sub_id
+            )];
+        }
     }
 
-    // Query stored events, filtered by visibility based on auth status
-    let events = state.pool
-        .query_events(&filter, authed_pubkey.as_deref())
-        .await
-        .unwrap_or_default();
+    // Query stored events for each filter, merge with id-dedup, newest-first.
+    let mut seen = HashSet::new();
+    let mut merged: Vec<crate::nostr::event::Event> = Vec::new();
+    for filter in &filters {
+        let events = state.pool
+            .query_events(filter, authed_pubkey.as_deref())
+            .await
+            .unwrap_or_default();
+        for e in events {
+            if seen.insert(e.id.clone()) {
+                merged.push(e);
+            }
+        }
+    }
+    merged.sort_by(|a, b| b.created_at.cmp(&a.created_at));
 
-    tracing::debug!(
-        sub_id,
-        results = events.len(),
-        kinds = ?filter.kinds,
-        "REQ"
-    );
+    tracing::debug!(sub_id, filters = filters.len(), results = merged.len(), "REQ");
 
-    // Register subscription for live events (separate parse since Filter doesn't impl Clone)
+    // Register the subscription (all filters) for live events.
     {
-        let live_filter: Filter =
-            serde_json::from_value(msg.get(2).cloned().unwrap_or_default()).unwrap_or_default();
         let mut subs = subscriptions.lock().await;
-        if let Err(msg) = subs.add(sub_id.clone(), live_filter) {
+        if let Err(msg) = subs.add(sub_id.clone(), filters) {
             return vec![format!(r#"["CLOSED","{}","error: {}"]"#, sub_id, msg)];
         }
     }
 
-    let mut responses: Vec<String> = events
+    let mut responses: Vec<String> = merged
         .into_iter()
         .map(|e| {
             format!(
@@ -405,9 +455,13 @@ async fn handle_auth(
     // (loopback/LAN/tunnel), so the AUTH `relay` tag can't match one canonical
     // URL — relax the URL check there (the random challenge stays the binding).
     let strict_relay_url = !state.hosted_only;
-    if !crate::protocol::nip42::verify_auth_event(&event, challenge, relay_url, strict_relay_url) {
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs() as i64)
+        .unwrap_or(0);
+    if !crate::protocol::nip42::verify_auth_event(&event, challenge, relay_url, strict_relay_url, now) {
         tracing::debug!(
-            event_id = &event.id[..12],
+            event_id = log_prefix(&event.id),
             "AUTH failed: invalid challenge/relay/signature"
         );
         return vec![format!(
@@ -417,7 +471,7 @@ async fn handle_auth(
     }
 
     tracing::info!(
-        pubkey = &event.pubkey[..12],
+        pubkey = log_prefix(&event.pubkey),
         "Client authenticated (NIP-42)"
     );
     *authed_pubkey = Some(event.pubkey.clone());
@@ -430,7 +484,7 @@ async fn handle_auth(
     match state.pool.members_of(&event.pubkey).await {
         Ok(set) => {
             tracing::debug!(
-                pubkey = &event.pubkey[..12],
+                pubkey = log_prefix(&event.pubkey),
                 space_count = set.len(),
                 "Loaded space memberships for broadcast filter"
             );
@@ -438,7 +492,7 @@ async fn handle_auth(
         }
         Err(e) => {
             tracing::warn!(
-                pubkey = &event.pubkey[..12],
+                pubkey = log_prefix(&event.pubkey),
                 error = %e,
                 "Failed to load space memberships (h-tagged broadcasts will be hidden until reconnect)"
             );

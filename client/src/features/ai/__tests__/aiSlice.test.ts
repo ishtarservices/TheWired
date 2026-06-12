@@ -7,9 +7,13 @@ import {
   appendAssistantDelta,
   finishAssistantMessage,
   failAssistantMessage,
+  endTurn,
   removeConversation,
+  evictConversationMessages,
   setConversationMessages,
   addArtifact,
+  addPendingWrite,
+  setPendingWrites,
   upsertProviderConfig,
   removeProviderConfig,
   selectMessageIdsForConversation,
@@ -47,7 +51,7 @@ describe("aiSlice", () => {
     expect(store.getState().ai.conversations.entities["c1"]?.updatedAt).toBe(2);
   });
 
-  it("runs the streaming lifecycle: start → append → finish", () => {
+  it("runs the streaming lifecycle: start → append → finish → endTurn", () => {
     const store = createTestStore();
     store.dispatch(upsertConversation(convo("c1")));
     store.dispatch(startAssistantMessage({ conversationId: "c1", messageId: "a1", createdAt: 3 }));
@@ -59,20 +63,81 @@ describe("aiSlice", () => {
       { type: "text", text: "Hello" },
     ]);
 
+    // PROBE #12: the flag is TURN-scoped — finishing one message keeps it set
+    // (the turn may continue into tool execution); only endTurn clears it.
     store.dispatch(finishAssistantMessage({ conversationId: "c1", messageId: "a1" }));
-    expect(selectIsStreaming("c1")(store.getState())).toBe(false);
     expect(store.getState().ai.messages.entities["a1"]?.status).toBe("complete");
+    expect(selectIsStreaming("c1")(store.getState())).toBe(true);
+    store.dispatch(endTurn("c1"));
+    expect(selectIsStreaming("c1")(store.getState())).toBe(false);
   });
 
-  it("marks a failed turn and clears the streaming flag", () => {
+  it("marks a failed turn; the streaming flag survives until endTurn (turn-scoped)", () => {
     const store = createTestStore();
     store.dispatch(upsertConversation(convo("c1")));
     store.dispatch(startAssistantMessage({ conversationId: "c1", messageId: "a1", createdAt: 3 }));
     store.dispatch(failAssistantMessage({ conversationId: "c1", messageId: "a1", error: "boom" }));
-    expect(selectIsStreaming("c1")(store.getState())).toBe(false);
     const m = store.getState().ai.messages.entities["a1"];
     expect(m?.status).toBe("error");
     expect(m?.error).toBe("boom");
+    expect(selectIsStreaming("c1")(store.getState())).toBe(true);
+    store.dispatch(endTurn("c1"));
+    expect(selectIsStreaming("c1")(store.getState())).toBe(false);
+  });
+
+  it("PROBE #12: evictConversationMessages is refused while the turn is in flight", () => {
+    const store = createTestStore();
+    store.dispatch(upsertConversation(convo("c1")));
+    store.dispatch(addMessage({ message: userMsg("m1", "c1", 2) }));
+    store.dispatch(startAssistantMessage({ conversationId: "c1", messageId: "a1", createdAt: 3 }));
+    store.dispatch(finishAssistantMessage({ conversationId: "c1", messageId: "a1" }));
+    // Mid-turn (tool phase): the message finished but endTurn hasn't fired.
+    store.dispatch(evictConversationMessages("c1"));
+    expect(store.getState().ai.messagesByConversation["c1"]).toBeDefined();
+    store.dispatch(endTurn("c1"));
+    store.dispatch(evictConversationMessages("c1"));
+    expect(store.getState().ai.messagesByConversation["c1"]).toBeUndefined();
+  });
+
+  it("PROBE #48: addPendingWrite refuses id reuse (no overwrite, no resurrect)", () => {
+    const store = createTestStore();
+    const base = {
+      id: "w1",
+      toolCallId: "call_0",
+      conversationId: "c1",
+      messageId: "m1",
+      kind: "note" as const,
+      summary: "Post a note",
+      createdAt: 1,
+    };
+    store.dispatch(addPendingWrite({ ...base, content: "original draft", status: "done" }));
+    // An id-reusing provider replays the same id with new content + pending
+    // status — pre-fix this overwrote the entry (re-approvable resurrection).
+    store.dispatch(addPendingWrite({ ...base, content: "evil replacement", status: "pending" }));
+    const w = store.getState().ai.pendingWrites["w1"];
+    expect(w?.content).toBe("original draft");
+    expect(w?.status).toBe("done");
+    expect(store.getState().ai.pendingWriteIdsByConversation["c1"]).toEqual(["w1"]);
+  });
+
+  it("PROBE #48/#98: setPendingWrites rebuilds the maps on hydration", () => {
+    const store = createTestStore();
+    const w = (id: string, conversationId: string) => ({
+      id,
+      toolCallId: "t",
+      conversationId,
+      messageId: "m",
+      kind: "note" as const,
+      summary: "s",
+      content: "c",
+      status: "pending" as const,
+      createdAt: 1,
+    });
+    store.dispatch(setPendingWrites([w("w1", "c1"), w("w2", "c1"), w("w3", "c2")]));
+    const s = store.getState().ai;
+    expect(Object.keys(s.pendingWrites).sort()).toEqual(["w1", "w2", "w3"]);
+    expect(s.pendingWriteIdsByConversation["c1"]).toEqual(["w1", "w2"]);
+    expect(s.pendingWriteIdsByConversation["c2"]).toEqual(["w3"]);
   });
 
   it("cascade-deletes messages + artifacts + index on removeConversation", () => {

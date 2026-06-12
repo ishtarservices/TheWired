@@ -96,7 +96,7 @@ export const NoteActionBar = memo(function NoteActionBar({
         <span>{formatCount(engagement.quoteCount)}</span>
       </button>
 
-      {/* Zap */}
+      {/* Zap (send) — the running total + comments live in the ZapSummary chip */}
       {onZap && (
         <button
           onClick={onZap}

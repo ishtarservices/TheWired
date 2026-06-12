@@ -6,6 +6,8 @@ import App from "./app/App";
 import { initZoom } from "./lib/zoom";
 import { installWiredDebug } from "./lib/debug/logger";
 import { startPerfMonitor } from "./lib/debug/perfMonitor";
+// Side-effect import: registers wiredDebug.calls() (lazy-loads the call stack on use)
+import "./lib/debug/callTracker";
 import "./index.css";
 
 // Apply persisted zoom synchronously before render to avoid layout flash.

@@ -26,6 +26,7 @@ export type LogCategory =
   | "identity"
   | "relay"
   | "sub"
+  | "outbox" // persistent publish outbox: queue/replay/ack
   | "pipeline"
   | "profile"
   | "idb"
@@ -36,7 +37,8 @@ export type LogCategory =
   | "nav"   // route changes, navigation timing, current-account context
   | "perf"  // main-thread health (event-loop lag spikes)
   | "latency" // per-message receive latency, by relay (chat delivery timing)
-  | "feed"; // profile / space feed throughput (note arrivals, LoadMore)
+  | "feed"  // profile / space feed throughput (note arrivals, LoadMore)
+  | "call"; // voice/video: RTC signaling, ICE, LiveKit tracks, audio attach
 
 type LogLevel = "debug" | "info" | "warn" | "error";
 
@@ -45,6 +47,7 @@ const CATEGORY_COLORS: Record<LogCategory, string> = {
   identity: "#f472b6",
   relay: "#38bdf8",
   sub: "#22d3ee",
+  outbox: "#2dd4bf",
   pipeline: "#fbbf24",
   profile: "#34d399",
   idb: "#94a3b8",
@@ -56,6 +59,7 @@ const CATEGORY_COLORS: Record<LogCategory, string> = {
   perf: "#ef4444",
   latency: "#e879f9",
   feed: "#10b981",
+  call: "#4ade80",
 };
 
 const LS_KEY = "wired:debug";
@@ -336,10 +340,11 @@ function buildApi(): WiredDebugApi {
           '  profiles("pending")       — profile resolution table (omit arg for all)',
           "  relays()                  — relay connection snapshot",
           "  session()                 — snapshot: account + top subs + recent lag spikes + relays",
+          "  calls()                   — voice/call snapshot: state, PC + ICE stats, tracks, LiveKit room",
           "  dump({cats,level,sinceSec}) — export recent trace (also copies to clipboard)",
           "  clear()                   — clear the trace buffer",
           "  categories: startup, identity, relay, sub, pipeline, profile, idb, spaces,",
-          "              nav, perf, feed, zap, nwc, lnurl",
+          "              nav, perf, feed, zap, nwc, lnurl, call",
         ].join("\n"),
       );
     },

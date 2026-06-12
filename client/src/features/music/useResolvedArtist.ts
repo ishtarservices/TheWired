@@ -2,7 +2,7 @@ import { useProfile } from "@/features/profile/useProfile";
 import type { MusicView } from "@/types/music";
 
 /** Check if a string is a 64-char hex pubkey */
-function isHexPubkey(s: string): boolean {
+export function isHexPubkey(s: string): boolean {
   return /^[0-9a-f]{64}$/i.test(s);
 }
 

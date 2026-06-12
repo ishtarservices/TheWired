@@ -17,18 +17,19 @@ interface VideoGridProps {
 export function VideoGrid({ participants, showLocal = true }: VideoGridProps) {
   const myPubkey = useAppSelector((s) => s.identity.pubkey);
   const localState = useAppSelector((s) => s.voice.localState);
+  const activeSpeakers = useAppSelector((s) => s.voice.activeSpeakers);
 
   // Build tile list: local user + remote participants
   const tiles = useMemo(() => {
     const list: Array<{ participant: VoiceParticipantType; isLocal: boolean }> = [];
 
-    // Add local participant first
+    // Add local participant first (ActiveSpeakersChanged includes us)
     if (showLocal && myPubkey) {
       list.push({
         participant: {
           pubkey: myPubkey,
           displayName: "You",
-          isSpeaking: false,
+          isSpeaking: activeSpeakers.includes(myPubkey),
           isMuted: localState.muted,
           isDeafened: localState.deafened,
           hasVideo: localState.videoEnabled,
@@ -47,7 +48,7 @@ export function VideoGrid({ participants, showLocal = true }: VideoGridProps) {
     }
 
     return list;
-  }, [participants, myPubkey, localState, showLocal]);
+  }, [participants, myPubkey, localState, showLocal, activeSpeakers]);
 
   const gridClass = useMemo(() => {
     const count = tiles.length;
