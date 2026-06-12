@@ -24,6 +24,9 @@ interface VoiceState {
   connectionQuality: "excellent" | "good" | "poor" | "unknown";
   /** Whether currently connecting to a room */
   connecting: boolean;
+  /** Autoplay policy blocked audio playback — UI offers an "Enable audio"
+   *  action that calls room.startAudio() from a user gesture. */
+  audioPlaybackBlocked: boolean;
   /** LiveKit token for current room */
   token: string | null;
   /** LiveKit server URL */
@@ -44,6 +47,7 @@ const initialState: VoiceState = {
   activeSpeakers: [],
   connectionQuality: "unknown",
   connecting: false,
+  audioPlaybackBlocked: false,
   token: null,
   serverUrl: null,
   roomPresence: {},
@@ -74,6 +78,7 @@ export const voiceSlice = createSlice({
       state.activeSpeakers = [];
       state.connectionQuality = "unknown";
       state.connecting = false;
+      state.audioPlaybackBlocked = false;
       state.token = null;
       state.serverUrl = null;
       state.localState = {
@@ -111,6 +116,12 @@ export const voiceSlice = createSlice({
 
     toggleMute(state) {
       state.localState.muted = !state.localState.muted;
+      // Unmuting while deafened also un-deafens (Discord semantics) — the
+      // user expects to be heard AND to hear again.
+      if (!state.localState.muted && state.localState.deafened) {
+        state.localState.deafened = false;
+        state.localState.mutedBeforeDeafen = undefined;
+      }
     },
 
     setMuted(state, action: PayloadAction<boolean>) {
@@ -118,10 +129,15 @@ export const voiceSlice = createSlice({
     },
 
     toggleDeafen(state) {
-      state.localState.deafened = !state.localState.deafened;
-      // Deafening also mutes
-      if (state.localState.deafened) {
+      if (!state.localState.deafened) {
+        // Deafening also mutes, but remember what to restore (#8).
+        state.localState.deafened = true;
+        state.localState.mutedBeforeDeafen = state.localState.muted;
         state.localState.muted = true;
+      } else {
+        state.localState.deafened = false;
+        state.localState.muted = state.localState.mutedBeforeDeafen ?? false;
+        state.localState.mutedBeforeDeafen = undefined;
       }
     },
 
@@ -154,6 +170,10 @@ export const voiceSlice = createSlice({
     ) {
       state.roomPresence = action.payload;
     },
+
+    setAudioPlaybackBlocked(state, action: PayloadAction<boolean>) {
+      state.audioPlaybackBlocked = action.payload;
+    },
   },
 });
 
@@ -174,4 +194,5 @@ export const {
   setVideoEnabled,
   setConnectionQuality,
   setRoomPresence,
+  setAudioPlaybackBlocked,
 } = voiceSlice.actions;

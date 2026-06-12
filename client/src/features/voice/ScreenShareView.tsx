@@ -2,6 +2,7 @@ import { useEffect, useRef } from "react";
 import { Track } from "livekit-client";
 import { getLivekitRoom } from "@/lib/webrtc/livekitClient";
 import { ParticipantTile } from "./ParticipantTile";
+import { useLiveKitTrack } from "./useLiveKitTrack";
 import type { VoiceParticipant as VoiceParticipantType } from "@/types/calling";
 import { useProfile } from "@/features/profile/useProfile";
 import { useAppSelector } from "@/store/hooks";
@@ -21,32 +22,27 @@ export function ScreenShareView({ screenSharerPubkey, participants }: ScreenShar
   const screenRef = useRef<HTMLVideoElement>(null);
   const myPubkey = useAppSelector((s) => s.identity.pubkey);
   const localState = useAppSelector((s) => s.voice.localState);
+  const activeSpeakers = useAppSelector((s) => s.voice.activeSpeakers);
 
-  // Attach screen share track
+  const isLocalShare =
+    screenSharerPubkey === getLivekitRoom()?.localParticipant.identity;
+  const screenTrack = useLiveKitTrack(
+    screenSharerPubkey,
+    Track.Source.ScreenShare,
+    isLocalShare,
+  );
+
+  // Attach screen share track (re-resolves via useLiveKitTrack, so a share
+  // whose track publishes after mount still attaches)
   useEffect(() => {
-    const room = getLivekitRoom();
-    if (!room || !screenRef.current) return;
+    const el = screenRef.current;
+    if (!screenTrack || !el) return;
 
-    const isLocalShare = screenSharerPubkey === room.localParticipant.identity;
-    const lkParticipant = isLocalShare
-      ? room.localParticipant
-      : room.remoteParticipants.get(screenSharerPubkey);
-
-    if (!lkParticipant) return;
-
-    const screenPub = lkParticipant.getTrackPublication(Track.Source.ScreenShare);
-    const track = screenPub?.track;
-
-    if (track) {
-      track.attach(screenRef.current);
-    }
-
+    screenTrack.attach(el);
     return () => {
-      if (track && screenRef.current) {
-        track.detach(screenRef.current);
-      }
+      screenTrack.detach(el);
     };
-  }, [screenSharerPubkey]);
+  }, [screenTrack]);
 
   // Build sidebar tiles (local + remotes, small)
   const sidebarTiles = [
@@ -55,7 +51,7 @@ export function ScreenShareView({ screenSharerPubkey, participants }: ScreenShar
           participant: {
             pubkey: myPubkey,
             displayName: "You",
-            isSpeaking: false,
+            isSpeaking: activeSpeakers.includes(myPubkey),
             isMuted: localState.muted,
             isDeafened: localState.deafened,
             hasVideo: localState.videoEnabled,

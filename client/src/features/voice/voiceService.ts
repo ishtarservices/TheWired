@@ -9,6 +9,7 @@ import {
   setCameraEnabled,
   setScreenShareEnabled,
 } from "@/lib/webrtc/livekitClient";
+import { setRemoteAudioOutputMuted } from "@/lib/webrtc/remoteAudio";
 import { publishRoomPresence, clearRoomPresence } from "@/lib/nostr/roomPresence";
 
 /**
@@ -19,6 +20,14 @@ export async function joinVoiceChannel(
   spaceId: string,
   channelId: string,
 ): Promise<void> {
+  // The LiveKit room singleton is shared with SFU 1:1 calls — connecting
+  // here would silently tear that room down and leave callSlice stuck on
+  // "active". End the call cleanly first.
+  if (store.getState().call.activeCall) {
+    const { hangupCall } = await import("@/features/calling/callService");
+    await hangupCall().catch(() => {});
+  }
+
   store.dispatch(setConnecting(true));
 
   try {
@@ -73,12 +82,16 @@ export async function leaveVoiceChannel(): Promise<void> {
 }
 
 /**
- * Toggle microphone mute state.
- * Note: Redux state is toggled *before* this is called, so we read the new state.
- * muted=true means mic should be disabled.
+ * Sync the actual audio hardware/output state from Redux localState.
+ * Note: the reducer (toggleMute/toggleDeafen) runs *before* this is called,
+ * so we read the new state and apply it absolutely — no toggle drift.
+ *
+ * Covers both halves of deafen (#7/#8): mic publish state AND remote
+ * audio output mute.
  */
-export async function toggleMicrophone(): Promise<void> {
-  const { muted } = store.getState().voice.localState;
+export async function syncLocalAudioState(): Promise<void> {
+  const { muted, deafened } = store.getState().voice.localState;
+  setRemoteAudioOutputMuted(deafened);
   await setMicrophoneEnabled(!muted);
 }
 

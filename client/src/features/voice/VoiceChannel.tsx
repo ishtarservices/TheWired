@@ -8,6 +8,7 @@ import { selectChannelPresence } from "./voiceSelectors";
 import { VoiceControls } from "./VoiceControls";
 import { VideoGrid } from "./VideoGrid";
 import { ScreenShareView } from "./ScreenShareView";
+import { EnableAudioBanner } from "./EnableAudioBanner";
 import { Headphones, Video, Users, Wifi, WifiOff, Lock } from "lucide-react";
 import { parseChannelIdPart } from "@/features/spaces/spaceSelectors";
 import { usePermissions } from "@/features/spaces/usePermissions";
@@ -30,6 +31,8 @@ const EMPTY_CHANNELS: never[] = [];
 export function VoiceChannel() {
   const activeSpaceId = useAppSelector((s) => s.spaces.activeSpaceId);
   const activeChannelId = useAppSelector((s) => s.spaces.activeChannelId);
+  const myPubkey = useAppSelector((s) => s.identity.pubkey);
+  const localScreenSharing = useAppSelector((s) => s.voice.localState.screenSharing);
   const channels = useAppSelector(
     (s) => (activeSpaceId ? s.spaces.channels[activeSpaceId] : undefined) ?? EMPTY_CHANNELS,
   );
@@ -62,7 +65,12 @@ export function VoiceChannel() {
   const channelPresence = useAppSelector(selectChannelPresence(channelIdPart ?? ""));
   const presenceCount = channelPresence?.participantCount ?? 0;
 
-  const screenSharer = sortedParticipants.find((p) => p.isScreenSharing);
+  // Redux participants are remote-only — include the local share or the
+  // sharer never sees their own screen view.
+  const screenSharerPubkey =
+    localScreenSharing && myPubkey
+      ? myPubkey
+      : sortedParticipants.find((p) => p.isScreenSharing)?.pubkey;
   const hasVideoParticipants = sortedParticipants.some((p) => p.hasVideo);
 
   if (!activeSpaceId || !channelIdPart) return null;
@@ -144,6 +152,9 @@ export function VoiceChannel() {
         </span>
       </div>
 
+      {/* Autoplay-policy recovery (WebView2/WKWebView block silent starts) */}
+      <EnableAudioBanner />
+
       {/* Listen Together: invite banner (when not yet joined) */}
       {!ltActive && <ListenTogetherInvite />}
 
@@ -159,10 +170,10 @@ export function VoiceChannel() {
 
       {/* Main content area */}
       <div className="flex-1 overflow-hidden p-2">
-        {screenSharer ? (
+        {screenSharerPubkey ? (
           // Screen share mode: full-width screen + sidebar tiles
           <ScreenShareView
-            screenSharerPubkey={screenSharer.pubkey}
+            screenSharerPubkey={screenSharerPubkey}
             participants={sortedParticipants}
           />
         ) : (isVideoChannel || hasVideoParticipants) ? (

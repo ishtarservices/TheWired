@@ -43,6 +43,7 @@ import { createLogger, shortKey, shortRelay } from "../debug/logger";
 
 const log = createLogger("pipeline");
 const latencyLog = createLogger("latency");
+const callLog = createLogger("call");
 
 /** Gated per-message receive-latency probe (enable with `wiredDebug.enable("latency")`).
  *  Splits the delay into transit (sender→here) and pipeline (verify+dispatch here),
@@ -1310,7 +1311,7 @@ function handleCallInviteWrap(
       callerName: string;
     };
 
-    console.log(`[call] incoming invite from=${dm.sender.slice(0, 8)} type=${payload.callType}`);
+    callLog.info(`incoming invite from=${shortKey(dm.sender)} type=${payload.callType}`);
 
     store.dispatch(
       setIncomingCall({
@@ -1418,6 +1419,23 @@ async function handleWebRTCSignal(event: NostrEvent): Promise<void> {
   // Only process signals addressed to us
   const recipientTag = event.tags.find((t) => t[0] === "p")?.[1];
   if (recipientTag && recipientTag !== myPubkey) return;
+
+  // #6 defense-in-depth: gate on the active call BEFORE decrypting.
+  // parseRTCSignal runs a NIP-44 decrypt through the signer — on NIP-46
+  // that's a bunker round-trip per event, so forged ciphertexts would be
+  // a cheap way to spam the user with approval prompts/latency.
+  const activeCall = store.getState().call.activeCall;
+  if (!activeCall || event.pubkey !== activeCall.partnerPubkey) {
+    callLog.debug(
+      `kind:25050 dropped pre-decrypt (${!activeCall ? "no active call" : "non-partner sender"}) from=${shortKey(event.pubkey)}`,
+    );
+    return;
+  }
+  const roomTag = event.tags.find((t) => t[0] === "r")?.[1];
+  if (roomTag !== activeCall.roomId) {
+    callLog.debug(`kind:25050 dropped pre-decrypt (wrong room) from=${shortKey(event.pubkey)}`);
+    return;
+  }
 
   try {
     const signal = await parseRTCSignal(event);

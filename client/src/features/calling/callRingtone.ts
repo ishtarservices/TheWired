@@ -13,6 +13,12 @@ function getAudioContext(): AudioContext {
   if (!audioContext) {
     audioContext = new AudioContext();
   }
+  // Chromium/WebView2 autoplay policy: a context created outside a user
+  // gesture starts "suspended" and synthesizes silence until resumed —
+  // an incoming-call ring is exactly that case (Windows: silent ringtone).
+  if (audioContext.state === "suspended") {
+    void audioContext.resume().catch(() => {});
+  }
   return audioContext;
 }
 

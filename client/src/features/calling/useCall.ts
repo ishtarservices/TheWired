@@ -1,6 +1,6 @@
 import { useCallback } from "react";
 import { useAppSelector, useAppDispatch } from "@/store/hooks";
-import { acceptCall as acceptCallAction, rejectCall as rejectCallAction } from "@/store/slices/callSlice";
+import { acceptCall as acceptCallAction } from "@/store/slices/callSlice";
 import {
   selectActiveCall,
   selectIncomingCall,
@@ -45,13 +45,14 @@ export function useCall() {
   }, [dispatch]);
 
   const reject = useCallback(async () => {
-    dispatch(rejectCallAction());
+    // The service captures the invite, THEN dispatches the clearing reducer
+    // (#37) — dispatching here first meant the decline was never sent.
     try {
       await rejectCall();
     } catch (err) {
       console.error("[call] Failed to reject:", err);
     }
-  }, [dispatch]);
+  }, []);
 
   const hangup = useCallback(async () => {
     try {

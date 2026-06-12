@@ -15,8 +15,18 @@ import {
   updateParticipant,
   setActiveSpeakers,
   setConnectionQuality,
+  setAudioPlaybackBlocked,
   disconnectRoom,
 } from "@/store/slices/voiceSlice";
+import { endCall } from "@/store/slices/callSlice";
+import {
+  attachRemoteAudio,
+  detachRemoteAudio,
+  clearRemoteAudio,
+} from "./remoteAudio";
+import { createLogger, shortKey } from "../debug/logger";
+
+const log = createLogger("call");
 import {
   LISTEN_TOGETHER_TOPIC,
   decodeLTMessage,
@@ -64,6 +74,7 @@ export async function connectToRoom(
 
   // Wire up room events to Redux
   room.on(RoomEvent.ParticipantConnected, (participant: RemoteParticipant) => {
+    log.info(`participant joined ${shortKey(participant.identity)}`);
     store.dispatch(
       addParticipant({
         pubkey: participant.identity,
@@ -128,7 +139,17 @@ export async function connectToRoom(
 
   room.on(
     RoomEvent.TrackSubscribed,
-    (_track, publication: RemoteTrackPublication, participant: RemoteParticipant) => {
+    (track, publication: RemoteTrackPublication, participant: RemoteParticipant) => {
+      // Audio (Microphone AND ScreenShareAudio) must be attached to an
+      // element or it never plays — speaking indicators work without it,
+      // which is exactly the "green rings but silence" bug (audit #7).
+      log.info(
+        `track subscribed src=${publication.source} kind=${track.kind} from=${shortKey(participant.identity)}`,
+      );
+      if (track.kind === Track.Kind.Audio) {
+        attachRemoteAudio(track);
+      }
+
       if (publication.source === Track.Source.Camera) {
         store.dispatch(
           updateParticipant({
@@ -143,13 +164,29 @@ export async function connectToRoom(
             isScreenSharing: true,
           }),
         );
+      } else if (publication.source === Track.Source.Microphone) {
+        // A mic published after join arrives as TrackSubscribed, not
+        // TrackUnmuted — without this the participant shows muted forever.
+        store.dispatch(
+          updateParticipant({
+            pubkey: participant.identity,
+            isMuted: publication.isMuted,
+          }),
+        );
       }
     },
   );
 
   room.on(
     RoomEvent.TrackUnsubscribed,
-    (_track, publication: RemoteTrackPublication, participant: RemoteParticipant) => {
+    (track, publication: RemoteTrackPublication, participant: RemoteParticipant) => {
+      log.info(
+        `track unsubscribed src=${publication.source} kind=${track.kind} from=${shortKey(participant.identity)}`,
+      );
+      if (track.kind === Track.Kind.Audio) {
+        detachRemoteAudio(track);
+      }
+
       if (publication.source === Track.Source.Camera) {
         store.dispatch(
           updateParticipant({
@@ -164,9 +201,29 @@ export async function connectToRoom(
             isScreenSharing: false,
           }),
         );
+      } else if (publication.source === Track.Source.Microphone) {
+        store.dispatch(
+          updateParticipant({
+            pubkey: participant.identity,
+            isMuted: true,
+          }),
+        );
       }
     },
   );
+
+  // Autoplay policy (Tauri WKWebView / Windows WebView2): when playback is
+  // blocked, surface a flag so the UI can offer an "Enable audio" action
+  // that calls room.startAudio() from a user gesture.
+  room.on(RoomEvent.AudioPlaybackStatusChanged, () => {
+    if (room.canPlaybackAudio) {
+      log.info("audio playback allowed");
+    } else {
+      // Always print — this IS the "connected but silent" symptom.
+      log.warn("audio playback BLOCKED by autoplay policy — showing enable pill");
+    }
+    store.dispatch(setAudioPlaybackBlocked(!room.canPlaybackAudio));
+  });
 
   room.on(RoomEvent.Disconnected, (reason?: DisconnectReason) => {
     // Only log non-user-initiated disconnects — ordinary hangups are noise.
@@ -174,7 +231,15 @@ export async function connectToRoom(
       console.warn(`[LiveKit] disconnected: ${disconnectReasonName(reason)} (${reason})`);
     }
     cleanupListenTogether();
+    clearRemoteAudio();
     store.dispatch(disconnectRoom());
+    // The room singleton is shared between voice channels and SFU 1:1 calls.
+    // A non-client-initiated drop during an SFU call would otherwise leave
+    // callSlice stuck on "active" with no media behind it.
+    const activeCall = store.getState().call.activeCall;
+    if (activeCall?.isSfuFallback && reason !== DisconnectReason.CLIENT_INITIATED) {
+      store.dispatch(endCall("failed"));
+    }
     currentRoom = null;
   });
 
@@ -209,10 +274,21 @@ export async function connectToRoom(
   });
 
   // Connect
+  log.info(`connecting to ${serverUrl}`);
   await room.connect(serverUrl, token);
+  log.info(
+    `room connected participants=${room.remoteParticipants.size} canPlaybackAudio=${room.canPlaybackAudio}`,
+  );
 
   // Add existing participants
   for (const participant of room.remoteParticipants.values()) {
+    // Tracks subscribed before our TrackSubscribed handler saw them
+    // (autoSubscribe racing connect) still need their audio attached.
+    for (const publication of participant.trackPublications.values()) {
+      if (publication.track && publication.track.kind === Track.Kind.Audio) {
+        attachRemoteAudio(publication.track);
+      }
+    }
     store.dispatch(
       addParticipant({
         pubkey: participant.identity,

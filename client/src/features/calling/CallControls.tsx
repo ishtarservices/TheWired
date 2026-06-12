@@ -10,7 +10,12 @@ import {
 } from "lucide-react";
 import { useAppSelector, useAppDispatch } from "@/store/hooks";
 import { toggleCallMute, toggleCallVideo, toggleCallScreenShare } from "@/store/slices/callSlice";
-import { hangupCall } from "./callService";
+import {
+  hangupCall,
+  setCallMuted,
+  setCallVideoEnabled,
+  setCallScreenShare,
+} from "./callService";
 import { cn } from "@/lib/utils";
 import { useListenTogether } from "@/features/listenTogether/useListenTogether";
 
@@ -20,6 +25,38 @@ export function CallControls() {
   const { active: ltActive, togglePicker, pickerOpen } = useListenTogether();
 
   if (!activeCall) return null;
+
+  // Optimistic flag flip + apply to the real media; revert on failure.
+  // The flags alone are cosmetic — the tracks keep transmitting (audit C4).
+  const handleMute = async () => {
+    const next = !activeCall.isMuted;
+    dispatch(toggleCallMute());
+    try {
+      await setCallMuted(next);
+    } catch {
+      dispatch(toggleCallMute());
+    }
+  };
+
+  const handleVideo = async () => {
+    const next = !activeCall.isVideoEnabled;
+    dispatch(toggleCallVideo());
+    try {
+      await setCallVideoEnabled(next);
+    } catch {
+      dispatch(toggleCallVideo());
+    }
+  };
+
+  const handleScreenShare = async () => {
+    const next = !activeCall.isScreenSharing;
+    dispatch(toggleCallScreenShare());
+    try {
+      await setCallScreenShare(next);
+    } catch {
+      dispatch(toggleCallScreenShare());
+    }
+  };
 
   return (
     <div className="flex items-center justify-center gap-3">
@@ -41,7 +78,7 @@ export function CallControls() {
 
       {/* Mute */}
       <button
-        onClick={() => dispatch(toggleCallMute())}
+        onClick={handleMute}
         className={cn(
           "rounded-full p-3 transition-colors",
           activeCall.isMuted
@@ -56,7 +93,7 @@ export function CallControls() {
       {/* Video */}
       {activeCall.callType === "video" && (
         <button
-          onClick={() => dispatch(toggleCallVideo())}
+          onClick={handleVideo}
           className={cn(
             "rounded-full p-3 transition-colors",
             !activeCall.isVideoEnabled
@@ -69,23 +106,26 @@ export function CallControls() {
         </button>
       )}
 
-      {/* Screen Share */}
-      <button
-        onClick={() => dispatch(toggleCallScreenShare())}
-        className={cn(
-          "rounded-full p-3 transition-colors",
-          activeCall.isScreenSharing
-            ? "bg-blue-500/20 text-blue-400"
-            : "bg-surface-hover text-heading",
-        )}
-        title={activeCall.isScreenSharing ? "Stop sharing" : "Share screen"}
-      >
-        {activeCall.isScreenSharing ? <Monitor size={20} /> : <MonitorOff size={20} />}
-      </button>
+      {/* Screen Share — SFU mode only; P2P has no renegotiation path, so a
+          button there would silently do nothing */}
+      {activeCall.isSfuFallback && (
+        <button
+          onClick={handleScreenShare}
+          className={cn(
+            "rounded-full p-3 transition-colors",
+            activeCall.isScreenSharing
+              ? "bg-blue-500/20 text-blue-400"
+              : "bg-surface-hover text-heading",
+          )}
+          title={activeCall.isScreenSharing ? "Stop sharing" : "Share screen"}
+        >
+          {activeCall.isScreenSharing ? <Monitor size={20} /> : <MonitorOff size={20} />}
+        </button>
+      )}
 
       {/* Hangup */}
       <button
-        onClick={hangupCall}
+        onClick={() => hangupCall()}
         className="rounded-full bg-red-500 p-3 text-white hover:bg-red-600 transition-colors"
         title="End call"
       >

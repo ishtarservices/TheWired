@@ -1,5 +1,6 @@
 import { useEffect } from "react";
-import { useAppSelector } from "@/store/hooks";
+import { useAppSelector, useAppDispatch } from "@/store/hooks";
+import { missedCall } from "@/store/slices/callSlice";
 import { useProfile } from "@/features/profile/useProfile";
 import { Avatar } from "@/components/ui/Avatar";
 import { useCall } from "./useCall";
@@ -11,6 +12,7 @@ import { Phone, PhoneOff, Video } from "lucide-react";
  * Displays caller info with accept/decline buttons.
  */
 export function IncomingCallModal() {
+  const dispatch = useAppDispatch();
   const incomingCall = useAppSelector((s) => s.call.incomingCall);
   const { answer, reject } = useCall();
 
@@ -27,6 +29,15 @@ export function IncomingCallModal() {
     }
     return () => stopRinging();
   }, [incomingCall]);
+
+  // Callee-side ring timeout. The caller's 30s timer sends call_missed, but
+  // if the caller crashed/went offline that never arrives — without this the
+  // modal rings forever.
+  useEffect(() => {
+    if (!incomingCall) return;
+    const timer = setTimeout(() => dispatch(missedCall()), 60_000);
+    return () => clearTimeout(timer);
+  }, [incomingCall, dispatch]);
 
   if (!incomingCall) return null;
 
