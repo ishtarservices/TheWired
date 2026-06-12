@@ -9,8 +9,12 @@ export interface ToolContext {
   conversationId: string;
   /** Assistant message that emitted the tool call. */
   messageId: string;
-  /** The originating tool-call id — write tools use it as the PendingWrite id. */
+  /** The originating provider tool-call id (kept on PendingWrites as a field —
+   *  never used as their identity, see audit #48). */
   toolCallId: string;
+  /** The turn's abort signal — long-running tools (web search) pass it to their
+   *  fetches so Stop / logout actually cancels them (audit #94). */
+  signal?: AbortSignal;
 }
 
 export interface ToolRunResult {

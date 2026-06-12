@@ -1,8 +1,8 @@
 import { openDB, type IDBPDatabase } from "idb";
-import type { AIConversation, AIMessage } from "@/types/ai";
+import type { AIConversation, AIMessage, PendingWrite } from "@/types/ai";
 
 const DB_NAME = "thewired_v1";
-const DB_VERSION = 2;
+const DB_VERSION = 3;
 
 export interface TheWiredDB {
   events: {
@@ -80,6 +80,14 @@ export interface TheWiredDB {
       by_account: string;
     };
   };
+  aiPendingWrites: {
+    key: string;
+    value: PendingWrite & { _account: string; _cachedAt: number };
+    indexes: {
+      by_account: string;
+      by_conversation: string;
+    };
+  };
 }
 
 let dbPromise: Promise<IDBPDatabase<TheWiredDB>> | null = null;
@@ -128,6 +136,21 @@ export function getDB(): Promise<IDBPDatabase<TheWiredDB>> {
           });
           messageStore.createIndex("by_conversation", "conversationId");
           messageStore.createIndex("by_account", "_account");
+        }
+
+        if (oldVersion < 3) {
+          // NOTE: the remaining audit-Phase-3 migration work (publish `outbox`
+          // store, deleting the dead `subscriptions` store, getDB blocked/
+          // terminated handlers — plan §C3) belongs in THIS bump if it lands
+          // before v3 ships; otherwise it takes v4.
+
+          // AI pending writes — model-proposed drafts awaiting human approval
+          // survive a reload instead of silently vanishing (audit #98).
+          const pendingWriteStore = db.createObjectStore("aiPendingWrites", {
+            keyPath: "id",
+          });
+          pendingWriteStore.createIndex("by_account", "_account");
+          pendingWriteStore.createIndex("by_conversation", "conversationId");
         }
       },
     });

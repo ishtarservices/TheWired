@@ -90,7 +90,7 @@ import {
 } from "../../store/slices/identitySlice";
 import { setActivePubkey, clearAccountState, migrateUnprefixedState } from "../db/userStateStore";
 import { TauriSigner } from "./tauriSigner";
-import { setSecret, getSecret, deleteSecret, nip46SecretKey } from "./secretStore";
+import { setSecret, getSecret, deleteSecret, nip46SecretKey, purgeWebSecrets } from "./secretStore";
 import {
   restoreOnboardingState,
   setShowProfileWizard,
@@ -1404,6 +1404,12 @@ export async function performLogout(): Promise<void> {
   } catch {
     // Not in Tauri environment, or keystore unavailable
   }
+
+  // 6.5 Web builds: purge transport secrets (LLM/web-search keys, bunker/NWC
+  // URIs) from session memory AND any opted-in localStorage entries — they must
+  // not survive logout (audit #95). No-op on Tauri (keychain is by-design
+  // persistent across logins).
+  purgeWebSecrets();
 
   // 7. Clear IndexedDB — AWAIT so data is gone before next login
   await Promise.all([

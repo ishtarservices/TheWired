@@ -30,12 +30,17 @@ vi.mock("@/lib/nostr/relayManager", () => ({
     waitForConnection: async () => {},
   },
 }));
+// Status changes write through to IndexedDB; stub the storage seam.
+vi.mock("@/lib/db/aiPendingWriteStore", () => ({
+  putPendingWrite: vi.fn(async () => {}),
+}));
 
 import { approvePendingWrite, cancelPendingWrite } from "../gate/approveWrite";
 
 function w(over: Partial<PendingWrite>): PendingWrite {
   return {
     id: "call1",
+    toolCallId: "tc1",
     conversationId: "c1",
     messageId: "m1",
     kind: "note",
@@ -134,6 +139,18 @@ describe("approvePendingWrite — kind → builder → sign", () => {
     await approvePendingWrite(w({ kind: "reply", content: "x" })); // no replyToEventId
     expect(h.published).toHaveLength(0);
     expect(changesWithStatus("error")).toBeTruthy();
+  });
+
+  it("PROBE #98: an expired draft is unsignable — Approve is refused outright", async () => {
+    // Drafts persisted >24h flip to "expired" on hydrate; the signing boundary
+    // must refuse them even if a stale card somehow fires Approve.
+    (h.state.ai as { pendingWrites: Record<string, { status: string }> }).pendingWrites.call1 = {
+      status: "expired",
+    };
+    await approvePendingWrite(w({ status: "expired" }));
+    expect(h.published).toHaveLength(0);
+    expect(h.dms).toHaveLength(0);
+    expect(h.dispatched).toHaveLength(0); // not even a status transition
   });
 });
 

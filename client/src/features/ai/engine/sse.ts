@@ -11,6 +11,16 @@
  * (spec rule) instead of trimming, so payloads with significant whitespace
  * survive intact.
  */
+/**
+ * Ceiling for BOTH the un-newlined line buffer and one event's accumulated
+ * `data:` payload. Legit SSE events are a few KB; a misbehaving or hostile
+ * endpoint (the "Custom" preset accepts any baseUrl) streaming a giant
+ * newline-less body would otherwise grow the strings unboundedly with O(n²)
+ * re-allocation churn (audit #97). Measured in UTF-16 code units (≈ bytes for
+ * the ASCII-dominated streams providers emit).
+ */
+const MAX_SSE_BUFFER = 4 * 1024 * 1024;
+
 export async function* parseSSE(
   stream: ReadableStream<Uint8Array>,
 ): AsyncGenerator<string> {
@@ -18,6 +28,16 @@ export async function* parseSSE(
   const decoder = new TextDecoder();
   let buffer = "";
   let dataLines: string[] = [];
+  let dataSize = 0; // running total of the un-dispatched dataLines
+
+  // The throw propagates to the provider's chat() loop, whose existing catch
+  // turns it into an error chunk for the UI.
+  async function overflow(what: string): Promise<never> {
+    await reader.cancel().catch(() => {});
+    throw new Error(
+      `SSE ${what} exceeded ${MAX_SSE_BUFFER / (1024 * 1024)}MB — aborting (misbehaving provider).`,
+    );
+  }
 
   // Consume one complete line; returns a payload to yield when the line is the
   // blank-line event boundary (and there is buffered data), else undefined.
@@ -28,11 +48,14 @@ export async function* parseSSE(
       if (dataLines.length === 0) return undefined;
       const payload = dataLines.join("\n");
       dataLines = [];
+      dataSize = 0;
       return payload;
     }
     if (stripped.startsWith("data:")) {
       const value = stripped.slice(5);
-      dataLines.push(value.startsWith(" ") ? value.slice(1) : value);
+      const data = value.startsWith(" ") ? value.slice(1) : value;
+      dataLines.push(data);
+      dataSize += data.length;
     }
     // event:/id:/retry: and comments (": …") carry no payload we use.
     return undefined;
@@ -43,6 +66,7 @@ export async function* parseSSE(
       const { done, value } = await reader.read();
       if (done) break;
       buffer += decoder.decode(value, { stream: true });
+      if (buffer.length > MAX_SSE_BUFFER) await overflow("line buffer");
       let newlineIdx: number;
       while ((newlineIdx = buffer.indexOf("\n")) !== -1) {
         const line = buffer.slice(0, newlineIdx);
@@ -50,6 +74,7 @@ export async function* parseSSE(
         const payload = takeLine(line);
         if (payload !== undefined) yield payload;
       }
+      if (dataSize > MAX_SSE_BUFFER) await overflow("event data");
     }
     // Flush any bytes the decoder is holding for an incomplete trailing
     // multibyte sequence, then process a final line with no trailing newline.

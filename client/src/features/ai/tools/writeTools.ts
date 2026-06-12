@@ -1,12 +1,18 @@
 /**
  * WRITE tools — the agent NEVER signs or publishes. Each run() builds an unsigned
- * draft, registers a PendingWrite (id = toolCallId, binding approval to this exact
- * call), and returns an "awaiting approval" tool result. The human gate
- * (PendingWriteCard) resolves relays/recipients and signs ONLY on Approve.
- * Targets are resolved against live app state, never trusted from the model.
+ * draft, registers a PendingWrite (internal nanoid id; the provider toolCallId is
+ * kept as a field — id-reusing servers must not collide, audit #48), and returns
+ * an "awaiting approval" tool result. The human gate (PendingWriteCard) resolves
+ * relays/recipients and signs ONLY on Approve. Targets are resolved against live
+ * app state, never trusted from the model. Tool RESULTS use neutral identifiers:
+ * space names and contact display names are attacker-authorable, and the result
+ * string lands in the model's trusted instruction space on the next loop
+ * iteration (audit #93) — the human-readable name belongs on the approval card.
  */
+import { nanoid } from "nanoid";
 import { store } from "@/store";
 import { addPendingWrite } from "@/store/slices/aiSlice";
+import { putPendingWrite } from "@/lib/db/aiPendingWriteStore";
 import type { PendingWrite } from "@/types/ai";
 import { displayName } from "../context/aiContext";
 import type { ToolDef, ToolContext } from "./types";
@@ -22,16 +28,22 @@ function openPendingCount(conversationId: string): number {
   ).length;
 }
 
-function register(write: Omit<PendingWrite, "status" | "createdAt">): string {
+function register(write: Omit<PendingWrite, "id" | "status" | "createdAt">): string {
   if (openPendingCount(write.conversationId) >= MAX_OPEN_PENDING) {
     throw new Error(
       "There are already several drafts waiting for the user's approval. Ask them to review those before drafting more.",
     );
   }
-  store.dispatch(
-    addPendingWrite({ ...write, status: "pending", createdAt: Date.now() }),
-  );
-  return write.id;
+  const pending: PendingWrite = {
+    ...write,
+    id: nanoid(),
+    status: "pending",
+    createdAt: Date.now(),
+  };
+  store.dispatch(addPendingWrite(pending));
+  const account = store.getState().identity.pubkey;
+  if (account) void putPendingWrite(pending, account);
+  return pending.id;
 }
 
 const PENDING_MSG = (what: string) =>
@@ -51,7 +63,7 @@ const publish_note: ToolDef = {
     const content = clampContent(args.content);
     if (!content.trim()) return { output: "Error: empty note content." };
     const id = register({
-      id: ctx.toolCallId,
+      toolCallId: ctx.toolCallId,
       conversationId: ctx.conversationId,
       messageId: ctx.messageId,
       kind: "note",
@@ -82,7 +94,7 @@ const reply_to: ToolDef = {
     if (!target) return { output: "Error: that note isn't loaded; can't reply." };
     if (!content.trim()) return { output: "Error: empty reply content." };
     const id = register({
-      id: ctx.toolCallId,
+      toolCallId: ctx.toolCallId,
       conversationId: ctx.conversationId,
       messageId: ctx.messageId,
       kind: "reply",
@@ -118,7 +130,7 @@ const send_dm: ToolDef = {
           "Error: couldn't resolve that recipient. Provide an npub/hex pubkey, or the name of an existing contact.",
       };
     const id = register({
-      id: ctx.toolCallId,
+      toolCallId: ctx.toolCallId,
       conversationId: ctx.conversationId,
       messageId: ctx.messageId,
       kind: "dm",
@@ -127,7 +139,9 @@ const send_dm: ToolDef = {
       recipientPubkey: recipient.pubkey,
       recipientLabel: recipient.label,
     });
-    return { output: PENDING_MSG(`a DM to ${recipient.label}`), pendingWriteId: id };
+    // Neutral identifier: the display name is attacker-set kind:0 metadata and
+    // must not enter the model's trusted tool-result space (audit #93).
+    return { output: PENDING_MSG("a DM to the resolved recipient"), pendingWriteId: id };
   },
 };
 
@@ -157,7 +171,7 @@ const post_to_space: ToolDef = {
       (c) => c.type === "chat" && !c.adminOnly,
     );
     const id = register({
-      id: ctx.toolCallId,
+      toolCallId: ctx.toolCallId,
       conversationId: ctx.conversationId,
       messageId: ctx.messageId,
       kind: "space_message",
@@ -166,7 +180,9 @@ const post_to_space: ToolDef = {
       spaceId,
       channelId: chatChannel?.id,
     });
-    return { output: PENDING_MSG(`a message to ${space.name}`), pendingWriteId: id };
+    // Neutral identifier: the space name is NIP-29 kind:39000 metadata —
+    // attacker-authorable (audit #93). The real name stays on the card.
+    return { output: PENDING_MSG("a message to the selected space"), pendingWriteId: id };
   },
 };
 
@@ -188,7 +204,7 @@ const publish_article: ToolDef = {
     const content = clampContent(args.content, 20000);
     if (!title || !content.trim()) return { output: "Error: article needs a title and body." };
     const id = register({
-      id: ctx.toolCallId,
+      toolCallId: ctx.toolCallId,
       conversationId: ctx.conversationId,
       messageId: ctx.messageId,
       kind: "article",
@@ -196,6 +212,8 @@ const publish_article: ToolDef = {
       title,
       content,
     });
+    // The title is model-authored (its own argument echoed back) — not an
+    // attacker-name interpolation like space/contact names.
     return { output: PENDING_MSG(`an article "${title}"`), pendingWriteId: id };
   },
 };

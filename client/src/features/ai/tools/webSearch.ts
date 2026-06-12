@@ -104,10 +104,17 @@ export function getWebSearchProvider(id: string | undefined): WebSearchProviderD
 
 // ── Key management (keychain + in-memory; never Redux) ──
 let apiKey: string | null = null;
+/** Bumped on every load/reset; a load that resolves after a newer one (account
+ *  switch mid-keychain-read) is discarded instead of stomping the cache with
+ *  the previous account's key (audit #49). */
+let keyGeneration = 0;
 
 export async function loadWebSearchKey(pubkey: string): Promise<void> {
+  const generation = ++keyGeneration;
   const { getSecret, webSearchKeySecret } = await import("@/lib/nostr/secretStore");
-  apiKey = (await getSecret(webSearchKeySecret(pubkey))) || null;
+  const key = (await getSecret(webSearchKeySecret(pubkey))) || null;
+  if (generation !== keyGeneration) return; // superseded while in flight
+  apiKey = key;
 }
 
 export async function setWebSearchKey(pubkey: string, key: string): Promise<void> {
@@ -127,6 +134,7 @@ export function getWebSearchKey(): string | null {
 }
 
 export function resetWebSearch(): void {
+  keyGeneration++; // invalidate any in-flight key load
   apiKey = null;
   searchesThisTurn.clear();
 }
@@ -148,7 +156,11 @@ export function isWebSearchConfigured(): boolean {
   return store.getState().ai.prefs?.webSearchEnabled === true && !!apiKey;
 }
 
-async function runWebSearch(query: string, conversationId: string): Promise<string> {
+async function runWebSearch(
+  query: string,
+  conversationId: string,
+  signal?: AbortSignal,
+): Promise<string> {
   const key = apiKey;
   if (!key) return "Error: web search isn't configured (add an API key in Settings → AI).";
   const used = searchesThisTurn.get(conversationId) ?? 0;
@@ -160,7 +172,9 @@ async function runWebSearch(query: string, conversationId: string): Promise<stri
   const { url, init } = provider.buildRequest(query, key);
   let res: Response;
   try {
-    res = await engineFetch(url, init);
+    // The turn's signal makes Stop actually cancel a paid in-flight request
+    // instead of letting it bill + complete in the background (audit #94).
+    res = await engineFetch(url, signal ? { ...init, signal } : init);
   } catch (e) {
     return `Error: web search request failed (${e instanceof Error ? e.message : String(e)}).`;
   }
@@ -195,7 +209,7 @@ export const webSearchTool: ToolDef = {
   async run(args, ctx) {
     const query = typeof args.query === "string" ? args.query.trim() : "";
     if (query.length < 2) return { output: "Error: empty search query.", isError: true };
-    const output = await runWebSearch(query, ctx.conversationId);
+    const output = await runWebSearch(query, ctx.conversationId, ctx.signal);
     return { output, isError: output.startsWith("Error:") };
   },
 };

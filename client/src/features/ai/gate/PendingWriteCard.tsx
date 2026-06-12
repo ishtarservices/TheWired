@@ -56,7 +56,8 @@ export function PendingWriteCard({ id }: { id: string }) {
   if (!write) return null;
   const Icon = KIND_ICON[write.kind] ?? FileText;
   const busy = write.status === "publishing";
-  const resolved = write.status === "done" || write.status === "cancelled";
+  const resolved =
+    write.status === "done" || write.status === "cancelled" || write.status === "expired";
 
   const startEdit = () => {
     setContent(write.content);
@@ -136,6 +137,11 @@ export function PendingWriteCard({ id }: { id: string }) {
           </div>
         ) : write.status === "cancelled" ? (
           <div className="mt-2 text-xs text-muted">Cancelled.</div>
+        ) : write.status === "expired" ? (
+          <div className="mt-2 text-xs text-muted">
+            Expired — drafts wait 24 hours for approval. Ask the AI to redraft if you
+            still want it.
+          </div>
         ) : (
           <div className="mt-2.5 flex items-center gap-2">
             <button

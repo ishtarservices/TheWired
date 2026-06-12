@@ -61,6 +61,43 @@ describe("parseSSE", () => {
     expect(out).toEqual([" two-leading-spaces"]);
   });
 
+  it("PROBE #97: rejects a newline-less stream past the 4MB cap and cancels the reader", async () => {
+    // A hostile/misconfigured OpenAI-compatible endpoint (the "Custom" preset
+    // accepts any baseUrl) streaming a giant body with no \n grew the buffer
+    // unboundedly pre-fix (O(n²) string churn → renderer OOM).
+    let cancelled = false;
+    const encoder = new TextEncoder();
+    const megabyte = encoder.encode("x".repeat(1024 * 1024));
+    const stream = new ReadableStream<Uint8Array>({
+      start(controller) {
+        for (let i = 0; i < 6; i++) controller.enqueue(megabyte);
+        controller.close();
+      },
+      cancel() {
+        cancelled = true;
+      },
+    });
+    await expect(collect(stream)).rejects.toThrow(/exceeded|4\s?MB/i);
+    expect(cancelled).toBe(true);
+  });
+
+  it("PROBE #97: rejects a single event whose accumulated data exceeds the cap", async () => {
+    // Same ceiling applies to the per-event `data:` accumulator — a stream of
+    // endless data: lines with no blank-line dispatch must not balloon.
+    const line = `data: ${"y".repeat(1024 * 1024)}\n`;
+    const out = collect(streamFrom([line, line, line, line, line, line]));
+    await expect(out).rejects.toThrow(/exceeded|4\s?MB/i);
+  });
+
+  it("PROBE #97: a well-formed multi-megabyte multi-event stream still passes", async () => {
+    // Cap is per-line-buffer / per-event, NOT per-stream: ten 512KB events
+    // (5MB total) are fine because the buffer drains at every newline.
+    const events = Array.from({ length: 10 }, (_, i) => `data: ${String(i)}${"z".repeat(512 * 1024)}\n\n`);
+    const out = await collect(streamFrom(events));
+    expect(out).toHaveLength(10);
+    expect(out[3].startsWith("3")).toBe(true);
+  });
+
   it("flushes a trailing multibyte char split across the final chunk", async () => {
     // "é" (U+00E9) is 0xC3 0xA9; split the two bytes across the last two reads.
     const encoder = new TextEncoder();

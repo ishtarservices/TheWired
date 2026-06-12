@@ -19,6 +19,13 @@ export function partsToText(parts: AIContentPart[]): string {
     .join("");
 }
 
+/** Result stubbed in for a toolCall whose real result never arrived (turn
+ *  aborted / wiped mid-loop by a pre-fix build). Providers reject an assistant
+ *  tool_calls message with a missing result — one orphan 400s the whole
+ *  conversation forever — so history is healed at serialization time. */
+const ORPHAN_TOOL_RESULT =
+  "[interrupted — this tool call produced no result; treat it as cancelled]";
+
 export function messagesToEngineMessages(messages: AIMessage[]): EngineChatMessage[] {
   const out: EngineChatMessage[] = [];
   for (const m of messages) {
@@ -37,10 +44,22 @@ export function messagesToEngineMessages(messages: AIMessage[]): EngineChatMessa
       out.push({ role: "assistant", content: partsToText(m.parts), toolCalls: m.toolCalls });
       for (const tc of m.toolCalls) {
         const r = m.toolResults?.[tc.id];
-        if (r) out.push({ role: "tool", toolCallId: tc.id, name: tc.name, content: r.output });
+        out.push({
+          role: "tool",
+          toolCallId: tc.id,
+          name: tc.name,
+          content: r ? r.output : ORPHAN_TOOL_RESULT,
+        });
       }
       continue;
     }
+
+    // Skip assistant bubbles that would serialize to empty content: zero-output
+    // error bubbles ("add an API key", 401s) and reasoning-only replies
+    // (reasoning is shown collapsed but never resent). Anthropic rejects empty
+    // message content, so ONE such bubble bricks every later turn in the
+    // conversation with compounding 400s (audit #11).
+    if (m.role === "assistant" && partsToText(m.parts).trim() === "") continue;
 
     out.push({ role: m.role, content: m.parts });
   }

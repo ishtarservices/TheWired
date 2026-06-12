@@ -13,6 +13,7 @@ import {
   removeProviderConfig,
   patchProviderStatus,
   setProviderModels,
+  clearProviderStatus,
 } from "@/store/slices/aiSlice";
 import {
   getSecret,
@@ -32,6 +33,14 @@ const providers = new Map<string, LLMProvider>();
 const apiKeys = new Map<string, string>(); // id → key (kept here, NEVER in Redux)
 const configs = new Map<string, AIProviderConfig>();
 let activePubkey: string | null = null;
+/**
+ * Bumped by every load and reset. Async paths re-check it after EVERY await and
+ * bail when superseded — otherwise a load still in flight across an account
+ * switch seeds the previous account's providers and API keys into the next
+ * account's session (and a later persist writes them into its keychain blob) —
+ * audit #49. Also kills in-flight test/refresh probes after a reset (#96).
+ */
+let generation = 0;
 
 interface StoredConfig {
   providers: AIProviderConfig[];
@@ -67,12 +76,14 @@ function syncReduxConfigs(): void {
 
 /** Load every stored provider for the active account (on login / account switch). */
 export async function loadProvidersForAccount(pubkey: string): Promise<void> {
+  const gen = ++generation; // supersede any load still in flight (audit #49)
   activePubkey = pubkey;
   providers.clear();
   apiKeys.clear();
   configs.clear();
 
   const raw = await getSecret(llmProvidersKey(pubkey));
+  if (gen !== generation) return; // superseded while reading the blob
   if (raw) {
     try {
       const blob = JSON.parse(raw) as StoredConfig;
@@ -80,6 +91,7 @@ export async function loadProvidersForAccount(pubkey: string): Promise<void> {
         configs.set(config.id, config);
         if (config.keyRequired) {
           const key = await getSecret(llmApiKeySecret(pubkey, config.id));
+          if (gen !== generation) return; // superseded mid-keychain-read
           if (key) apiKeys.set(config.id, key);
         }
         providers.set(config.id, buildProvider(config));
@@ -99,6 +111,7 @@ export async function upsertProvider(
   apiKey?: string | null,
 ): Promise<string> {
   if (!activePubkey) throw new Error("Log in before configuring AI providers.");
+  const gen = generation;
   const id = input.id ?? nanoid(8);
   const config: AIProviderConfig = { ...input, id };
   configs.set(id, config);
@@ -113,6 +126,10 @@ export async function upsertProvider(
       await deleteSecret(llmApiKeySecret(activePubkey, id));
     }
   }
+  // Account switched / reset while the keychain write was in flight: don't
+  // re-add this provider to the (now different) session or persist into the
+  // wrong account's blob (audit #49).
+  if (gen !== generation) return id;
 
   providers.set(id, buildProvider(config));
   store.dispatch(upsertProviderConfig(config));
@@ -122,12 +139,14 @@ export async function upsertProvider(
 }
 
 export async function removeProvider(id: string): Promise<void> {
+  const gen = generation;
   providers.delete(id);
   apiKeys.delete(id);
   configs.delete(id);
   store.dispatch(removeProviderConfig(id));
   if (activePubkey) {
     await deleteSecret(llmApiKeySecret(activePubkey, id));
+    if (gen !== generation) return;
     await persistConfigs();
   }
 }
@@ -156,10 +175,14 @@ export async function detectAndAddLocalEngines(): Promise<number> {
 export async function testProvider(id: string): Promise<void> {
   const provider = providers.get(id);
   if (!provider) return;
+  const gen = generation;
   store.dispatch(
     patchProviderStatus({ providerId: id, patch: { status: "connecting" } }),
   );
   const result = await provider.testConnection();
+  // A reset / account switch landed while probing — drop the result instead of
+  // repopulating state for a torn-down session (audit #96).
+  if (gen !== generation) return;
   if (!result.ok) {
     store.dispatch(
       patchProviderStatus({
@@ -181,8 +204,10 @@ export async function testProvider(id: string): Promise<void> {
 export async function refreshModels(id: string): Promise<AIModelInfo[]> {
   const provider = providers.get(id);
   if (!provider) return [];
+  const gen = generation;
   try {
     const models = await provider.listModels();
+    if (gen !== generation) return [];
     store.dispatch(setProviderModels({ providerId: id, models }));
     return models;
   } catch {
@@ -241,10 +266,16 @@ export function getDefaultProviderAndModel(): {
   return null;
 }
 
+/** Full teardown: logout, account switch, or the AI feature flag turning off.
+ *  Drops decrypted API keys from memory, clears display state, and invalidates
+ *  every in-flight load/probe so a late resolution can't repopulate anything
+ *  (audit #49/#96). */
 export function resetLLMManager(): void {
+  generation++;
   providers.clear();
   apiKeys.clear();
   configs.clear();
   activePubkey = null;
   store.dispatch(setProviders([]));
+  store.dispatch(clearProviderStatus());
 }
