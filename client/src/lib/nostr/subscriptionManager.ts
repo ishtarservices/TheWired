@@ -7,6 +7,13 @@ import { createLogger } from "../debug/logger";
 
 const log = createLogger("sub");
 
+/** Why onEOSE fired. `all-eose` = every tracked relay returned EOSE (an honest
+ *  end-of-stored-events). `timeout` = the backstop fired first (a relay never
+ *  EOSE'd). `no-relays` = nothing to wait on. Callers that conclude "no more to
+ *  page" MUST only do so on `all-eose` — a `timeout` says nothing about whether
+ *  more events exist (#78). */
+export type EoseReason = "all-eose" | "timeout" | "no-relays";
+
 /** Backstop for the all-EOSE wait: if some relay never EOSEs (was stripped by
  *  the indexer guard, disconnected mid-flight, etc.), fire onEOSE anyway so the
  *  UI's "loading" state can clear. Mirrors profileCache.flushBatch's BATCH_TIMEOUT_MS. */
@@ -21,7 +28,7 @@ interface ManagedSubscription {
   filters: NostrFilter[];
   relayUrls: string[];
   eoseReceived: Map<string, boolean>;
-  onEOSE?: () => void;
+  onEOSE?: (info: { reason: EoseReason }) => void;
   isActive: boolean;
   createdAt: number;
   /** Most recent event created_at we've seen on this sub */
@@ -41,7 +48,10 @@ class SubscriptionManagerImpl {
   subscribe(opts: {
     filters: NostrFilter[];
     relayUrls?: string[];
-    onEOSE?: () => void;
+    onEOSE?: (info: { reason: EoseReason }) => void;
+    /** EOSE backstop timeout (ms). Defaults to EOSE_TIMEOUT_MS; pagination passes
+     *  a longer value so a slow relay doesn't falsely report "done". */
+    timeoutMs?: number;
   }): string {
     const id = nanoid(SUBSCRIPTION.MAX_SUB_ID_LENGTH);
     const requestedUrls =
@@ -61,14 +71,14 @@ class SubscriptionManagerImpl {
       eoseReceived.set(url, false);
     }
 
-    const fireEose = () => {
+    const fireEose = (reason: EoseReason) => {
       if (!sub.isActive || sub.eoseFired) return;
       sub.eoseFired = true;
       if (sub.eoseTimer !== null) {
         clearTimeout(sub.eoseTimer);
         sub.eoseTimer = null;
       }
-      sub.onEOSE?.();
+      sub.onEOSE?.({ reason });
     };
 
     const sub: ManagedSubscription = {
@@ -89,10 +99,13 @@ class SubscriptionManagerImpl {
     // surface "done loading" anyway so the UI doesn't hang. Fast relays' EOSE
     // still wins by firing fireEose() early.
     if (opts.onEOSE && trackedUrls.length > 0) {
-      sub.eoseTimer = setTimeout(fireEose, EOSE_TIMEOUT_MS);
+      sub.eoseTimer = setTimeout(
+        () => fireEose("timeout"),
+        opts.timeoutMs ?? EOSE_TIMEOUT_MS,
+      );
     } else if (opts.onEOSE && trackedUrls.length === 0) {
       // Nothing to wait on (every relay was stripped) → fire immediately.
-      queueMicrotask(fireEose);
+      queueMicrotask(() => fireEose("no-relays"));
     }
 
     this.subscriptions.set(id, sub);
@@ -119,11 +132,34 @@ class SubscriptionManagerImpl {
         sub.eoseReceived.set(relayUrl, true);
 
         const allEose = [...sub.eoseReceived.values()].every(Boolean);
-        if (allEose) fireEose();
+        if (allEose) fireEose("all-eose");
       },
     });
 
     return id;
+  }
+
+  /** One-shot subscription: resolves with the EOSE reason and auto-closes on
+   *  EVERY path (all-eose / timeout / no-relays), so callers can't leak the sub
+   *  by forgetting to close it. Replaces the hand-rolled settled/timeout/close
+   *  boilerplate in the pagination helpers. Events still flow through the normal
+   *  pipeline; the resolved value is for control flow (e.g. #78 hasMore). */
+  subscribeOnce(opts: {
+    filters: NostrFilter[];
+    relayUrls?: string[];
+    timeoutMs?: number;
+  }): Promise<{ reason: EoseReason }> {
+    return new Promise((resolve) => {
+      const subId = this.subscribe({
+        filters: opts.filters,
+        relayUrls: opts.relayUrls,
+        timeoutMs: opts.timeoutMs,
+        onEOSE: (info) => {
+          this.close(subId);
+          resolve(info);
+        },
+      });
+    });
   }
 
   close(subId: string): void {

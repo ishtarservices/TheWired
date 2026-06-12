@@ -10,10 +10,14 @@ const hoisted = vi.hoisted(() => ({
 vi.mock("../subscriptionManager", () => ({
   subscriptionManager: {
     subscribe: vi.fn(),
+    subscribeOnce: vi.fn(),
     close: vi.fn(),
     getReconnectSince: vi.fn(),
   },
 }));
+
+// flushEventPipeline is called by loadMore* after an all-eose; stub it out.
+vi.mock("../eventPipeline", () => ({ flushEventPipeline: vi.fn() }));
 
 vi.mock("../relayManager", () => ({
   relayManager: {
@@ -32,12 +36,15 @@ import {
   stopAllBgChatSubs,
   switchSpaceChannel,
   refreshSpaceFeed,
+  loadMoreSpaceFeed,
   enterSpace,
 } from "../groupSubscriptions";
 import { store, resetAll } from "@/store";
 import { setActiveChannel, setChannelSubscription } from "@/store/slices/spacesSlice";
+import { trackFeedTimestamp } from "@/store/slices/feedSlice";
 
 const subscribe = vi.mocked(subscriptionManager.subscribe);
+const subscribeOnce = vi.mocked(subscriptionManager.subscribeOnce);
 const close = vi.mocked(subscriptionManager.close);
 const getReconnectSince = vi.mocked(subscriptionManager.getReconnectSince);
 
@@ -67,10 +74,12 @@ function filterOf(callIndex: number) {
 beforeEach(() => {
   stopAllBgChatSubs(); // clear module state carried over from a prior test
   subscribe.mockReset();
+  subscribeOnce.mockReset();
   close.mockReset();
   getReconnectSince.mockReset();
   let n = 0;
   subscribe.mockImplementation(() => `sub-${++n}`);
+  subscribeOnce.mockResolvedValue({ reason: "all-eose" });
 });
 
 describe("groupSubscriptions — bg chat sub collapse", () => {
@@ -216,21 +225,17 @@ describe("groupSubscriptions — refresh-feed leak", () => {
     store.dispatch(resetAll());
   });
 
-  it("closes its one-shot sub on EOSE (was leaked — unlike loadMore*)", () => {
-    let eose: (() => void) | undefined;
-    subscribe.mockImplementation((opts: { onEOSE?: () => void }) => {
-      eose = opts.onEOSE;
-      return "refresh-sub";
-    });
+  it("uses the auto-closing subscribeOnce so the refresh sub can't leak", () => {
     const sp = space("spaceR", "wss://h");
     sp.memberPubkeys = ["pk1"];
 
     refreshSpaceFeed(sp, "notes");
-    expect(eose).toBeTypeOf("function");
 
-    eose!(); // relay signals end-of-stored-events
-    // PRE-fix: onEOSE never called close → the sub streamed forever.
-    expect(close).toHaveBeenCalledWith("refresh-sub");
+    // PRE-fix: a manual subscribe()+onEOSE that forgot to close → the sub
+    // streamed forever. POST-fix: subscribeOnce guarantees close on every path
+    // (EOSE / timeout / no-relays), structurally eliminating the leak class.
+    expect(subscribeOnce).toHaveBeenCalledTimes(1);
+    expect(subscribe).not.toHaveBeenCalled();
   });
 });
 
@@ -257,5 +262,42 @@ describe("groupSubscriptions — stale *MetaSubs after account switch (A4)", () 
     subscribe.mockClear();
     enterSpace("grp", "wss://h");
     expect(subscribe).toHaveBeenCalledTimes(2);
+  });
+});
+
+describe("groupSubscriptions — loadMore hasMore on timeout vs all-eose (#78)", () => {
+  beforeEach(() => {
+    store.dispatch(resetAll());
+  });
+
+  it("a TIMEOUT must NOT conclude 'no more' — leaves hasMore true", async () => {
+    const sp = space("spaceP", "wss://h");
+    sp.memberPubkeys = ["pk1"];
+    const contextId = "spaceP:notes";
+    store.dispatch(trackFeedTimestamp({ contextId, createdAt: 1000 })); // oldestAt=1000
+    subscribeOnce.mockResolvedValue({ reason: "timeout" });
+
+    loadMoreSpaceFeed(sp, "notes");
+    await Promise.resolve();
+    await Promise.resolve();
+
+    // PRE-fix: ANY EOSE (incl. the backstop timeout) flipped hasMore off, falsely
+    // ending pagination after a slow relay. POST-fix: only all-eose can.
+    expect(store.getState().feed.meta[contextId].hasMore).toBe(true);
+  });
+
+  it("an ALL-EOSE with no older events concludes hasMore false", async () => {
+    const sp = space("spaceQ", "wss://h");
+    sp.memberPubkeys = ["pk1"];
+    const contextId = "spaceQ:notes";
+    store.dispatch(trackFeedTimestamp({ contextId, createdAt: 1000 }));
+    subscribeOnce.mockResolvedValue({ reason: "all-eose" });
+
+    loadMoreSpaceFeed(sp, "notes");
+    await Promise.resolve();
+    await Promise.resolve();
+
+    // flushEventPipeline is mocked → oldestAt unchanged → honest end-of-feed.
+    expect(store.getState().feed.meta[contextId].hasMore).toBe(false);
   });
 });

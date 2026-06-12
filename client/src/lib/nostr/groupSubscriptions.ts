@@ -1,5 +1,6 @@
 import { subscriptionManager } from "./subscriptionManager";
 import { relayManager } from "./relayManager";
+import { flushEventPipeline } from "./eventPipeline";
 import { buildChannelFilter, buildSpaceFeedFilter } from "./filterBuilder";
 import { getChannelRoute } from "./channelRoutes";
 import { getSpaceChannelRoute } from "../../features/spaces/spaceChannelRoutes";
@@ -442,27 +443,11 @@ export function refreshFriendsFeed(channelType: string, initial = false): void {
     filter.since = meta.newestAt;
   }
 
-  let settled = false;
-  const subId = subscriptionManager.subscribe({
-    filters: [filter],
-    relayUrls: undefined,
-    onEOSE: () => {
-      if (settled) return;
-      settled = true;
-      clearTimeout(timeout);
-      store.dispatch(setRefreshing({ contextId, value: false }));
-      // One-shot: close the refresh sub once history is in (matches loadMore*).
-      // Without this every refresh leaked a sub that kept streaming events.
-      subscriptionManager.close(subId);
-    },
-  });
-
-  const timeout = setTimeout(() => {
-    if (settled) return;
-    settled = true;
-    store.dispatch(setRefreshing({ contextId, value: false }));
-    subscriptionManager.close(subId);
-  }, PAGINATION_TIMEOUT_MS);
+  // One-shot: subscribeOnce closes the sub on EOSE/timeout/no-relays, so it can't
+  // leak (this previously needed a manual settled flag + timeout + close).
+  subscriptionManager
+    .subscribeOnce({ filters: [filter], timeoutMs: PAGINATION_TIMEOUT_MS })
+    .then(() => store.dispatch(setRefreshing({ contextId, value: false })));
 }
 
 /** Load older Friends Feed events */
@@ -489,32 +474,19 @@ export function loadMoreFriendsFeed(channelType: string): void {
 
   const previousOldest = meta.oldestAt;
 
-  let settled = false;
-  const subId = subscriptionManager.subscribe({
-    filters: [filter],
-    relayUrls: undefined,
-    onEOSE: () => {
-      if (settled) return;
-      settled = true;
-      clearTimeout(timeout);
-
+  subscriptionManager
+    .subscribeOnce({ filters: [filter], timeoutMs: PAGINATION_TIMEOUT_MS })
+    .then(({ reason }) => {
       store.dispatch(setLoadingMore({ contextId, value: false }));
-
+      // #78: only an honest all-relays EOSE concludes "no more older events". A
+      // timeout/no-relays says nothing about whether more exist → keep hasMore.
+      if (reason !== "all-eose") return;
+      flushEventPipeline(); // apply buffered events so oldestAt reflects this page
       const updatedMeta = store.getState().feed.meta[contextId];
       if (!updatedMeta || updatedMeta.oldestAt >= previousOldest) {
         store.dispatch(setHasMore({ contextId, value: false }));
       }
-
-      subscriptionManager.close(subId);
-    },
-  });
-
-  const timeout = setTimeout(() => {
-    if (settled) return;
-    settled = true;
-    store.dispatch(setLoadingMore({ contextId, value: false }));
-    subscriptionManager.close(subId);
-  }, PAGINATION_TIMEOUT_MS);
+    });
 }
 
 // ── Feed pagination ──────────────────────────────────────────────
@@ -563,32 +535,11 @@ export function refreshSpaceFeed(
     filter.since = meta.newestAt;
   }
 
-  // Feed channels always use all read relays — members publish notes to
-  // their own relays, not the space's host relay.
-  const relayUrls: string[] | undefined = undefined;
-
-  let settled = false;
-  const subId = subscriptionManager.subscribe({
-    filters: [filter],
-    relayUrls,
-    onEOSE: () => {
-      if (settled) return;
-      settled = true;
-      clearTimeout(timeout);
-      store.dispatch(setRefreshing({ contextId, value: false }));
-      // One-shot: close the refresh sub once history is in (matches loadMore*).
-      // Without this every refresh leaked a sub that kept streaming events.
-      subscriptionManager.close(subId);
-    },
-  });
-
-  // Safety timeout: if EOSE never arrives, unblock UI and close sub
-  const timeout = setTimeout(() => {
-    if (settled) return;
-    settled = true;
-    store.dispatch(setRefreshing({ contextId, value: false }));
-    subscriptionManager.close(subId);
-  }, PAGINATION_TIMEOUT_MS);
+  // Feed channels always use all read relays — members publish notes to their own
+  // relays. One-shot: subscribeOnce closes the sub on every path (no leak).
+  subscriptionManager
+    .subscribeOnce({ filters: [filter], timeoutMs: PAGINATION_TIMEOUT_MS })
+    .then(() => store.dispatch(setRefreshing({ contextId, value: false })));
 }
 
 /**
@@ -622,33 +573,17 @@ export function loadMoreSpaceFeed(
 
   const previousOldest = meta.oldestAt;
 
-  let settled = false;
-  const subId = subscriptionManager.subscribe({
-    filters: [filter],
-    relayUrls: undefined, // all read relays — members publish to their own relays
-    onEOSE: () => {
-      if (settled) return;
-      settled = true;
-      clearTimeout(timeout);
-
+  subscriptionManager
+    .subscribeOnce({ filters: [filter], timeoutMs: PAGINATION_TIMEOUT_MS })
+    .then(({ reason }) => {
       store.dispatch(setLoadingMore({ contextId, value: false }));
-
-      // Check if oldestAt changed -- if not, no new events arrived => no more to load
+      // #78: only an honest all-relays EOSE concludes "no more older events". A
+      // timeout/no-relays says nothing about whether more exist → keep hasMore.
+      if (reason !== "all-eose") return;
+      flushEventPipeline(); // apply buffered events so oldestAt reflects this page
       const updatedMeta = store.getState().feed.meta[contextId];
       if (!updatedMeta || updatedMeta.oldestAt >= previousOldest) {
         store.dispatch(setHasMore({ contextId, value: false }));
       }
-
-      // Close the one-shot subscription
-      subscriptionManager.close(subId);
-    },
-  });
-
-  // Safety timeout: if EOSE never arrives, unblock UI and close sub
-  const timeout = setTimeout(() => {
-    if (settled) return;
-    settled = true;
-    store.dispatch(setLoadingMore({ contextId, value: false }));
-    subscriptionManager.close(subId);
-  }, PAGINATION_TIMEOUT_MS);
+    });
 }
