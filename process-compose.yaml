@@ -24,7 +24,14 @@ processes:
       restart: "no"
 
   livekit:
-    command: "livekit-server --dev"
+    # Same-machine dev: advertise + listen on loopback so SFU media is immune
+    # to macOS Local Network privacy (unsigned dev apps get silently blocked
+    # from the Mac's own LAN IP) and to VPNs that block local-net traffic.
+    # For LAN testing from another device: drop --node-ip and the env below,
+    # and grant both apps Local Network permission in System Settings.
+    command: "livekit-server --dev --node-ip 127.0.0.1"
+    environment:
+      - "LIVEKIT_CONFIG=rtc: { udp_port: 7882, tcp_port: 7881, use_external_ip: false, enable_loopback_candidate: true }"
     readiness_probe:
       exec:
         command: "bash -c 'echo > /dev/tcp/127.0.0.1/7880'"
