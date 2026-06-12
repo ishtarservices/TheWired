@@ -26,6 +26,7 @@ export type LogCategory =
   | "identity"
   | "relay"
   | "sub"
+  | "outbox" // persistent publish outbox: queue/replay/ack
   | "pipeline"
   | "profile"
   | "idb"
@@ -46,6 +47,7 @@ const CATEGORY_COLORS: Record<LogCategory, string> = {
   identity: "#f472b6",
   relay: "#38bdf8",
   sub: "#22d3ee",
+  outbox: "#2dd4bf",
   pipeline: "#fbbf24",
   profile: "#34d399",
   idb: "#94a3b8",

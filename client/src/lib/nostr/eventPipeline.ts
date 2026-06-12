@@ -23,6 +23,7 @@ import { hasMediaUrls, hasEmbedUrls } from "../media/mediaUrlParser";
 import { parseThreadRef, parseQuoteRef } from "../../features/spaces/noteParser";
 import { profileCache } from "./profileCache";
 import { unwrapGiftWrap } from "./giftWrap";
+import { decryptQueue } from "./decryptQueue";
 import { evaluateNotification, evaluateDMNotification, evaluateFriendRequestNotification, evaluateFriendAcceptNotification, evaluateCollaboratorNotification } from "./notificationEvaluator";
 import { addFriendRequest, markOutgoingAccepted, acceptFriendRequest, addProcessedWrapId, removeFriend, clearRemovedPubkey } from "../../store/slices/friendRequestSlice";
 import { addKnownFollower } from "../../store/slices/identitySlice";
@@ -283,6 +284,7 @@ export function resetEventPipelineCaches(): void {
   scheduledDelay = FLUSH_MS;
   flushesSinceSweepCheck = 0;
   dedup.clear();
+  decryptQueue.clear(); // drop queued wraps for the previous account
   authorSetCache.clear();
 }
 
@@ -361,10 +363,15 @@ export async function processIncomingEvent(
     return;
   }
 
-  // Step 4: Handle gift wraps specially (don't add to general event store)
+  // Step 4: Handle gift wraps specially (don't add to general event store).
+  // Route the decrypt through a concurrency-limited queue so a cold-start backlog
+  // can't saturate the signer / flood a NIP-46 bunker (#4/#25). On overflow, drop
+  // and unmark so a later redelivery retries.
   if (event.kind === EVENT_KINDS.GIFT_WRAP) {
     store.dispatch(incrementEventCount(relayUrl));
-    handleGiftWrap(event);
+    if (!decryptQueue.submit(event)) {
+      dedup.unmarkSeen(event.id);
+    }
     return;
   }
 
@@ -1019,6 +1026,10 @@ function indexEventIntoSpaceFeeds(event: NostrEvent): void {
 
 /** Validate that a string is a 64-character hex pubkey */
 const HEX64_RE = /^[0-9a-f]{64}$/i;
+
+// The decrypt queue defers gift-wrap handling with bounded concurrency; wire the
+// real handler once (function declaration is hoisted, so this is safe here).
+decryptQueue.setHandler(handleGiftWrap);
 
 /** Handle incoming gift wrap (kind:1059) — decrypt and route to DM or friend request */
 async function handleGiftWrap(event: NostrEvent): Promise<void> {

@@ -76,9 +76,9 @@ import { loadNotificationState, startNotificationPersistence, cancelPendingSave 
 import { resetEventPipelineCaches } from "./eventPipeline";
 import { verifyBridge } from "./verifyWorkerBridge";
 import { startBackgroundChatSubs, closeBgChatSub, stopAllBgChatSubs } from "./groupSubscriptions";
+import { publishOutbox } from "./publishOutbox";
 import { loadChannels } from "../db/channelStore";
 import { initLastChannelCache, clearLastChannelCache } from "../db/lastChannelCache";
-import { clearAllSubscriptions } from "../db/subscriptionStore";
 import { clearAllUserState } from "../db/userStateStore";
 import { resetAll } from "../../store";
 import {
@@ -208,6 +208,8 @@ const MUTE_TAG_MAP: Record<string, "pubkey" | "tag" | "word" | "event"> = {
 function wireRelayStatusBridge(): void {
   relayManager.setGlobalCallbacks({
     onOK: (eventId, success, message, relayUrl) => {
+      // First success clears the publish-outbox row (audit #34).
+      publishOutbox.handleOK(eventId, success);
       if (!success) {
         console.warn(`[relay] ${relayUrl} rejected ${eventId.slice(0, 8)}: ${message}`);
         // Reactive kick detection: if the relay rejected this event because
@@ -243,6 +245,10 @@ function wireRelayStatusBridge(): void {
       }
     },
   });
+
+  // On any relay reconnect, re-publish un-acked outbox events (a relay that
+  // dropped mid-publish never sent its OK). Idempotent + in-flight-guarded (#34).
+  relayManager.onReconnect(() => void publishOutbox.replay());
 }
 
 /** Ingest the logged-in user's own kind:0 from any subscription: parse it (which
@@ -1005,6 +1011,10 @@ export async function performLogin(
     startBackgroundChatSubs(savedSpaces);
   }
 
+  // Replay any publishes left un-acked from a previous session (relay drop /
+  // hard refresh / crash). Background + <24h, drops stale replaceables (#34).
+  void publishOutbox.replay();
+
   // Persist active space changes to IndexedDB for restore on next login/switch
   {
     let lastSpaceId = store.getState().spaces.activeSpaceId;
@@ -1351,10 +1361,7 @@ export function performCleanup(): void {
   resetEventPipelineCaches();
   verifyBridge.drainPending();
 
-  // 5. Clear subscription state (EOSE timestamps are account-specific)
-  clearAllSubscriptions().catch(() => {});
-
-  // 6. Disconnect relays
+  // 5. Disconnect relays
   relayManager.disconnectAll();
 }
 
@@ -1414,7 +1421,6 @@ export async function performLogout(): Promise<void> {
   // 7. Clear IndexedDB — AWAIT so data is gone before next login
   await Promise.all([
     clearAllUserState().catch(() => {}),
-    clearAllSubscriptions().catch(() => {}),
   ]);
 
   // 8. Reset entire Redux store (all 17+ slices → initialState)

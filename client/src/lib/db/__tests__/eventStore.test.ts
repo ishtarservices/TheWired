@@ -20,11 +20,10 @@ function makeEvent(overrides: Partial<NostrEvent> = {}): NostrEvent {
 // Reset the DB between tests by clearing all stores
 beforeEach(async () => {
   const db = await getDB();
-  const tx = db.transaction(["events", "profiles", "user_state", "subscriptions"], "readwrite");
+  const tx = db.transaction(["events", "profiles", "user_state"], "readwrite");
   await tx.objectStore("events").clear();
   await tx.objectStore("profiles").clear();
   await tx.objectStore("user_state").clear();
-  await tx.objectStore("subscriptions").clear();
   await tx.done;
 });
 
