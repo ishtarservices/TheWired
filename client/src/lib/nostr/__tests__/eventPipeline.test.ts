@@ -3,9 +3,12 @@ import {
   processIncomingEvent,
   flushEventPipeline,
   resetEventPipelineCaches,
+  computeSweep,
+  __sweepForTest,
 } from "../eventPipeline";
 import { store, resetAll } from "@/store";
-import { eventsSelectors } from "@/store/slices/eventsSlice";
+import { eventsSelectors, eventsSlice } from "@/store/slices/eventsSlice";
+import { EventDeduplicator } from "../dedup";
 import type { NostrEvent } from "@/types/nostr";
 
 // verifyBridge.verify is globally mocked to resolve true (vitest.setup.ts),
@@ -151,5 +154,59 @@ describe("eventPipeline — burst batching", () => {
     flushEventPipeline();
     expect(spy).not.toHaveBeenCalled();
     spy.mockRestore();
+  });
+});
+
+// B2 — entity-store mark-and-sweep. computeSweep is pure; __sweepForTest wires it
+// to the real store + dedup with explicit caps so we needn't seed 20k events.
+describe("eventPipeline — entity sweep (B2)", () => {
+  it("computeSweep returns [] at/under the soft cap", () => {
+    expect(computeSweep(["a", "b", "c"], [], {}, 5, 3)).toEqual([]);
+  });
+
+  it("computeSweep evicts the oldest UNREFERENCED ids down to target, protecting referenced", () => {
+    const ids = ["a", "b", "c", "d", "e", "f"]; // oldest-first (created_at asc)
+    const indices = [{ room: ["a"] }]; // 'a' referenced (e.g. chat) → protected
+    const edited = { x: "b" }; // 'b' referenced via editedMessages → protected
+    // len 6 > softCap 4 → need = 6 - target(2) = 4; skip a,b → evict c,d,e,f
+    expect(computeSweep(ids, indices, edited, 4, 2)).toEqual(["c", "d", "e", "f"]);
+  });
+
+  it("computeSweep stops at `need` even when more unreferenced remain", () => {
+    const ids = ["a", "b", "c", "d", "e", "f"];
+    // softCap 4, target 4 → need = 2; nothing referenced → evict the 2 oldest
+    expect(computeSweep(ids, [], {}, 4, 4)).toEqual(["a", "b"]);
+  });
+
+  it("sweep evicts oldest unreferenced, KEEPS chat-referenced ids, and unmarks evicted from dedup", () => {
+    const { addEvents, indexChatMessage } = eventsSlice.actions;
+    const events: NostrEvent[] = [];
+    for (let i = 0; i < 10; i++) {
+      events.push(makeEvent(i, { id: `e${i}`, created_at: 1000 + i })); // e0 oldest
+    }
+    store.dispatch(addEvents(events));
+    // Protect the two oldest by referencing them from the (uncapped) chat index.
+    store.dispatch(indexChatMessage({ groupId: "room", eventId: "e0" }));
+    store.dispatch(indexChatMessage({ groupId: "room", eventId: "e1" }));
+
+    const unmark = vi.spyOn(EventDeduplicator.prototype, "unmarkSeen");
+
+    // 10 ids > softCap 5 → need = 10 - target(3) = 7; skip e0,e1 → evict e2..e8.
+    __sweepForTest(5, 3);
+
+    const sel = (id: string) => eventsSelectors.selectById(store.getState().events, id);
+    // Chat-referenced survive (no recovery path → must never be evicted).
+    expect(sel("e0")).toBeDefined();
+    expect(sel("e1")).toBeDefined();
+    // Oldest unreferenced evicted.
+    for (let i = 2; i <= 8; i++) expect(sel(`e${i}`)).toBeUndefined();
+    // Newest one left untouched once target reached.
+    expect(sel("e9")).toBeDefined();
+
+    // CRITICAL: every evicted id was unmarked from the dedup LRU so a re-REQ can
+    // bring it back (else it's silently swallowed as a duplicate).
+    const unmarked = unmark.mock.calls.map((c) => c[0]);
+    for (let i = 2; i <= 8; i++) expect(unmarked).toContain(`e${i}`);
+    unmark.mockRestore();
   });
 });

@@ -39,6 +39,10 @@ const DEFAULT_MAX_SUBS = 100;
  *  release held REQs after this long so subscriptions don't hang forever. */
 const AUTH_WEDGE_MS = 3000;
 
+/** Max times a sub is re-deferred after a server CLOSED "too many subscriptions"
+ *  before we give up — bounds the retry even if a relay's real cap is below ours. */
+const MAX_CLOSED_RETRIES = 3;
+
 export class RelayConnection {
   readonly url: string;
   readonly mode: RelayMode;
@@ -62,6 +66,9 @@ export class RelayConnection {
    *  deferral was the failure mode that hid the original NIP-29 chat bug —
    *  surface it so future regressions don't quietly queue forever. */
   private hasWarnedDeferral = false;
+  /** subId → number of times re-deferred after a server CLOSED "too many
+   *  subscriptions". Cleared on EOSE (success) or close. Bounds the retry (#A5). */
+  private closedRetries = new Map<string, number>();
 
   // Callbacks
   private onEvent: InternalEventCallback | null = null;
@@ -187,6 +194,7 @@ export class RelayConnection {
     this.pendingEOSE.clear();
     this.messageQueue = [];
     this.deferredSubs = [];
+    this.closedRetries.clear();
     this.pendingAuthChallenge = null;
     this.reqGate = "open";
     this.heldReqs.clear();
@@ -307,6 +315,7 @@ export class RelayConnection {
   closeSubscription(subId: string): void {
     this.subscriptions.delete(subId);
     this.pendingEOSE.delete(subId);
+    this.closedRetries.delete(subId);
     // Remove from deferred queue if it was never sent
     this.deferredSubs = this.deferredSubs.filter((d) => d.subId !== subId);
     // Drop it from the AUTH hold queue too (so release doesn't resurrect it).
@@ -374,6 +383,7 @@ export class RelayConnection {
       }
       case "EOSE": {
         this.pendingEOSE.delete(msg[1]);
+        this.closedRetries.delete(msg[1]); // succeeded — reset any retry counter
         this.onEOSE?.(msg[1], this.url);
         break;
       }
@@ -394,12 +404,34 @@ export class RelayConnection {
       case "CLOSED": {
         // Surface unexpected server-side closes (cap exceeded, rate-limited, etc.).
         // An empty reason is the normal response to our own CLOSE — not noteworthy.
+        const subId = msg[1];
         const reason = (msg[2] ?? "").toString();
         if (reason) {
-          console.warn(`[relay] ${this.shortUrl} CLOSED ${msg[1]}: ${reason}`);
+          console.warn(`[relay] ${this.shortUrl} CLOSED ${subId}: ${reason}`);
         }
-        this.subscriptions.delete(msg[1]);
-        this.pendingEOSE.delete(msg[1]);
+        // "too many subscriptions" is recoverable — the relay is momentarily full.
+        // Re-defer the sub (bounded) so it's re-sent when a local slot frees,
+        // instead of silently dropping it and letting the 5 s EOSE backstop mask
+        // an empty result (the original NIP-29 "messages don't show up" signature).
+        // drainDeferred only fires on a real closeSubscription(), so this can't
+        // busy-loop; MAX_CLOSED_RETRIES bounds it even if a relay's real cap is
+        // below ours. Safe because the client cap is kept in lockstep with relays.
+        if (/too many subscriptions/i.test(reason) && this.subscriptions.has(subId)) {
+          const tries = (this.closedRetries.get(subId) ?? 0) + 1;
+          if (tries <= MAX_CLOSED_RETRIES) {
+            this.closedRetries.set(subId, tries);
+            this.pendingEOSE.delete(subId);
+            if (!this.deferredSubs.some((d) => d.subId === subId)) {
+              this.deferredSubs.push({ subId, filters: this.subscriptions.get(subId)! });
+              this.warnIfFirstDeferral();
+            }
+            break; // keep it tracked; a future drainDeferred re-sends it
+          }
+          // out of retries → fall through and drop it
+        }
+        this.subscriptions.delete(subId);
+        this.pendingEOSE.delete(subId);
+        this.closedRetries.delete(subId);
         break;
       }
       case "AUTH": {

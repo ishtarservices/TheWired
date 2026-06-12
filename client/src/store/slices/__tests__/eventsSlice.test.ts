@@ -7,9 +7,15 @@ const {
   addEvent,
   addEvents,
   removeEvent,
+  removeManyEvents,
   indexChatMessage,
   indexSpaceFeed,
   indexNote,
+  indexReel,
+  indexLongForm,
+  indexLiveStream,
+  indexMusicTrack,
+  indexMusicAlbum,
   indexReply,
   indexRepost,
   indexQuote,
@@ -331,5 +337,66 @@ describe("eventsSlice — engagement index cap (300)", () => {
     expect(replies).toHaveLength(300);
     expect(replies[replies.length - 1]).toBe("r349");
     expect(replies).not.toContain("r0");
+  });
+});
+
+// B1 — bound the previously-uncapped recoverable indices, but NEVER chat.
+describe("eventsSlice — recoverable index caps (B1)", () => {
+  it("caps notesByAuthor at 1000 (newest kept, oldest trimmed)", () => {
+    const store = createTestStore();
+    for (let i = 0; i < 1100; i++) {
+      store.dispatch(indexNote({ pubkey: "author", eventId: `n${i}` }));
+    }
+    const notes = store.getState().events.notesByAuthor["author"];
+    // PRE-fix: notesByAuthor was uncapped → length 1100 (unbounded growth).
+    expect(notes).toHaveLength(1000);
+    expect(notes[notes.length - 1]).toBe("n1099");
+    expect(notes).not.toContain("n0");
+  });
+
+  it("caps reels/longform/liveStreams/music at 500 each", () => {
+    const store = createTestStore();
+    for (let i = 0; i < 600; i++) {
+      store.dispatch(indexReel({ contextId: "global", eventId: `re${i}` }));
+      store.dispatch(indexLongForm({ contextId: "global", eventId: `lf${i}` }));
+      store.dispatch(indexLiveStream({ contextId: "global", eventId: `ls${i}` }));
+      store.dispatch(indexMusicTrack({ contextId: "global", eventId: `mt${i}` }));
+      store.dispatch(indexMusicAlbum({ contextId: "global", eventId: `ma${i}` }));
+    }
+    const s = store.getState().events;
+    expect(s.reels["global"]).toHaveLength(500);
+    expect(s.longform["global"]).toHaveLength(500);
+    expect(s.liveStreams["global"]).toHaveLength(500);
+    expect(s.musicTracks["global"]).toHaveLength(500);
+    expect(s.musicAlbums["global"]).toHaveLength(500);
+    expect(s.reels["global"]).not.toContain("re0");
+  });
+
+  it("does NOT cap chatMessages — chat has no recovery path, so it must never truncate", () => {
+    const store = createTestStore();
+    for (let i = 0; i < 2000; i++) {
+      store.dispatch(indexChatMessage({ groupId: "room", eventId: `c${i}` }));
+    }
+    const chat = store.getState().events.chatMessages["room"];
+    // The whole point of the decision: chat scrollback is never dropped in-session.
+    expect(chat).toHaveLength(2000);
+    expect(chat[0]).toBe("c0");
+    expect(chat).toContain("c1999");
+  });
+});
+
+// B2 — global entity mark-and-sweep removal primitive.
+describe("eventsSlice — removeManyEvents (B2)", () => {
+  it("bulk-removes entities by id and leaves others intact", () => {
+    const store = createTestStore();
+    store.dispatch(addEvents([
+      makeEvent({ id: "a", created_at: 1 }),
+      makeEvent({ id: "b", created_at: 2 }),
+      makeEvent({ id: "c", created_at: 3 }),
+    ]));
+    store.dispatch(removeManyEvents(["a", "c"]));
+    expect(eventsSelectors.selectById(store.getState().events, "a")).toBeUndefined();
+    expect(eventsSelectors.selectById(store.getState().events, "c")).toBeUndefined();
+    expect(eventsSelectors.selectById(store.getState().events, "b")).toBeDefined();
   });
 });

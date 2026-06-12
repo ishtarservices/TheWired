@@ -8,7 +8,7 @@ import { verifyBridge } from "./verifyWorkerBridge";
 import type { UnknownAction } from "@reduxjs/toolkit";
 import { store } from "../../store";
 import { putEvent, deleteEvent, deleteAddressableEvent } from "../db/eventStore";
-import { addEvent, addEvents, indexChatMessage, indexReel, indexLongForm, indexLiveStream, indexNote, indexSpaceFeed, removeEventFromAllSpaceFeeds, indexMusicTrack, indexMusicAlbum, indexReply, indexRepost, indexRepostByAuthor, indexQuote, removeChatMessage, hideMessage, removeEvent, removeNote, removeRepost, trackDeletedNote, trackDeletedAddr, indexEditedMessage, indexNotes, indexReplies, indexReposts, indexRepostsByAuthor, indexQuotes, indexChatMessages, indexReels, indexLongForms, indexLiveStreams, indexMusicTracks, indexMusicAlbums, indexSpaceFeeds } from "../../store/slices/eventsSlice";
+import { addEvent, addEvents, indexChatMessage, indexReel, indexLongForm, indexLiveStream, indexNote, indexSpaceFeed, removeEventFromAllSpaceFeeds, indexMusicTrack, indexMusicAlbum, indexReply, indexRepost, indexRepostByAuthor, indexQuote, removeChatMessage, hideMessage, removeEvent, removeManyEvents, removeNote, removeRepost, trackDeletedNote, trackDeletedAddr, indexEditedMessage, indexNotes, indexReplies, indexReposts, indexRepostsByAuthor, indexQuotes, indexChatMessages, indexReels, indexLongForms, indexLiveStreams, indexMusicTracks, indexMusicAlbums, indexSpaceFeeds } from "../../store/slices/eventsSlice";
 import { addReaction, addReactions, removeReactionByEventId, type ReactionInput } from "../../store/slices/reactionsSlice";
 import { addTrack, indexTrackByArtist, indexTrackByAlbum, indexTrackByArtistName, indexAlbumByArtist, indexAlbumByArtistName, addAlbum, addPlaylist, addAnnotation, removeAnnotation, removeTrack, removeAlbum, removePlaylist } from "../../store/slices/musicSlice";
 import { addDMMessage, editDMMessage, remoteDeleteDMMessage } from "../../store/slices/dmSlice";
@@ -164,6 +164,77 @@ function scheduleFlush(kind: number): void {
   flushTimer = setTimeout(flushEventPipeline, delay);
 }
 
+// ── Entity-store soft cap (B2) ───────────────────────────────────────────────
+// The Redux event entity store is otherwise unbounded — it grows all session and
+// the adapter's sortComparer pays an insertion-sort on every upsert. sweepEvents
+// trims the OLDEST UNREFERENCED entities back under a soft cap. "Unreferenced" =
+// no secondary index points at the id, so chat (chatMessages is uncapped) and any
+// open feed are protected by construction. Evicted ids are UNMARKED from the
+// dedup LRU so a later re-delivery / re-REQ can bring them back — without that the
+// 100k dedup cache would silently swallow the re-fetch.
+const ENTITY_SOFT_CAP = 20_000;
+const ENTITY_SWEEP_TARGET = 18_000; // hysteresis: once over cap, trim down to this
+const SWEEP_CHECK_EVERY = 4; // only run the O(n) scan every Nth flush
+let flushesSinceSweepCheck = 0;
+
+/** Pure: pick the ids to evict. `ids` MUST be oldest-first (the entity adapter
+ *  keeps them sorted by created_at asc). Returns the oldest ids NOT referenced by
+ *  any secondary index (or the editedMessages map), capped at the amount needed to
+ *  reach `target`. Exported for tests. Returns [] when at/under `softCap`. */
+export function computeSweep(
+  ids: readonly string[],
+  indices: ReadonlyArray<Record<string, string[]>>,
+  editedMessages: Record<string, string>,
+  softCap: number,
+  target: number,
+): string[] {
+  if (ids.length <= softCap) return [];
+  const referenced = new Set<string>();
+  for (const index of indices) {
+    for (const key in index) {
+      const list = index[key];
+      for (let i = 0; i < list.length; i++) referenced.add(list[i]);
+    }
+  }
+  // Edit events are referenced via editedMessages, not a string[] index.
+  for (const originalId in editedMessages) {
+    referenced.add(originalId);
+    referenced.add(editedMessages[originalId]);
+  }
+  const need = ids.length - target;
+  const evict: string[] = [];
+  for (let i = 0; i < ids.length && evict.length < need; i++) {
+    if (!referenced.has(ids[i])) evict.push(ids[i]);
+  }
+  return evict;
+}
+
+function sweepWithCaps(softCap: number, target: number): void {
+  const events = store.getState().events;
+  const indices: Array<Record<string, string[]>> = [
+    events.chatMessages, events.reels, events.longform, events.liveStreams,
+    events.notesByAuthor, events.spaceFeeds, events.musicTracks, events.musicAlbums,
+    events.replies, events.reposts, events.repostsByAuthor, events.quotes,
+  ];
+  const evict = computeSweep(events.ids, indices, events.editedMessages, softCap, target);
+  if (evict.length === 0) return;
+  store.dispatch(removeManyEvents(evict));
+  // CRITICAL: unmark from the dedup LRU so a re-delivery / re-REQ can bring the
+  // event back. Skipping this makes evicted events un-refetchable for the session.
+  for (let i = 0; i < evict.length; i++) dedup.unmarkSeen(evict[i]);
+}
+
+function sweepEvents(): void {
+  if (++flushesSinceSweepCheck < SWEEP_CHECK_EVERY) return;
+  flushesSinceSweepCheck = 0;
+  sweepWithCaps(ENTITY_SOFT_CAP, ENTITY_SWEEP_TARGET);
+}
+
+/** Test-only: run the sweep with explicit caps (so a test needn't seed 20k events). */
+export function __sweepForTest(softCap: number, target: number): void {
+  sweepWithCaps(softCap, target);
+}
+
 /** Apply all buffered burst-path ops in one batch — events first, then indices,
  *  so every index entry's event is already in the adapter. Exported for tests
  *  and for synchronous flushing on logout / account switch. */
@@ -193,6 +264,10 @@ export function flushEventPipeline(): void {
   if (b.musicAlbums.length) store.dispatch(indexMusicAlbums(b.musicAlbums));
   if (b.spaceFeeds.length) store.dispatch(indexSpaceFeeds(b.spaceFeeds));
   if (b.feedTimestamps.length) store.dispatch(trackFeedTimestamps(b.feedTimestamps));
+
+  // Bound the entity store after the batch lands (indices are populated, so
+  // freshly-added events are already referenced and won't be swept).
+  sweepEvents();
 }
 
 /** Clear all module-level caches (used during account switch) */
@@ -205,6 +280,7 @@ export function resetEventPipelineCaches(): void {
   }
   buf = emptyBuffer();
   scheduledDelay = FLUSH_MS;
+  flushesSinceSweepCheck = 0;
   dedup.clear();
   authorSetCache.clear();
 }

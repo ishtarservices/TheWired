@@ -50,6 +50,11 @@ class RelayManagerImpl {
   private pendingSubscriptions = new Map<string, {
     filters: NostrFilter[];
     intendedUrls: string[];
+    /** No-URL "broadcast" sub: forward to every read relay that connects later
+     *  (not just relays connected at subscribe time) — see #24. */
+    broadcast?: boolean;
+    /** Whether this sub is allowed to target indexer-only relays. */
+    indexerSafe?: boolean;
   }>();
 
   /** Per-event-id callbacks for publish confirmation (used by publishWithConfirmation) */
@@ -172,6 +177,15 @@ class RelayManagerImpl {
     this.pendingSubscriptions.clear();
     this.publishOKCallbacks.clear();
     this.everConnected.clear();
+    // #80: also clear the per-sub callback maps + the AUTH-suppress set so this
+    // is self-sufficient. Raw relayManager.subscribe() session subs
+    // (followers / user-data / DM gift-wrap) never go through
+    // subscriptionManager.closeAll(), so without this their onEvent/onEOSE
+    // callbacks (and stale authSuppressed entries) accumulate across
+    // login → logout → login cycles.
+    this.onEventCallbacks.clear();
+    this.onEOSECallbacks.clear();
+    this.authSuppressed.clear();
   }
 
   /** Publish an event to write relays. Returns the number of relays it was sent to. */
@@ -237,7 +251,12 @@ class RelayManagerImpl {
         `${subId} kinds=[${kinds}] → sent to ${sentNow}/${urls.length} connected${notConnected.length ? `; waiting on: ${notConnected.join(", ")}` : ""}`,
       );
     } else {
-      // No specific URLs: send to all current read relays (minus indexers unless safe)
+      // No specific URLs: send to all current read relays (minus indexers unless
+      // safe). Record it as a BROADCAST pending sub so a read relay that connects
+      // LATER (cold start, where most read relays open after the first feed/DM
+      // subs are created) still receives this REQ — previously it only ever
+      // reached relays already connected at subscribe time (#24).
+      this.pendingSubscriptions.set(subId, { filters, intendedUrls: [], broadcast: true, indexerSafe });
       const reads = this.getReadRelays().filter((c) => indexerSafe || !INDEXER_SET.has(c.url));
       for (const conn of reads) {
         conn.subscribe(subId, filters);
@@ -428,11 +447,18 @@ class RelayManagerImpl {
 
   /** Forward pending subscriptions to a newly-connected relay */
   private forwardPendingSubscriptions(relayUrl: string, conn: RelayConnection): void {
+    const isReadRelay = conn.mode === "read" || conn.mode === "read+write";
     let forwarded = 0;
     for (const [subId, pending] of this.pendingSubscriptions) {
-      if (!pending.intendedUrls.includes(relayUrl)) continue;
       if (conn.hasSubscription(subId)) continue;
       if (!this.onEventCallbacks.has(subId)) continue;
+      if (pending.broadcast) {
+        // Broadcast subs go to any read relay allowed to carry them.
+        if (!isReadRelay) continue;
+        if (!pending.indexerSafe && INDEXER_SET.has(relayUrl)) continue;
+      } else if (!pending.intendedUrls.includes(relayUrl)) {
+        continue;
+      }
       conn.subscribe(subId, pending.filters);
       forwarded++;
     }

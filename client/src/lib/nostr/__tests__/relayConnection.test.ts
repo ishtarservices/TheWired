@@ -566,3 +566,57 @@ describe("RelayConnection", () => {
     });
   });
 });
+
+// ---------------------------------------------------------------------------
+// Server-CLOSED retry-on-slot (A5). "too many subscriptions" is recoverable —
+// re-defer (bounded) instead of silently dropping + letting the EOSE backstop
+// mask an empty result (the original NIP-29 "messages don't show up" signature).
+// ---------------------------------------------------------------------------
+describe("RelayConnection — server-CLOSED retry (A5)", () => {
+  it("re-defers (does not drop) a sub the relay CLOSED for too-many-subscriptions, and re-sends it when a slot frees", () => {
+    const conn = createConn();
+    conn.connect();
+    latestWs().simulateOpen();
+
+    conn.subscribe("sub-1", [{ kinds: [9] }]);
+    conn.subscribe("sub-2", [{ kinds: [9] }]);
+
+    // Relay rejects sub-2 because it's momentarily full.
+    latestWs().simulateMessage(["CLOSED", "sub-2", "error: too many subscriptions"]);
+
+    // PRE-fix: sub-2 was deleted from tracking and silently lost. POST-fix it is
+    // kept (re-queued for retry).
+    expect(conn.hasSubscription("sub-2")).toBe(true);
+
+    // Freeing a slot drains the deferred sub-2 back onto the wire.
+    conn.closeSubscription("sub-1");
+    const sub2Reqs = reqSubIds(latestWs()).filter((id) => id === "sub-2");
+    expect(sub2Reqs.length).toBeGreaterThanOrEqual(2); // initial + re-drain
+  });
+
+  it("gives up after MAX_CLOSED_RETRIES so a stricter relay can't busy-loop", () => {
+    const conn = createConn();
+    conn.connect();
+    latestWs().simulateOpen();
+    conn.subscribe("sub-1", [{ kinds: [9] }]);
+
+    // First 3 cap-CLOSEDs keep retrying…
+    for (let i = 0; i < 3; i++) {
+      latestWs().simulateMessage(["CLOSED", "sub-1", "error: too many subscriptions"]);
+      expect(conn.hasSubscription("sub-1")).toBe(true);
+    }
+    // …the 4th exhausts the budget and drops it.
+    latestWs().simulateMessage(["CLOSED", "sub-1", "error: too many subscriptions"]);
+    expect(conn.hasSubscription("sub-1")).toBe(false);
+  });
+
+  it("still drops immediately on a non-cap CLOSED (e.g. rate-limited)", () => {
+    const conn = createConn();
+    conn.connect();
+    latestWs().simulateOpen();
+    conn.subscribe("sub-1", [{ kinds: [9] }]);
+
+    latestWs().simulateMessage(["CLOSED", "sub-1", "rate-limited: slow down"]);
+    expect(conn.hasSubscription("sub-1")).toBe(false);
+  });
+});
