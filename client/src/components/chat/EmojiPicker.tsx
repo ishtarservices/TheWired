@@ -93,7 +93,7 @@ export function EmojiPicker({ spaceId, onEmojiSelect, onClose }: EmojiPickerProp
     return (
       <div
         ref={pickerRef}
-        className="absolute bottom-full left-0 mb-2 z-50 rounded-xl overflow-hidden shadow-xl border border-border bg-panel flex items-center justify-center"
+        className="max-w-[var(--popover-max-w,352px)] max-h-[var(--popover-max-h,435px)] rounded-xl overflow-hidden shadow-xl border border-border bg-panel flex items-center justify-center"
         style={{ width: 352, height: 435 }}
       >
         <div className="h-5 w-5 animate-spin rounded-full border-2 border-primary border-t-transparent" />
@@ -104,9 +104,13 @@ export function EmojiPicker({ spaceId, onEmojiSelect, onClose }: EmojiPickerProp
   const Picker = PickerComponent;
 
   return (
+    // Pure panel: positioning is the caller's job (AnchoredPopover or an
+    // explicit wrapper). emoji-mart's panel is rigid (352x435), so when the
+    // popover offers less room this root caps to it (CSS vars, full-size
+    // fallback when standalone) and scrolls rather than getting clipped.
     <div
       ref={pickerRef}
-      className="absolute bottom-full left-0 mb-2 z-50 rounded-xl overflow-hidden shadow-xl border border-border"
+      className="max-w-[var(--popover-max-w,352px)] max-h-[var(--popover-max-h,435px)] overflow-auto rounded-xl shadow-xl border border-border"
     >
       <Picker
         data={emojiData}

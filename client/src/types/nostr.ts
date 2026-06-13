@@ -113,4 +113,8 @@ export const EVENT_KINDS = {
   EMOJI_SET: 30030,
   /** NIP-51: User emoji list (replaceable) */
   USER_EMOJI_LIST: 10030,
+  /** NIP-88: Poll (question + option tags) */
+  POLL: 1068,
+  /** NIP-88: Poll response (vote; e tag → poll, response tags → option ids) */
+  POLL_RESPONSE: 1018,
 } as const;

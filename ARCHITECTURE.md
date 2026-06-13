@@ -1152,16 +1152,19 @@ PATCH  /discovery/listing-requests/:id    # Approve/reject
 
 **Client:** Four tabs (Spaces/Relays/Communities/People) in `features/discover/DiscoverPage.tsx`. Spaces tab has featured horizontal scroll + trending grid + category chips + search + paginate. Relays tab is a grid. Communities and People tabs are TODO (read directly from NIP-72 kind:34550 and NIP-51 kind:39089 on bootstrap relays).
 
-## 7.11 Friends Feed (Virtual Space)
+## 7.11 Feed (Virtual Space)
 
-A pseudo-space rendered at the top of the sidebar that aggregates kind:1/20/21/22/30023 from the user's follow list.
+A pseudo-space rendered at the top of the sidebar (UI label "Feed") that aggregates kind:1/6/20/21/22/30023 from the user's own pubkey + follow list.
 
 - Sentinel ID: `__friends_feed__` (`features/friends/friendsFeedConstants.ts`)
-- Subscribes on `read` relays only (reads follow pubkeys, not an NIP-29 group)
-- Event pipeline indexes into `__friends_feed__:notes|media|articles`
+- Subscribes on `read` relays only (reads follow pubkeys, not an NIP-29 group); the follow list is chunked into ≤500-author filters (`chunkAuthorsFilter`) so large lists aren't truncated
+- Event pipeline indexes into `__friends_feed__:notes|media|articles`; kind:6 reposts index into `:notes` (Feed-only — no space route contains kind 6)
 - Cross-indexes notes with media URLs into the media feed
 - Uses the same pagination + keep-alive panel infrastructure as real spaces
 - `useSpace` has `FRIENDS_FEED_ID` branches in `selectSpace`, `selectChannel`, `resolveActiveChannel`
+- **Visibility filtering** happens at the selector layer (`features/friends/friendsFeedSelectors.ts` composing downstream of the space selectors, reactive to unmute): NIP-51 muted pubkeys + muted words (kind:10000) and a local-only "hidden accounts" list are filtered out of all three channels
+- **Per-account prefs** (`feedPrefsSlice`, persisted via `userStateStore` key `feed_prefs`): show replies, show reposts (adds kind:6 to the live sub via `getFriendsFeedKinds`), hidden accounts; managed from the gear dropdown in the feed toolbar (`FeedPrefsButton`/`FeedPrefsPanel`), which also edits muted words/accounts (read-modify-write kind:10000 with a not-yet-loaded wipe guard)
+- The notes channel embeds the reusable `NoteComposer` (root-note publishing), and reply/repost/quote actions work in the Feed and read-only spaces (`useNoteActions` — interactions broadcast to write relays; only read-write space posts target the host relay)
 
 ## 7.12 Onboarding & Multi-Account
 

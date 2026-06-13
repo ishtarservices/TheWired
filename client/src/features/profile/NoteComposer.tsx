@@ -1,7 +1,8 @@
 import { useState, useRef, useCallback, lazy, Suspense } from "react";
-import { Send, Paperclip, Smile, Loader2, ImageIcon } from "lucide-react";
+import { Send, Paperclip, Smile, Loader2, ImageIcon, BarChart3, X } from "lucide-react";
 import { npubEncode } from "nostr-tools/nip19";
 import { Avatar } from "@/components/ui/Avatar";
+import { AnchoredPopover } from "@/components/ui/AnchoredPopover";
 import { MentionAutocomplete } from "@/components/content/MentionAutocomplete";
 import { EmojiAutocomplete } from "@/components/content/EmojiAutocomplete";
 import { AttachmentPreview } from "@/components/chat/AttachmentPreview";
@@ -9,18 +10,23 @@ import { GifPreview } from "@/components/chat/GifPreview";
 import { useAutoResize } from "@/hooks/useAutoResize";
 import { useFileUpload } from "@/hooks/useFileUpload";
 import { useAppSelector } from "@/store/hooks";
-import { buildRootNote } from "@/lib/nostr/eventBuilder";
+import { buildRootNote, buildPollEvent } from "@/lib/nostr/eventBuilder";
 import { signAndPublish } from "@/lib/nostr/publish";
+import { relayManager } from "@/lib/nostr/relayManager";
 import { registerGifShare } from "@/lib/api/gif";
 import type { AttachmentMeta } from "@/lib/nostr/eventBuilder";
 import type { GifItem } from "@/types/emoji";
 import type { EmojiSelectResult } from "@/components/chat/EmojiPicker";
+import type { PollDraft } from "@/features/polls/PollComposer";
 
 const LazyGifPicker = lazy(() =>
   import("@/components/chat/GifPicker").then((m) => ({ default: m.GifPicker })),
 );
 const LazyEmojiPicker = lazy(() =>
   import("@/components/chat/EmojiPicker").then((m) => ({ default: m.EmojiPicker })),
+);
+const LazyPollComposer = lazy(() =>
+  import("@/features/polls/PollComposer").then((m) => ({ default: m.PollComposer })),
 );
 
 /** Match @query at cursor position */
@@ -37,7 +43,12 @@ function detectEmojiQuery(value: string, cursorPos: number): string | null {
   return match ? match[2] : null;
 }
 
-export function NoteComposer() {
+interface NoteComposerProps {
+  /** Outer margin classes — override when embedding outside the profile page. */
+  className?: string;
+}
+
+export function NoteComposer({ className = "mx-6 mt-4" }: NoteComposerProps) {
   const pubkey = useAppSelector((s) => s.identity.pubkey);
   const profile = useAppSelector((s) => s.identity.profile);
   const [expanded, setExpanded] = useState(false);
@@ -47,10 +58,15 @@ export function NoteComposer() {
   const [emojiQuery, setEmojiQuery] = useState<string | null>(null);
   const [showGifPicker, setShowGifPicker] = useState(false);
   const [showEmojiPicker, setShowEmojiPicker] = useState(false);
+  const [showPollComposer, setShowPollComposer] = useState(false);
   const [pendingGif, setPendingGif] = useState<GifItem | null>(null);
+  const [pollDraft, setPollDraft] = useState<PollDraft | null>(null);
   const mentionMapRef = useRef<Map<string, string>>(new Map());
   const customEmojiMapRef = useRef<Map<string, string>>(new Map());
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const gifBtnRef = useRef<HTMLButtonElement>(null);
+  const pollBtnRef = useRef<HTMLButtonElement>(null);
+  const emojiBtnRef = useRef<HTMLButtonElement>(null);
 
   const {
     attachments,
@@ -174,10 +190,41 @@ export function NoteComposer() {
 
   const handleSubmit = useCallback(async () => {
     if (!pubkey) return;
+    if (publishing || isUploading) return;
+
+    // Poll post: the kind:1068 event IS the post (composer text, when present,
+    // overrides the draft's question)
+    if (pollDraft) {
+      setPublishing(true);
+      try {
+        const writeRelays = relayManager
+          .getWriteRelays()
+          .map((c) => c.url)
+          .slice(0, 4);
+        const unsigned = buildPollEvent(
+          pubkey,
+          value.trim() || pollDraft.question,
+          pollDraft.options,
+          {
+            pollType: pollDraft.pollType,
+            endsAt: pollDraft.endsAt,
+            relays: writeRelays,
+          },
+        );
+        await signAndPublish(unsigned);
+        setValue("");
+        setPollDraft(null);
+        setShowPollComposer(false);
+        setExpanded(false);
+      } finally {
+        setPublishing(false);
+      }
+      return;
+    }
+
     const hasContent = value.trim().length > 0;
     const hasDoneAttachments = attachments.some((a) => a.status === "done");
     if (!hasContent && !hasDoneAttachments && !pendingGif) return;
-    if (publishing || isUploading) return;
 
     setPublishing(true);
     try {
@@ -250,7 +297,7 @@ export function NoteComposer() {
     } finally {
       setPublishing(false);
     }
-  }, [pubkey, value, attachments, pendingGif, publishing, isUploading, clearAttachments]);
+  }, [pubkey, value, attachments, pendingGif, pollDraft, publishing, isUploading, clearAttachments]);
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
     // Let autocomplete handle its own keys
@@ -262,9 +309,10 @@ export function NoteComposer() {
 
     if (e.key === "Escape") {
       e.preventDefault();
-      if (showGifPicker || showEmojiPicker) {
+      if (showGifPicker || showEmojiPicker || showPollComposer) {
         setShowGifPicker(false);
         setShowEmojiPicker(false);
+        setShowPollComposer(false);
       } else if (!value.trim() && !hasAttachments && !pendingGif) {
         setExpanded(false);
       }
@@ -281,7 +329,7 @@ export function NoteComposer() {
   if (!pubkey) return null;
 
   const displayName = profile?.display_name || profile?.name || pubkey.slice(0, 12);
-  const hasContent = value.trim().length > 0 || hasAttachments || !!pendingGif;
+  const hasContent = value.trim().length > 0 || hasAttachments || !!pendingGif || !!pollDraft;
 
   // Collapsed state
   if (!expanded) {
@@ -292,7 +340,7 @@ export function NoteComposer() {
           setExpanded(true);
           requestAnimationFrame(() => textareaRef.current?.focus());
         }}
-        className="mx-6 mt-4 flex items-center gap-3 rounded-xl border border-border bg-surface px-4 py-3 text-left transition-colors hover:border-border-light hover:bg-surface-hover"
+        className={`${className} flex items-center gap-3 rounded-xl border border-border bg-surface px-4 py-3 text-left transition-colors hover:border-border-light hover:bg-surface-hover`}
       >
         <Avatar
           src={profile?.picture}
@@ -307,64 +355,101 @@ export function NoteComposer() {
 
   // Expanded state
   return (
-    <div className="relative mx-6 mt-4 rounded-xl border border-border bg-surface">
-      {/* Autocomplete popups */}
-      <div className="relative">
+    <div className={`relative ${className} rounded-xl border border-border bg-surface`}>
+      {/* Popups render via AnchoredPopover (portal + fixed positioning) so
+          they flip above/below to fit the viewport instead of being clipped
+          when the composer sits at the top of a scroll container (Feed). */}
+
+      {/* Autocomplete popups — anchored to the textarea */}
+      <AnchoredPopover
+        anchorEl={textareaRef.current}
+        open={mentionQuery !== null}
+        onClose={() => setMentionQuery(null)}
+      >
         {mentionQuery !== null && (
-          <div className="absolute bottom-full left-3 z-50">
-            <MentionAutocomplete
-              query={mentionQuery}
-              onSelect={handleMentionSelect}
-              onClose={() => setMentionQuery(null)}
-            />
-          </div>
+          <MentionAutocomplete
+            query={mentionQuery}
+            onSelect={handleMentionSelect}
+            onClose={() => setMentionQuery(null)}
+          />
         )}
+      </AnchoredPopover>
+      <AnchoredPopover
+        anchorEl={textareaRef.current}
+        open={emojiQuery !== null}
+        onClose={() => setEmojiQuery(null)}
+      >
         {emojiQuery !== null && (
-          <div className="absolute bottom-full left-3 z-50">
-            <EmojiAutocomplete
-              query={emojiQuery}
-              onSelect={handleEmojiAutocompleteSelect}
-              onClose={() => setEmojiQuery(null)}
-            />
-          </div>
+          <EmojiAutocomplete
+            query={emojiQuery}
+            onSelect={handleEmojiAutocompleteSelect}
+            onClose={() => setEmojiQuery(null)}
+          />
         )}
-      </div>
+      </AnchoredPopover>
 
       {/* GIF Picker */}
-      {showGifPicker && (
-        <div className="absolute bottom-full left-0 z-50 mb-2">
-          <Suspense
-            fallback={
-              <div className="w-[360px] h-[420px] rounded-xl border border-border bg-panel flex items-center justify-center">
-                <div className="h-5 w-5 animate-spin rounded-full border-2 border-primary border-t-transparent" />
-              </div>
-            }
-          >
-            <LazyGifPicker
-              onSelect={handleGifSelect}
-              onClose={() => setShowGifPicker(false)}
-            />
-          </Suspense>
-        </div>
-      )}
+      <AnchoredPopover
+        anchorEl={gifBtnRef.current}
+        open={showGifPicker}
+        onClose={() => setShowGifPicker(false)}
+      >
+        <Suspense
+          fallback={
+            <div className="w-[360px] h-[420px] rounded-xl border border-border bg-panel flex items-center justify-center">
+              <div className="h-5 w-5 animate-spin rounded-full border-2 border-primary border-t-transparent" />
+            </div>
+          }
+        >
+          <LazyGifPicker
+            onSelect={handleGifSelect}
+            onClose={() => setShowGifPicker(false)}
+          />
+        </Suspense>
+      </AnchoredPopover>
 
       {/* Emoji Picker */}
-      {showEmojiPicker && (
-        <div className="absolute bottom-full left-0 z-50 mb-2">
-          <Suspense
-            fallback={
-              <div className="w-[352px] h-[435px] rounded-xl border border-border bg-panel flex items-center justify-center">
-                <div className="h-5 w-5 animate-spin rounded-full border-2 border-primary border-t-transparent" />
-              </div>
-            }
-          >
-            <LazyEmojiPicker
-              onEmojiSelect={handleEmojiPickerSelect}
-              onClose={() => setShowEmojiPicker(false)}
-            />
-          </Suspense>
-        </div>
-      )}
+      <AnchoredPopover
+        anchorEl={emojiBtnRef.current}
+        open={showEmojiPicker}
+        onClose={() => setShowEmojiPicker(false)}
+      >
+        <Suspense
+          fallback={
+            <div className="w-[352px] h-[435px] rounded-xl border border-border bg-panel flex items-center justify-center">
+              <div className="h-5 w-5 animate-spin rounded-full border-2 border-primary border-t-transparent" />
+            </div>
+          }
+        >
+          <LazyEmojiPicker
+            onEmojiSelect={handleEmojiPickerSelect}
+            onClose={() => setShowEmojiPicker(false)}
+          />
+        </Suspense>
+      </AnchoredPopover>
+
+      {/* Poll Composer */}
+      <AnchoredPopover
+        anchorEl={pollBtnRef.current}
+        open={showPollComposer}
+        onClose={() => setShowPollComposer(false)}
+      >
+        <Suspense
+          fallback={
+            <div className="w-[min(460px,calc(100vw-24px))] h-[320px] rounded-xl border border-border bg-panel flex items-center justify-center">
+              <div className="h-5 w-5 animate-spin rounded-full border-2 border-primary border-t-transparent" />
+            </div>
+          }
+        >
+          <LazyPollComposer
+            onSubmit={(draft) => {
+              setPollDraft(draft);
+              setShowPollComposer(false);
+            }}
+            onClose={() => setShowPollComposer(false)}
+          />
+        </Suspense>
+      </AnchoredPopover>
 
       {/* Author header */}
       <div className="flex items-center gap-2.5 px-4 pt-3 pb-1">
@@ -407,13 +492,39 @@ export function NoteComposer() {
         <GifPreview gif={pendingGif} onRemove={() => setPendingGif(null)} />
       )}
 
+      {/* Attached poll draft */}
+      {pollDraft && (
+        <div className="mx-4 mb-2 flex items-center gap-2.5 rounded-lg border border-border bg-field/60 px-3 py-2">
+          <BarChart3 size={15} className="shrink-0 text-primary-soft" />
+          <span className="min-w-0 flex-1">
+            <span className="block truncate text-sm text-heading">
+              {value.trim() || pollDraft.question}
+            </span>
+            <span className="block text-xs text-muted">
+              {pollDraft.options.length} options
+              {pollDraft.pollType === "multiplechoice" ? " · multiple choice" : ""}
+              {pollDraft.endsAt ? "" : " · no end time"}
+            </span>
+          </span>
+          <button
+            type="button"
+            onClick={() => setPollDraft(null)}
+            className="shrink-0 rounded p-1 text-muted hover:text-red-400 transition-colors"
+            title="Remove poll"
+          >
+            <X size={14} />
+          </button>
+        </div>
+      )}
+
       {/* Toolbar */}
       <div className="flex items-center justify-between border-t border-border px-3 py-2">
         <div className="flex items-center gap-1">
           <button
             type="button"
             onClick={openFilePicker}
-            className="rounded-lg p-1.5 text-muted hover:text-heading hover:bg-surface-hover transition-colors"
+            disabled={!!pollDraft}
+            className="rounded-lg p-1.5 text-muted hover:text-heading hover:bg-surface-hover transition-colors disabled:opacity-40"
             title="Attach file"
           >
             <Paperclip size={18} />
@@ -421,18 +532,22 @@ export function NoteComposer() {
           <button
             type="button"
             onClick={openFilePicker}
-            className="rounded-lg p-1.5 text-muted hover:text-heading hover:bg-surface-hover transition-colors"
+            disabled={!!pollDraft}
+            className="rounded-lg p-1.5 text-muted hover:text-heading hover:bg-surface-hover transition-colors disabled:opacity-40"
             title="Add image"
           >
             <ImageIcon size={18} />
           </button>
           <button
+            ref={gifBtnRef}
             type="button"
             onClick={() => {
               setShowGifPicker((prev) => !prev);
               setShowEmojiPicker(false);
+              setShowPollComposer(false);
             }}
-            className={`rounded-md px-1.5 py-1 text-[11px] font-bold transition-colors ${
+            disabled={!!pollDraft}
+            className={`rounded-md px-1.5 py-1 text-[11px] font-bold transition-colors disabled:opacity-40 ${
               showGifPicker
                 ? "bg-primary/20 text-primary"
                 : "text-muted hover:text-heading hover:bg-surface-hover"
@@ -442,10 +557,30 @@ export function NoteComposer() {
             GIF
           </button>
           <button
+            ref={pollBtnRef}
+            type="button"
+            onClick={() => {
+              setShowPollComposer((prev) => !prev);
+              setShowGifPicker(false);
+              setShowEmojiPicker(false);
+            }}
+            disabled={!!pollDraft || hasAttachments || !!pendingGif}
+            className={`rounded-lg p-1.5 transition-colors disabled:opacity-40 ${
+              showPollComposer
+                ? "bg-primary/20 text-primary"
+                : "text-muted hover:text-heading hover:bg-surface-hover"
+            }`}
+            title="Create a poll"
+          >
+            <BarChart3 size={18} />
+          </button>
+          <button
+            ref={emojiBtnRef}
             type="button"
             onClick={() => {
               setShowEmojiPicker((prev) => !prev);
               setShowGifPicker(false);
+              setShowPollComposer(false);
             }}
             className={`rounded-lg p-1.5 transition-colors ${
               showEmojiPicker
@@ -465,6 +600,8 @@ export function NoteComposer() {
               setValue("");
               clearAttachments();
               setPendingGif(null);
+              setPollDraft(null);
+              setShowPollComposer(false);
               mentionMapRef.current.clear();
               customEmojiMapRef.current.clear();
               setExpanded(false);

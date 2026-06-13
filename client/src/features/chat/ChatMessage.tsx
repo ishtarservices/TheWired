@@ -12,8 +12,9 @@ import { useUnblock } from "../../hooks/useUnblock";
 import { useAppSelector } from "../../store/hooks";
 import { eventsSelectors } from "../../store/slices/eventsSlice";
 import { aggregateReactions } from "../../store/slices/reactionsSlice";
-import type { NostrEvent } from "../../types/nostr";
+import { EVENT_KINDS, type NostrEvent } from "../../types/nostr";
 import { useZap } from "../wallet/WalletProvider";
+import { PollCard } from "../polls/PollCard";
 
 interface ChatMessageProps {
   event: NostrEvent;
@@ -27,7 +28,7 @@ interface ChatMessageProps {
   onReply?: (eventId: string, pubkey: string) => void;
   onMentionClick?: (pubkey: string, anchor: HTMLElement) => void;
   onDeleteForMe: (eventId: string) => void;
-  onDeleteForEveryone: (eventId: string) => void;
+  onDeleteForEveryone: (eventId: string, kind?: number) => void;
   onModDelete: (eventId: string) => void;
   onEdit: (event: NostrEvent) => void;
   onJumpToMessage?: (eventId: string) => void;
@@ -172,9 +173,13 @@ export function ChatMessage({
           </div>
         </div>
         {replyEventId && <InlineReplyPreview eventId={replyEventId} onJump={onJumpToMessage} />}
-        <div className="text-sm text-body break-words">
-          <RichContent content={displayContent} emojiTags={event.tags.filter((t) => t[0] === "emoji")} onMentionClick={onMentionClick} />
-        </div>
+        {event.kind === EVENT_KINDS.POLL ? (
+          <PollCard event={event} variant="chat" />
+        ) : (
+          <div className="text-sm text-body break-words">
+            <RichContent content={displayContent} emojiTags={event.tags.filter((t) => t[0] === "emoji")} onMentionClick={onMentionClick} />
+          </div>
+        )}
         {/* Reaction display */}
         {reactions.length > 0 && (
           <div className="mt-1 flex flex-wrap gap-1">
@@ -203,7 +208,7 @@ export function ChatMessage({
         isAdmin={isAdmin}
         canEdit={canEdit}
         onDeleteForMe={() => onDeleteForMe(event.id)}
-        onDeleteForEveryone={() => onDeleteForEveryone(event.id)}
+        onDeleteForEveryone={() => onDeleteForEveryone(event.id, event.kind)}
         onModDelete={() => onModDelete(event.id)}
         onEdit={() => onEdit(event)}
       />

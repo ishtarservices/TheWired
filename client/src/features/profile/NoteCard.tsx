@@ -4,6 +4,7 @@ import { MediaGallery } from "../../components/media";
 import { Avatar } from "../../components/ui/Avatar";
 import { RichContent } from "../../components/content/RichContent";
 import { MusicEmbedCard } from "../../components/content/MusicEmbedCard";
+import { PollCard } from "../polls/PollCard";
 import { NoteActionBar } from "../spaces/notes/NoteActionBar";
 import { ZapSummary } from "../wallet/ZapSummary";
 import { selectFeatureEnabled, FEATURE_AI } from "../../store/slices/featuresSlice";
@@ -148,6 +149,15 @@ function RepostedNoteInner({ repostEvent }: { repostEvent: NostrEvent }) {
           pubkey={originalEvent.pubkey}
           identifier={dTag}
         />
+      </div>
+    );
+  }
+
+  // Poll reposts: full interactive poll card
+  if (originalEvent.kind === EVENT_KINDS.POLL) {
+    return (
+      <div className="card-glass rounded-xl p-5">
+        <PollCard event={originalEvent} variant="feed" />
       </div>
     );
   }
@@ -306,8 +316,11 @@ function NoteCardInner({
         <ThreadContext parentId={threadRef.replyId} />
       )}
 
-      {/* Content — mentions open an in-place popover, never navigate away */}
-      {cleanedContent && (
+      {/* Content — polls render the interactive card; mentions open an
+          in-place popover, never navigate away */}
+      {event.kind === EVENT_KINDS.POLL ? (
+        <PollCard event={event} variant="feed" />
+      ) : cleanedContent ? (
         <div className="text-sm leading-relaxed text-body">
           <RichContent
             content={cleanedContent}
@@ -315,7 +328,7 @@ function NoteCardInner({
             suppressEventIds={quoteRef ? [quoteRef.eventId] : undefined}
           />
         </div>
-      )}
+      ) : null}
       {mentionPopover && (
         <UserPopoverCard
           pubkey={mentionPopover.pubkey}
@@ -324,8 +337,9 @@ function NoteCardInner({
         />
       )}
 
-      {/* Media toggle + display — shown by default */}
-      {hasMedia && (
+      {/* Media toggle + display — shown by default (not for polls: their
+          content is the question, not media) */}
+      {hasMedia && event.kind !== EVENT_KINDS.POLL && (
         <button
           onClick={() => setShowMedia((v) => !v)}
           className="mt-2 flex items-center gap-1 text-xs text-muted hover:text-heading transition-colors"
@@ -338,7 +352,7 @@ function NoteCardInner({
 
       {/* Keep the gallery mounted and toggle visibility so re-showing doesn't
           re-decode the media and pop in at the wrong size. */}
-      {media.length > 0 && (
+      {media.length > 0 && event.kind !== EVENT_KINDS.POLL && (
         <div className={showMedia ? undefined : "hidden"}>
           <MediaGallery media={media} density="feed" />
         </div>

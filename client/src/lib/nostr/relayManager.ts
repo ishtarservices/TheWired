@@ -4,6 +4,7 @@ import type { RelayEventCallback, RelayEOSECallback, RelayOKCallback, RelayStatu
 import { RelayConnection } from "./relayConnection";
 import { StormDetector } from "./reconnect";
 import { BOOTSTRAP_RELAYS, INDEXER_RELAYS } from "./constants";
+import { normalizeRelayUrl } from "./relayUrl";
 import { createLogger, shortRelay } from "../debug/logger";
 
 const log = createLogger("sub");
@@ -38,6 +39,24 @@ class RelayManagerImpl {
   private onEOSECallbacks = new Map<string, RelayEOSECallback>();
   private globalOnOK: RelayOKCallback | null = null;
   private globalOnStatusChange: RelayStatusCallback | null = null;
+  /** Fired when a connection is removed via disconnect() so the Redux
+   *  connections record can shrink in lockstep (wired in loginFlow). */
+  private onRelayRemoved: ((url: string) => void) | null = null;
+
+  /** Normalized URLs of the user's relay list as last applied via
+   *  reconcileUserRelays — lets the next reconcile disconnect dropped relays. */
+  private userRelayUrls = new Set<string>();
+  /** Locally-disabled relays (normalized). Honored by reconcileUserRelays /
+   *  connectFromConfig only — raw connect() stays permissive so transient
+   *  feature dials (space host, DM recipients, preview, search) keep working. */
+  private userDisabled = new Set<string>();
+
+  /** Canonical connection key: normalized URL (trailing slash stripped) so
+   *  `wss://x/` and `wss://x` share one socket. Falls back to the raw string
+   *  for unparseable input. */
+  private key(url: string): string {
+    return normalizeRelayUrl(url) ?? url;
+  }
 
   /** Transient one-shot status listeners used by waitForConnection /
    *  connectToBootstrapAndWait. Additive (a Set) so concurrent waiters — e.g.
@@ -75,9 +94,11 @@ class RelayManagerImpl {
   setGlobalCallbacks(cbs: {
     onOK?: RelayOKCallback;
     onStatusChange?: RelayStatusCallback;
+    onRelayRemoved?: (url: string) => void;
   }) {
     if (cbs.onOK) this.globalOnOK = cbs.onOK;
     if (cbs.onStatusChange) this.globalOnStatusChange = cbs.onStatusChange;
+    if (cbs.onRelayRemoved) this.onRelayRemoved = cbs.onRelayRemoved;
   }
 
   /** Register a listener fired when a relay reconnects (reaches "connected"
@@ -88,16 +109,23 @@ class RelayManagerImpl {
     return () => this.reconnectListeners.delete(cb);
   }
 
+  /** Dial a relay (or return the existing connection — the requested mode is
+   *  ignored for an existing connection; use reconcileUserRelays to change
+   *  modes). Deliberately permissive: does NOT honor the user-disabled set, so
+   *  transient feature dials (space host relays, DM recipients, group preview,
+   *  search) always work. User-list-driven connects go through
+   *  reconcileUserRelays / connectFromConfig, which do honor it. */
   connect(url: string, mode: RelayMode = "read+write"): RelayConnection {
-    const existing = this.connections.get(url);
+    const k = this.key(url);
+    const existing = this.connections.get(k);
     if (existing) {
       existing.connect();
       return existing;
     }
 
-    const conn = new RelayConnection(url, mode, this.stormDetector);
+    const conn = new RelayConnection(k, mode, this.stormDetector);
     // Fetch NIP-11 relay info to learn subscription limits (non-blocking)
-    this.fetchNip11(url, conn);
+    this.fetchNip11(k, conn);
     conn.setCallbacks({
       onEvent: (subId, event, relayUrl) => {
         // Route to the specific subscription callback
@@ -157,16 +185,21 @@ class RelayManagerImpl {
         }
       },
     });
-    this.connections.set(url, conn);
+    this.connections.set(k, conn);
     conn.connect();
     return conn;
   }
 
   disconnect(url: string): void {
-    const conn = this.connections.get(url);
+    const k = this.key(url);
+    const conn = this.connections.get(k);
     if (conn) {
       conn.disconnect();
-      this.connections.delete(url);
+      this.connections.delete(k);
+      // Forget the connect history so a future re-add counts as a first
+      // connect, not a "reconnect" (no needless publishOutbox replay).
+      this.everConnected.delete(k);
+      this.onRelayRemoved?.(k);
     }
   }
 
@@ -186,6 +219,10 @@ class RelayManagerImpl {
     this.onEventCallbacks.clear();
     this.onEOSECallbacks.clear();
     this.authSuppressed.clear();
+    // User relay config is per-account — clear it so an account switch starts
+    // clean (the next login reloads its own list + disabled set).
+    this.userRelayUrls.clear();
+    this.userDisabled.clear();
   }
 
   /** Publish an event to write relays. Returns the number of relays it was sent to. */
@@ -195,7 +232,7 @@ class RelayManagerImpl {
   ): number {
     const relays = targets
       ? targets
-          .map((url) => this.connections.get(url))
+          .map((url) => this.connections.get(this.key(url)))
           .filter((c): c is RelayConnection => !!c)
       : this.getWriteRelays();
 
@@ -222,7 +259,8 @@ class RelayManagerImpl {
     const indexerSafe = isIndexerSafe(filters);
 
     if (relayUrls) {
-      const urls = indexerSafe ? relayUrls : relayUrls.filter((u) => !INDEXER_SET.has(u));
+      const normalized = [...new Set(relayUrls.map((u) => this.key(u)))];
+      const urls = indexerSafe ? normalized : normalized.filter((u) => !INDEXER_SET.has(u));
       // Track intended URLs so deferred relays get the subscription when they connect
       this.pendingSubscriptions.set(subId, { filters, intendedUrls: urls });
 
@@ -317,18 +355,19 @@ class RelayManagerImpl {
   /** Suppress NIP-42 AUTH for a relay the user hasn't opted into — e.g. one
    *  dialed only to preview a group before importing it (AUTH-privacy). */
   suppressAuth(url: string): void {
-    this.authSuppressed.add(url);
+    this.authSuppressed.add(this.key(url));
   }
 
   /** Re-allow AUTH for a relay (e.g. after the user joins a group hosted there).
    *  Pair with `replayAuth()` to answer any challenge received while suppressed. */
   allowAuth(url: string): void {
-    this.authSuppressed.delete(url);
+    this.authSuppressed.delete(this.key(url));
   }
 
   /** Wait for a specific relay to reach 'connected' status */
   waitForConnection(url: string, timeout = 10_000): Promise<boolean> {
-    const conn = this.connections.get(url);
+    const k = this.key(url);
+    const conn = this.connections.get(k);
     if (!conn) return Promise.resolve(false);
     if (conn.getStatus() === "connected") return Promise.resolve(true);
 
@@ -340,7 +379,7 @@ class RelayManagerImpl {
       };
       const timer = setTimeout(() => done(false), timeout);
       const waiter: RelayStatusCallback = (relayUrl, status) => {
-        if (relayUrl === url && status === "connected") done(true);
+        if (relayUrl === k && status === "connected") done(true);
       };
       this.statusWaiters.add(waiter);
     });
@@ -374,8 +413,64 @@ class RelayManagerImpl {
 
   connectFromConfig(configs: RelayConfig[]): void {
     for (const cfg of configs) {
+      // Honor the local disable list for config-driven connects (transient
+      // feature dials use connect() directly and stay permissive).
+      if (this.userDisabled.has(this.key(cfg.url))) continue;
       this.connect(cfg.url, cfg.mode);
     }
+  }
+
+  /** Replace the set of locally-disabled relays (normalized). No side effects —
+   *  callers decide whether to disconnect (setRelayDisabled in relayList.ts). */
+  setUserDisabledRelays(urls: string[]): void {
+    this.userDisabled = new Set(urls.map((u) => this.key(u)));
+  }
+
+  /** Reconcile live connections with the user's relay list (NIP-65):
+   *  - connects new entries (skipping locally-disabled ones)
+   *  - recreates connections whose mode changed (RelayConnection.mode is
+   *    readonly; pendingSubscriptions forwarding re-sends subs on reconnect)
+   *  - disconnects relays dropped since the previous reconcile
+   *  - with `pruneBootstrap`, disconnects bootstrap relays absent from a
+   *    non-empty list. APP_RELAY is deliberately NOT exempt: platform features
+   *    (space host chat, DM relays, profile lookups) auto-redial it
+   *    transiently via connect()/subscribe(), which is the intended behavior.
+   */
+  reconcileUserRelays(
+    entries: RelayConfig[],
+    opts: { pruneBootstrap?: boolean } = {},
+  ): void {
+    const newMap = new Map<string, RelayMode>();
+    for (const e of entries) {
+      const k = normalizeRelayUrl(e.url);
+      if (k) newMap.set(k, e.mode); // dedupe: last entry wins
+    }
+
+    for (const [url, mode] of newMap) {
+      if (this.userDisabled.has(url)) {
+        if (this.connections.has(url)) this.disconnect(url);
+        continue;
+      }
+      const existing = this.connections.get(url);
+      if (existing && existing.mode !== mode) {
+        this.disconnect(url); // mode changed → recreate
+      }
+      this.connect(url, mode);
+    }
+
+    // Disconnect relays dropped from the user list since the last reconcile.
+    for (const url of this.userRelayUrls) {
+      if (!newMap.has(url)) this.disconnect(url);
+    }
+
+    if (opts.pruneBootstrap && newMap.size > 0) {
+      for (const b of BOOTSTRAP_RELAYS) {
+        const k = this.key(b);
+        if (!newMap.has(k) && this.connections.has(k)) this.disconnect(k);
+      }
+    }
+
+    this.userRelayUrls = new Set(newMap.keys());
   }
 
   /**
@@ -389,7 +484,7 @@ class RelayManagerImpl {
   ): Promise<{ relayUrl: string; success: boolean; message: string }[]> {
     const relays = targets
       ? targets
-          .map((url) => this.connections.get(url))
+          .map((url) => this.connections.get(this.key(url)))
           .filter((c): c is RelayConnection => !!c)
       : this.getWriteRelays();
 

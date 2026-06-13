@@ -8,6 +8,7 @@ import { AttachmentPreview } from "@/components/chat/AttachmentPreview";
 import { GifPreview } from "@/components/chat/GifPreview";
 import { useAutoResize } from "@/hooks/useAutoResize";
 import { useFileUpload } from "@/hooks/useFileUpload";
+import { AnchoredPopover } from "@/components/ui/AnchoredPopover";
 import { useAppSelector } from "@/store/hooks";
 import { buildRootNote, buildRepost } from "@/lib/nostr/eventBuilder";
 import { buildNaddrReference } from "@/lib/nostr/naddrEncode";
@@ -69,6 +70,8 @@ export function MusicPostModal({ open, onClose, target }: MusicPostModalProps) {
   const mentionMapRef = useRef<Map<string, string>>(new Map());
   const customEmojiMapRef = useRef<Map<string, string>>(new Map());
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const gifBtnRef = useRef<HTMLButtonElement>(null);
+  const emojiBtnRef = useRef<HTMLButtonElement>(null);
 
   const {
     attachments,
@@ -361,61 +364,34 @@ export function MusicPostModal({ open, onClose, target }: MusicPostModalProps) {
 
         {/* Composer area */}
         <div className="relative flex-1 overflow-y-auto">
-          {/* Autocomplete popups */}
-          {mentionQuery !== null && (
-            <div className="absolute top-0 left-3 z-50">
+          {/* Autocomplete popups — anchored to the textarea, space-aware */}
+          <AnchoredPopover
+            anchorEl={textareaRef.current}
+            open={mentionQuery !== null}
+            onClose={() => setMentionQuery(null)}
+          >
+            {mentionQuery !== null && (
               <MentionAutocomplete
                 query={mentionQuery}
                 onSelect={handleMentionSelect}
                 onClose={() => setMentionQuery(null)}
               />
-            </div>
-          )}
-          {emojiQuery !== null && (
-            <div className="absolute top-0 left-3 z-50">
+            )}
+          </AnchoredPopover>
+          <AnchoredPopover
+            anchorEl={textareaRef.current}
+            open={emojiQuery !== null}
+            onClose={() => setEmojiQuery(null)}
+          >
+            {emojiQuery !== null && (
               <EmojiAutocomplete
                 query={emojiQuery}
                 onSelect={handleEmojiAutocompleteSelect}
                 onClose={() => setEmojiQuery(null)}
               />
-            </div>
-          )}
+            )}
+          </AnchoredPopover>
 
-          {/* GIF Picker */}
-          {showGifPicker && (
-            <div className="absolute top-0 left-0 z-50">
-              <Suspense
-                fallback={
-                  <div className="w-[360px] h-[420px] rounded-xl border border-border bg-panel flex items-center justify-center">
-                    <div className="h-5 w-5 animate-spin rounded-full border-2 border-primary border-t-transparent" />
-                  </div>
-                }
-              >
-                <LazyGifPicker
-                  onSelect={handleGifSelect}
-                  onClose={() => setShowGifPicker(false)}
-                />
-              </Suspense>
-            </div>
-          )}
-
-          {/* Emoji Picker */}
-          {showEmojiPicker && (
-            <div className="absolute top-0 left-0 z-50">
-              <Suspense
-                fallback={
-                  <div className="w-[352px] h-[435px] rounded-xl border border-border bg-panel flex items-center justify-center">
-                    <div className="h-5 w-5 animate-spin rounded-full border-2 border-primary border-t-transparent" />
-                  </div>
-                }
-              >
-                <LazyEmojiPicker
-                  onEmojiSelect={handleEmojiPickerSelect}
-                  onClose={() => setShowEmojiPicker(false)}
-                />
-              </Suspense>
-            </div>
-          )}
 
           {/* Textarea */}
           <div className="px-4 py-3">
@@ -468,6 +444,7 @@ export function MusicPostModal({ open, onClose, target }: MusicPostModalProps) {
                 <Paperclip size={16} />
               </button>
               <button
+                ref={gifBtnRef}
                 type="button"
                 onClick={() => {
                   setShowGifPicker((prev) => !prev);
@@ -483,6 +460,7 @@ export function MusicPostModal({ open, onClose, target }: MusicPostModalProps) {
                 GIF
               </button>
               <button
+                ref={emojiBtnRef}
                 type="button"
                 onClick={() => {
                   setShowEmojiPicker((prev) => !prev);
@@ -497,6 +475,48 @@ export function MusicPostModal({ open, onClose, target }: MusicPostModalProps) {
               >
                 <Smile size={16} />
               </button>
+
+              {/* GIF Picker — anchored to its toolbar button */}
+              <AnchoredPopover
+                anchorEl={gifBtnRef.current}
+                open={showGifPicker}
+                onClose={() => setShowGifPicker(false)}
+                preferredSide="above"
+              >
+                <Suspense
+                  fallback={
+                    <div className="w-[360px] h-[420px] max-h-[var(--popover-max-h,420px)] rounded-xl border border-border bg-panel flex items-center justify-center">
+                      <div className="h-5 w-5 animate-spin rounded-full border-2 border-primary border-t-transparent" />
+                    </div>
+                  }
+                >
+                  <LazyGifPicker
+                    onSelect={handleGifSelect}
+                    onClose={() => setShowGifPicker(false)}
+                  />
+                </Suspense>
+              </AnchoredPopover>
+
+              {/* Emoji Picker — anchored to its toolbar button */}
+              <AnchoredPopover
+                anchorEl={emojiBtnRef.current}
+                open={showEmojiPicker}
+                onClose={() => setShowEmojiPicker(false)}
+                preferredSide="above"
+              >
+                <Suspense
+                  fallback={
+                    <div className="w-[352px] h-[435px] max-h-[var(--popover-max-h,435px)] rounded-xl border border-border bg-panel flex items-center justify-center">
+                      <div className="h-5 w-5 animate-spin rounded-full border-2 border-primary border-t-transparent" />
+                    </div>
+                  }
+                >
+                  <LazyEmojiPicker
+                    onEmojiSelect={handleEmojiPickerSelect}
+                    onClose={() => setShowEmojiPicker(false)}
+                  />
+                </Suspense>
+              </AnchoredPopover>
             </div>
 
             {/* Action buttons */}

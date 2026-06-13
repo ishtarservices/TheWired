@@ -1,124 +1,125 @@
-import { useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Plus, Trash2, Wifi, WifiOff } from "lucide-react";
 import { Button } from "../../components/ui/Button";
 import { Spinner } from "../../components/ui/Spinner";
 import { RelayStatusBadge } from "../relay/RelayStatusBadge";
 import { useAppSelector } from "../../store/hooks";
-import { buildRelayListEvent } from "../../lib/nostr/eventBuilder";
-import { signAndPublish } from "../../lib/nostr/publish";
-import { relayManager } from "../../lib/nostr/relayManager";
+import { publishRelayList, setRelayDisabled } from "../../lib/nostr/relayList";
+import { normalizeRelayUrl } from "../../lib/nostr/relayUrl";
+import { APP_RELAY, BOOTSTRAP_RELAYS, INDEXER_RELAYS } from "../../lib/nostr/constants";
 import type { RelayMode, RelayListEntry } from "../../types/relay";
 
-export function RelaySettingsTab() {
-  const pubkey = useAppSelector((s) => s.identity.pubkey);
-  const savedRelayList = useAppSelector((s) => s.identity.relayList);
-  const connections = useAppSelector((s) => s.relays.connections);
+const APP_RELAY_KEY = normalizeRelayUrl(APP_RELAY) ?? APP_RELAY;
+const INDEXER_KEYS = new Set(INDEXER_RELAYS.map((u) => normalizeRelayUrl(u) ?? u));
 
-  const [relays, setRelays] = useState<RelayListEntry[]>(() =>
-    savedRelayList.length > 0
-      ? savedRelayList
-      : Object.values(connections).map((c) => ({ url: c.url, mode: c.mode })),
-  );
-  const [disabled, setDisabled] = useState<Set<string>>(() => new Set());
+function rowKey(r: RelayListEntry): string {
+  return normalizeRelayUrl(r.url) ?? r.url;
+}
+
+/** Order-insensitive identity of a relay list (normalized url|mode pairs). */
+function listKey(entries: RelayListEntry[]): string {
+  return entries
+    .map((r) => `${rowKey(r)}|${r.mode}`)
+    .sort()
+    .join(",");
+}
+
+/** Editable rows for the tab: the user's published list, or the bootstrap
+ *  defaults for a user with no kind:10002 yet. NEVER seeded from live
+ *  connections — those include transient relays (indexers, space hosts,
+ *  the embedded relay) that must not end up in a published NIP-65 list. */
+function seedRows(saved: RelayListEntry[]): RelayListEntry[] {
+  return saved.length > 0
+    ? saved
+    : BOOTSTRAP_RELAYS.map((url) => ({ url, mode: "read+write" as RelayMode }));
+}
+
+export function RelaySettingsTab() {
+  const savedRelayList = useAppSelector((s) => s.identity.relayList);
+  const relayListSynced = useAppSelector((s) => s.identity.relayListCreatedAt !== 0);
+  const connections = useAppSelector((s) => s.relays.connections);
+  const disabledRelays = useAppSelector((s) => s.relays.disabledRelays);
+
+  const [rows, setRows] = useState<RelayListEntry[]>(() => seedRows(savedRelayList));
   const [newUrl, setNewUrl] = useState("");
   const [newMode, setNewMode] = useState<RelayMode>("read+write");
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState(false);
 
-  const isDirty =
-    disabled.size > 0 ||
-    (JSON.stringify(relays) !== JSON.stringify(savedRelayList) &&
-      JSON.stringify(relays) !==
-        JSON.stringify(
-          Object.values(connections).map((c) => ({
-            url: c.url,
-            mode: c.mode,
-          })),
-        ));
+  // Re-seed when the saved list changes (fresh kind:10002 from the network,
+  // another device, or our own save) — but never discard unsaved edits.
+  const seedKeyRef = useRef(listKey(seedRows(savedRelayList)));
+  useEffect(() => {
+    const newSeed = seedRows(savedRelayList);
+    const newSeedKey = listKey(newSeed);
+    if (newSeedKey === seedKeyRef.current) return;
+    if (listKey(rows) === seedKeyRef.current) {
+      setRows(newSeed);
+    }
+    seedKeyRef.current = newSeedKey;
+  }, [savedRelayList, rows]);
+
+  const disabledSet = useMemo(() => new Set(disabledRelays), [disabledRelays]);
+  const isDirty = listKey(rows) !== listKey(savedRelayList);
+  const hasPublishedList = savedRelayList.length > 0;
+  const allDisabled = rows.length > 0 && rows.every((r) => disabledSet.has(rowKey(r)));
 
   const addRelay = () => {
-    const url = newUrl.trim();
-    if (!url) return;
-    if (!url.startsWith("wss://")) {
+    const raw = newUrl.trim();
+    if (!raw) return;
+    if (!raw.startsWith("wss://")) {
       setError("Relay URL must start with wss://");
       return;
     }
-    if (relays.some((r) => r.url === url)) {
+    const url = normalizeRelayUrl(raw);
+    if (!url) {
+      setError("Invalid relay URL");
+      return;
+    }
+    if (rows.some((r) => rowKey(r) === url)) {
       setError("Relay already in list");
       return;
     }
-    setRelays((prev) => [...prev, { url, mode: newMode }]);
+    setRows((prev) => [...prev, { url, mode: newMode }]);
     setNewUrl("");
     setError(null);
     setSuccess(false);
   };
 
-  const removeRelay = (url: string) => {
-    setRelays((prev) => prev.filter((r) => r.url !== url));
-    setDisabled((prev) => {
-      const next = new Set(prev);
-      next.delete(url);
-      return next;
-    });
+  const removeRow = (url: string) => {
+    setRows((prev) => prev.filter((r) => r.url !== url));
     setSuccess(false);
   };
 
   const toggleDisabled = (url: string) => {
-    setDisabled((prev) => {
-      const next = new Set(prev);
-      if (next.has(url)) next.delete(url);
-      else next.add(url);
-      return next;
+    const k = normalizeRelayUrl(url) ?? url;
+    setRelayDisabled(k, !disabledSet.has(k)).catch((err) => {
+      console.warn("[relays] failed to persist disabled state", err);
     });
-    setSuccess(false);
   };
 
   const changeMode = (url: string, mode: RelayMode) => {
-    setRelays((prev) =>
-      prev.map((r) => (r.url === url ? { ...r, mode } : r)),
-    );
+    setRows((prev) => prev.map((r) => (r.url === url ? { ...r, mode } : r)));
     setSuccess(false);
   };
 
   const handleReset = () => {
-    setRelays(
-      savedRelayList.length > 0
-        ? savedRelayList
-        : Object.values(connections).map((c) => ({
-            url: c.url,
-            mode: c.mode,
-          })),
-    );
-    setDisabled(new Set());
+    setRows(seedRows(savedRelayList));
     setError(null);
     setSuccess(false);
   };
 
   const handleSave = async () => {
-    if (!pubkey) return;
-    const enabledRelays = relays.filter((r) => !disabled.has(r.url));
-    if (enabledRelays.length === 0) {
-      setError("Must have at least one enabled relay");
+    if (rows.length === 0) {
+      setError("Must have at least one relay");
       return;
     }
     setSaving(true);
     setError(null);
     setSuccess(false);
-
     try {
-      const unsigned = buildRelayListEvent(pubkey, enabledRelays);
-      await signAndPublish(unsigned);
-
-      // Disconnect disabled relays
-      for (const url of disabled) {
-        relayManager.disconnect(url);
-      }
-
-      // Connect enabled relays
-      relayManager.connectFromConfig(
-        enabledRelays.map((r) => ({ url: r.url, mode: r.mode })),
-      );
+      await publishRelayList(rows);
       setSuccess(true);
     } catch (e) {
       setError(e instanceof Error ? e.message : "Failed to publish relay list");
@@ -131,6 +132,13 @@ export function RelaySettingsTab() {
     (c) => c.status === "connected",
   ).length;
   const totalCount = Object.keys(connections).length;
+
+  // Live connections outside the user's list: transient feature dials (space
+  // hosts, DM relays, search), indexers, the app relay, the embedded relay.
+  const rowKeys = new Set(rows.map(rowKey));
+  const otherConnections = Object.values(connections).filter(
+    (c) => !rowKeys.has(normalizeRelayUrl(c.url) ?? c.url),
+  );
 
   return (
     <div className="mx-auto w-full max-w-lg space-y-4">
@@ -147,16 +155,28 @@ export function RelaySettingsTab() {
       </div>
 
       <div className="card-glass rounded-xl p-4">
-        <h3 className="mb-3 text-sm font-semibold text-heading">
+        <h3 className="mb-1 text-sm font-semibold text-heading">
           Relay List
         </h3>
+        <p className="mb-3 text-xs text-muted">
+          Your published relay list (NIP-65). The toggle disables a relay on
+          this device only — it stays in your published list.
+        </p>
+        {!hasPublishedList && relayListSynced && (
+          <p className="mb-3 text-xs text-amber-400">
+            No relay list published yet — these are the default relays. Save to
+            publish them as your relay list.
+          </p>
+        )}
 
-        {relays.length === 0 ? (
+        {rows.length === 0 ? (
           <p className="text-sm text-muted">No relays configured</p>
         ) : (
           <div className="space-y-2">
-            {relays.map((relay) => {
-              const isDisabled = disabled.has(relay.url);
+            {rows.map((relay) => {
+              const k = rowKey(relay);
+              const isDisabled = disabledSet.has(k);
+              const isAppRelay = k === APP_RELAY_KEY;
               return (
                 <div
                   key={relay.url}
@@ -166,7 +186,11 @@ export function RelaySettingsTab() {
                     role="switch"
                     aria-checked={!isDisabled}
                     onClick={() => toggleDisabled(relay.url)}
-                    title={isDisabled ? "Enable relay" : "Disable relay"}
+                    title={
+                      isDisabled
+                        ? "Enable relay on this device"
+                        : "Disable relay on this device (stays in your published list)"
+                    }
                     className={`relative inline-flex h-4 w-7 shrink-0 items-center rounded-full transition-colors ${
                       isDisabled ? "bg-faint" : "bg-primary"
                     }`}
@@ -181,28 +205,35 @@ export function RelaySettingsTab() {
                     status={
                       isDisabled
                         ? "disconnected"
-                        : (connections[relay.url]?.status ?? "disconnected")
+                        : (connections[k]?.status ?? "disconnected")
                     }
                   />
                   <span className="flex-1 truncate text-sm text-heading">
-                    {relay.url.replace("wss://", "")}
+                    {relay.url.replace("wss://", "").replace("ws://", "")}
                   </span>
+                  {isAppRelay && (
+                    <span
+                      className="rounded-full border border-border px-1.5 py-0.5 text-[10px] text-muted"
+                      title="The Wired's relay — app features (spaces, DMs) may still connect to it on demand even when disabled or removed here"
+                    >
+                      App relay
+                    </span>
+                  )}
                   <select
                     value={relay.mode}
                     onChange={(e) =>
                       changeMode(relay.url, e.target.value as RelayMode)
                     }
-                    disabled={isDisabled}
-                    className="rounded-xl border border-border bg-field px-1.5 py-0.5 text-xs text-soft focus:border-primary focus:outline-none disabled:opacity-50"
+                    className="rounded-xl border border-border bg-field px-1.5 py-0.5 text-xs text-soft focus:border-primary focus:outline-none"
                   >
                     <option value="read+write">read+write</option>
                     <option value="read">read</option>
                     <option value="write">write</option>
                   </select>
                   <button
-                    onClick={() => removeRelay(relay.url)}
+                    onClick={() => removeRow(relay.url)}
                     className="text-muted transition-colors hover:text-red-400"
-                    title="Remove relay"
+                    title="Remove relay from your published list"
                   >
                     <Trash2 size={14} />
                   </button>
@@ -210,6 +241,12 @@ export function RelaySettingsTab() {
               );
             })}
           </div>
+        )}
+        {allDisabled && (
+          <p className="mt-2 text-xs text-amber-400">
+            All relays are disabled on this device — you'll have no general
+            relay connections.
+          </p>
         )}
       </div>
 
@@ -246,18 +283,57 @@ export function RelaySettingsTab() {
         </div>
       </div>
 
+      {otherConnections.length > 0 && (
+        <div className="card-glass rounded-xl p-4">
+          <h3 className="mb-1 text-sm font-semibold text-heading">
+            Other Active Connections
+          </h3>
+          <p className="mb-3 text-xs text-muted">
+            Relays the app is using right now that aren't in your relay list —
+            profile indexers, space hosts, DM relays, and similar.
+          </p>
+          <div className="space-y-2">
+            {otherConnections.map((c) => {
+              const k = normalizeRelayUrl(c.url) ?? c.url;
+              const label = k === APP_RELAY_KEY
+                ? "App relay"
+                : INDEXER_KEYS.has(k)
+                  ? "Indexer"
+                  : "Transient";
+              return (
+                <div
+                  key={c.url}
+                  className="flex items-center gap-2 rounded-xl border border-border bg-field px-3 py-2"
+                >
+                  <RelayStatusBadge status={c.status} />
+                  <span className="flex-1 truncate text-sm text-soft">
+                    {c.url.replace("wss://", "").replace("ws://", "")}
+                  </span>
+                  <span className="rounded-full border border-border px-1.5 py-0.5 text-[10px] text-muted">
+                    {label}
+                  </span>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
       {error && <p className="text-xs text-red-400">{error}</p>}
       {success && (
         <p className="text-xs text-green-400">Relay list published!</p>
       )}
+      {!relayListSynced && (
+        <p className="text-xs text-muted">Syncing relay list from relays…</p>
+      )}
 
       <div className="flex justify-end gap-2">
-        {isDirty && (
+        {isDirty && hasPublishedList && (
           <Button variant="secondary" onClick={handleReset}>
             Reset
           </Button>
         )}
-        <Button onClick={handleSave} disabled={saving}>
+        <Button onClick={handleSave} disabled={saving || !relayListSynced}>
           {saving ? <Spinner size="sm" /> : "Save & Publish"}
         </Button>
       </div>

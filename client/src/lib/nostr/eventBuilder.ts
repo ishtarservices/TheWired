@@ -569,3 +569,87 @@ export function buildDMRelayListEvent(
     content: "",
   };
 }
+
+export interface PollOptionInput {
+  id: string;
+  label: string;
+  /** Optional music-track address ("31683:pubkey:dTag") — emitted as our
+   *  supplemental ["track", optionId, addr] tag (additive to NIP-88). */
+  trackAddress?: string;
+}
+
+/** Build an unsigned NIP-88 kind:1068 poll event.
+ *  Space-scoped polls carry h/channel tags (NIP-29) so they land in the
+ *  chat timeline and pass strict group-relay membership gates. */
+export function buildPollEvent(
+  pubkey: string,
+  question: string,
+  options: PollOptionInput[],
+  opts: {
+    pollType?: "singlechoice" | "multiplechoice";
+    /** Unix seconds */
+    endsAt?: number;
+    relays?: string[];
+    spaceId?: string;
+    channelId?: string;
+  } = {},
+): UnsignedEvent {
+  const tags: string[][] = [];
+
+  for (const option of options) {
+    tags.push(["option", option.id, option.label]);
+  }
+  for (const option of options) {
+    if (option.trackAddress) {
+      tags.push(["track", option.id, option.trackAddress]);
+    }
+  }
+  for (const url of opts.relays ?? []) {
+    tags.push(["relay", url]);
+  }
+  tags.push(["polltype", opts.pollType ?? "singlechoice"]);
+  if (opts.endsAt !== undefined) {
+    tags.push(["endsAt", String(opts.endsAt)]);
+  }
+  if (opts.spaceId) {
+    tags.push(["h", opts.spaceId]);
+    if (opts.channelId) {
+      tags.push(["channel", opts.channelId]);
+    }
+  }
+  tags.push(["alt", `Poll: ${question}`]);
+
+  return {
+    pubkey,
+    created_at: Math.floor(Date.now() / 1000),
+    kind: 1068,
+    tags,
+    content: question,
+  };
+}
+
+/** Build an unsigned NIP-88 kind:1018 poll vote. Re-voting replaces the
+ *  previous vote (latest created_at per pubkey wins). */
+export function buildPollVote(
+  pubkey: string,
+  pollEventId: string,
+  optionIds: string[],
+  opts: { spaceId?: string } = {},
+): UnsignedEvent {
+  const tags: string[][] = [["e", pollEventId]];
+  for (const id of optionIds) {
+    tags.push(["response", id]);
+  }
+  // h tag so strict NIP-29 relays accept the vote from group members
+  if (opts.spaceId) {
+    tags.push(["h", opts.spaceId]);
+  }
+
+  return {
+    pubkey,
+    created_at: Math.floor(Date.now() / 1000),
+    kind: 1018,
+    tags,
+    content: "",
+  };
+}

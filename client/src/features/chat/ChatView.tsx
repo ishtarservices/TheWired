@@ -1,4 +1,4 @@
-import { useEffect, useRef, useCallback, useState } from "react";
+import { useEffect, useRef, useCallback, useState, useMemo } from "react";
 import { ChatMessage } from "./ChatMessage";
 import { ChatReply } from "./ChatReply";
 import { ChatEditBanner } from "./ChatEditBanner";
@@ -15,6 +15,8 @@ import { usePermissions } from "../../features/spaces/usePermissions";
 import { parseChannelIdPart } from "../../features/spaces/spaceSelectors";
 import { RichContent } from "../../components/content/RichContent";
 import { profileCache } from "../../lib/nostr/profileCache";
+import { usePollVotesSub } from "../polls/usePollVotesSub";
+import { EVENT_KINDS } from "../../types/nostr";
 import { AlertCircle, RefreshCw, Lock, ArrowDown } from "lucide-react";
 
 export function ChatView() {
@@ -63,6 +65,8 @@ export function ChatView() {
     replyTo,
     setReplyTo,
     sendMessage,
+    sendPoll,
+    relayTargets,
     retryMessage,
     editingMessage,
     setEditingMessage,
@@ -72,6 +76,20 @@ export function ChatView() {
     editMessage,
     canEdit,
   } = useChat();
+
+  // Batch one #e votes sub for all polls visible in this channel
+  const pollIds = useMemo(
+    () =>
+      messages
+        .filter((m) => m.event.kind === EVENT_KINDS.POLL)
+        .map((m) => m.event.id),
+    [messages],
+  );
+  const voteSubRelays = useMemo(
+    () => (relayTargets.length ? relayTargets : undefined),
+    [relayTargets],
+  );
+  usePollVotesSub(pollIds, voteSubRelays);
 
   const scrollRef = useRef<HTMLDivElement>(null);
   const dividerRef = useRef<HTMLDivElement>(null);
@@ -245,6 +263,7 @@ export function ChatView() {
       ) : (
         <ChatInput
           onSend={(content, mentions, attachments, emojiTags) => sendMessage(content, mentions, attachments, emojiTags)}
+          onCreatePoll={sendPoll}
           disabled={!canSend}
           memberPubkeys={memberPubkeys}
           spaceId={activeSpaceId}

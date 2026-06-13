@@ -1,9 +1,10 @@
 import { useState, useRef, useCallback, useEffect, lazy, Suspense, type FormEvent, type KeyboardEvent } from "react";
-import { Send, Paperclip, Check, Smile } from "lucide-react";
+import { Send, Paperclip, Check, Smile, BarChart3 } from "lucide-react";
 import { npubEncode } from "nostr-tools/nip19";
 import { Button } from "../../components/ui/Button";
 import { MentionAutocomplete } from "../../components/content/MentionAutocomplete";
 import { EmojiAutocomplete } from "../../components/content/EmojiAutocomplete";
+import { AnchoredPopover } from "../../components/ui/AnchoredPopover";
 import { FormattingToolbar } from "../../components/content/FormattingToolbar";
 import { AttachmentPreview } from "../../components/chat/AttachmentPreview";
 import { GifPreview } from "../../components/chat/GifPreview";
@@ -23,9 +24,14 @@ const LazyGifPicker = lazy(() =>
 const LazyEmojiPicker = lazy(() =>
   import("../../components/chat/EmojiPicker").then((m) => ({ default: m.EmojiPicker })),
 );
+const LazyPollComposer = lazy(() =>
+  import("../polls/PollComposer").then((m) => ({ default: m.PollComposer })),
+);
 
 interface ChatInputProps {
   onSend: (content: string, mentionPubkeys: string[], attachments?: AttachmentMeta[], emojiTags?: string[][]) => void;
+  /** When provided, shows the poll button (NIP-88) next to the GIF/emoji pickers */
+  onCreatePoll?: (draft: import("../polls/PollComposer").PollDraft) => void;
   disabled?: boolean;
   /** Space member pubkeys — used to scope @-mention autocomplete */
   memberPubkeys?: string[];
@@ -66,6 +72,7 @@ function detectEmojiQuery(value: string, cursorPos: number): string | null {
 
 export function ChatInput({
   onSend,
+  onCreatePoll,
   disabled,
   memberPubkeys,
   spaceId,
@@ -100,12 +107,16 @@ export function ChatInput({
   const [emojiQuery, setEmojiQuery] = useState<string | null>(null);
   const [showGifPicker, setShowGifPicker] = useState(false);
   const [showEmojiPicker, setShowEmojiPicker] = useState(false);
+  const [showPollComposer, setShowPollComposer] = useState(false);
   const [pendingGif, setPendingGif] = useState<GifItem | null>(null);
   // Map display tokens to pubkeys: "Alice" → hex pubkey
   const mentionMapRef = useRef<Map<string, string>>(new Map());
   // Map custom emoji shortcodes to URLs for NIP-30 tags
   const customEmojiMapRef = useRef<Map<string, string>>(new Map());
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const gifBtnRef = useRef<HTMLButtonElement>(null);
+  const pollBtnRef = useRef<HTMLButtonElement>(null);
+  const emojiBtnRef = useRef<HTMLButtonElement>(null);
   useAutoResize(textareaRef, value, 150);
   useMarkdownShortcuts({ textareaRef, value, setValue });
   const { inputMarginClass } = usePlaybackBarSpacing();
@@ -307,10 +318,11 @@ export function ChatInput({
       return;
     }
 
-    if (e.key === "Escape" && (showGifPicker || showEmojiPicker)) {
+    if (e.key === "Escape" && (showGifPicker || showEmojiPicker || showPollComposer)) {
       e.preventDefault();
       setShowGifPicker(false);
       setShowEmojiPicker(false);
+      setShowPollComposer(false);
       return;
     }
 
@@ -343,43 +355,85 @@ export function ChatInput({
       onSubmit={handleSubmit}
       className={`relative border-t border-border p-3 ${inputMarginClass}`}
     >
-      {mentionQuery !== null && (
-        <MentionAutocomplete
-          query={mentionQuery}
-          onSelect={handleSelect}
-          onClose={() => setMentionQuery(null)}
-          scopedPubkeys={memberPubkeys}
-        />
-      )}
+      <AnchoredPopover
+        anchorEl={textareaRef.current}
+        open={mentionQuery !== null}
+        onClose={() => setMentionQuery(null)}
+        preferredSide="above"
+      >
+        {mentionQuery !== null && (
+          <MentionAutocomplete
+            query={mentionQuery}
+            onSelect={handleSelect}
+            onClose={() => setMentionQuery(null)}
+            scopedPubkeys={memberPubkeys}
+          />
+        )}
+      </AnchoredPopover>
 
-      {emojiQuery !== null && (
-        <EmojiAutocomplete
-          query={emojiQuery}
-          onSelect={handleEmojiAutocompleteSelect}
-          onClose={() => setEmojiQuery(null)}
-        />
-      )}
+      <AnchoredPopover
+        anchorEl={textareaRef.current}
+        open={emojiQuery !== null}
+        onClose={() => setEmojiQuery(null)}
+        preferredSide="above"
+      >
+        {emojiQuery !== null && (
+          <EmojiAutocomplete
+            query={emojiQuery}
+            onSelect={handleEmojiAutocompleteSelect}
+            onClose={() => setEmojiQuery(null)}
+          />
+        )}
+      </AnchoredPopover>
 
-      {/* GIF Picker */}
-      {showGifPicker && (
-        <Suspense fallback={<div className="absolute bottom-full left-0 mb-2 w-[360px] h-[420px] rounded-xl border border-border bg-panel flex items-center justify-center"><div className="h-5 w-5 animate-spin rounded-full border-2 border-primary border-t-transparent" /></div>}>
+      {/* GIF Picker — anchored above the GIF button (input sits at the bottom) */}
+      <AnchoredPopover
+        anchorEl={gifBtnRef.current}
+        open={showGifPicker}
+        onClose={() => setShowGifPicker(false)}
+        preferredSide="above"
+      >
+        <Suspense fallback={<div className="w-[360px] h-[420px] max-h-(--popover-max-h,420px) rounded-xl border border-border bg-panel flex items-center justify-center"><div className="h-5 w-5 animate-spin rounded-full border-2 border-primary border-t-transparent" /></div>}>
           <LazyGifPicker
             onSelect={handleGifSelect}
             onClose={() => setShowGifPicker(false)}
           />
         </Suspense>
-      )}
+      </AnchoredPopover>
+
+      {/* Poll Composer */}
+      <AnchoredPopover
+        anchorEl={pollBtnRef.current}
+        open={showPollComposer && !!onCreatePoll}
+        onClose={() => setShowPollComposer(false)}
+        preferredSide="above"
+      >
+        <Suspense fallback={<div className="w-[min(460px,calc(100vw-24px))] h-[320px] max-h-(--popover-max-h,90vh) rounded-xl border border-border bg-panel flex items-center justify-center"><div className="h-5 w-5 animate-spin rounded-full border-2 border-primary border-t-transparent" /></div>}>
+          <LazyPollComposer
+            onSubmit={(draft) => {
+              onCreatePoll?.(draft);
+              setShowPollComposer(false);
+            }}
+            onClose={() => setShowPollComposer(false)}
+          />
+        </Suspense>
+      </AnchoredPopover>
 
       {/* Emoji Picker */}
-      {showEmojiPicker && (
-        <Suspense fallback={<div className="absolute bottom-full left-0 mb-2 w-[352px] h-[435px] rounded-xl border border-border bg-panel flex items-center justify-center"><div className="h-5 w-5 animate-spin rounded-full border-2 border-primary border-t-transparent" /></div>}>
+      <AnchoredPopover
+        anchorEl={emojiBtnRef.current}
+        open={showEmojiPicker}
+        onClose={() => setShowEmojiPicker(false)}
+        preferredSide="above"
+      >
+        <Suspense fallback={<div className="w-[352px] h-[435px] max-h-(--popover-max-h,435px) rounded-xl border border-border bg-panel flex items-center justify-center"><div className="h-5 w-5 animate-spin rounded-full border-2 border-primary border-t-transparent" /></div>}>
           <LazyEmojiPicker
             spaceId={spaceId}
             onEmojiSelect={handleEmojiPickerSelect}
             onClose={() => setShowEmojiPicker(false)}
           />
         </Suspense>
-      )}
+      </AnchoredPopover>
 
       {/* Attachment previews */}
       <AttachmentPreview attachments={attachments} onRemove={onRemoveAttachment} />
@@ -397,7 +451,7 @@ export function ChatInput({
               type="button"
               onClick={onOpenFilePicker}
               disabled={disabled}
-              className="flex-shrink-0 rounded-lg p-1 text-muted hover:text-heading hover:bg-surface-hover transition-colors disabled:opacity-50"
+              className="shrink-0 rounded-lg p-1 text-muted hover:text-heading hover:bg-surface-hover transition-colors disabled:opacity-50"
               title="Attach file"
             >
               <Paperclip size={18} />
@@ -406,13 +460,15 @@ export function ChatInput({
 
           {canEmbedLinks && (
             <button
+              ref={gifBtnRef}
               type="button"
               onClick={() => {
                 setShowGifPicker((prev) => !prev);
                 setShowEmojiPicker(false);
+                setShowPollComposer(false);
               }}
               disabled={disabled}
-              className={`flex-shrink-0 rounded-md px-1.5 py-0.5 text-[11px] font-bold transition-colors disabled:opacity-50 ${
+              className={`shrink-0 rounded-md px-1.5 py-0.5 text-[11px] font-bold transition-colors disabled:opacity-50 ${
                 showGifPicker
                   ? "bg-primary/20 text-primary"
                   : "text-muted hover:text-heading hover:bg-surface-hover"
@@ -423,14 +479,37 @@ export function ChatInput({
             </button>
           )}
 
+          {onCreatePoll && (
+            <button
+              ref={pollBtnRef}
+              type="button"
+              onClick={() => {
+                setShowPollComposer((prev) => !prev);
+                setShowGifPicker(false);
+                setShowEmojiPicker(false);
+              }}
+              disabled={disabled}
+              className={`shrink-0 rounded-lg p-1 transition-colors disabled:opacity-50 ${
+                showPollComposer
+                  ? "bg-primary/20 text-primary"
+                  : "text-muted hover:text-heading hover:bg-surface-hover"
+              }`}
+              title="Create a poll"
+            >
+              <BarChart3 size={18} />
+            </button>
+          )}
+
           <button
+            ref={emojiBtnRef}
             type="button"
             onClick={() => {
               setShowEmojiPicker((prev) => !prev);
               setShowGifPicker(false);
+              setShowPollComposer(false);
             }}
             disabled={disabled}
-            className={`flex-shrink-0 rounded-lg p-1 transition-colors disabled:opacity-50 ${
+            className={`shrink-0 rounded-lg p-1 transition-colors disabled:opacity-50 ${
               showEmojiPicker
                 ? "bg-primary/20 text-primary"
                 : "text-muted hover:text-heading hover:bg-surface-hover"

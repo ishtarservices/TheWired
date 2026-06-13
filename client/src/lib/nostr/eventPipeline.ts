@@ -11,6 +11,7 @@ import { putEvent, deleteEvent, deleteAddressableEvent } from "../db/eventStore"
 import { addEvent, addEvents, indexChatMessage, indexReel, indexLongForm, indexLiveStream, indexNote, indexSpaceFeed, removeEventFromAllSpaceFeeds, indexMusicTrack, indexMusicAlbum, indexReply, indexRepost, indexRepostByAuthor, indexQuote, removeChatMessage, hideMessage, removeEvent, removeManyEvents, removeNote, removeRepost, trackDeletedNote, trackDeletedAddr, indexEditedMessage, indexNotes, indexReplies, indexReposts, indexRepostsByAuthor, indexQuotes, indexChatMessages, indexReels, indexLongForms, indexLiveStreams, indexMusicTracks, indexMusicAlbums, indexSpaceFeeds } from "../../store/slices/eventsSlice";
 import { addReaction, addReactions, removeReactionByEventId, type ReactionInput } from "../../store/slices/reactionsSlice";
 import { addZap, addZaps, type ZapInput } from "../../store/slices/zapsSlice";
+import { addPollVote, addPollVotes, removeVoteByEventId, removePoll, type PollVoteInput } from "../../store/slices/pollsSlice";
 import { getSatoshisAmountFromBolt11 } from "nostr-tools/nip57";
 import { addTrack, indexTrackByArtist, indexTrackByAlbum, indexTrackByArtistName, indexAlbumByArtist, indexAlbumByArtistName, addAlbum, addPlaylist, addAnnotation, removeAnnotation, removeTrack, removeAlbum, removePlaylist } from "../../store/slices/musicSlice";
 import { addDMMessage, editDMMessage, remoteDeleteDMMessage } from "../../store/slices/dmSlice";
@@ -23,6 +24,7 @@ import { trackFeedTimestamp, trackFeedTimestamps } from "../../store/slices/feed
 import { SPACE_CHANNEL_ROUTES } from "../../features/spaces/spaceChannelRoutes";
 import { hasMediaUrls, hasEmbedUrls } from "../media/mediaUrlParser";
 import { parseThreadRef, parseQuoteRef } from "../../features/spaces/noteParser";
+import { parseVoteEvent } from "../../features/polls/pollParser";
 import { profileCache } from "./profileCache";
 import { unwrapGiftWrap } from "./giftWrap";
 import { decryptQueue } from "./decryptQueue";
@@ -83,6 +85,7 @@ interface PipelineBuffer {
   notes: { pubkey: string; eventId: string }[];
   reactions: ReactionInput[];
   zaps: ZapInput[];
+  pollVotes: PollVoteInput[];
   replies: { parentEventId: string; eventId: string }[];
   reposts: { targetEventId: string; eventId: string }[];
   repostsByAuthor: { pubkey: string; eventId: string }[];
@@ -99,8 +102,8 @@ interface PipelineBuffer {
 
 function emptyBuffer(): PipelineBuffer {
   return {
-    events: [], counts: {}, notes: [], reactions: [], zaps: [], replies: [], reposts: [],
-    repostsByAuthor: [], quotes: [], chatMessages: [], reels: [], longform: [],
+    events: [], counts: {}, notes: [], reactions: [], zaps: [], pollVotes: [], replies: [],
+    reposts: [], repostsByAuthor: [], quotes: [], chatMessages: [], reels: [], longform: [],
     liveStreams: [], musicTracks: [], musicAlbums: [], spaceFeeds: [], feedTimestamps: [],
   };
 }
@@ -127,6 +130,7 @@ function emit(action: UnknownAction): void {
   if (indexNote.match(action)) { buf.notes.push(action.payload); return; }
   if (addReaction.match(action)) { buf.reactions.push(action.payload); return; }
   if (addZap.match(action)) { buf.zaps.push(action.payload); return; }
+  if (addPollVote.match(action)) { buf.pollVotes.push(action.payload); return; }
   if (indexReply.match(action)) { buf.replies.push(action.payload); return; }
   if (indexRepost.match(action)) { buf.reposts.push(action.payload); return; }
   if (indexRepostByAuthor.match(action)) { buf.repostsByAuthor.push(action.payload); return; }
@@ -145,7 +149,7 @@ function emit(action: UnknownAction): void {
 function bufferHasData(b: PipelineBuffer): boolean {
   return (
     b.events.length > 0 || b.notes.length > 0 || b.reactions.length > 0 ||
-    b.zaps.length > 0 ||
+    b.zaps.length > 0 || b.pollVotes.length > 0 ||
     b.replies.length > 0 || b.reposts.length > 0 || b.repostsByAuthor.length > 0 ||
     b.quotes.length > 0 || b.chatMessages.length > 0 || b.reels.length > 0 ||
     b.longform.length > 0 || b.liveStreams.length > 0 || b.musicTracks.length > 0 ||
@@ -260,6 +264,7 @@ export function flushEventPipeline(): void {
   if (b.notes.length) store.dispatch(indexNotes(b.notes));
   if (b.reactions.length) store.dispatch(addReactions(b.reactions));
   if (b.zaps.length) store.dispatch(addZaps(b.zaps));
+  if (b.pollVotes.length) store.dispatch(addPollVotes(b.pollVotes));
   if (b.replies.length) store.dispatch(indexReplies(b.replies));
   if (b.reposts.length) store.dispatch(indexReposts(b.reposts));
   if (b.repostsByAuthor.length) store.dispatch(indexRepostsByAuthor(b.repostsByAuthor));
@@ -318,6 +323,9 @@ for (const [, route] of Object.entries(SPACE_CHANNEL_ROUTES)) {
 }
 // SHORT_TEXT also cross-indexes to media feed
 spaceFeedKinds.add(EVENT_KINDS.SHORT_TEXT);
+// REPOST indexes into the friends feed notes channel only — no real-space
+// route contains kind 6, so the space loop below can never match it.
+spaceFeedKinds.add(EVENT_KINDS.REPOST);
 
 /**
  * Main event processing pipeline:
@@ -388,9 +396,10 @@ export async function processIncomingEvent(
     return;
   }
 
-  // Step 3b: Reject re-delivered deleted notes/reposts
+  // Step 3b: Reject re-delivered deleted notes/reposts/polls
   if (
-    (event.kind === EVENT_KINDS.SHORT_TEXT || event.kind === EVENT_KINDS.REPOST) &&
+    (event.kind === EVENT_KINDS.SHORT_TEXT || event.kind === EVENT_KINDS.REPOST ||
+      event.kind === EVENT_KINDS.POLL) &&
     store.getState().events.deletedNoteIds[event.id]
   ) {
     return;
@@ -436,7 +445,11 @@ export async function processIncomingEvent(
   // Reactions (kind:7) and zap receipts (kind:9735) are NOT stored as full
   // events — they fold into their aggregate slices in indexEvent, saving memory
   // on hot notes.
-  if (event.kind !== EVENT_KINDS.REACTION && event.kind !== EVENT_KINDS.ZAP_RECEIPT) {
+  if (
+    event.kind !== EVENT_KINDS.REACTION &&
+    event.kind !== EVENT_KINDS.ZAP_RECEIPT &&
+    event.kind !== EVENT_KINDS.POLL_RESPONSE
+  ) {
     emit(addEvent(event));
   }
   emit(incrementEventCount(relayUrl));
@@ -469,6 +482,35 @@ export async function processIncomingEvent(
   // awaiting callers read fresh state; real-relay bursts coalesce on a timer.
   if (isBurstSource(relayUrl)) scheduleFlush(event.kind);
   else flushEventPipeline();
+}
+
+/** Index an h-tagged event into the per-channel chat timeline (kind:9 messages
+ *  and kind:1068 polls share this so polls interleave chronologically). */
+function indexIntoChatChannel(event: NostrEvent, hTag: string): void {
+  const channelTag = event.tags.find((t) => t[0] === "channel")?.[1];
+
+  if (channelTag) {
+    // New-style: explicit channel tag → index per-channel
+    const indexKey = `${hTag}:${channelTag}`;
+    emit(indexChatMessage({ groupId: indexKey, eventId: event.id }));
+    emit(trackFeedTimestamp({ contextId: indexKey, createdAt: event.created_at }));
+  } else {
+    // Legacy: no channel tag → route to default chat channel if known
+    const state = store.getState();
+    const spaceChannels = state.spaces.channels[hTag];
+    const defaultChat = spaceChannels?.find((c) => c.type === "chat" && c.isDefault)
+      ?? spaceChannels?.find((c) => c.type === "chat");
+
+    if (defaultChat) {
+      const indexKey = `${hTag}:${defaultChat.id}`;
+      emit(indexChatMessage({ groupId: indexKey, eventId: event.id }));
+      emit(trackFeedTimestamp({ contextId: indexKey, createdAt: event.created_at }));
+    } else {
+      // Channels not loaded yet — fall back to space-level indexing
+      emit(indexChatMessage({ groupId: hTag, eventId: event.id }));
+      emit(trackFeedTimestamp({ contextId: hTag, createdAt: event.created_at }));
+    }
+  }
 }
 
 async function indexEvent(event: NostrEvent): Promise<void> {
@@ -567,30 +609,26 @@ async function indexEvent(event: NostrEvent): Promise<void> {
       }
 
       if (hTag) {
-        const channelTag = event.tags.find((t) => t[0] === "channel")?.[1];
-
-        if (channelTag) {
-          // New-style: explicit channel tag → index per-channel
-          const indexKey = `${hTag}:${channelTag}`;
-          emit(indexChatMessage({ groupId: indexKey, eventId: event.id }));
-          emit(trackFeedTimestamp({ contextId: indexKey, createdAt: event.created_at }));
-        } else {
-          // Legacy: no channel tag → route to default chat channel if known
-          const state = store.getState();
-          const spaceChannels = state.spaces.channels[hTag];
-          const defaultChat = spaceChannels?.find((c) => c.type === "chat" && c.isDefault)
-            ?? spaceChannels?.find((c) => c.type === "chat");
-
-          if (defaultChat) {
-            const indexKey = `${hTag}:${defaultChat.id}`;
-            emit(indexChatMessage({ groupId: indexKey, eventId: event.id }));
-            emit(trackFeedTimestamp({ contextId: indexKey, createdAt: event.created_at }));
-          } else {
-            // Channels not loaded yet — fall back to space-level indexing
-            emit(indexChatMessage({ groupId: hTag, eventId: event.id }));
-            emit(trackFeedTimestamp({ contextId: hTag, createdAt: event.created_at }));
-          }
-        }
+        indexIntoChatChannel(event, hTag);
+      }
+      break;
+    }
+    case EVENT_KINDS.POLL: {
+      // NIP-88 poll. Space-scoped (h tag) → chat timeline, interleaved with
+      // kind:9 messages; bare → notes surfaces (profile + space feeds).
+      if (hTag) {
+        indexIntoChatChannel(event, hTag);
+      } else {
+        emit(indexNote({ pubkey: event.pubkey, eventId: event.id }));
+      }
+      break;
+    }
+    case EVENT_KINDS.POLL_RESPONSE: {
+      // NIP-88 vote. Folded into the polls aggregate (latest per pubkey wins);
+      // the event itself is never stored (excluded from addEvent above).
+      const vote = parseVoteEvent(event);
+      if (vote) {
+        emit(addPollVote(vote));
       }
       break;
     }
@@ -795,9 +833,10 @@ async function indexEvent(event: NostrEvent): Promise<void> {
         // Handle "e" tag deletions (by event ID) — only if the referenced
         // event is authored by the deletion event's author.
         if (tag[0] === "e" && tag[1]) {
-          // Reactions aren't stored as entities — clear them from the aggregate
-          // via its reverse index (no-op if the id isn't a known reaction).
+          // Reactions and poll votes aren't stored as entities — clear them
+          // from their aggregates via the reverse index (no-op for other ids).
           store.dispatch(removeReactionByEventId({ eventId: tag[1], byPubkey: event.pubkey }));
+          store.dispatch(removeVoteByEventId({ eventId: tag[1], byPubkey: event.pubkey }));
           const refEvent = state.events.entities[tag[1]];
           if (refEvent) {
             // Target known — apply NIP-09 directly: only the author may delete it.
@@ -818,6 +857,21 @@ async function indexEvent(event: NostrEvent): Promise<void> {
                 }
                 store.dispatch(hideMessage(tag[1]));
                 store.dispatch(removeEvent(tag[1]));
+              } else if (refEvent.kind === EVENT_KINDS.POLL) {
+                const refHTag = refEvent.tags.find((t) => t[0] === "h")?.[1];
+                if (refHTag) {
+                  // Chat-scoped poll: remove from the chat timeline
+                  const refChannelTag = refEvent.tags.find((t) => t[0] === "channel")?.[1];
+                  const contextId = refChannelTag ? `${refHTag}:${refChannelTag}` : refHTag;
+                  store.dispatch(removeChatMessage({ contextId, eventId: tag[1] }));
+                  store.dispatch(hideMessage(tag[1]));
+                } else {
+                  // Posts-side poll: remove from notes surfaces
+                  store.dispatch(removeNote({ pubkey: event.pubkey, eventId: tag[1] }));
+                }
+                store.dispatch(removeEvent(tag[1]));
+                store.dispatch(trackDeletedNote(tag[1]));
+                store.dispatch(removePoll(tag[1]));
               } else if (refEvent.kind === EVENT_KINDS.SHORT_TEXT) {
                 store.dispatch(removeNote({ pubkey: event.pubkey, eventId: tag[1] }));
                 store.dispatch(removeEvent(tag[1]));
@@ -932,6 +986,9 @@ async function indexEvent(event: NostrEvent): Promise<void> {
             store.dispatch(removeChatMessage({ contextId, eventId: tag[1] }));
             store.dispatch(hideMessage(tag[1]));
             store.dispatch(removeEvent(tag[1]));
+            if (refEvent.kind === EVENT_KINDS.POLL) {
+              store.dispatch(removePoll(tag[1]));
+            }
             deleteEvent(tag[1]).catch(() => {});
           }
         }
@@ -949,6 +1006,11 @@ async function indexEvent(event: NostrEvent): Promise<void> {
 function indexEventIntoSpaceFeeds(event: NostrEvent): void {
   // Early return: skip if event kind doesn't match any non-htag channel route
   if (!spaceFeedKinds.has(event.kind)) return;
+
+  // Chat-scoped polls (h tag) live in the chat timeline, not notes feeds
+  if (event.kind === EVENT_KINDS.POLL && event.tags.some((t) => t[0] === "h")) {
+    return;
+  }
 
   // Skip private/unlisted music events from space feeds — they should only appear
   // via direct access (library, collaborator views), not in shared space channels
@@ -978,7 +1040,9 @@ function indexEventIntoSpaceFeeds(event: NostrEvent): void {
     const followList = state.identity.followList;
     if (followList.length > 0) {
       const followSet = getCachedSet("friends_feed", followList);
-      if (followSet.has(event.pubkey)) {
+      // Own posts index too — the Feed composer publishes locally and the
+      // subscription includes self in its author filters.
+      if (followSet.has(event.pubkey) || event.pubkey === state.identity.pubkey) {
         for (const [channelType, route] of Object.entries(SPACE_CHANNEL_ROUTES)) {
           if (route.filterMode === "htag") continue;
           if (!route.kinds.includes(event.kind)) continue;
@@ -990,6 +1054,13 @@ function indexEventIntoSpaceFeeds(event: NostrEvent): void {
         if (event.kind === EVENT_KINDS.SHORT_TEXT && (hasMediaUrls(event.content) || hasEmbedUrls(event.content))) {
           emit(indexSpaceFeed({ contextId: "__friends_feed__:media", eventId: event.id }));
           emit(trackFeedTimestamp({ contextId: "__friends_feed__:media", createdAt: event.created_at }));
+        }
+        // Reposts go to the notes channel. Indexed unconditionally (kind 6 also
+        // arrives via profile subs) — the showReposts pref gates display in the
+        // selector, keeping the toggle reactive without re-indexing.
+        if (event.kind === EVENT_KINDS.REPOST) {
+          emit(indexSpaceFeed({ contextId: "__friends_feed__:notes", eventId: event.id }));
+          emit(trackFeedTimestamp({ contextId: "__friends_feed__:notes", createdAt: event.created_at }));
         }
       }
     }

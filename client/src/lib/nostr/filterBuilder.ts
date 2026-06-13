@@ -85,6 +85,24 @@ export function buildSpaceFeedFilter(
   return { authors: memberPubkeys, kinds, limit };
 }
 
+/**
+ * Split an author list into multiple filters of at most `chunkSize` authors
+ * each, copying the base filter fields into every chunk. Relays apply `limit`
+ * per filter, so the first page may be slightly larger than one pageSize —
+ * acceptable in exchange for not silently dropping authors past the cap.
+ */
+export function chunkAuthorsFilter(
+  authors: string[],
+  base: Omit<NostrFilter, "authors">,
+  chunkSize = 500,
+): NostrFilter[] {
+  const filters: NostrFilter[] = [];
+  for (let i = 0; i < authors.length; i += chunkSize) {
+    filters.push({ ...base, authors: authors.slice(i, i + chunkSize) });
+  }
+  return filters;
+}
+
 /** Build a filter for fetching annotations on a track/album */
 export function buildAnnotationFilter(
   targetRef: string,

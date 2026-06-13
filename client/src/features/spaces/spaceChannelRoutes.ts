@@ -9,7 +9,7 @@ export const SPACE_CHANNEL_ROUTES: Record<SpaceChannelType, SpaceChannelRoute> =
     sortOrder: "asc",
   },
   notes: {
-    kinds: [EVENT_KINDS.SHORT_TEXT],
+    kinds: [EVENT_KINDS.SHORT_TEXT, EVENT_KINDS.POLL],
     filterMode: "authors",
     pageSize: 30,
     sortOrder: "desc",

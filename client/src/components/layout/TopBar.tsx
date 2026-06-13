@@ -119,7 +119,7 @@ export function TopBar({
     // Sidebar-mode based
     if (sidebarMode === "spaces") {
       if (activeSpaceId === "__friends_feed__") {
-        return { icon: <Users size={18} />, title: "Friends Feed" };
+        return { icon: <Users size={18} />, title: "Feed" };
       }
       const space = spaces.find((s) => s.id === activeSpaceId);
       if (!space) {

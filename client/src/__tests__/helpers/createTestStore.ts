@@ -9,6 +9,7 @@ import { spacesSlice } from "@/store/slices/spacesSlice";
 import { eventsSlice } from "@/store/slices/eventsSlice";
 import { reactionsSlice } from "@/store/slices/reactionsSlice";
 import { zapsSlice } from "@/store/slices/zapsSlice";
+import { pollsSlice } from "@/store/slices/pollsSlice";
 import { uiSlice } from "@/store/slices/uiSlice";
 import { feedSlice } from "@/store/slices/feedSlice";
 import { musicSlice } from "@/store/slices/musicSlice";
@@ -23,6 +24,7 @@ import { emojiSlice } from "@/store/slices/emojiSlice";
 import { gifSlice } from "@/store/slices/gifSlice";
 import { walletSlice } from "@/store/slices/walletSlice";
 import { featuresSlice } from "@/store/slices/featuresSlice";
+import { feedPrefsSlice } from "@/store/slices/feedPrefsSlice";
 import { aiSlice } from "@/store/slices/aiSlice";
 import { onboardingSlice } from "@/features/onboarding/onboardingSlice";
 import type { RootState } from "@/store";
@@ -36,6 +38,7 @@ const appReducer = combineReducers({
   events: eventsSlice.reducer,
   reactions: reactionsSlice.reducer,
   zaps: zapsSlice.reducer,
+  polls: pollsSlice.reducer,
   ui: uiSlice.reducer,
   feed: feedSlice.reducer,
   music: musicSlice.reducer,
@@ -50,6 +53,7 @@ const appReducer = combineReducers({
   gif: gifSlice.reducer,
   wallet: walletSlice.reducer,
   features: featuresSlice.reducer,
+  feedPrefs: feedPrefsSlice.reducer,
   ai: aiSlice.reducer,
   onboarding: onboardingSlice.reducer,
 });

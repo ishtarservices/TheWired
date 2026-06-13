@@ -1,8 +1,9 @@
 import { openDB, type IDBPDatabase } from "idb";
 import type { AIConversation, AIMessage, PendingWrite } from "@/types/ai";
+import type { ArticleDraftRecord } from "@/types/media";
 
 const DB_NAME = "thewired_v1";
-const DB_VERSION = 4;
+const DB_VERSION = 5;
 
 export interface TheWiredDB {
   events: {
@@ -103,6 +104,16 @@ export interface TheWiredDB {
       by_conversation: string;
     };
   };
+  /** Device-local, multi-draft article authoring (per-account via `_account`).
+   *  Local-only — never synced to a relay; see `articleDraftStore.ts`. */
+  articleDrafts: {
+    key: string;
+    value: ArticleDraftRecord & { _account: string; _cachedAt: number };
+    indexes: {
+      by_account: string;
+      by_account_updated: [string, number];
+    };
+  };
 }
 
 let dbPromise: Promise<IDBPDatabase<TheWiredDB>> | null = null;
@@ -173,6 +184,17 @@ export function getDB(): Promise<IDBPDatabase<TheWiredDB>> {
           if (db.objectStoreNames.contains("subscriptions")) {
             db.deleteObjectStore("subscriptions");
           }
+        }
+
+        if (oldVersion < 5) {
+          // Device-local multi-draft article authoring. Per-account isolation
+          // via `_account`; `by_account_updated` powers the most-recent-first
+          // drafts list without an in-memory sort over the whole store.
+          const draftStore = db.createObjectStore("articleDrafts", {
+            keyPath: "id",
+          });
+          draftStore.createIndex("by_account", "_account");
+          draftStore.createIndex("by_account_updated", ["_account", "updatedAt"]);
         }
       },
       // #84 — survive the multi-tab / unexpected-close cases instead of caching a

@@ -4,11 +4,12 @@ import { resolveRelaySet } from "../spaces/relaySet";
 import { addEvent, indexChatMessage, hideMessage, removeChatMessage, indexEditedMessage } from "../../store/slices/eventsSlice";
 import { selectChatMessages } from "./chatSelectors";
 import { parseChannelIdPart } from "../spaces/spaceSelectors";
-import { buildChatMessage, buildDeletionEvent, buildModDeletionEvent, buildChatEditEvent, type AttachmentMeta } from "../../lib/nostr/eventBuilder";
+import { buildChatMessage, buildDeletionEvent, buildModDeletionEvent, buildChatEditEvent, buildPollEvent, type AttachmentMeta } from "../../lib/nostr/eventBuilder";
 import { signAndPublish } from "../../lib/nostr/publish";
 import { relayManager } from "../../lib/nostr/relayManager";
 import { saveUserState, getUserState } from "../../lib/db/userStateStore";
-import type { NostrEvent } from "../../types/nostr";
+import { EVENT_KINDS, type NostrEvent } from "../../types/nostr";
+import type { PollDraft } from "../polls/PollComposer";
 
 /** 15 minutes in seconds */
 const EDIT_WINDOW_SECONDS = 15 * 60;
@@ -123,6 +124,36 @@ export function useChat() {
     [pubkey, activeSpaceId, activeChannelId, replyTo, relayTargets, dispatch],
   );
 
+  /** Publish a NIP-88 poll into the active channel. The local pipeline pass in
+   *  signAndPublish indexes it into the chat timeline — no hand-dispatch. */
+  const sendPoll = useCallback(
+    async (draft: PollDraft) => {
+      if (!pubkey || !activeSpaceId) return;
+
+      try {
+        const channelIdPart = parseChannelIdPart(activeChannelId) || undefined;
+        const unsigned = buildPollEvent(pubkey, draft.question, draft.options, {
+          pollType: draft.pollType,
+          endsAt: draft.endsAt,
+          relays: relayTargets,
+          spaceId: activeSpaceId,
+          channelId: channelIdPart,
+        });
+
+        for (const url of relayTargets) {
+          relayManager.connect(url, "read+write");
+        }
+        await signAndPublish(
+          unsigned,
+          relayTargets.length ? relayTargets : undefined,
+        );
+      } catch (err) {
+        console.error("[chat] sendPoll failed", err);
+      }
+    },
+    [pubkey, activeSpaceId, activeChannelId, relayTargets],
+  );
+
   const retryMessage = useCallback(
     async (tempId: string) => {
       const msg = pendingMessages.find((m) => m.tempId === tempId);
@@ -150,13 +181,13 @@ export function useChat() {
 
   /** Publish a kind:5 deletion event (delete for everyone) */
   const deleteMessageForEveryone = useCallback(
-    async (eventId: string) => {
+    async (eventId: string, kind: number = EVENT_KINDS.CHAT_MESSAGE) => {
       if (!pubkey || !activeSpaceId) return;
       const unsigned = buildDeletionEvent(
         pubkey,
         { eventIds: [eventId] },
         undefined,
-        ["9"],
+        [String(kind)],
       );
       // Add h-tag so the deletion event matches the space's subscription filter
       unsigned.tags.push(["h", activeSpaceId]);
@@ -211,9 +242,11 @@ export function useChat() {
     [pubkey, activeSpaceId, activeChannelId, relayTargets, dispatch],
   );
 
-  /** Check if an event is within the edit window */
+  /** Check if an event is within the edit window (chat messages only —
+   *  NIP-88 polls have no edit semantics) */
   const canEdit = useCallback(
     (event: NostrEvent) => {
+      if (event.kind !== EVENT_KINDS.CHAT_MESSAGE) return false;
       if (event.pubkey !== pubkey) return false;
       const age = Math.floor(Date.now() / 1000) - event.created_at;
       return age <= EDIT_WINDOW_SECONDS;
@@ -227,6 +260,8 @@ export function useChat() {
     replyTo,
     setReplyTo,
     sendMessage,
+    sendPoll,
+    relayTargets,
     retryMessage,
     editingMessage,
     setEditingMessage,

@@ -5,7 +5,8 @@ import { store, resetAll } from "@/store";
 import { login } from "@/store/slices/identitySlice";
 import { addSpace, setChannels } from "@/store/slices/spacesSlice";
 import { ArticleEditor } from "../ArticleEditor";
-import { saveArticleDraft, loadArticleDraft, type ArticleDraft } from "../useArticleDraft";
+import { getDB } from "@/lib/db/database";
+import { getDraftsForAccount, upsertDraft } from "@/lib/db/articleDraftStore";
 import type { Space, SpaceChannel } from "@/types/space";
 
 // Mock the publish layer so no signing/relay I/O happens; capture the call.
@@ -77,8 +78,10 @@ function fillTitleAndBody() {
   });
 }
 
-beforeEach(() => {
+beforeEach(async () => {
   localStorage.clear();
+  const db = await getDB();
+  await db.clear("articleDrafts");
   store.dispatch(resetAll());
   store.dispatch(login({ pubkey: PK, signerType: "nip07" }));
   signAndPublishMock.mockReset();
@@ -125,26 +128,61 @@ describe("ArticleEditor — publishing", () => {
     expect(unsigned.content).toBe("Body written by the assistant");
   });
 
-  it("an AI seed neither clobbers nor clears the user's saved 'new' draft", async () => {
-    const manual: ArticleDraft = {
-      title: "My manual draft",
-      summary: "",
-      image: "",
-      tags: "",
-      content: "manual work in progress",
-      visibility: "public",
-      spaceId: "",
-      channelId: "",
-      savedAt: 1,
-    };
-    saveArticleDraft(PK, "new", manual);
+  it("an AI seed neither autosaves its own draft nor deletes existing ones on publish", async () => {
+    // A real, hand-written draft already exists for this account.
+    await upsertDraft(
+      PK,
+      "manual-1",
+      {
+        title: "My manual draft",
+        summary: "",
+        image: "",
+        tags: "",
+        content: "manual work in progress",
+        visibility: "public",
+        spaceId: "",
+        channelId: "",
+      },
+      1,
+    );
 
     renderEditor({ seed: { title: "AI", content: "ai body" } });
     fireEvent.click(screen.getByRole("button", { name: /publish/i }));
     await waitFor(() => expect(signAndPublishMock).toHaveBeenCalledTimes(1));
 
-    // The manual draft must survive publishing the AI-seeded article.
-    expect(loadArticleDraft(PK, "new")?.title).toBe("My manual draft");
+    // The manual draft survives, and the AI-seeded session created none of its own.
+    const drafts = await getDraftsForAccount(PK);
+    expect(drafts).toHaveLength(1);
+    expect(drafts[0].id).toBe("manual-1");
+    expect(drafts[0].title).toBe("My manual draft");
+  });
+
+  it("autosaves the editing session to its own draft record", async () => {
+    renderEditor();
+    fillTitleAndBody(); // title "My Title", body "Hello body" (via Markdown mode)
+
+    await waitFor(
+      async () => {
+        const drafts = await getDraftsForAccount(PK);
+        expect(drafts).toHaveLength(1);
+        expect(drafts[0].title).toBe("My Title");
+        expect(drafts[0].content).toBe("Hello body");
+      },
+      { timeout: 2000 },
+    );
+  });
+
+  it("deletes the active draft record after a successful publish", async () => {
+    renderEditor();
+    fillTitleAndBody();
+    // Let the debounced autosave write the record first.
+    await waitFor(async () => expect(await getDraftsForAccount(PK)).toHaveLength(1), {
+      timeout: 2000,
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: /publish/i }));
+    await waitFor(() => expect(signAndPublishMock).toHaveBeenCalledTimes(1));
+    await waitFor(async () => expect(await getDraftsForAccount(PK)).toHaveLength(0));
   });
 
   it("renders a live preview of typed markdown", () => {

@@ -5,6 +5,7 @@ import { Avatar } from "../ui/Avatar";
 import { MediaGallery } from "../media";
 import { NoteShareMenu } from "../sharing/NoteShareMenu";
 import { MusicEmbedCard } from "./MusicEmbedCard";
+import { PollCard } from "../../features/polls/PollCard";
 import { RichContent } from "./RichContent";
 import { EmbedDepthContext, MAX_EMBED_DEPTH } from "./embedDepth";
 import { useEmbeddedEvent, type EventRef } from "./useEmbeddedEvent";
@@ -87,7 +88,25 @@ function EmbeddedNoteResolver({
     const d = event.tags.find((t) => t[0] === "d")?.[1] ?? "";
     return <MusicEmbedCard kind={event.kind} pubkey={event.pubkey} identifier={d} />;
   }
+  if (event.kind === EVENT_KINDS.POLL) {
+    return <PollEmbed event={event} depth={depth} />;
+  }
   return <NoteEmbed event={event} depth={depth} />;
+}
+
+// ── Poll card (kind 1068) ─────────────────────────────────────────────────────
+
+function PollEmbed({ event, depth }: { event: NostrEvent; depth: number }) {
+  const { profile } = useProfile(event.pubkey);
+  const name = profile?.display_name || profile?.name || event.pubkey.slice(0, 8) + "…";
+  return (
+    <div className="mt-2">
+      <EmbedAuthor profile={profile} name={name} pubkey={event.pubkey} createdAt={event.created_at} />
+      <div className="mt-1.5">
+        <PollCard event={event} variant="embed" compact={depth >= 1} />
+      </div>
+    </div>
+  );
 }
 
 // ── Note card (kinds 1 / 9 / 1111 / picture / video / default) ────────────────

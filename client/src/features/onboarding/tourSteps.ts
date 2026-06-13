@@ -53,7 +53,7 @@ export const TOUR_STEPS: TourStep[] = [
   {
     id: "friends-feed",
     target: "center-panel",
-    title: "Friends Feed",
+    title: "Feed",
     description:
       "A personalized feed of notes, media, and articles from people you follow. Follow more people to see more content here.",
     beforeShow: { sidebarMode: "spaces", route: "/", activateFriendsFeed: true },

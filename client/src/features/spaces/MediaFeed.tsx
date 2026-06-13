@@ -6,6 +6,9 @@ import { videoLoadQueue } from "../../lib/media/mediaLoadQueue";
 import { createLogger } from "../../lib/debug/logger";
 import { usePlaybackBarSpacing } from "../../hooks/usePlaybackBarSpacing";
 import { selectSpaceMediaEvents } from "./spaceSelectors";
+import { selectFriendsFeedMediaEvents } from "../friends/friendsFeedSelectors";
+import { FRIENDS_FEED_ID } from "../friends/friendsFeedConstants";
+import { FeedPrefsButton } from "../friends/FeedPrefsButton";
 import { EVENT_KINDS } from "../../types/nostr";
 import type { NostrEvent } from "../../types/nostr";
 import { EnhancedVideoPlayer } from "../media/EnhancedVideoPlayer";
@@ -572,7 +575,7 @@ function ExpandedVideoView({
           onClose={onClose}
           className={
             portrait
-              ? "mx-auto aspect-[9/16] h-[80vh]"
+              ? "mx-auto aspect-9/16 h-[80vh]"
               : "aspect-video w-full"
           }
           onZap={() => openZap({ recipientPubkey: item.event.pubkey, event: item.event })}
@@ -667,7 +670,12 @@ function TabButton({
 // ── Main component ───────────────────────────────────────────────
 
 export function MediaFeed() {
-  const mediaEvents = useAppSelector(selectSpaceMediaEvents);
+  const activeSpaceId = useAppSelector((s) => s.spaces.activeSpaceId);
+  const isFriendsFeed = activeSpaceId === FRIENDS_FEED_ID;
+  // The Feed gets mute/hidden/word filtering; spaces keep the plain selector.
+  const mediaEvents = useAppSelector(
+    isFriendsFeed ? selectFriendsFeedMediaEvents : selectSpaceMediaEvents,
+  );
   const activeChannelId = useAppSelector((s) => s.spaces.activeChannelId);
   const [activeItem, setActiveItem] = useState<MediaItem | null>(null);
   const [filter, setFilter] = useState<FilterTab>("all");
@@ -750,7 +758,11 @@ export function MediaFeed() {
 
   return (
     <div className="relative flex flex-1 flex-col overflow-hidden">
-      <FeedToolbar isRefreshing={meta.isRefreshing} onRefresh={refresh}>
+      <FeedToolbar
+        isRefreshing={meta.isRefreshing}
+        onRefresh={refresh}
+        rightSlot={isFriendsFeed ? <FeedPrefsButton channelType="media" /> : undefined}
+      >
         {allItems.length > 0 && (
           <>
             <TabButton

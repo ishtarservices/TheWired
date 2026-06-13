@@ -27,6 +27,21 @@ import { BlockedMessage } from "../../components/ui/BlockedMessage";
 import { QuotedNote } from "./notes/QuotedNote";
 import { NoteFooter } from "./notes/NoteFooter";
 import type { NostrEvent } from "../../types/nostr";
+import { EVENT_KINDS } from "../../types/nostr";
+import { MusicEmbedCard } from "../../components/content/MusicEmbedCard";
+import { RepostHeader } from "../profile/RepostHeader";
+import { useRepostedEvent } from "../profile/useRepostedEvent";
+import { NoteComposer } from "../profile/NoteComposer";
+import { PollNoteCard } from "../polls/PollNoteCard";
+import {
+  selectFriendsFeedNotes,
+  selectFriendsFeedNoteIds,
+  selectMutedPubkeySet,
+  selectMutedWordList,
+} from "../friends/friendsFeedSelectors";
+import { selectHiddenPubkeySet } from "../../store/slices/feedPrefsSlice";
+import { isEventVisibleInFeed } from "../friends/feedVisibility";
+import { FeedPrefsButton } from "../friends/FeedPrefsButton";
 
 /** How many cards to add to the rendered window each time the sentinel is hit. */
 const RENDER_PAGE = 30;
@@ -151,12 +166,78 @@ const NoteCard = memo(function NoteCard({ event }: { event: NostrEvent }) {
   );
 });
 
+/** Repost (kind:6) card: "Reposted by" header + the original note, resolved
+ *  via useRepostedEvent (embedded JSON is schnorr-verified by the pipeline —
+ *  never rendered directly). */
+const RepostCard = memo(function RepostCard({ event }: { event: NostrEvent }) {
+  const original = useRepostedEvent(event);
+  const muted = useAppSelector(selectMutedPubkeySet);
+  const hidden = useAppSelector(selectHiddenPubkeySet);
+  const words = useAppSelector(selectMutedWordList);
+
+  if (!original) {
+    return (
+      <div className="rounded-lg border-primary-glow bg-card p-4">
+        <RepostHeader pubkey={event.pubkey} />
+        <p className="text-sm text-muted">Loading reposted note...</p>
+      </div>
+    );
+  }
+
+  // The feed selector vets the reposter; the original resolves async, so its
+  // author/content gets the same mute/hidden/word check here.
+  if (!isEventVisibleInFeed(original, muted, hidden, words)) return null;
+
+  if (
+    original.kind === EVENT_KINDS.MUSIC_TRACK ||
+    original.kind === EVENT_KINDS.MUSIC_ALBUM
+  ) {
+    const dTag = original.tags.find((t) => t[0] === "d")?.[1] ?? "";
+    return (
+      <div>
+        <RepostHeader pubkey={event.pubkey} />
+        <div className="rounded-lg border-primary-glow bg-card p-4">
+          <MusicEmbedCard
+            kind={original.kind}
+            pubkey={original.pubkey}
+            identifier={dTag}
+          />
+        </div>
+      </div>
+    );
+  }
+
+  if (original.kind === EVENT_KINDS.POLL) {
+    return (
+      <div>
+        <RepostHeader pubkey={event.pubkey} />
+        <PollNoteCard event={original} />
+      </div>
+    );
+  }
+
+  return (
+    <div>
+      <RepostHeader pubkey={event.pubkey} />
+      <NoteCard event={original} />
+    </div>
+  );
+});
+
 export function NotesFeed() {
-  const notes = useAppSelector(selectSpaceRootNotes);
-  const noteIds = useAppSelector(selectSpaceRootNoteIds);
   const activeChannelId = useAppSelector((s) => s.spaces.activeChannelId);
   const activeSpaceId = useAppSelector((s) => s.spaces.activeSpaceId);
   const activeSpace = useAppSelector(selectActiveSpace);
+  const isFriendsFeed = activeSpaceId === FRIENDS_FEED_ID;
+  // The Feed gets mute/hidden/word filtering + reply/repost prefs; spaces keep
+  // the plain root-notes selectors. Selector identity only flips on space
+  // switch, so the conditional is safe for memoization.
+  const notes = useAppSelector(
+    isFriendsFeed ? selectFriendsFeedNotes : selectSpaceRootNotes,
+  );
+  const noteIds = useAppSelector(
+    isFriendsFeed ? selectFriendsFeedNoteIds : selectSpaceRootNoteIds,
+  );
   const scrollRef = useScrollRestore(activeChannelId);
   const { meta, refresh, loadMore } = useFeedPagination("notes");
   const { scrollPaddingClass } = usePlaybackBarSpacing();
@@ -176,7 +257,6 @@ export function NotesFeed() {
 
   // For Friends Feed and read-only spaces, replies/reactions live on repliers' own relays,
   // not a single host relay — use all read relays (undefined).
-  const isFriendsFeed = activeSpaceId === FRIENDS_FEED_ID;
   const engagementRelays =
     isFriendsFeed || activeSpace?.mode === "read"
       ? undefined
@@ -195,14 +275,21 @@ export function NotesFeed() {
 
   return (
     <div className="flex flex-1 flex-col overflow-hidden">
-      <FeedToolbar isRefreshing={meta.isRefreshing} onRefresh={refresh} />
+      <FeedToolbar
+        isRefreshing={meta.isRefreshing}
+        onRefresh={refresh}
+        rightSlot={isFriendsFeed ? <FeedPrefsButton channelType="notes" /> : undefined}
+      />
       <div ref={scrollRef} className={`flex-1 overflow-y-auto p-5 ${scrollPaddingClass}`}>
+        {isFriendsFeed && <NoteComposer className="mb-4 w-full" />}
         {notes.length === 0 ? (
           <div className="flex h-full items-center justify-center">
             <p className="text-sm text-muted">
-              {activeSpace?.mode === "read"
-                ? "No notes yet -- add feed sources to see content here"
-                : "No notes yet from space members"}
+              {isFriendsFeed
+                ? "No notes yet from people you follow"
+                : activeSpace?.mode === "read"
+                  ? "No notes yet -- add feed sources to see content here"
+                  : "No notes yet from space members"}
             </p>
           </div>
         ) : (
@@ -213,7 +300,13 @@ export function NotesFeed() {
                 className={index < 15 ? "animate-fade-in-up" : undefined}
                 style={index < 15 ? { animationDelay: `${index * 50}ms` } : undefined}
               >
-                <NoteCard event={event} />
+                {event.kind === EVENT_KINDS.REPOST ? (
+                  <RepostCard event={event} />
+                ) : event.kind === EVENT_KINDS.POLL ? (
+                  <PollNoteCard event={event} />
+                ) : (
+                  <NoteCard event={event} />
+                )}
               </div>
             ))}
             {/* Reveal more rendered cards as you approach the end; once the whole

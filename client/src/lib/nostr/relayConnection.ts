@@ -140,11 +140,15 @@ export class RelayConnection {
     this.ws.onopen = () => {
       this.latencyMs = Date.now() - this.pingStart;
       this.reconnectAttempts = 0;
-      this.setStatus("connected");
-      this.flushQueue();
       // Hold REQs until AUTH if this relay is known to require it (see reqGate).
       this.maybeBeginAuthHold();
+      this.flushQueue();
+      // Re-send our own subs BEFORE announcing "connected": the status callback
+      // makes relayManager forward pending subscriptions, which skips subs we
+      // already track — announcing first made it forward+send them and then
+      // resubscribe() re-sent the same REQs (double-send per sub).
       this.resubscribe();
+      this.setStatus("connected");
     };
 
     this.ws.onmessage = (e: MessageEvent) => {
