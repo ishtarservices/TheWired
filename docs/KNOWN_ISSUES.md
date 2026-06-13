@@ -72,11 +72,40 @@ the relay subscription cap (`relayConnection.ts` `DEFAULT_MAX_SUBS`); the trace
 shows per-relay sub caps (20/10) being hit during heavy fan-out, which can defer
 the pagination REQ.
 
+### 6. Media-feed video thumbnails — re-seek caching (SHIPPED, with residual)
+
+Posterless videos (plain kind:1 videos with no `imeta` thumb) used to re-decode a
+first frame every time they scrolled back into view: the near-viewport gate is
+non-sticky, so the tile unmounted on scroll-away and **re-seeked from scratch** on
+return. On media-dense feeds (100+ videos) those repeated 300–1100ms decodes were
+the residual main-thread hitches left after the engagement-storm fix.
+
+**Shipped** (branch `perf/media-thumb-cache`):
+- **Enqueue debounce** (`ENQUEUE_DEBOUNCE_MS`, `LazyVideoFrame`): a tile scrolled
+  past in <200ms never acquires a load slot, so fast scrolling stops flooding
+  `videoLoadQueue` with doomed seeks.
+- **Bounded poster cache** (`lib/cache/videoPosterCache.ts`): the painted first
+  frame is captured (canvas → JPEG **data URL**) into a 250-entry LRU and rendered
+  as a cheap `<img>` on scroll-back instead of re-mounting a `<video>`. Data URLs
+  (not blob object-URLs) → no revoke lifecycle, and an evicted entry can't break a
+  still-rendered `<img>`. Capture is **silent** (no mid-view re-render) so the
+  on-screen tile never flickers; the `<img>` takes over only on the next scroll-by.
+
+**Residual (CORS-bound) — left as a known limit:** reading frame pixels needs a
+`<video crossorigin="anonymous">`, which only works on hosts that send permissive
+CORS headers; tainted hosts fall back to the old re-seek (no cache entry). The
+first video from a non-CORS host does one `crossorigin`→plain remount, then the
+origin is remembered (`corsBlockedOrigins`) so later tiles skip the probe. So an
+all-non-CORS feed gets only the debounce, not the cache. If that ever matters, the
+universal fallback is **B2 — a bounded mounted-`<video>` LRU** (keep the N
+most-recently-seeked tiles mounted; no canvas/CORS, but a smaller cap since a live
+`<video>` costs more than a JPEG).
+
 ---
 
 ## Deferred — Architecture
 
-### 6. Nostrify-style transport refactor (separate thread)
+### 7. Nostrify-style transport refactor (separate thread)
 
 Adopting `req()`/`AbortSignal` + an `NStore`-shaped interface over
 `relayConnection`/`relayManager`/`subscriptionManager`. **Does not fix

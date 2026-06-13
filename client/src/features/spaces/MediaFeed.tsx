@@ -3,6 +3,7 @@ import { Play, ImageIcon, Maximize2, ExternalLink, Download } from "lucide-react
 import { useAppSelector } from "../../store/hooks";
 import { useNearViewport } from "../../hooks/useNearViewport";
 import { videoLoadQueue } from "../../lib/media/mediaLoadQueue";
+import { videoPosterCache } from "../../lib/cache/videoPosterCache";
 import { createLogger } from "../../lib/debug/logger";
 import { usePlaybackBarSpacing } from "../../hooks/usePlaybackBarSpacing";
 import { selectSpaceMediaEvents } from "./spaceSelectors";
@@ -31,6 +32,11 @@ const feedLog = createLogger("feed");
 
 /** How many tiles to add to the rendered window each time the sentinel is hit. */
 const RENDER_PAGE = 30;
+
+/** Wait this long after a video tile enters the near-viewport band before
+ *  acquiring a load slot — a tile flung past in less than this never loads, so
+ *  fast scrolling stops flooding the queue with doomed seeks. */
+const ENQUEUE_DEBOUNCE_MS = 200;
 
 // ── Types ────────────────────────────────────────────────────────
 
@@ -214,6 +220,19 @@ const ImageThumbnail = memo(function ImageThumbnail({
   );
 });
 
+/** Origins whose `crossorigin` video load failed (no CORS headers). Later videos
+ *  from the same host skip the CORS probe — and its remount flicker — and just
+ *  load plainly (uncapturable). Module-level so it's shared across all tiles. */
+const corsBlockedOrigins = new Set<string>();
+
+function originOf(url: string): string {
+  try {
+    return new URL(url).origin;
+  } catch {
+    return url;
+  }
+}
+
 /** Last URL path segment, for compact log lines. */
 function shortUrl(url: string): string {
   try {
@@ -234,25 +253,35 @@ function shortUrl(url: string): string {
  */
 function LazyVideoFrame({ url }: { url: string }) {
   const [src, setSrc] = useState<string | undefined>(undefined);
+  // crossorigin lets us read pixels off the <video> to cache a poster, but it
+  // fails the load on hosts that don't send CORS headers. Try it on the first
+  // video from a host; once an origin is known to block CORS, later videos skip
+  // the probe (and its remount flicker) entirely.
+  const [allowCors, setAllowCors] = useState(() => !corsBlockedOrigins.has(originOf(url)));
   const holdingRef = useRef(false);
   const doneRef = useRef(false);
   const startRef = useRef(0);
 
   useEffect(() => {
     let cancelled = false;
-    feedLog.debug(`media: video enqueue ${shortUrl(url)}`, videoLoadQueue.stats());
-    videoLoadQueue.acquire().then(() => {
-      if (cancelled) {
-        videoLoadQueue.release(); // granted after we unmounted — hand it on
-        return;
-      }
-      holdingRef.current = true;
-      startRef.current = performance.now();
-      feedLog.debug(`media: video load-start ${shortUrl(url)}`, videoLoadQueue.stats());
-      setSrc(url);
-    });
+    // Debounce the slot acquire: a tile scrolled past in < ENQUEUE_DEBOUNCE_MS
+    // never loads, so fast scrolling doesn't flood the queue with doomed seeks.
+    const timer = setTimeout(() => {
+      feedLog.debug(`media: video enqueue ${shortUrl(url)}`, videoLoadQueue.stats());
+      videoLoadQueue.acquire().then(() => {
+        if (cancelled) {
+          videoLoadQueue.release(); // granted after we unmounted — hand it on
+          return;
+        }
+        holdingRef.current = true;
+        startRef.current = performance.now();
+        feedLog.debug(`media: video load-start ${shortUrl(url)}`, videoLoadQueue.stats());
+        setSrc(url);
+      });
+    }, ENQUEUE_DEBOUNCE_MS);
     return () => {
       cancelled = true;
+      clearTimeout(timer);
       if (holdingRef.current && !doneRef.current) {
         holdingRef.current = false;
         videoLoadQueue.release();
@@ -275,6 +304,32 @@ function LazyVideoFrame({ url }: { url: string }) {
     }
   };
 
+  // Cache the painted frame so a later scroll-back renders a cheap <img> instead
+  // of re-loading + re-seeking. Silent (no re-render) so the on-screen tile keeps
+  // showing its <video> — the cached <img> only takes over on the next scroll-by,
+  // not under the user's eyes. Only works on an untainted (CORS) frame — a tainted
+  // draw throws on toDataURL → caught, leaving today's live-<video> thumb.
+  const capturePoster = (v: HTMLVideoElement) => {
+    if (!allowCors) return;
+    const vw = v.videoWidth;
+    const vh = v.videoHeight;
+    if (!vw || !vh) return;
+    try {
+      const scale = Math.min(1, 320 / Math.max(vw, vh));
+      const canvas = document.createElement("canvas");
+      canvas.width = Math.max(1, Math.round(vw * scale));
+      canvas.height = Math.max(1, Math.round(vh * scale));
+      const ctx = canvas.getContext("2d");
+      if (!ctx) return;
+      ctx.drawImage(v, 0, 0, canvas.width, canvas.height);
+      videoPosterCache.set(url, canvas.toDataURL("image/jpeg", 0.7));
+    } catch {
+      // Cross-origin frame without CORS headers — pixels unreadable. Keep the
+      // live <video> as the thumbnail (unchanged behavior), just no cache entry.
+      feedLog.debug(`media: poster capture blocked ${shortUrl(url)}`);
+    }
+  };
+
   if (!src) {
     return (
       <div className="flex h-full w-full items-center justify-center bg-surface">
@@ -284,7 +339,9 @@ function LazyVideoFrame({ url }: { url: string }) {
   }
   return (
     <video
+      key={allowCors ? "cors" : "plain"}
       src={src}
+      crossOrigin={allowCors ? "anonymous" : undefined}
       muted
       playsInline
       preload="metadata"
@@ -300,8 +357,20 @@ function LazyVideoFrame({ url }: { url: string }) {
         }
         finish("metadata");
       }}
-      onSeeked={() => finish("seeked")}
-      onError={() => finish("error")}
+      onSeeked={(e) => {
+        capturePoster(e.currentTarget);
+        finish("seeked");
+      }}
+      onError={() => {
+        // crossorigin can fail the load on non-CORS hosts — remember the origin so
+        // later tiles skip the probe, and retry this one plainly.
+        if (allowCors) {
+          corsBlockedOrigins.add(originOf(url));
+          setAllowCors(false);
+          return;
+        }
+        finish("error");
+      }}
       className="h-full w-full object-cover"
     />
   );
@@ -319,6 +388,10 @@ const VideoThumbnail = memo(function VideoThumbnail({
   // Non-sticky window: mount the frame loader only while on/near screen, unmount
   // when it scrolls well away — that's what releases the queue slot + connection.
   const near = useNearViewport(containerRef, "600px", false);
+  // Once this tile's first frame is in the poster cache (captured silently on a
+  // prior view), render it as a cheap <img> instead of re-mounting a <video> and
+  // re-seeking. Read each render; the `near` toggle on scroll-by re-renders us.
+  const cachedPoster = hasPoster ? undefined : videoPosterCache.get(item.url);
 
   return (
     <div
@@ -333,6 +406,13 @@ const VideoThumbnail = memo(function VideoThumbnail({
           {hasPoster ? (
             <img
               src={item.thumbnailUrl}
+              alt={item.title ?? "Video"}
+              loading="lazy"
+              className="h-full w-full object-cover"
+            />
+          ) : cachedPoster ? (
+            <img
+              src={cachedPoster}
               alt={item.title ?? "Video"}
               loading="lazy"
               className="h-full w-full object-cover"
