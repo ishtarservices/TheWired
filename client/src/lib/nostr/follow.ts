@@ -31,9 +31,12 @@ export async function followUser(targetPubkey: string): Promise<void> {
     const unsigned = buildFollowListEvent(myPubkey, newFollows);
     await signAndPublish(unsigned);
   } catch (err) {
-    // Rollback: restore previous follow list
+    // Rollback: restore previous follow list. Use `now` (the optimistic
+    // timestamp), NOT prevCreatedAt — setFollowList's freshness guard is
+    // strict `<`, so restoring with the older createdAt would be silently
+    // dropped and the optimistic follow would stick.
     console.error("[Follow] Publish failed, rolling back:", err);
-    store.dispatch(setFollowList({ follows: currentFollows, createdAt: prevCreatedAt }));
+    store.dispatch(setFollowList({ follows: currentFollows, createdAt: now }));
     throw err;
   }
 }
@@ -64,9 +67,12 @@ export async function unfollowUser(targetPubkey: string): Promise<void> {
     const unsigned = buildFollowListEvent(myPubkey, newFollows);
     await signAndPublish(unsigned);
   } catch (err) {
-    // Rollback: restore previous follow list
+    // Rollback: restore previous follow list. Use `now` (the optimistic
+    // timestamp), NOT prevCreatedAt — setFollowList's freshness guard is
+    // strict `<`, so restoring with the older createdAt would be silently
+    // dropped and the optimistic unfollow would stick.
     console.error("[Unfollow] Publish failed, rolling back:", err);
-    store.dispatch(setFollowList({ follows: currentFollows, createdAt: prevCreatedAt }));
+    store.dispatch(setFollowList({ follows: currentFollows, createdAt: now }));
     throw err;
   }
 }
