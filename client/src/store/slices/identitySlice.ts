@@ -10,7 +10,7 @@ export interface AccountEntry {
   addedAt: number;
 }
 
-interface MuteEntry {
+export interface MuteEntry {
   type: "pubkey" | "tag" | "word" | "event";
   value: string;
 }

@@ -64,9 +64,11 @@ export function EmojiAutocomplete({ query, onSelect, onClose }: EmojiAutocomplet
   if (matches.length === 0) return null;
 
   return (
+    // Position-agnostic panel — the caller (AnchoredPopover) places it and may
+    // cap its height via --popover-max-h; the list scrolls within that.
     <div
       ref={listRef}
-      className="absolute bottom-full left-0 mb-1 w-64 max-h-48 overflow-y-auto rounded-lg border border-border bg-panel shadow-lg z-50"
+      className="w-64 max-w-[var(--popover-max-w,16rem)] max-h-[var(--popover-max-h,12rem)] overflow-y-auto rounded-lg border border-border bg-panel shadow-lg"
     >
       {matches.map((emoji, i) => (
         <button

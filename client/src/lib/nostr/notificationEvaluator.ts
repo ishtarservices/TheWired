@@ -40,6 +40,7 @@ export function evaluateNotification(event: NostrEvent): void {
 
   switch (event.kind) {
     case EVENT_KINDS.CHAT_MESSAGE:
+    case EVENT_KINDS.POLL: // chat-scoped polls badge like chat messages (h/p tags only)
       evaluateChatMessage(event, myPubkey, prefs.chatMessages, prefs.mentions);
       break;
     case EVENT_KINDS.FOLLOW_LIST:

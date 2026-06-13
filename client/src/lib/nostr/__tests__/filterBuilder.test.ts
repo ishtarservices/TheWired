@@ -11,6 +11,7 @@ import {
   buildSpaceFeedFilter,
   buildAnnotationFilter,
   buildUserAnnotationsFilter,
+  chunkAuthorsFilter,
 } from "../filterBuilder";
 import { EVENT_KINDS } from "@/types/nostr";
 import { lunaVega, marcusCole } from "@/__tests__/fixtures/testUsers";
@@ -140,5 +141,60 @@ describe("buildUserAnnotationsFilter", () => {
     expect(filter.kinds).toEqual([EVENT_KINDS.MUSIC_TRACK_NOTES]);
     expect(filter.authors).toEqual([PK]);
     expect(filter.limit).toBe(50);
+  });
+});
+
+describe("chunkAuthorsFilter", () => {
+  const authors = (n: number) => Array.from({ length: n }, (_, i) => `pk-${i}`);
+
+  it("returns an empty array for an empty author list", () => {
+    expect(chunkAuthorsFilter([], { kinds: [1], limit: 30 })).toEqual([]);
+  });
+
+  it("returns a single filter for 1 author", () => {
+    const filters = chunkAuthorsFilter(["pk-0"], { kinds: [1], limit: 30 });
+    expect(filters).toHaveLength(1);
+    expect(filters[0].authors).toEqual(["pk-0"]);
+  });
+
+  it("returns a single filter at exactly the chunk size (500)", () => {
+    const filters = chunkAuthorsFilter(authors(500), { kinds: [1], limit: 30 });
+    expect(filters).toHaveLength(1);
+    expect(filters[0].authors).toHaveLength(500);
+  });
+
+  it("splits 501 authors into two filters without dropping any", () => {
+    const filters = chunkAuthorsFilter(authors(501), { kinds: [1], limit: 30 });
+    expect(filters).toHaveLength(2);
+    expect(filters[0].authors).toHaveLength(500);
+    expect(filters[1].authors).toEqual(["pk-500"]);
+  });
+
+  it("splits 1200 authors into three filters covering every author", () => {
+    const filters = chunkAuthorsFilter(authors(1200), { kinds: [1], limit: 30 });
+    expect(filters).toHaveLength(3);
+    const all = filters.flatMap((f) => f.authors ?? []);
+    expect(all).toHaveLength(1200);
+    expect(new Set(all).size).toBe(1200);
+  });
+
+  it("copies base fields (kinds/limit/since/until) into every chunk", () => {
+    const filters = chunkAuthorsFilter(authors(600), {
+      kinds: [1, 6],
+      limit: 30,
+      since: 100,
+      until: 200,
+    });
+    for (const f of filters) {
+      expect(f.kinds).toEqual([1, 6]);
+      expect(f.limit).toBe(30);
+      expect(f.since).toBe(100);
+      expect(f.until).toBe(200);
+    }
+  });
+
+  it("respects a custom chunk size", () => {
+    const filters = chunkAuthorsFilter(authors(5), { kinds: [1] }, 2);
+    expect(filters.map((f) => f.authors?.length)).toEqual([2, 2, 1]);
   });
 });

@@ -9,9 +9,10 @@ import {
   setMuteList,
   setPinnedNotes,
 } from "../../store/slices/identitySlice";
-import type { SignerType } from "../../store/slices/identitySlice";
+import type { SignerType, MuteEntry } from "../../store/slices/identitySlice";
 import {
   addRelay,
+  removeRelay,
   setRelayStatus,
   updateLatency,
 } from "../../store/slices/relaysSlice";
@@ -21,6 +22,7 @@ import { relayManager } from "./relayManager";
 import { subscriptionManager } from "./subscriptionManager";
 import { handlePotentialKick } from "./kickHandler";
 import { parseRelayList } from "./nip65";
+import { loadAndApplyDisabledRelays } from "./relayList";
 import { parseDMRelayList, clearDMRelayCache } from "./dmRelayList";
 import { EVENT_KINDS } from "../../types/nostr";
 import { saveUserState, getUserState } from "../db/userStateStore";
@@ -28,6 +30,8 @@ import { getProfile } from "../db/profileStore";
 import { loadSpaces, saveSpaces } from "../db/spaceStore";
 import { loadEnabledFeatures } from "../../features/settings/featuresPersistence";
 import { setEnabledFeatures } from "../../store/slices/featuresSlice";
+import { loadFeedPrefs } from "../../features/friends/feedPrefsPersistence";
+import { setFeedPrefs } from "../../store/slices/feedPrefsSlice";
 import { isBackendBacked } from "../../features/spaces/spaceType";
 import { loadAllMembers } from "../db/spaceMembersStore";
 import { setMembers } from "../../store/slices/spaceConfigSlice";
@@ -63,7 +67,7 @@ import { parseTrackEvent, parsePrivateTrackEvent } from "../../features/music/tr
 import { parseAlbumEvent, parsePrivateAlbumEvent } from "../../features/music/albumParser";
 import { parsePlaylistEvent } from "../../features/music/playlistParser";
 import { parseAnnotationEvent } from "../../features/music/annotationParser";
-import { BOOTSTRAP_RELAYS, APP_RELAY, PROFILE_RELAYS } from "./constants";
+import { BOOTSTRAP_RELAYS, APP_RELAY, PROFILE_RELAYS, INDEXER_RELAYS } from "./constants";
 import { signAndPublish } from "./publish";
 import { buildDMRelayListEvent } from "./eventBuilder";
 import { profileCache } from "./profileCache";
@@ -243,6 +247,12 @@ function wireRelayStatusBridge(): void {
           store.dispatch(updateLatency({ url, latencyMs: conn.getLatency() }));
         }
       }
+    },
+    // Keep the Redux connections record in lockstep with relayManager:
+    // disconnect() (disable toggle, removed relay, mode-change recreate,
+    // bootstrap pruning) drops the row instead of leaving a ghost entry.
+    onRelayRemoved: (url) => {
+      store.dispatch(removeRelay(url));
     },
   });
 
@@ -481,11 +491,15 @@ export async function performLogin(
   relayManager.replayAuth();
 
   // Step 5: Load cached user data from IndexedDB for instant UI
+  // Disabled relays first, so the cached-list connect below never dials them.
+  await loadAndApplyDisabledRelays();
   const cachedRelayList = await getUserState<RelayListEntry[]>("relay_list");
   if (cachedRelayList) {
     // createdAt: 0 so relay data always wins
     store.dispatch(setRelayList({ entries: cachedRelayList, createdAt: 0 }));
-    relayManager.connectFromConfig(cachedRelayList);
+    // No bootstrap pruning yet — the kind:10002 query (step 6) still needs
+    // bootstrap; pruning happens once that query resolves.
+    relayManager.reconcileUserRelays(cachedRelayList, { pruneBootstrap: false });
   }
 
   // Step 5b: Load cached DM relay list from IndexedDB
@@ -513,17 +527,62 @@ export async function performLogin(
     store.dispatch(setPinnedNotes({ noteIds: cachedPinnedNotes, createdAt: 0 }));
   }
 
-  // Step 6: Subscribe for relay list (kind:10002) from bootstrap relays
+  // Step 5e: Load cached mute list from IndexedDB
+  // Same wipe-guard rationale as the follow list (5c): without this, muteList
+  // starts as [] after login/reset, and an early mute or muted-word edit would
+  // publish a kind:10000 missing every previously muted entry.
+  // createdAt: 0 so the relay copy always wins.
+  const cachedMuteList = await getUserState<MuteEntry[]>("mute_list");
+  if (cachedMuteList?.length) {
+    store.dispatch(setMuteList({ mutes: cachedMuteList, createdAt: 0 }));
+  }
+
+  // Step 6: Subscribe for relay list (kind:10002). The NIP-65 indexers
+  // (purplepag.es / user.kindpag.es) specialize in this kind — the
+  // 10002-only filter is indexer-safe, so they aren't stripped.
+  const relayListQueryUrls = [...INDEXER_RELAYS, ...BOOTSTRAP_RELAYS];
+  let relayListEventArrived = false;
+  let relayListQuerySettled = false;
+  const relayListEosed = new Set<string>();
+  // Runs once the query window closes (every queried relay EOSE'd, or the
+  // timeout fired):
+  // - no kind:10002 found anywhere → createdAt:1 sentinel ("checked relays,
+  //   confirmed none" — same pattern as kind:3) so publishRelayList is
+  //   unblocked for new users
+  // - cached list but no fresh event → bootstrap pruning that step 5
+  //   deliberately deferred while this query still needed bootstrap
+  const settleRelayListQuery = () => {
+    if (relayListQuerySettled) return;
+    relayListQuerySettled = true;
+    // Stale-login guard (#77): account switched mid-query — don't touch state.
+    if (store.getState().identity.pubkey !== pubkey) return;
+    const { relayList, relayListCreatedAt } = store.getState().identity;
+    if (relayListCreatedAt === 0) {
+      store.dispatch(setRelayList({ entries: relayList, createdAt: 1 }));
+    }
+    if (!relayListEventArrived && relayList.length > 0) {
+      relayManager.reconcileUserRelays(relayList, { pruneBootstrap: true });
+    }
+  };
+  const relayListSettleTimer = setTimeout(settleRelayListQuery, 10_000);
   relayManager.subscribe({
     filters: [{ kinds: [EVENT_KINDS.RELAY_LIST], authors: [pubkey], limit: 1 }],
-    relayUrls: BOOTSTRAP_RELAYS,
+    relayUrls: relayListQueryUrls,
     onEvent: (event) => {
+      // Freshness: relays may serve stale 10002s (and this standing sub also
+      // receives our own-publish echo). Older than what we already applied →
+      // skip entirely, so a stale list can't overwrite the IndexedDB cache or
+      // drive reconciliation. (The slice guard would reject the dispatch, but
+      // the side effects below wouldn't know that.)
+      if (event.created_at < store.getState().identity.relayListCreatedAt) return;
       const entries = parseRelayList(event);
       if (entries.length > 0) {
+        relayListEventArrived = true;
         store.dispatch(setRelayList({ entries, createdAt: event.created_at }));
         saveUserState("relay_list", entries);
-        // Connect to user's relays
-        relayManager.connectFromConfig(entries);
+        // Connect the user's relays; the published list supersedes the
+        // bootstrap defaults, so bootstrap relays not in it are pruned.
+        relayManager.reconcileUserRelays(entries, { pruneBootstrap: true });
         // Re-subscribe for user data on user's own relays
         const userRelayUrls = entries
           .filter((e) => e.mode === "read" || e.mode === "read+write")
@@ -531,6 +590,13 @@ export async function performLogin(
         if (userRelayUrls.length > 0) {
           subscribeUserData(pubkey, userRelayUrls);
         }
+      }
+    },
+    onEOSE: (_subId, relayUrl) => {
+      relayListEosed.add(relayUrl);
+      if (relayListEosed.size >= relayListQueryUrls.length) {
+        clearTimeout(relayListSettleTimer);
+        settleRelayListQuery();
       }
     },
   });
@@ -592,6 +658,8 @@ export async function performLogin(
   // Hydrate the per-account feature toggles (e.g. Decentralized Spaces) so any
   // UI gated on them renders correctly from the first paint.
   store.dispatch(setEnabledFeatures(await loadEnabledFeatures()));
+  // Hydrate the per-account Feed preferences (toggles + local hidden accounts).
+  store.dispatch(setFeedPrefs(await loadFeedPrefs()));
   let savedSpaces = await loadSpaces();
 
   // If local cache is empty, recover from backend (covers logout/reimport,

@@ -1,13 +1,12 @@
-import { useMemo, useState, useEffect, useCallback } from "react";
+import { useMemo, useCallback } from "react";
 import { Play, Pause, Disc3, Loader2, Music } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import { useAppSelector, useAppDispatch } from "@/store/hooks";
 import { setActiveDetailId } from "@/store/slices/musicSlice";
 import { setSidebarMode } from "@/store/slices/uiSlice";
 import { useAudioPlayer } from "@/features/music/useAudioPlayer";
+import { useResolvedMusic } from "@/features/music/useResolvedMusic";
 import { getTrackImage } from "@/features/music/trackImage";
-import { resolveMusic } from "@/lib/api/music";
-import { processIncomingEvent } from "@/lib/nostr/eventPipeline";
 
 interface MusicEmbedCardProps {
   kind: number;
@@ -18,15 +17,10 @@ interface MusicEmbedCardProps {
 export function MusicEmbedCard({ kind, pubkey, identifier }: MusicEmbedCardProps) {
   const dispatch = useAppDispatch();
   const navigate = useNavigate();
-  const addressableId = `${kind}:${pubkey}:${identifier}`;
   const isTrack = kind === 31683;
 
-  const track = useAppSelector((s) =>
-    isTrack ? s.music.tracks[addressableId] : undefined,
-  );
-  const album = useAppSelector((s) =>
-    !isTrack ? s.music.albums[addressableId] : undefined,
-  );
+  // Store lookup + backend auto-resolve when missing
+  const { addressableId, track, album, resolving } = useResolvedMusic(kind, pubkey, identifier);
   const albums = useAppSelector((s) => s.music.albums);
   const { play, togglePlay, player } = useAudioPlayer();
 
@@ -41,32 +35,6 @@ export function MusicEmbedCard({ kind, pubkey, identifier }: MusicEmbedCardProps
 
   const title = isTrack ? track?.title : album?.title;
   const artist = isTrack ? track?.artist : album?.artist;
-
-  // ── Auto-resolve when data isn't in store ──
-  const [resolving, setResolving] = useState(false);
-
-  useEffect(() => {
-    if (title || resolving) return;
-    let cancelled = false;
-    const type = isTrack ? "track" : "album";
-
-    setResolving(true);
-    resolveMusic(type, pubkey, identifier)
-      .then(async (result) => {
-        if (cancelled) return;
-        const data = result.data;
-        await processIncomingEvent((data as { event: unknown }).event, "resolve");
-        if ("tracks" in data && Array.isArray(data.tracks)) {
-          for (const trackEvent of data.tracks) {
-            await processIncomingEvent(trackEvent, "resolve");
-          }
-        }
-      })
-      .catch(() => {})
-      .finally(() => { if (!cancelled) setResolving(false); });
-
-    return () => { cancelled = true; };
-  }, [title, isTrack, pubkey, identifier, resolving]);
 
   // ── Navigate handler (used for both resolved and unresolved states) ──
   const handleNavigate = useCallback(() => {

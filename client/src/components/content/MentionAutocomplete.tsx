@@ -100,9 +100,11 @@ export function MentionAutocomplete({
   if (results.length === 0) return null;
 
   return (
+    // Position-agnostic panel — the caller (AnchoredPopover) places it and may
+    // cap its height via --popover-max-h; the list scrolls within that.
     <div
       ref={listRef}
-      className="absolute bottom-full left-0 z-50 mb-1 max-h-64 w-72 overflow-y-auto rounded-lg border border-border-light bg-panel shadow-xl"
+      className="max-h-[var(--popover-max-h,16rem)] w-72 max-w-[var(--popover-max-w,18rem)] overflow-y-auto rounded-lg border border-border-light bg-panel shadow-xl"
     >
       {results.map((r, i) => {
         const name = r.profile.display_name || r.profile.name || r.pubkey.slice(0, 8);

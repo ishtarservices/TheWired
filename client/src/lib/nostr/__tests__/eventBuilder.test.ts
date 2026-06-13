@@ -15,6 +15,8 @@ import {
   buildMuteListEvent,
   buildRelayListEvent,
   buildDMRelayListEvent,
+  buildPollEvent,
+  buildPollVote,
 } from "../eventBuilder";
 import { lunaVega, marcusCole } from "@/__tests__/fixtures/testUsers";
 
@@ -464,5 +466,85 @@ describe("buildDMRelayListEvent", () => {
       ["relay", "wss://dm1.com"],
       ["relay", "wss://dm2.com"],
     ]);
+  });
+});
+
+// ─── buildPollEvent ──────────────────────────────────────
+
+describe("buildPollEvent", () => {
+  it("builds a kind:1068 poll with NIP-88 tag layout", () => {
+    const ev = buildPollEvent(
+      PK,
+      "Pineapple on pizza?",
+      [
+        { id: "opt1", label: "Yay" },
+        { id: "opt2", label: "Nay" },
+      ],
+      {
+        pollType: "multiplechoice",
+        endsAt: 1750000000,
+        relays: ["wss://relay.one"],
+        spaceId: "space-1",
+        channelId: "ch-9",
+      },
+    );
+    expect(ev.kind).toBe(1068);
+    expect(ev.content).toBe("Pineapple on pizza?");
+    expect(ev.tags).toEqual([
+      ["option", "opt1", "Yay"],
+      ["option", "opt2", "Nay"],
+      ["relay", "wss://relay.one"],
+      ["polltype", "multiplechoice"],
+      ["endsAt", "1750000000"],
+      ["h", "space-1"],
+      ["channel", "ch-9"],
+      ["alt", "Poll: Pineapple on pizza?"],
+    ]);
+  });
+
+  it("writes polltype explicitly even for the singlechoice default", () => {
+    const ev = buildPollEvent(PK, "Q?", [
+      { id: "a", label: "A" },
+      { id: "b", label: "B" },
+    ]);
+    expect(ev.tags).toContainEqual(["polltype", "singlechoice"]);
+    expect(ev.tags.some((t) => t[0] === "endsAt")).toBe(false);
+    expect(ev.tags.some((t) => t[0] === "h")).toBe(false);
+  });
+
+  it("emits supplemental track tags for music options", () => {
+    const ev = buildPollEvent(PK, "Best track?", [
+      { id: "a", label: "Artist — Song", trackAddress: `31683:${PK2}:my-track` },
+      { id: "b", label: "Plain option" },
+    ]);
+    expect(ev.tags).toContainEqual(["track", "a", `31683:${PK2}:my-track`]);
+    expect(ev.tags.filter((t) => t[0] === "track")).toHaveLength(1);
+  });
+
+  it("omits channel tag without a space id", () => {
+    const ev = buildPollEvent(PK, "Q?", [{ id: "a", label: "A" }], {
+      channelId: "ch-9",
+    });
+    expect(ev.tags.some((t) => t[0] === "channel")).toBe(false);
+  });
+});
+
+// ─── buildPollVote ───────────────────────────────────────
+
+describe("buildPollVote", () => {
+  it("builds a kind:1018 vote with e + response tags", () => {
+    const ev = buildPollVote(PK, "poll-id", ["opt1", "opt2"]);
+    expect(ev.kind).toBe(1018);
+    expect(ev.content).toBe("");
+    expect(ev.tags).toEqual([
+      ["e", "poll-id"],
+      ["response", "opt1"],
+      ["response", "opt2"],
+    ]);
+  });
+
+  it("adds an h tag for space-scoped votes", () => {
+    const ev = buildPollVote(PK, "poll-id", ["opt1"], { spaceId: "space-1" });
+    expect(ev.tags).toContainEqual(["h", "space-1"]);
   });
 });

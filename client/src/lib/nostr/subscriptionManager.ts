@@ -1,6 +1,7 @@
 import { nanoid } from "nanoid";
 import type { NostrFilter } from "../../types/nostr";
 import { relayManager, isIndexerSafe, INDEXER_URL_SET } from "./relayManager";
+import { normalizeRelayUrl } from "./relayUrl";
 import { processIncomingEvent } from "./eventPipeline";
 import { SUBSCRIPTION } from "./constants";
 import { createLogger } from "../debug/logger";
@@ -54,9 +55,12 @@ class SubscriptionManagerImpl {
     timeoutMs?: number;
   }): string {
     const id = nanoid(SUBSCRIPTION.MAX_SUB_ID_LENGTH);
-    const requestedUrls =
-      opts.relayUrls ??
-      relayManager.getReadRelays().map((c) => c.url);
+    // Normalize so the EOSE quorum keys match relayManager's connection keys —
+    // EOSE callbacks deliver the normalized URL, so an unnormalized caller URL
+    // (e.g. a host relay with a trailing slash) would otherwise never count.
+    const requestedUrls = (
+      opts.relayUrls ?? relayManager.getReadRelays().map((c) => c.url)
+    ).map((u) => normalizeRelayUrl(u) ?? u);
 
     // Mirror relayManager's indexer strip: if the filters aren't all in indexer
     // kinds {0,3,10002}, the indexer relays will never be subscribed AND therefore

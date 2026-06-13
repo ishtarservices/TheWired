@@ -1,5 +1,5 @@
 import { useState, useRef, useCallback, lazy, Suspense } from "react";
-import { createPortal } from "react-dom";
+import { AnchoredPopover } from "@/components/ui/AnchoredPopover";
 import { Lock, Globe, Users, Feather, Loader2, Paperclip, Smile } from "lucide-react";
 import { useAppSelector, useAppDispatch } from "@/store/hooks";
 import { removeAnnotation } from "@/store/slices/musicSlice";
@@ -69,6 +69,8 @@ export function NotesTab({ targetRef, targetName, ownerPubkey }: NotesTabProps) 
   const [pendingGif, setPendingGif] = useState<GifItem | null>(null);
   const customEmojiMapRef = useRef<Map<string, string>>(new Map());
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const gifBtnRef = useRef<HTMLButtonElement>(null);
+  const emojiBtnRef = useRef<HTMLButtonElement>(null);
 
   const {
     attachments,
@@ -367,70 +369,62 @@ export function NotesTab({ targetRef, targetName, ownerPubkey }: NotesTabProps) 
       {/* ── Rich Inline Composer ── */}
       {pubkey && (
         <div className="relative sticky bottom-0 border-t border-border/40 bg-card/80 backdrop-blur-sm pt-3 -mx-3 px-3 pb-1">
-          {/* Emoji autocomplete */}
-          {emojiQuery !== null && (
-            <div className="absolute bottom-full left-3 z-50 mb-1">
+          {/* Emoji autocomplete — anchored above the textarea, space-aware */}
+          <AnchoredPopover
+            anchorEl={textareaRef.current}
+            open={emojiQuery !== null}
+            onClose={() => setEmojiQuery(null)}
+            preferredSide="above"
+          >
+            {emojiQuery !== null && (
               <EmojiAutocomplete
                 query={emojiQuery}
                 onSelect={handleEmojiAutocompleteSelect}
                 onClose={() => setEmojiQuery(null)}
               />
-            </div>
-          )}
+            )}
+          </AnchoredPopover>
 
-          {/* GIF Picker — portaled to escape overflow clipping */}
-          {showGifPicker && createPortal(
-            <div
-              className="fixed inset-0 z-[100]"
-              onClick={() => setShowGifPicker(false)}
+          {/* GIF / Emoji pickers — anchored above their buttons, space-aware */}
+          <AnchoredPopover
+            anchorEl={gifBtnRef.current}
+            open={showGifPicker}
+            onClose={() => setShowGifPicker(false)}
+            preferredSide="above"
+          >
+            <Suspense
+              fallback={
+                <div className="w-[360px] h-[420px] max-h-[var(--popover-max-h,420px)] rounded-xl border border-border bg-panel flex items-center justify-center">
+                  <div className="h-5 w-5 animate-spin rounded-full border-2 border-primary border-t-transparent" />
+                </div>
+              }
             >
-              <div
-                className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2"
-                onClick={(e) => e.stopPropagation()}
-              >
-                <Suspense
-                  fallback={
-                    <div className="w-[360px] h-[420px] rounded-xl border border-border bg-panel flex items-center justify-center">
-                      <div className="h-5 w-5 animate-spin rounded-full border-2 border-primary border-t-transparent" />
-                    </div>
-                  }
-                >
-                  <LazyGifPicker
-                    onSelect={handleGifSelect}
-                    onClose={() => setShowGifPicker(false)}
-                  />
-                </Suspense>
-              </div>
-            </div>,
-            document.body,
-          )}
+              <LazyGifPicker
+                onSelect={handleGifSelect}
+                onClose={() => setShowGifPicker(false)}
+              />
+            </Suspense>
+          </AnchoredPopover>
 
-          {/* Emoji Picker — portaled to escape overflow clipping */}
-          {showEmojiPicker && createPortal(
-            <div
-              className="fixed inset-0 z-[100]"
-              onClick={() => setShowEmojiPicker(false)}
+          <AnchoredPopover
+            anchorEl={emojiBtnRef.current}
+            open={showEmojiPicker}
+            onClose={() => setShowEmojiPicker(false)}
+            preferredSide="above"
+          >
+            <Suspense
+              fallback={
+                <div className="w-[352px] h-[435px] max-h-[var(--popover-max-h,435px)] rounded-xl border border-border bg-panel flex items-center justify-center">
+                  <div className="h-5 w-5 animate-spin rounded-full border-2 border-primary border-t-transparent" />
+                </div>
+              }
             >
-              <div
-                className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2"
-                onClick={(e) => e.stopPropagation()}
-              >
-                <Suspense
-                  fallback={
-                    <div className="w-[352px] h-[435px] rounded-xl border border-border bg-panel flex items-center justify-center">
-                      <div className="h-5 w-5 animate-spin rounded-full border-2 border-primary border-t-transparent" />
-                    </div>
-                  }
-                >
-                  <LazyEmojiPicker
-                    onEmojiSelect={handleEmojiPickerSelect}
-                    onClose={() => setShowEmojiPicker(false)}
-                  />
-                </Suspense>
-              </div>
-            </div>,
-            document.body,
-          )}
+              <LazyEmojiPicker
+                onEmojiSelect={handleEmojiPickerSelect}
+                onClose={() => setShowEmojiPicker(false)}
+              />
+            </Suspense>
+          </AnchoredPopover>
 
           <textarea
             ref={textareaRef}
@@ -472,6 +466,7 @@ export function NotesTab({ targetRef, targetName, ownerPubkey }: NotesTabProps) 
               <Paperclip size={14} />
             </button>
             <button
+              ref={gifBtnRef}
               type="button"
               onClick={() => {
                 setShowGifPicker((prev) => !prev);
@@ -487,6 +482,7 @@ export function NotesTab({ targetRef, targetName, ownerPubkey }: NotesTabProps) 
               GIF
             </button>
             <button
+              ref={emojiBtnRef}
               type="button"
               onClick={() => {
                 setShowEmojiPicker((prev) => !prev);

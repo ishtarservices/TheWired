@@ -4,9 +4,10 @@ import type { RootState } from "../../store";
 
 // Returning a stable array reference when the resolved set is unchanged stops
 // feed components from re-rendering on every unrelated event (the entity map
-// gets a new reference on each add). Applied to the list selectors below.
-const stableArray = { memoizeOptions: { resultEqualityCheck: shallowEqual } };
-import type { NostrEvent } from "../../types/nostr";
+// gets a new reference on each add). Applied to the list selectors below and
+// reused by friendsFeedSelectors.ts.
+export const stableArray = { memoizeOptions: { resultEqualityCheck: shallowEqual } };
+import { EVENT_KINDS, type NostrEvent } from "../../types/nostr";
 import type { Space, SpaceChannel, SpaceChannelType } from "../../types/space";
 
 /** Resolve the context ID for a channel type within a space */
@@ -77,21 +78,21 @@ export const selectSpaceNotes = createSelector(
   stableArray,
 );
 
+/** True when a kind:1 note is a thread root (not a reply). A root note has no
+ *  "e" tags at all — NIP-10 root/reply markers and deprecated positional
+ *  e-tags both indicate a reply. (Quotes use "q" tags, so they stay roots.) */
+export function isRootNote(e: NostrEvent): boolean {
+  return !e.tags.some((t) => t[0] === "e");
+}
+
 /** Memoized: root notes only (no replies) for active space, sorted desc.
  *  Composes from selectSpaceNotes to avoid duplicating logic. */
 export const selectSpaceRootNotes = createSelector(
   [selectSpaceNotes],
-  (notes) => notes.filter((e) => {
-    if (e.kind !== 1) return false;
-    // A root note has no "e" tags with root/reply markers AND no positional "e" tags
-    const eTags = e.tags.filter((t) => t[0] === "e");
-    if (eTags.length === 0) return true;
-    const rootTag = eTags.find((t) => t[3] === "root");
-    const replyTag = eTags.find((t) => t[3] === "reply");
-    if (rootTag || replyTag) return false;
-    // Deprecated positional: any e-tag means it's a reply
-    return false;
-  }),
+  (notes) =>
+    notes.filter(
+      (e) => (e.kind === 1 || e.kind === EVENT_KINDS.POLL) && isRootNote(e),
+    ),
   stableArray,
 );
 

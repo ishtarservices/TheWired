@@ -1,7 +1,7 @@
 import { subscriptionManager } from "./subscriptionManager";
 import { relayManager } from "./relayManager";
 import { flushEventPipeline } from "./eventPipeline";
-import { buildChannelFilter, buildSpaceFeedFilter } from "./filterBuilder";
+import { buildChannelFilter, buildSpaceFeedFilter, chunkAuthorsFilter } from "./filterBuilder";
 import { getChannelRoute } from "./channelRoutes";
 import { getSpaceChannelRoute } from "../../features/spaces/spaceChannelRoutes";
 import { EVENT_KINDS } from "../../types/nostr";
@@ -53,7 +53,7 @@ function openHostSub(host: string, since: number = defaultSince()): void {
   const subId = subscriptionManager.subscribe({
     filters: [
       {
-        kinds: [EVENT_KINDS.CHAT_MESSAGE, EVENT_KINDS.DELETION, EVENT_KINDS.MOD_DELETE_EVENT],
+        kinds: [EVENT_KINDS.CHAT_MESSAGE, EVENT_KINDS.POLL, EVENT_KINDS.DELETION, EVENT_KINDS.MOD_DELETE_EVENT],
         "#h": ids,
         since,
       },
@@ -365,7 +365,13 @@ export function leaveAnySpace(spaceId: string): void {
 
 // ── Friends Feed ─────────────────────────────────────────────────
 
-import { FRIENDS_FEED_ID } from "../../features/friends/friendsFeedConstants";
+import { FRIENDS_FEED_ID, getFriendsFeedKinds } from "../../features/friends/friendsFeedConstants";
+
+/** Feed authors: own pubkey + follows — your own posts belong in your Feed. */
+function friendsFeedAuthors(followList: string[], me: string | null): string[] {
+  if (!me || followList.includes(me)) return followList;
+  return [me, ...followList];
+}
 
 /**
  * Enter the Friends Feed virtual space: subscribe to notes from the
@@ -387,16 +393,17 @@ export function enterFriendsFeed(channelType: string): void {
 
   const route = getSpaceChannelRoute(channelType);
   if (!route) return;
+  const kinds = getFriendsFeedKinds(channelType, state.feedPrefs.showReposts) ?? route.kinds;
 
-  const filter: NostrFilter = {
-    authors: followList.slice(0, 500), // Cap to avoid oversized filters
-    kinds: route.kinds,
-    limit: route.pageSize,
-  };
+  // Chunked into ≤500-author filters so large follow lists aren't truncated
+  const filters = chunkAuthorsFilter(
+    friendsFeedAuthors(followList, state.identity.pubkey),
+    { kinds, limit: route.pageSize },
+  );
 
   // Subscribe to all read relays (follow list authors publish to their own relays)
   const subId = subscriptionManager.subscribe({
-    filters: [filter],
+    filters,
     relayUrls: undefined, // all read relays
   });
 
@@ -434,19 +441,22 @@ export function refreshFriendsFeed(channelType: string, initial = false): void {
 
   store.dispatch(setRefreshing({ contextId, value: true }));
 
-  const filter: NostrFilter = {
-    authors: followList.slice(0, 500),
-    kinds: route.kinds,
+  const base: Omit<NostrFilter, "authors"> = {
+    kinds: getFriendsFeedKinds(channelType, state.feedPrefs.showReposts) ?? route.kinds,
     limit: route.pageSize,
   };
   if (!initial && meta?.newestAt) {
-    filter.since = meta.newestAt;
+    base.since = meta.newestAt;
   }
+  const filters = chunkAuthorsFilter(
+    friendsFeedAuthors(followList, state.identity.pubkey),
+    base,
+  );
 
   // One-shot: subscribeOnce closes the sub on EOSE/timeout/no-relays, so it can't
   // leak (this previously needed a manual settled flag + timeout + close).
   subscriptionManager
-    .subscribeOnce({ filters: [filter], timeoutMs: PAGINATION_TIMEOUT_MS })
+    .subscribeOnce({ filters, timeoutMs: PAGINATION_TIMEOUT_MS })
     .then(() => store.dispatch(setRefreshing({ contextId, value: false })));
 }
 
@@ -465,17 +475,19 @@ export function loadMoreFriendsFeed(channelType: string): void {
 
   store.dispatch(setLoadingMore({ contextId, value: true }));
 
-  const filter: NostrFilter = {
-    authors: followList.slice(0, 500),
-    kinds: route.kinds,
-    until: meta.oldestAt - 1,
-    limit: route.pageSize,
-  };
+  const filters = chunkAuthorsFilter(
+    friendsFeedAuthors(followList, state.identity.pubkey),
+    {
+      kinds: getFriendsFeedKinds(channelType, state.feedPrefs.showReposts) ?? route.kinds,
+      until: meta.oldestAt - 1,
+      limit: route.pageSize,
+    },
+  );
 
   const previousOldest = meta.oldestAt;
 
   subscriptionManager
-    .subscribeOnce({ filters: [filter], timeoutMs: PAGINATION_TIMEOUT_MS })
+    .subscribeOnce({ filters, timeoutMs: PAGINATION_TIMEOUT_MS })
     .then(({ reason }) => {
       store.dispatch(setLoadingMore({ contextId, value: false }));
       // #78: only an honest all-relays EOSE concludes "no more older events". A

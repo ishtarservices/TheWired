@@ -4,6 +4,7 @@ import { npubEncode } from "nostr-tools/nip19";
 import { Button } from "@/components/ui/Button";
 import { MentionAutocomplete } from "@/components/content/MentionAutocomplete";
 import { EmojiAutocomplete } from "@/components/content/EmojiAutocomplete";
+import { AnchoredPopover } from "@/components/ui/AnchoredPopover";
 import { FormattingToolbar } from "@/components/content/FormattingToolbar";
 import { AttachmentPreview } from "@/components/chat/AttachmentPreview";
 import { GifPreview } from "@/components/chat/GifPreview";
@@ -74,6 +75,8 @@ export function DMInput({
 }: DMInputProps) {
   const [value, setValue] = useState("");
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const gifBtnRef = useRef<HTMLButtonElement>(null);
+  const emojiBtnRef = useRef<HTMLButtonElement>(null);
   useAutoResize(textareaRef, value, 150);
   useMarkdownShortcuts({ textareaRef, value, setValue });
   const { inputMarginClass } = usePlaybackBarSpacing();
@@ -314,41 +317,65 @@ export function DMInput({
 
   return (
     <form onSubmit={handleSubmit} className={`relative border-t border-border p-3 ${inputMarginClass}`}>
-      {mentionQuery !== null && (
-        <MentionAutocomplete
-          query={mentionQuery}
-          onSelect={handleSelect}
-          onClose={() => setMentionQuery(null)}
-        />
-      )}
+      <AnchoredPopover
+        anchorEl={textareaRef.current}
+        open={mentionQuery !== null}
+        onClose={() => setMentionQuery(null)}
+        preferredSide="above"
+      >
+        {mentionQuery !== null && (
+          <MentionAutocomplete
+            query={mentionQuery}
+            onSelect={handleSelect}
+            onClose={() => setMentionQuery(null)}
+          />
+        )}
+      </AnchoredPopover>
 
-      {emojiQuery !== null && (
-        <EmojiAutocomplete
-          query={emojiQuery}
-          onSelect={handleEmojiAutocompleteSelect}
-          onClose={() => setEmojiQuery(null)}
-        />
-      )}
+      <AnchoredPopover
+        anchorEl={textareaRef.current}
+        open={emojiQuery !== null}
+        onClose={() => setEmojiQuery(null)}
+        preferredSide="above"
+      >
+        {emojiQuery !== null && (
+          <EmojiAutocomplete
+            query={emojiQuery}
+            onSelect={handleEmojiAutocompleteSelect}
+            onClose={() => setEmojiQuery(null)}
+          />
+        )}
+      </AnchoredPopover>
 
-      {/* GIF Picker */}
-      {showGifPicker && (
-        <Suspense fallback={<div className="absolute bottom-full left-0 mb-2 w-[360px] h-[420px] rounded-xl border border-border bg-panel flex items-center justify-center"><div className="h-5 w-5 animate-spin rounded-full border-2 border-primary border-t-transparent" /></div>}>
+      {/* GIF Picker — anchored above the GIF button (input sits at the bottom) */}
+      <AnchoredPopover
+        anchorEl={gifBtnRef.current}
+        open={showGifPicker}
+        onClose={() => setShowGifPicker(false)}
+        preferredSide="above"
+      >
+        <Suspense fallback={<div className="w-[360px] h-[420px] max-h-[var(--popover-max-h,420px)] rounded-xl border border-border bg-panel flex items-center justify-center"><div className="h-5 w-5 animate-spin rounded-full border-2 border-primary border-t-transparent" /></div>}>
           <LazyGifPicker
             onSelect={handleGifSelect}
             onClose={() => setShowGifPicker(false)}
           />
         </Suspense>
-      )}
+      </AnchoredPopover>
 
       {/* Emoji Picker */}
-      {showEmojiPicker && (
-        <Suspense fallback={<div className="absolute bottom-full left-0 mb-2 w-[352px] h-[435px] rounded-xl border border-border bg-panel flex items-center justify-center"><div className="h-5 w-5 animate-spin rounded-full border-2 border-primary border-t-transparent" /></div>}>
+      <AnchoredPopover
+        anchorEl={emojiBtnRef.current}
+        open={showEmojiPicker}
+        onClose={() => setShowEmojiPicker(false)}
+        preferredSide="above"
+      >
+        <Suspense fallback={<div className="w-[352px] h-[435px] max-h-[var(--popover-max-h,435px)] rounded-xl border border-border bg-panel flex items-center justify-center"><div className="h-5 w-5 animate-spin rounded-full border-2 border-primary border-t-transparent" /></div>}>
           <LazyEmojiPicker
             onEmojiSelect={handleEmojiPickerSelect}
             onClose={() => setShowEmojiPicker(false)}
           />
         </Suspense>
-      )}
+      </AnchoredPopover>
 
       {/* Attachment previews */}
       <AttachmentPreview attachments={attachments} onRemove={onRemoveAttachment} />
@@ -372,6 +399,7 @@ export function DMInput({
           </button>
 
           <button
+            ref={gifBtnRef}
             type="button"
             onClick={() => {
               setShowGifPicker((prev) => !prev);
@@ -389,6 +417,7 @@ export function DMInput({
           </button>
 
           <button
+            ref={emojiBtnRef}
             type="button"
             onClick={() => {
               setShowEmojiPicker((prev) => !prev);

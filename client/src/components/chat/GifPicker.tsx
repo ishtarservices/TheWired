@@ -86,7 +86,11 @@ export function GifPicker({ onSelect, onClose }: GifPickerProps) {
   const displayGifs = activeTab === "favorites" ? favorites : results;
 
   return (
-    <div className="absolute bottom-full left-0 mb-2 w-[360px] max-h-[420px] flex flex-col rounded-xl border border-border bg-panel shadow-xl z-50 overflow-hidden">
+    // Pure panel: positioning is the caller's job (AnchoredPopover or an
+    // explicit wrapper). It caps to the space the popover offers (CSS vars,
+    // with full-size fallbacks when used standalone); the results grid below
+    // scrolls internally so the panel never overflows the viewport.
+    <div className="w-[360px] max-w-[var(--popover-max-w,calc(100vw-16px))] max-h-[var(--popover-max-h,420px)] flex flex-col rounded-xl border border-border bg-panel shadow-xl overflow-hidden">
       {/* Header */}
       <div className="flex items-center gap-2 px-3 pt-3 pb-2">
         <div className="flex-1 flex items-center gap-2 rounded-lg bg-field px-2.5 py-1.5 ring-1 ring-border">

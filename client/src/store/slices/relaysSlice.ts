@@ -3,10 +3,15 @@ import type { RelayInfo, RelayStatus } from "../../types/relay";
 
 interface RelaysState {
   connections: Record<string, RelayInfo>;
+  /** Locally-disabled relays (normalized URLs). Local-only: these stay in the
+   *  user's published NIP-65 list but are never auto-connected on this device.
+   *  Persisted per-account in IndexedDB ("relay_disabled" user-state key). */
+  disabledRelays: string[];
 }
 
 const initialState: RelaysState = {
   connections: {},
+  disabledRelays: [],
 };
 
 export const relaysSlice = createSlice({
@@ -30,6 +35,9 @@ export const relaysSlice = createSlice({
     },
     removeRelay(state, action: PayloadAction<string>) {
       delete state.connections[action.payload];
+    },
+    setDisabledRelays(state, action: PayloadAction<string[]>) {
+      state.disabledRelays = action.payload;
     },
     updateLatency(
       state,
@@ -69,6 +77,7 @@ export const {
   setRelayStatus,
   addRelay,
   removeRelay,
+  setDisabledRelays,
   updateLatency,
   incrementEventCount,
   incrementCounts,

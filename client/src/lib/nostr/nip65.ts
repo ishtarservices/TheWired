@@ -3,6 +3,9 @@ import type { RelayListEntry } from "../../types/relay";
 import type { RelayMode } from "../../types/relay";
 import { relayManager } from "./relayManager";
 import { BOOTSTRAP_RELAYS, INDEXER_RELAYS } from "./constants";
+import { normalizeRelayUrl } from "./relayUrl";
+
+export { normalizeRelayUrl } from "./relayUrl";
 
 /** Parse a kind:10002 relay list event into relay entries */
 export function parseRelayList(event: NostrEvent): RelayListEntry[] {
@@ -46,16 +49,4 @@ export function fetchRelayList(
       // EOSE from bootstrap - relay list should be loaded by now
     },
   });
-}
-
-/** Normalize relay URL */
-export function normalizeRelayUrl(url: string): string | null {
-  try {
-    const u = new URL(url);
-    if (u.protocol !== "wss:" && u.protocol !== "ws:") return null;
-    // Ensure trailing slash is removed for consistency
-    return u.toString().replace(/\/$/, "");
-  } catch {
-    return null;
-  }
 }

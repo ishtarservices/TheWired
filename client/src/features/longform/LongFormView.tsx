@@ -9,12 +9,19 @@ import { parseLongFormEvent } from "./useLongForm";
 import { useFeedPagination } from "../../features/spaces/useFeedPagination";
 import { FeedToolbar } from "../../features/spaces/FeedToolbar";
 import { LoadMoreButton } from "../../features/spaces/LoadMoreButton";
+import { selectFriendsFeedArticles } from "../../features/friends/friendsFeedSelectors";
+import { FRIENDS_FEED_ID } from "../../features/friends/friendsFeedConstants";
+import { FeedPrefsButton } from "../../features/friends/FeedPrefsButton";
 import type { LongFormArticle } from "../../types/media";
 
 export function LongFormView() {
   const navigate = useNavigate();
-  const articleEvents = useAppSelector(selectSpaceArticles);
   const activeSpaceId = useAppSelector((s) => s.spaces.activeSpaceId);
+  const isFriendsFeed = activeSpaceId === FRIENDS_FEED_ID;
+  // The Feed gets mute/hidden/word filtering; spaces keep the plain selector.
+  const articleEvents = useAppSelector(
+    isFriendsFeed ? selectFriendsFeedArticles : selectSpaceArticles,
+  );
   const activeChannelId = useAppSelector((s) => s.spaces.activeChannelId);
   const activeSpace = useAppSelector((s) =>
     s.spaces.list.find((sp) => sp.id === s.spaces.activeSpaceId),
@@ -63,7 +70,9 @@ export function LongFormView() {
         isRefreshing={meta.isRefreshing}
         onRefresh={refresh}
         rightSlot={
-          canWrite ? (
+          isFriendsFeed ? (
+            <FeedPrefsButton channelType="articles" />
+          ) : canWrite ? (
             <button
               onClick={() => navigate(writeHref())}
               className="flex items-center gap-1.5 rounded-md bg-primary/20 px-2.5 py-1 text-xs font-medium text-primary transition-colors hover:bg-primary/30"

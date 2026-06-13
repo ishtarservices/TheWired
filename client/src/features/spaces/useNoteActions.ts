@@ -13,7 +13,14 @@ export function useNoteActions(event: NostrEvent) {
   });
 
   const canInteract = !!pubkey;
-  const canWrite = canInteract && activeSpace?.mode === "read-write";
+  // Reply/repost/quote are interactions on the note itself, not posts into the
+  // space — so they're allowed in the Feed and read-only feed spaces too.
+  const canWrite = canInteract;
+  // Member posts in read-write spaces target the space's host relay. Feed and
+  // read-only interactions broadcast to the user's write relays instead — the
+  // note's author isn't on a read-only space's host relay anyway.
+  const spaceMode = activeSpace?.mode;
+  const hostRelay = activeSpace?.hostRelay;
 
   const like = useCallback(async () => {
     if (!pubkey || !canInteract) return;
@@ -21,8 +28,8 @@ export function useNoteActions(event: NostrEvent) {
       pubkey,
       { eventId: event.id, pubkey: event.pubkey, kind: event.kind },
     );
-    await signAndPublish(unsigned, activeSpace?.hostRelay ? [activeSpace.hostRelay] : undefined);
-  }, [pubkey, canInteract, event.id, event.pubkey, event.kind, activeSpace?.hostRelay]);
+    await signAndPublish(unsigned, spaceMode === "read-write" && hostRelay ? [hostRelay] : undefined);
+  }, [pubkey, canInteract, event.id, event.pubkey, event.kind, spaceMode, hostRelay]);
 
   const repost = useCallback(async () => {
     if (!pubkey || !canWrite) return;
@@ -31,8 +38,8 @@ export function useNoteActions(event: NostrEvent) {
       { id: event.id, pubkey: event.pubkey },
       JSON.stringify(event),
     );
-    await signAndPublish(unsigned, activeSpace?.hostRelay ? [activeSpace.hostRelay] : undefined);
-  }, [pubkey, canWrite, event, activeSpace?.hostRelay]);
+    await signAndPublish(unsigned, spaceMode === "read-write" && hostRelay ? [hostRelay] : undefined);
+  }, [pubkey, canWrite, event, spaceMode, hostRelay]);
 
   const reply = useCallback(async (content: string) => {
     if (!pubkey || !canWrite || !content.trim()) return;
@@ -46,8 +53,8 @@ export function useNoteActions(event: NostrEvent) {
         rootId: threadRef.rootId ?? undefined,
       },
     );
-    await signAndPublish(unsigned, activeSpace?.hostRelay ? [activeSpace.hostRelay] : undefined);
-  }, [pubkey, canWrite, event, activeSpace?.hostRelay]);
+    await signAndPublish(unsigned, spaceMode === "read-write" && hostRelay ? [hostRelay] : undefined);
+  }, [pubkey, canWrite, event, spaceMode, hostRelay]);
 
   const quote = useCallback(async (content: string) => {
     if (!pubkey || !canWrite || !content.trim()) return;
@@ -56,8 +63,8 @@ export function useNoteActions(event: NostrEvent) {
       content.trim(),
       { eventId: event.id, pubkey: event.pubkey },
     );
-    await signAndPublish(unsigned, activeSpace?.hostRelay ? [activeSpace.hostRelay] : undefined);
-  }, [pubkey, canWrite, event, activeSpace?.hostRelay]);
+    await signAndPublish(unsigned, spaceMode === "read-write" && hostRelay ? [hostRelay] : undefined);
+  }, [pubkey, canWrite, event, spaceMode, hostRelay]);
 
   return { like, repost, reply, quote, canInteract, canWrite };
 }

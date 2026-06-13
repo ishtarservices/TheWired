@@ -112,7 +112,7 @@ export function SpaceList() {
             <div className="flex h-7 w-7 items-center justify-center rounded-full bg-primary/10 shrink-0">
               <Users size={14} className="text-primary" />
             </div>
-            <span className="truncate text-left">Friends Feed</span>
+            <span className="truncate text-left">Feed</span>
           </button>
         )}
 

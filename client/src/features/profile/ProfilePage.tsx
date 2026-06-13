@@ -18,6 +18,8 @@ import {
   Check,
   MoreHorizontal,
   VolumeX,
+  EyeOff,
+  Eye,
   Ban,
   Flag,
   HeartHandshake,
@@ -54,6 +56,8 @@ import { followUser, unfollowUser } from "../../lib/nostr/follow";
 import { sendFriendRequest, acceptFriendRequestAction, cancelFriendRequestAction, removeFriendAction, wouldBreakFriendship } from "../../lib/nostr/friendRequest";
 import { useAppSelector, useAppDispatch } from "../../store/hooks";
 import { setMuteList } from "../../store/slices/identitySlice";
+import { hideAccount, unhideAccount } from "../../store/slices/feedPrefsSlice";
+import { persistCurrentFeedPrefs } from "../friends/feedPrefsPersistence";
 import { addNotification } from "../../store/slices/notificationSlice";
 import { buildMuteListEvent } from "../../lib/nostr/eventBuilder";
 import { signAndPublish } from "../../lib/nostr/publish";
@@ -93,6 +97,7 @@ export function ProfilePage({ pubkey }: ProfilePageProps) {
   const friendRequests = useAppSelector((s) => s.friendRequests.requests);
   const isMe = pubkey === myPubkey;
   const isMuted = muteList.some((m) => m.type === "pubkey" && m.value === pubkey);
+  const isHidden = useAppSelector((s) => s.feedPrefs.hiddenPubkeys.includes(pubkey));
   const navigate = useNavigate();
   const { scrollPaddingClass } = usePlaybackBarSpacing();
   const { settings: profileDisplaySettings } = useProfileSettings(pubkey);
@@ -280,6 +285,12 @@ export function ProfilePage({ pubkey }: ProfilePageProps) {
     await signAndPublish(unsigned);
     setShowOverflow(false);
   }, [myPubkey, pubkey, isMuted, muteList, dispatch]);
+
+  const handleToggleHidden = useCallback(() => {
+    dispatch(isHidden ? unhideAccount(pubkey) : hideAccount(pubkey));
+    persistCurrentFeedPrefs();
+    setShowOverflow(false);
+  }, [isHidden, pubkey, dispatch]);
 
   const handleCopyPubkey = useCallback(() => {
     navigator.clipboard.writeText(npub);
@@ -539,6 +550,14 @@ export function ProfilePage({ pubkey }: ProfilePageProps) {
                     >
                       <VolumeX size={13} />
                       {isMuted ? "Unmute" : "Mute"}
+                    </button>
+                    <button
+                      onClick={handleToggleHidden}
+                      title="Hidden only from your Feed on this device — nothing is published"
+                      className="flex w-full items-center gap-2.5 px-3 py-2 text-xs text-heading hover:bg-surface-hover transition-colors"
+                    >
+                      {isHidden ? <Eye size={13} /> : <EyeOff size={13} />}
+                      {isHidden ? "Show in feed" : "Hide from feed"}
                     </button>
                     <button
                       onClick={() => {
