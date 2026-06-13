@@ -150,8 +150,11 @@ export function PollComposer({ onSubmit, onClose, allowMusicOptions = true }: Po
         className="mt-3 w-full resize-none rounded-lg bg-field px-3.5 py-2.5 text-sm text-heading placeholder:text-muted ring-1 ring-border focus:outline-none focus:ring-primary/40"
       />
 
-      {/* Options */}
-      <div className="mt-3 max-h-[40vh] space-y-2 overflow-y-auto pr-0.5">
+      {/* Options — the scroll container's overflow clips on BOTH axes (CSS forces
+          overflow-x to auto when overflow-y isn't visible). The -mx-1 px-1 gutter
+          keeps the left/right rings, and py-1 keeps the first/last option's
+          top/bottom rings; mt-2 + the 4px top padding restores the ~12px gap. */}
+      <div className="mt-2 max-h-[40vh] space-y-2 overflow-y-auto -mx-1 px-1 py-1">
         {options.map((option, idx) => (
           <div key={option.id}>
             <div className="flex items-center gap-2">
@@ -235,8 +238,13 @@ export function PollComposer({ onSubmit, onClose, allowMusicOptions = true }: Po
         </button>
       )}
 
-      {/* Settings — own rows so neither control gets squeezed */}
-      <div className="mt-4 space-y-3 border-t border-border pt-3.5">
+      {hasDuplicates && (
+        <p className="mt-2 text-[11px] text-red-400">Options must be unique.</p>
+      )}
+
+      {/* Settings + actions */}
+      <div className="mt-3.5 space-y-2.5 border-t border-border pt-3">
+        {/* Poll length */}
         <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-2">
           <span className="text-xs text-muted">Poll length</span>
           <div className="flex items-center gap-1 rounded-lg bg-field p-1 ring-1 ring-border">
@@ -257,44 +265,42 @@ export function PollComposer({ onSubmit, onClose, allowMusicOptions = true }: Po
           </div>
         </div>
 
-        <button
-          type="button"
-          onClick={() => setMulti((prev) => !prev)}
-          className="flex items-center gap-2.5 text-xs text-muted hover:text-heading transition-colors"
-          title="Allow choosing several options"
-        >
-          <span
-            className={`flex h-4 w-4 items-center justify-center rounded border transition-colors ${
-              multi ? "border-primary bg-primary text-white" : "border-border-light"
-            }`}
+        {/* Multiple-choice toggle shares the action row */}
+        <div className="flex items-center justify-between gap-3">
+          <button
+            type="button"
+            onClick={() => setMulti((prev) => !prev)}
+            className="flex items-center gap-2 text-xs text-muted hover:text-heading transition-colors"
+            title="Allow choosing several options"
           >
-            {multi && <Check size={10} strokeWidth={4} />}
-          </span>
-          Allow choosing multiple options
-        </button>
-      </div>
+            <span
+              className={`flex h-4 w-4 items-center justify-center rounded border transition-colors ${
+                multi ? "border-primary bg-primary text-white" : "border-border-light"
+              }`}
+            >
+              {multi && <Check size={10} strokeWidth={4} />}
+            </span>
+            Multiple choice
+          </button>
 
-      {hasDuplicates && (
-        <p className="mt-2 text-[11px] text-red-400">Options must be unique.</p>
-      )}
-
-      {/* Footer */}
-      <div className="mt-4 flex items-center justify-end gap-2">
-        <button
-          type="button"
-          onClick={onClose}
-          className="rounded-lg px-3.5 py-2 text-xs text-muted hover:text-heading transition-colors"
-        >
-          Cancel
-        </button>
-        <button
-          type="button"
-          disabled={!canSubmit}
-          onClick={handleSubmit}
-          className="rounded-lg bg-gradient-to-r from-primary to-primary-soft px-4 py-2 text-xs font-semibold text-white transition-opacity disabled:opacity-40"
-        >
-          Create poll
-        </button>
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={onClose}
+              className="rounded-lg px-3.5 py-2 text-xs text-muted hover:text-heading transition-colors"
+            >
+              Cancel
+            </button>
+            <button
+              type="button"
+              disabled={!canSubmit}
+              onClick={handleSubmit}
+              className="rounded-lg bg-gradient-to-r from-primary to-primary-soft px-4 py-2 text-xs font-semibold text-white transition-opacity disabled:opacity-40"
+            >
+              Create poll
+            </button>
+          </div>
+        </div>
       </div>
     </div>
   );
