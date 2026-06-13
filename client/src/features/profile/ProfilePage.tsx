@@ -48,6 +48,7 @@ import { PROFILE_RELAYS } from "../../lib/nostr/constants";
 import { ProfileNoteCard } from "./NoteCard";
 import { FollowListModal } from "./FollowListModal";
 import { ArticleCard } from "../longform/ArticleCard";
+import { DraftsList } from "../longform/DraftsList";
 import { NoteComposer } from "./NoteComposer";
 import { PinnedNotesSection } from "./PinnedNotesSection";
 import { ProfileMusicTab } from "./ProfileMusicTab";
@@ -827,15 +828,18 @@ export function ProfilePage({ pubkey }: ProfilePageProps) {
         {activeTab === "reads" && (
           <>
             {isMe && (
-              <div className="mb-3 flex justify-end">
-                <button
-                  onClick={() => navigate("/write")}
-                  className="flex items-center gap-1.5 rounded-lg bg-primary/20 px-4 py-2 text-sm font-medium text-primary transition-colors hover:bg-primary/30"
-                >
-                  <PenSquare size={14} />
-                  Write article
-                </button>
-              </div>
+              <>
+                <div className="mb-3 flex justify-end">
+                  <button
+                    onClick={() => navigate("/write")}
+                    className="flex items-center gap-1.5 rounded-lg bg-primary/20 px-4 py-2 text-sm font-medium text-primary transition-colors hover:bg-primary/30"
+                  >
+                    <PenSquare size={14} />
+                    Write article
+                  </button>
+                </div>
+                <DraftsList pubkey={pubkey} />
+              </>
             )}
             <ReadsTab
               articles={feed.articles}

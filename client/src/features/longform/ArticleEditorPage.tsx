@@ -16,12 +16,15 @@ export function ArticleEditorPage() {
 
   const space = params.get("space") ?? undefined;
   const channel = params.get("channel") ?? undefined;
+  // Resume a specific device-local draft (from the profile Drafts list).
+  const resumeDraftId = params.get("draft") ?? undefined;
   // Optional prefill handed in via router state (e.g. from the AI "Publish as article").
   const seed = (location.state as { articleSeed?: ArticleSeed } | null)?.articleSeed;
   return (
     <ArticleEditor
       mode="new"
       seed={seed}
+      resumeDraftId={resumeDraftId}
       initialSpaceId={space}
       initialChannelId={channel}
       onPublished={(n) => navigate(`/article/${n}`)}

@@ -1,5 +1,6 @@
-import { useCallback, lazy, Suspense, useMemo, useRef, useState } from "react";
+import { useCallback, lazy, Suspense, useEffect, useMemo, useRef, useState } from "react";
 import { ArrowLeft, Loader2, Send, Pilcrow, Code, Eye } from "lucide-react";
+import { nanoid } from "nanoid";
 import { nip19 } from "nostr-tools";
 import { useAutoResize } from "@/hooks/useAutoResize";
 import { useMarkdownShortcuts } from "@/hooks/useMarkdownShortcuts";
@@ -12,14 +13,13 @@ import { ArticleVisibilityPicker } from "./ArticleVisibilityPicker";
 import { ArticleMarkdown } from "./ArticleMarkdown";
 import { CoverImageField } from "./CoverImageField";
 import { TagsInput } from "./TagsInput";
-import {
-  loadArticleDraft,
-  clearArticleDraft,
-  useArticleDraft,
-  type ArticleVisibility,
-  type ArticleDraft,
-} from "./useArticleDraft";
-import type { LongFormArticle } from "@/types/media";
+import { useArticleDraftAutosave } from "./useArticleDraft";
+import { deleteDraft, getDraft } from "@/lib/db/articleDraftStore";
+import type {
+  ArticleDraftFields,
+  ArticleVisibility,
+  LongFormArticle,
+} from "@/types/media";
 
 // ProseMirror is heavy — only load the WYSIWYG surface when the editor opens.
 const RichArticleEditor = lazy(() =>
@@ -44,6 +44,8 @@ interface ArticleEditorProps {
   initialChannelId?: string;
   /** Prefill a NEW article (takes precedence over any saved local draft). */
   seed?: ArticleSeed;
+  /** Resume a specific device-local draft record (from the Drafts list). */
+  resumeDraftId?: string;
   /** Called with the published article's naddr so the route can open it. */
   onPublished: (naddr: string) => void;
   onCancel: () => void;
@@ -65,22 +67,27 @@ export function ArticleEditor({
   initialSpaceId,
   initialChannelId,
   seed,
+  resumeDraftId,
   onPublished,
   onCancel,
 }: ArticleEditorProps) {
   const pubkey = useAppSelector((s) => s.identity.pubkey);
   const spaces = useAppSelector((s) => s.spaces.list);
 
-  // New articles share a single local "new" draft (resume-where-you-left-off);
-  // edits are not autosaved (they have a real published source of truth).
-  const restoredDraftRef = useRef(false);
+  // Each "Write article" session owns one device-local draft record. Resuming
+  // from the Drafts list reuses that record's id; a fresh write mints a new one.
+  // AI seeds and edits don't autosave (they'd clobber an unrelated draft), so
+  // their id is never persisted to.
+  const ownsDraft = mode === "new" && !seed;
+  const activeDraftId = useMemo(
+    () => resumeDraftId || nanoid(),
+    [resumeDraftId],
+  );
 
-  // Starting form state. Edit → from the article. New → restore the saved draft,
-  // but when launched from a space (initialSpaceId present) the *context* wins
-  // for where it publishes (visibility/space/channel) while the draft still
-  // supplies the in-progress text — so "Write article" in a space is correctly
-  // pre-scoped to that space + channel.
-  const start = useMemo<ArticleDraft>(() => {
+  // Starting form state. Edit → from the article. Seed (AI) → from the seed.
+  // New → empty, with publish context (visibility/space/channel) taken from how
+  // the editor was launched. A resumed draft hydrates asynchronously below.
+  const start = useMemo<ArticleDraftFields>(() => {
     if (mode === "edit" && initial) {
       return {
         title: initial.title === "Untitled" ? "" : initial.title,
@@ -91,11 +98,8 @@ export function ArticleEditor({
         visibility: initialVisibility ?? "public",
         spaceId: initialSpaceId ?? "",
         channelId: initialChannelId ?? "",
-        savedAt: 0,
       };
     }
-    // An external seed (e.g. AI output) prefills a fresh article and wins over
-    // any saved draft — no "restored draft" banner in that case.
     if (seed) {
       return {
         title: seed.title ?? "",
@@ -106,22 +110,17 @@ export function ArticleEditor({
         visibility: initialSpaceId ? "space" : "public",
         spaceId: initialSpaceId ?? "",
         channelId: initialChannelId ?? "",
-        savedAt: 0,
       };
     }
-    const restored = pubkey ? loadArticleDraft(pubkey, "new") : null;
-    restoredDraftRef.current = !!(restored && (restored.title.trim() || restored.content.trim()));
-    if (restored && !initialSpaceId) return restored;
     return {
-      title: restored?.title ?? "",
-      summary: restored?.summary ?? "",
-      image: restored?.image ?? "",
-      tags: restored?.tags ?? "",
-      content: restored?.content ?? "",
+      title: "",
+      summary: "",
+      image: "",
+      tags: "",
+      content: "",
       visibility: initialSpaceId ? "space" : "public",
       spaceId: initialSpaceId ?? "",
       channelId: initialChannelId ?? "",
-      savedAt: 0,
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -139,30 +138,55 @@ export function ArticleEditor({
   const [view, setView] = useState<ViewMode>("rich");
   const [publishing, setPublishing] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [draftDismissed, setDraftDismissed] = useState(false);
+  // A resumed draft loads from IndexedDB after mount; until then autosave is held
+  // off so a debounced empty save can't overwrite the record we're loading.
+  const [hydrated, setHydrated] = useState(!resumeDraftId);
+
+  useEffect(() => {
+    if (!resumeDraftId) return;
+    let cancelled = false;
+    void getDraft(resumeDraftId).then((rec) => {
+      if (cancelled) return;
+      if (rec) {
+        setTitle(rec.title);
+        setSummary(rec.summary);
+        setImage(rec.image);
+        setTags(rec.tags);
+        setContent(rec.content);
+        setVisibility(rec.visibility);
+        setSpaceId(rec.spaceId);
+        setChannelId(rec.channelId);
+      }
+      setHydrated(true);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [resumeDraftId]);
 
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   useAutoResize(textareaRef, content, 100000);
   useMarkdownShortcuts({ textareaRef, value: content, setValue: setContent });
 
-  const draft: ArticleDraft = {
-    title, summary, image, tags, content, visibility, spaceId, channelId, savedAt: 0,
+  const draftFields: ArticleDraftFields = {
+    title, summary, image, tags, content, visibility, spaceId, channelId,
   };
-  // Only the genuine "Write article" flow owns the shared local "new" draft.
-  // AI-seeded sessions and edits must NOT autosave to it (they'd clobber a real
-  // draft) nor clear it on publish.
-  const ownsNewDraft = mode === "new" && !seed;
-  useArticleDraft({ pubkey, id: "new", draft, enabled: ownsNewDraft && !publishing });
+  useArticleDraftAutosave({
+    pubkey,
+    draftId: activeDraftId,
+    fields: draftFields,
+    enabled: ownsDraft && hydrated && !publishing,
+  });
 
   const discardDraft = useCallback(() => {
-    if (pubkey) clearArticleDraft(pubkey, "new");
+    if (ownsDraft) void deleteDraft(activeDraftId);
     setTitle("");
     setSummary("");
     setImage("");
     setTags("");
     setContent("");
-    setDraftDismissed(true);
-  }, [pubkey]);
+    onCancel();
+  }, [ownsDraft, activeDraftId, onCancel]);
 
   // Image paste for the Markdown source textarea (Rich mode handles its own).
   const handlePaste = useCallback(
@@ -239,7 +263,7 @@ export function ArticleEditor({
         channelId: channelTag,
       });
       const signed = await signAndPublish(unsigned, targetRelays);
-      if (ownsNewDraft) clearArticleDraft(pubkey, "new");
+      if (ownsDraft) void deleteDraft(activeDraftId);
       const d = signed.tags.find((t) => t[0] === "d")?.[1] ?? "";
       const naddr = nip19.naddrEncode({
         kind: 30023,
@@ -255,7 +279,7 @@ export function ArticleEditor({
     }
   }, [
     pubkey, title, content, summary, image, tags, visibility, spaceId, channelId,
-    spaces, mode, initial, onPublished, ownsNewDraft,
+    spaces, mode, initial, onPublished, ownsDraft, activeDraftId,
   ]);
 
   const canPublish = title.trim().length > 0 && content.trim().length > 0 && !publishing;
@@ -267,7 +291,8 @@ export function ArticleEditor({
   ];
 
   const tagChips = useMemo(() => parseTags(tags), [tags]);
-  const showDraftBanner = mode === "new" && restoredDraftRef.current && !draftDismissed;
+  // Offer a discard only once there's saved work worth throwing away.
+  const showDiscard = ownsDraft && (title.trim().length > 0 || content.trim().length > 0);
 
   return (
     <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
@@ -285,6 +310,14 @@ export function ArticleEditor({
         </span>
 
         <div className="ml-auto flex items-center gap-2">
+          {showDiscard && (
+            <button
+              onClick={discardDraft}
+              className="rounded-lg px-2.5 py-1.5 text-sm text-soft transition-colors hover:bg-surface-hover hover:text-heading"
+            >
+              Discard
+            </button>
+          )}
           <div className="flex items-center rounded-lg border border-border p-0.5">
             {viewButtons.map((b) => {
               const Icon = b.icon;
@@ -312,19 +345,6 @@ export function ArticleEditor({
           </button>
         </div>
       </div>
-
-      {/* Restored-draft notice */}
-      {showDraftBanner && (
-        <div className="flex items-center gap-2 border-b border-border bg-surface/50 px-4 py-2 text-xs text-soft">
-          <span>Picked up your saved draft from this device.</span>
-          <button
-            onClick={discardDraft}
-            className="ml-auto rounded-md px-2 py-1 font-medium text-soft transition-colors hover:bg-surface-hover hover:text-heading"
-          >
-            Discard draft
-          </button>
-        </div>
-      )}
 
       {/* Body */}
       <div className="min-h-0 flex-1 overflow-y-auto">
@@ -399,7 +419,7 @@ export function ArticleEditor({
             )}
 
             <p className="mt-3 text-[11px] text-muted">
-              Drafts are saved on this device and reused until you publish or discard them.
+              Drafts save automatically on this device. Find and manage them under Reads on your profile.
             </p>
           </div>
         ) : (
