@@ -3,7 +3,7 @@ import type { RelayMode } from "../../types/relay";
 import type { RelayEventCallback, RelayEOSECallback, RelayOKCallback, RelayStatusCallback, SubscribeOptions, RelayConfig } from "./types";
 import { RelayConnection } from "./relayConnection";
 import { StormDetector } from "./reconnect";
-import { BOOTSTRAP_RELAYS, INDEXER_RELAYS } from "./constants";
+import { APP_RELAY, BOOTSTRAP_RELAYS, INDEXER_RELAYS } from "./constants";
 import { normalizeRelayUrl } from "./relayUrl";
 import { createLogger, shortRelay } from "../debug/logger";
 
@@ -432,9 +432,15 @@ class RelayManagerImpl {
    *    readonly; pendingSubscriptions forwarding re-sends subs on reconnect)
    *  - disconnects relays dropped since the previous reconcile
    *  - with `pruneBootstrap`, disconnects bootstrap relays absent from a
-   *    non-empty list. APP_RELAY is deliberately NOT exempt: platform features
-   *    (space host chat, DM relays, profile lookups) auto-redial it
-   *    transiently via connect()/subscribe(), which is the intended behavior.
+   *    non-empty list.
+   *
+   *  APP_RELAY is sticky: it is the platform relay (space host chat, DM relays,
+   *  profile lookups, NIP-29 group metadata) that most features hinge on, so it
+   *  is never pruned, dropped, or recreated-on-mode-change here regardless of
+   *  whether the user's published NIP-65 list happens to include it. It used to
+   *  be churned on every kind:10002 reconcile, and the relay then re-flooded its
+   *  100-sub cap on each reconnect ("subscription cap reached" → dropped socket
+   *  → "network connection was lost" death spiral). See commit 8fcaf79.
    */
   reconcileUserRelays(
     entries: RelayConfig[],
@@ -446,27 +452,41 @@ class RelayManagerImpl {
       if (k) newMap.set(k, e.mode); // dedupe: last entry wins
     }
 
+    const appRelayKey = this.key(APP_RELAY);
+
     for (const [url, mode] of newMap) {
       if (this.userDisabled.has(url)) {
         if (this.connections.has(url)) this.disconnect(url);
         continue;
       }
       const existing = this.connections.get(url);
-      if (existing && existing.mode !== mode) {
+      // Recreate on a mode change — but NOT for APP_RELAY (sticky), and NOT
+      // while the socket is still mid-handshake ("connecting"): tearing it down
+      // there is what produced "WS closed between sign and send, dropping AUTH".
+      // A later reconcile re-evaluates the mode once it has settled.
+      if (
+        existing &&
+        existing.mode !== mode &&
+        url !== appRelayKey &&
+        existing.getStatus() !== "connecting"
+      ) {
         this.disconnect(url); // mode changed → recreate
       }
       this.connect(url, mode);
     }
 
-    // Disconnect relays dropped from the user list since the last reconcile.
+    // Disconnect relays dropped from the user list since the last reconcile
+    // (never APP_RELAY — it is not governed by the user's NIP-65 list).
     for (const url of this.userRelayUrls) {
-      if (!newMap.has(url)) this.disconnect(url);
+      if (url !== appRelayKey && !newMap.has(url)) this.disconnect(url);
     }
 
     if (opts.pruneBootstrap && newMap.size > 0) {
       for (const b of BOOTSTRAP_RELAYS) {
         const k = this.key(b);
-        if (!newMap.has(k) && this.connections.has(k)) this.disconnect(k);
+        if (k !== appRelayKey && !newMap.has(k) && this.connections.has(k)) {
+          this.disconnect(k);
+        }
       }
     }
 
