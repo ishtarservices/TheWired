@@ -101,6 +101,50 @@ universal fallback is **B2 — a bounded mounted-`<video>` LRU** (keep the N
 most-recently-seeked tiles mounted; no canvas/CORS, but a smaller cap since a live
 `<video>` costs more than a JPEG).
 
+### 8. APP_RELAY subscription-cap relief (Phase 2 of the v0.6.3 churn fix)
+
+**Why:** v0.6.3 stopped the platform relay (`relay.thewired.app` / `APP_RELAY`)
+from being *churned* by relay-list reconciliation (it's now sticky in
+`reconcileUserRelays` — see `project_app_relay_sticky_contract`). That killed the
+connect/disconnect death spiral, but the **underlying pressure remains**:
+`APP_RELAY` is in both `PROFILE_RELAYS` and `BOOTSTRAP_RELAYS` and is the
+broadcast target for the feed *plus* every joined space/channel, engagement,
+profile, and DM sub, so a busy account (large follow list / many spaces) still
+exceeds its NIP-11 `max_subscriptions` (100). Overflow sits in
+`relayConnection.deferredSubs` and is only sent as slots free, and `resubscribe()`
+re-decides the deferred set "from scratch" in `Map`-iteration order — so *which*
+subs win the 100 slots isn't prioritized by importance, and a background sub
+(e.g. an active space's chat) can silently never subscribe. Without the churn this
+is now a stable one-time deferral rather than a per-second thrash, so it's a
+correctness edge, not an outage.
+
+**Where:**
+- `relayConnection.ts` (`DEFAULT_MAX_SUBS`, `subscribe`/`resubscribe`/
+  `deferredSubs`/`drainDeferred`) — prioritize critical subs (active channel chat,
+  the user's own feed) ahead of background ones so they're never the deferred ones.
+- `relayManager.ts` broadcast fan-out (`subscribe` with no `relayUrls`) — stop
+  blasting every broadcast sub at `APP_RELAY`; route by need.
+- `engagementCollector.ts` / `groupSubscriptions.ts` — consolidate engagement and
+  per-space subs to lower the raw sub count on a single relay.
+- Same cap is behind #5 ("load more" on many-spaces accounts).
+
+### 9. Cold-start main-thread freeze (~5.5s on initial login)
+
+**Why:** On a fresh launch (observed on 0.6.3), `main-thread frozen 5558ms
+(severe)` fires ~7.5s after start, during initial login hydration + first feed
+render (IDB hydration, engagement/sub setup, first `NotesFeed` paint).
+**Pre-existing** — not introduced by the relay churn fix, and distinct from the
+account-switch freeze (#3, ~1900ms via `switchAccount`/`performCleanup`); this one
+is the initial cold-start path. The minified stack points at a heavy synchronous
+pass during first render (`qw`).
+
+**Where:** `loginFlow.ts` initial subscribe/hydrate path + the first feed render +
+engagement collector setup. Likely wants heavy first-render work deferred
+(idle/chunked scheduling), and overlaps the deferred list virtualization (#1) and
+the broader event-storm work (`project_app_freeze_investigation`). Re-measure with
+`wiredDebug` to attribute the stall (IDB hydration vs render vs sub setup) before
+optimizing.
+
 ---
 
 ## Deferred — Architecture
