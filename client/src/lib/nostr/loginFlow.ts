@@ -570,11 +570,14 @@ export async function performLogin(
     relayUrls: relayListQueryUrls,
     onEvent: (event) => {
       // Freshness: relays may serve stale 10002s (and this standing sub also
-      // receives our own-publish echo). Older than what we already applied →
-      // skip entirely, so a stale list can't overwrite the IndexedDB cache or
-      // drive reconciliation. (The slice guard would reject the dispatch, but
-      // the side effects below wouldn't know that.)
-      if (event.created_at < store.getState().identity.relayListCreatedAt) return;
+      // receives our own-publish echo). Skip anything NOT strictly newer than
+      // what we already applied — `<=`, not `<`. The NIP-65 indexers + bootstrap
+      // relays each echo the SAME kind:10002 (identical created_at) at cold
+      // start; with `<` every one of those duplicates re-ran reconcile +
+      // saveUserState + subscribeUserData, churning connections several times a
+      // second. (The slice guard would reject the dispatch, but the side
+      // effects below wouldn't know that.) See commit 8fcaf79.
+      if (event.created_at <= store.getState().identity.relayListCreatedAt) return;
       const entries = parseRelayList(event);
       if (entries.length > 0) {
         relayListEventArrived = true;
