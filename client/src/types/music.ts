@@ -93,6 +93,27 @@ export type ArtistEntry =
 
 export type RepeatMode = "none" | "one" | "all";
 
+/** Sort direction for library list views */
+export type SortDir = "asc" | "desc";
+
+/** Sort keys available for track lists (Songs, Recently Added, Favorites, My Uploads) */
+export type TrackSortKey =
+  | "added" // library/selector order (recently added)
+  | "title"
+  | "artist"
+  | "genre"
+  | "duration"
+  | "released"; // track.createdAt (date released/uploaded)
+
+/** Sort keys available for album/project grids */
+export type AlbumSortKey =
+  | "added"
+  | "title"
+  | "artist"
+  | "genre"
+  | "tracks" // trackCount
+  | "released";
+
 /** A freeform annotation attached to a track or album (kind:31686) */
 export interface MusicAnnotation {
   /** Addressable ID of this annotation event: 31686:pubkey:dTag */

@@ -7,6 +7,16 @@ import { TrackRow } from "../TrackRow";
 import { AlbumCard } from "../AlbumCard";
 import { UploadTrackModal } from "../UploadTrackModal";
 import { CreateAlbumModal } from "../CreateAlbumModal";
+import {
+  sortTracks,
+  sortAlbums,
+  filterTracks,
+  filterAlbums,
+  TRACK_SORT_OPTIONS,
+  ALBUM_SORT_OPTIONS,
+} from "../sortMusic";
+import { SortDropdown, FilterInput, SortableTrackHeader } from "../MusicSortBar";
+import { useTrackSort, useAlbumSort } from "../useLibrarySort";
 
 export function MyUploads() {
   const { scrollPaddingClass } = usePlaybackBarSpacing();
@@ -20,10 +30,25 @@ export function MyUploads() {
   const myCollabs = useAppSelector(
     useMemo(() => (pubkey ? selectMyCollaborations(pubkey) : () => []), [pubkey]),
   );
+  const trackSort = useTrackSort();
+  const albumSort = useAlbumSort();
+  const [filter, setFilter] = useState("");
   const [uploadOpen, setUploadOpen] = useState(false);
   const [albumOpen, setAlbumOpen] = useState(false);
 
-  const queueIds = myTracks.map((t) => t.addressableId);
+  const tracks = useMemo(
+    () => sortTracks(filterTracks(myTracks, filter), trackSort.key, trackSort.dir),
+    [myTracks, filter, trackSort.key, trackSort.dir],
+  );
+  const albums = useMemo(
+    () => sortAlbums(filterAlbums(myAlbums, filter), albumSort.key, albumSort.dir),
+    [myAlbums, filter, albumSort.key, albumSort.dir],
+  );
+  const collabs = useMemo(
+    () => sortAlbums(filterAlbums(myCollabs, filter), albumSort.key, albumSort.dir),
+    [myCollabs, filter, albumSort.key, albumSort.dir],
+  );
+  const queueIds = tracks.map((t) => t.addressableId);
 
   if (!pubkey) {
     return (
@@ -37,9 +62,10 @@ export function MyUploads() {
 
   return (
     <div className={`flex-1 overflow-y-auto p-4 ${scrollPaddingClass}`}>
-      <div className="mb-4 flex items-center justify-between">
+      <div className="mb-4 flex flex-wrap items-center gap-2">
         <h2 className="text-lg font-semibold text-heading">My Music</h2>
-        <div className="flex gap-2">
+        <div className="ml-auto flex items-center gap-2">
+          {!isEmpty && <FilterInput value={filter} onChange={setFilter} />}
           <button
             onClick={() => setAlbumOpen(true)}
             className="flex items-center gap-1.5 rounded-xl border border-border px-3 py-1.5 text-xs text-soft transition-colors hover:border-border-light hover:text-heading press-effect"
@@ -72,45 +98,73 @@ export function MyUploads() {
         <>
           {myAlbums.length > 0 && (
             <div className="mb-6">
-              <h3 className="mb-2 text-sm font-semibold text-soft">Projects</h3>
-              <div className="grid grid-cols-[repeat(auto-fill,minmax(160px,1fr))] gap-3">
-                {myAlbums.map((album) => (
-                  <AlbumCard key={album.addressableId} album={album} />
-                ))}
+              <div className="mb-2 flex items-center gap-2">
+                <h3 className="text-sm font-semibold text-soft">Projects ({albums.length})</h3>
+                <div className="ml-auto">
+                  <SortDropdown
+                    value={albumSort.key}
+                    dir={albumSort.dir}
+                    options={ALBUM_SORT_OPTIONS}
+                    onChangeKey={albumSort.setKey}
+                    onToggleDir={albumSort.toggleDir}
+                  />
+                </div>
               </div>
+              {albums.length === 0 ? (
+                <p className="px-1 py-4 text-sm text-soft">No projects match “{filter}”.</p>
+              ) : (
+                <div className="grid grid-cols-[repeat(auto-fill,minmax(160px,1fr))] gap-3">
+                  {albums.map((album) => (
+                    <AlbumCard key={album.addressableId} album={album} />
+                  ))}
+                </div>
+              )}
             </div>
           )}
 
           {myCollabs.length > 0 && (
             <div className="mb-6">
-              <h3 className="mb-2 text-sm font-semibold text-soft">Collaborations</h3>
-              <div className="grid grid-cols-[repeat(auto-fill,minmax(160px,1fr))] gap-3">
-                {myCollabs.map((album) => (
-                  <AlbumCard key={album.addressableId} album={album} />
-                ))}
-              </div>
+              <h3 className="mb-2 text-sm font-semibold text-soft">Collaborations ({collabs.length})</h3>
+              {collabs.length === 0 ? (
+                <p className="px-1 py-4 text-sm text-soft">No collaborations match “{filter}”.</p>
+              ) : (
+                <div className="grid grid-cols-[repeat(auto-fill,minmax(160px,1fr))] gap-3">
+                  {collabs.map((album) => (
+                    <AlbumCard key={album.addressableId} album={album} />
+                  ))}
+                </div>
+              )}
             </div>
           )}
 
           {myTracks.length > 0 && (
             <div>
-              <h3 className="mb-2 text-sm font-semibold text-soft">Tracks</h3>
-              <div className="grid grid-cols-[2rem_1fr_1fr_4rem_2rem] gap-4 border-b border-border px-3 pb-2 text-xs font-semibold uppercase tracking-[0.15em] text-muted">
-                <span>#</span>
-                <span>Title</span>
-                <span>Genre</span>
-                <span className="text-right">Time</span>
-                <span />
-              </div>
-              <div className="mt-1">
-                {myTracks.map((track, i) => (
-                  <TrackRow
-                    key={track.addressableId}
-                    track={track}
-                    index={i}
-                    queueTracks={queueIds}
+              <div className="mb-2 flex items-center gap-2">
+                <h3 className="text-sm font-semibold text-soft">Tracks ({tracks.length})</h3>
+                <div className="ml-auto">
+                  <SortDropdown
+                    value={trackSort.key}
+                    dir={trackSort.dir}
+                    options={TRACK_SORT_OPTIONS}
+                    onChangeKey={trackSort.setKey}
+                    onToggleDir={trackSort.toggleDir}
                   />
-                ))}
+                </div>
+              </div>
+              <SortableTrackHeader sortKey={trackSort.key} dir={trackSort.dir} onSort={trackSort.sortByHeader} />
+              <div className="mt-1">
+                {tracks.length === 0 ? (
+                  <p className="px-3 py-4 text-sm text-soft">No tracks match “{filter}”.</p>
+                ) : (
+                  tracks.map((track, i) => (
+                    <TrackRow
+                      key={track.addressableId}
+                      track={track}
+                      index={i}
+                      queueTracks={queueIds}
+                    />
+                  ))
+                )}
               </div>
             </div>
           )}
