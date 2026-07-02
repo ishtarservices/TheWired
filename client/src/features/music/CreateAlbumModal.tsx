@@ -13,6 +13,7 @@ import { FeaturedArtistsInput } from "./FeaturedArtistsInput";
 import { HashtagInput } from "./HashtagInput";
 import { GenrePicker } from "./GenrePicker";
 import { VisibilityPicker } from "./VisibilityPicker";
+import { ExportToggle } from "./ExportToggle";
 import { useProfile } from "@/features/profile/useProfile";
 import {
   parseTrackFiles,
@@ -60,6 +61,7 @@ export function CreateAlbumModal({ open, onClose, album }: CreateAlbumModalProps
   const [channelId, setChannelId] = useState("");
   const [projectType, setProjectType] = useState<ProjectType>("album");
   const [collaborators, setCollaborators] = useState<string[]>([]);
+  const [allowExport, setAllowExport] = useState(true);
   const [coverFile, setCoverFile] = useState<File | null>(null);
   const [coverPreview, setCoverPreview] = useState<string | null>(null);
 
@@ -99,6 +101,7 @@ export function CreateAlbumModal({ open, onClose, album }: CreateAlbumModalProps
       );
       setFeaturedArtists(album.featuredArtists);
       setVisibility(album.visibility);
+      setAllowExport(!album.sharingDisabled);
     } else {
       setTitle("");
       setArtist("");
@@ -112,6 +115,7 @@ export function CreateAlbumModal({ open, onClose, album }: CreateAlbumModalProps
       setCollaborators([]);
       setVisibility("public");
       setSpaceId("");
+      setAllowExport(true);
     }
     setCoverFile(null);
     setCoverPreview(null);
@@ -343,6 +347,7 @@ export function CreateAlbumModal({ open, onClose, album }: CreateAlbumModalProps
               visibility,
               spaceId: visibility === "space" ? spaceId : undefined,
               channelId: visibility === "space" && channelId ? channelId : undefined,
+              sharingDisabled: !allowExport,
             };
 
             const trackUnsigned = visibility === "private"
@@ -395,6 +400,7 @@ export function CreateAlbumModal({ open, onClose, album }: CreateAlbumModalProps
         visibility,
         spaceId: visibility === "space" ? spaceId : undefined,
         channelId: visibility === "space" && channelId ? channelId : undefined,
+        sharingDisabled: !allowExport,
       };
 
       const unsigned = visibility === "private"
@@ -901,6 +907,13 @@ export function CreateAlbumModal({ open, onClose, album }: CreateAlbumModalProps
               placeholder="Paste collaborator npub or hex pubkey..."
             />
           )}
+
+          {/* Export policy — applies to the project and the tracks uploaded here */}
+          <ExportToggle
+            value={allowExport}
+            onChange={setAllowExport}
+            label="Allow file export for these tracks"
+          />
 
           {/* Upload progress bar */}
           {submitting && uploadProgress.total > 0 && (

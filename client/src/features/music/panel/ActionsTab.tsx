@@ -9,8 +9,8 @@ import {
   Trash2,
   ListPlus,
   Download,
+  FileDown,
   FolderInput,
-  Share2,
   Send,
   Globe,
   BarChart3,
@@ -344,13 +344,13 @@ export function ActionsTab({
           <ActionButton icon={<BarChart3 size={14} />} label="Insights" onClick={onInsights} />
           {!isLocal && (
             <ActionButton
-              icon={<Share2 size={14} className={sharingDisabled ? "text-muted" : "text-green-400"} />}
+              icon={<FileDown size={14} className={sharingDisabled ? "text-muted" : "text-green-400"} />}
               label={
                 sharingToggling
                   ? "Toggling..."
                   : sharingDisabled
-                    ? "Sharing: Off"
-                    : "Sharing: On"
+                    ? "File export: Off"
+                    : "File export: On"
               }
               onClick={onToggleSharing}
               active={!sharingDisabled}

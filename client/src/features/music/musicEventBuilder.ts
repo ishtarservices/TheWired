@@ -225,6 +225,12 @@ export async function buildPrivateTrackEvent(
     ["visibility", "private"],
   ];
 
+  // Export policy stays in cleartext (not sensitive) so it applies to
+  // collaborators, who can decrypt the track but aren't the owner.
+  if (params.sharingDisabled) {
+    tags.push(["sharing", "disabled"]);
+  }
+
   // Artist identity p-tags (still cleartext so relay can route)
   if (params.artistPubkeys) {
     for (const pk of params.artistPubkeys) {
@@ -279,6 +285,12 @@ export async function buildPrivateAlbumEvent(
     ["d", params.slug],
     ["visibility", "private"],
   ];
+
+  // Export policy stays in cleartext (not sensitive) so it applies to
+  // collaborators, who can decrypt the album but aren't the owner.
+  if (params.sharingDisabled) {
+    tags.push(["sharing", "disabled"]);
+  }
 
   if (params.artistPubkeys) {
     for (const pk of params.artistPubkeys) {

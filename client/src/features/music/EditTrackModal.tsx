@@ -10,6 +10,7 @@ import { FeaturedArtistsInput } from "./FeaturedArtistsInput";
 import { HashtagInput } from "./HashtagInput";
 import { GenrePicker } from "./GenrePicker";
 import { VisibilityPicker } from "./VisibilityPicker";
+import { ExportToggle } from "./ExportToggle";
 import { useProfile } from "@/features/profile/useProfile";
 import type { MusicTrack } from "@/types/music";
 import type { MusicVisibility } from "@/types/music";
@@ -47,6 +48,7 @@ export function EditTrackModal({ track, onClose }: EditTrackModalProps) {
   const [spaceId, setSpaceId] = useState(track.spaceId ?? "");
   const [channelId, setChannelId] = useState(track.channelId ?? "");
   const [collaborators, setCollaborators] = useState<string[]>(track.collaborators);
+  const [allowExport, setAllowExport] = useState(!track.sharingDisabled);
   const { profile: myProfile } = useProfile(pubkey);
   const [coverFile, setCoverFile] = useState<File | null>(null);
   const [revisionSummary, setRevisionSummary] = useState("");
@@ -97,6 +99,7 @@ export function EditTrackModal({ track, onClose }: EditTrackModalProps) {
         spaceId: visibility === "space" ? spaceId : undefined,
         channelId: visibility === "space" && channelId ? channelId : undefined,
         revisionSummary: revisionSummary.trim() || undefined,
+        sharingDisabled: !allowExport,
       };
 
       const unsigned = visibility === "private"
@@ -212,6 +215,9 @@ export function EditTrackModal({ track, onClose }: EditTrackModalProps) {
               placeholder="Paste collaborator npub or hex pubkey..."
             />
           )}
+
+          {/* Export policy */}
+          <ExportToggle value={allowExport} onChange={setAllowExport} />
 
           {/* Cover art */}
           <div>
