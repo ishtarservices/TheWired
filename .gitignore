@@ -92,3 +92,8 @@ scripts/
 !services/backend/src/scripts/
 # Local audit reports (generated snapshots, not shipped)
 docs/AUDIT_*.md
+
+# Mobile app design guide + analysis drafts (local only, moved to another repo)
+mobile-guide/
+MOBILE_*.md
+*.analysis.md
