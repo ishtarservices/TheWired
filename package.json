@@ -4,6 +4,7 @@
   "scripts": {
     "dev": "process-compose up --shortcuts process-compose-shortcuts.yaml",
     "dev:client": "pnpm --filter @thewired/client dev",
+    "dev:mobile": "pnpm --filter @thewired/mobile start",
     "dev:backend": "pnpm --filter @thewired/backend dev",
     "dev:gateway": "cd services/gateway && go run cmd/gateway/main.go",
     "dev:landing": "pnpm --filter @thewired/landing dev",
@@ -24,6 +25,7 @@
     "test:client:watch": "pnpm --filter @thewired/client test:watch",
     "test:client:coverage": "pnpm --filter @thewired/client test:coverage",
     "test:backend": "pnpm --filter @thewired/backend test",
+    "test:mobile": "pnpm --filter @thewired/mobile test",
     "test:gateway": "cd services/gateway && go test ./...",
     "test:relay": "cd services/relay && cargo test",
     "test:all": "pnpm test:client && pnpm test:backend && pnpm test:gateway && pnpm test:relay",
@@ -32,7 +34,15 @@
   "pnpm": {
     "onlyBuiltDependencies": [
       "esbuild"
-    ]
+    ],
+    "packageExtensions": {
+      "react-native-worklets": {
+        "dependencies": {
+          "@babel/generator": "^7.27.0",
+          "@babel/traverse": "^7.27.0"
+        }
+      }
+    }
   },
   "devDependencies": {
     "@noble/curves": "^1.9.7",

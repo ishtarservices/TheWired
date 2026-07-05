@@ -1,0 +1,55 @@
+{
+  "expo": {
+    "name": "The Wired",
+    "slug": "thewired",
+    "version": "0.1.0",
+    "orientation": "portrait",
+    "icon": "./assets/icon.png",
+    "userInterfaceStyle": "automatic",
+    "scheme": [
+      "thewired",
+      "nostr"
+    ],
+    "backgroundColor": "#121317",
+    "ios": {
+      "supportsTablet": true,
+      "bundleIdentifier": "app.thewired.mobile",
+      "associatedDomains": [
+        "applinks:thewired.app"
+      ]
+    },
+    "android": {
+      "package": "app.thewired.mobile",
+      "adaptiveIcon": {
+        "backgroundColor": "#121317",
+        "foregroundImage": "./assets/android-icon-foreground.png",
+        "backgroundImage": "./assets/android-icon-background.png",
+        "monochromeImage": "./assets/android-icon-monochrome.png"
+      },
+      "predictiveBackGestureEnabled": false,
+      "intentFilters": [
+        {
+          "action": "VIEW",
+          "autoVerify": true,
+          "data": [
+            {
+              "scheme": "https",
+              "host": "thewired.app",
+              "pathPrefix": "/"
+            }
+          ],
+          "category": [
+            "BROWSABLE",
+            "DEFAULT"
+          ]
+        }
+      ]
+    },
+    "web": {
+      "favicon": "./assets/favicon.png"
+    },
+    "plugins": [
+      "expo-secure-store"
+    ]
+  }
+}

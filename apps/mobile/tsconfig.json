@@ -1,0 +1,26 @@
+{
+  "extends": [
+    "../../tsconfig.base.json",
+    "expo/tsconfig.base"
+  ],
+  "compilerOptions": {
+    "strict": true,
+    "declaration": false,
+    "declarationMap": false,
+    "sourceMap": false,
+    "types": [
+      "jest"
+    ],
+    "paths": {
+      "@/*": [
+        "./src/*"
+      ]
+    }
+  },
+  "include": [
+    "index.ts",
+    "App.tsx",
+    "src/**/*",
+    "nativewind-env.d.ts"
+  ]
+}
