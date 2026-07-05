@@ -4,6 +4,8 @@
 import { generateIdentity } from "../keys";
 import {
   adoptGeneratedIdentity,
+  continueAsGuest,
+  GUEST_MODE_KEY,
   hydrateSession,
   loginWithSecret,
   logout,
@@ -99,6 +101,57 @@ describe("session thunks", () => {
     await store.dispatch(hydrateSession());
     expect(store.getState().identity.status).toBe("loggedOut");
     expect(backing.has(NSEC_SECRET_KEY)).toBe(false);
+  });
+
+  it("continueAsGuest persists the marker and survives relaunch", async () => {
+    const backing = new Map<string, string>();
+    const store = createStore(testAdapters(backing));
+
+    await store.dispatch(continueAsGuest());
+    expect(store.getState().identity.status).toBe("guest");
+    expect(backing.has(GUEST_MODE_KEY)).toBe(true);
+
+    // Relaunch: fresh store, same backing → straight back to guest browsing.
+    const relaunch = createStore(testAdapters(backing));
+    await relaunch.dispatch(hydrateSession());
+    expect(relaunch.getState().identity.status).toBe("guest");
+  });
+
+  it("a stored key outranks a stale guest marker on hydration", async () => {
+    const backing = new Map<string, string>();
+    const keys = generateIdentity();
+    backing.set(GUEST_MODE_KEY, "1");
+    backing.set(NSEC_SECRET_KEY, keys.nsec);
+
+    const store = createStore(testAdapters(backing));
+    await store.dispatch(hydrateSession());
+    expect(store.getState().identity).toEqual({
+      status: "loggedIn",
+      pubkey: keys.pubkey,
+      signerType: "local_nsec",
+    });
+  });
+
+  it("logging in from guest mode clears the guest marker", async () => {
+    const backing = new Map<string, string>();
+    const store = createStore(testAdapters(backing));
+
+    await store.dispatch(continueAsGuest());
+    await store.dispatch(loginWithSecret(generateIdentity().nsec));
+
+    expect(store.getState().identity.status).toBe("loggedIn");
+    expect(backing.has(GUEST_MODE_KEY)).toBe(false);
+  });
+
+  it("adopting a generated identity from guest mode clears the guest marker", async () => {
+    const backing = new Map<string, string>();
+    const store = createStore(testAdapters(backing));
+
+    await store.dispatch(continueAsGuest());
+    await store.dispatch(adoptGeneratedIdentity(generateIdentity()));
+
+    expect(store.getState().identity.status).toBe("loggedIn");
+    expect(backing.has(GUEST_MODE_KEY)).toBe(false);
   });
 
   it("logout wipes the keychain entry and the signer", async () => {

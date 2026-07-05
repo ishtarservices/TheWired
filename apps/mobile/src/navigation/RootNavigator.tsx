@@ -30,7 +30,7 @@ export function RootNavigator() {
 
   return (
     <Root.Navigator screenOptions={screenOptions}>
-      {sessionStatus !== "loggedIn" ? (
+      {sessionStatus === "loggedOut" ? (
         <Root.Group>
           <Root.Screen name="Welcome" component={WelcomeScreen} options={{ headerShown: false }} />
           <Root.Screen
@@ -61,6 +61,20 @@ export function RootNavigator() {
             <Root.Screen name="MediaLightbox" component={MediaLightboxScreen} />
             <Root.Screen name="IncomingCall" component={IncomingCallScreen} />
           </Root.Group>
+
+          {/* Guest mode: auth reachable as modals so signing in from a
+              SignInGate doesn't lose the browsing session. On success the
+              status flips and this whole branch re-renders logged-in. */}
+          {sessionStatus === "guest" ? (
+            <Root.Group screenOptions={{ presentation: "modal" }}>
+              <Root.Screen
+                name="CreateIdentity"
+                component={CreateIdentityScreen}
+                options={{ title: "Create your identity" }}
+              />
+              <Root.Screen name="Login" component={LoginScreen} options={{ title: "Log in" }} />
+            </Root.Group>
+          ) : null}
         </>
       )}
     </Root.Navigator>

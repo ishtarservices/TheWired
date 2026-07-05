@@ -8,9 +8,10 @@ import { createSlice, type PayloadAction } from "@reduxjs/toolkit";
  *  follow (guide 00 decisions). */
 export type MobileSignerType = "local_nsec" | "nip46" | "native_keystore";
 
-/** hydrating = reading the keychain at cold start (splash); then loggedOut
- *  (auth screens) or loggedIn (tabs). */
-export type SessionStatus = "hydrating" | "loggedOut" | "loggedIn";
+/** hydrating = reading the keychain at cold start (splash); loggedOut = auth
+ *  screens; guest = read-only browsing without keys (App Store 5.1.1(v) — the
+ *  public surfaces must be usable without an account); loggedIn = full app. */
+export type SessionStatus = "hydrating" | "loggedOut" | "guest" | "loggedIn";
 
 interface IdentityState {
   status: SessionStatus;
@@ -41,7 +42,12 @@ export const identitySlice = createSlice({
       state.pubkey = null;
       state.signerType = null;
     },
+    setGuest(state) {
+      state.status = "guest";
+      state.pubkey = null;
+      state.signerType = null;
+    },
   },
 });
 
-export const { setIdentity, setLoggedOut } = identitySlice.actions;
+export const { setIdentity, setLoggedOut, setGuest } = identitySlice.actions;

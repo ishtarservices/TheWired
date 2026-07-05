@@ -7,6 +7,7 @@ import { Platform, Text, View } from "react-native";
 
 import { logout } from "@/auth/session";
 import { truncateKey } from "@/auth/keys";
+import { SignInGate } from "@/components/auth/SignInGate";
 import { Avatar } from "@/components/ui/Avatar";
 import { Button } from "@/components/ui/Button";
 import type { YouStackParamList } from "@/navigation/types";
@@ -27,6 +28,7 @@ export function YouScreen({ navigation }: Props) {
   // Profile lives on the root stack (typed via RootParamList).
   const rootNavigation = useNavigation();
   const dispatch = useAppDispatch();
+  const isGuest = useAppSelector((s) => s.identity.status === "guest");
   const pubkey = useAppSelector((s) => s.identity.pubkey);
   const signerType = useAppSelector((s) => s.identity.signerType);
   const isOnline = useAppSelector((s) => s.lifecycle.isOnline);
@@ -46,6 +48,24 @@ export function YouScreen({ navigation }: Props) {
     await dispatch(logout());
     // RootNavigator swaps back to the auth screens on state change.
   };
+
+  if (isGuest) {
+    // Sign-in gate, but Settings stays reachable — theming isn't an
+    // account feature and shouldn't be locked behind one (5.1.1 spirit).
+    return (
+      <View className="flex-1 bg-background">
+        <SignInGate
+          title="You're browsing as a guest"
+          message="Create an identity or log in to have a profile, post, follow people, and send messages."
+        />
+        <View className="px-6 pb-6">
+          <Button variant="ghost" onPress={() => navigation.navigate("Settings")}>
+            Settings
+          </Button>
+        </View>
+      </View>
+    );
+  }
 
   return (
     <PlaceholderScreen
