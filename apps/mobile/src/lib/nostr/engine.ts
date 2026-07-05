@@ -50,6 +50,9 @@ export interface NostrEngine {
   setIdentity(pubkey: string | null): Promise<void>;
   /** Fetch kind-0s for authors missing from the store (batched, one-shot). */
   requestProfiles(pubkeys: string[]): void;
+  /** One-shot query: REQ → collect verified events → resolve shortly after
+   *  the first EOSE (or on timeout). Profile notes, threads, lookups. */
+  fetchEvents(filters: NostrFilter[], timeoutMs?: number): Promise<NostrEvent[]>;
   /** Sign + publish a kind-1; optimistic locally. Resolves true when a
    *  relay OKs it, false on timeout (still kept locally). */
   publishNote(content: string): Promise<boolean>;
@@ -75,6 +78,17 @@ export function createNostrEngine(deps: NostrEngineDeps): NostrEngine {
   const profileBatches = new Map<string, ReturnType<typeof setTimeout>>();
   const profilesInFlight = new Set<string>();
   let profileBatchSeq = 0;
+
+  interface Collector {
+    events: NostrEvent[];
+    done: () => void;
+    timer: ReturnType<typeof setTimeout>;
+    graceTimer: ReturnType<typeof setTimeout> | null;
+  }
+  const collectors = new Map<string, Collector>();
+  let fetchSeq = 0;
+  /** After the first EOSE, keep collecting briefly for slower relays. */
+  const FETCH_EOSE_GRACE_MS = 350;
 
   const publishWaiters = new Map<
     string,
@@ -117,7 +131,11 @@ export function createNostrEngine(deps: NostrEngineDeps): NostrEngine {
   }
 
   async function routeEvent(subId: string, event: NostrEvent): Promise<void> {
-    if (!markSeen(event.id)) return;
+    const collector = collectors.get(subId);
+    const firstTime = markSeen(event.id);
+    // Global surfaces route each id once; collectors still need their copy
+    // (a thread root may already have flowed through the feed).
+    if (!firstTime && !collector) return;
 
     let valid = false;
     try {
@@ -126,6 +144,11 @@ export function createNostrEngine(deps: NostrEngineDeps): NostrEngine {
       valid = false;
     }
     if (!valid) return; // fail closed
+
+    if (collector && !collector.events.some((e) => e.id === event.id)) {
+      collector.events.push(event);
+    }
+    if (!firstTime) return;
 
     if (event.kind === 0) {
       const profile = parseProfile(event);
@@ -160,6 +183,11 @@ export function createNostrEngine(deps: NostrEngineDeps): NostrEngine {
       clearTimeout(timer);
       profileBatches.delete(subId);
       pool.unsubscribe(subId);
+      return;
+    }
+    const collector = collectors.get(subId);
+    if (collector && !collector.graceTimer) {
+      collector.graceTimer = setTimeout(collector.done, FETCH_EOSE_GRACE_MS);
     }
   }
 
@@ -268,6 +296,28 @@ export function createNostrEngine(deps: NostrEngineDeps): NostrEngine {
       }
     },
 
+    fetchEvents(filters: NostrFilter[], timeoutMs = 8000): Promise<NostrEvent[]> {
+      const subId = `fetch-${fetchSeq++}`;
+      return new Promise<NostrEvent[]>((resolve) => {
+        const done = () => {
+          const collector = collectors.get(subId);
+          if (!collector) return;
+          collectors.delete(subId);
+          clearTimeout(collector.timer);
+          if (collector.graceTimer) clearTimeout(collector.graceTimer);
+          pool.unsubscribe(subId);
+          resolve(collector.events);
+        };
+        collectors.set(subId, {
+          events: [],
+          done,
+          timer: setTimeout(done, timeoutMs),
+          graceTimer: null,
+        });
+        pool.subscribe(subId, filters);
+      });
+    },
+
     requestProfiles(pubkeys: string[]): void {
       const known = getState().profiles.byPubkey;
       const missing = [
@@ -361,6 +411,7 @@ export function createNostrEngine(deps: NostrEngineDeps): NostrEngine {
       if (feedFlushTimer) clearTimeout(feedFlushTimer);
       for (const timer of profileBatches.values()) clearTimeout(timer);
       profileBatches.clear();
+      for (const collector of [...collectors.values()]) collector.done();
       for (const waiter of publishWaiters.values()) clearTimeout(waiter.timer);
       publishWaiters.clear();
       pool.destroy();

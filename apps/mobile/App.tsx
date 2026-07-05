@@ -31,7 +31,8 @@ import { createMobileAdapters } from "@/platform/adapters";
 import { getStoredThemePreset } from "@/platform/appPrefs";
 import { MobileLifecycleController } from "@/platform/lifecycle/MobileLifecycleController";
 import { createStore, type AppStore } from "@/store";
-import { useAppSelector } from "@/store/hooks";
+import { useAppDispatch, useAppSelector } from "@/store/hooks";
+import { hydrateModeration } from "@/store/moderation";
 import {
   appBackgrounded,
   appForegrounded,
@@ -121,11 +122,15 @@ function ThemedShell({ engine }: { engine: NostrEngine }) {
 
   // Engine start + identity sync: start once the session resolves (so the
   // right per-account DB hydrates), then track login/logout/account switch.
+  const dispatch = useAppDispatch();
   const engineStarted = sessionStatus !== "hydrating";
   useEffect(() => {
     if (!engineStarted) return;
-    engine.start(pubkey).catch(() => {});
-  }, [engine, engineStarted, pubkey]);
+    engine
+      .start(pubkey)
+      .then(() => dispatch(hydrateModeration()))
+      .catch(() => {});
+  }, [engine, engineStarted, pubkey, dispatch]);
   useEffect(() => {
     if (!engineStarted) return;
     engine.setIdentity(pubkey).catch(() => {});

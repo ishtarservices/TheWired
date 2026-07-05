@@ -239,3 +239,50 @@ describe("nostr engine", () => {
     engine.destroy();
   });
 });
+
+describe("engine.fetchEvents", () => {
+  it("collects verified events and resolves after EOSE (+grace)", async () => {
+    const { engine, sockets } = makeHarness();
+    await engine.start(null);
+    sockets[0].open();
+
+    const promise = engine.fetchEvents([{ kinds: [1], authors: ["a"] }]);
+    const req = sockets[0]
+      .frames()
+      .find((f) => f[0] === "REQ" && String(f[1]).startsWith("fetch-"));
+    expect(req).toBeDefined();
+
+    const one = signed("thread reply");
+    const forged = { ...signed("bad"), content: "tampered" };
+    sockets[0].message(["EVENT", req![1], one]);
+    sockets[0].message(["EVENT", req![1], forged]);
+    sockets[0].message(["EOSE", req![1]]);
+
+    const events = await promise;
+    expect(events.map((e) => e.id)).toEqual([one.id]);
+    // Sub closed after resolution.
+    expect(sockets[0].frames()).toContainEqual(["CLOSE", req![1]]);
+    engine.destroy();
+  });
+
+  it("still delivers events the feed has already seen (dedup is per-surface)", async () => {
+    const { engine, sockets } = makeHarness();
+    await engine.start(null);
+    sockets[0].open();
+
+    const note = signed("seen in feed first");
+    sockets[0].message(["EVENT", "feed-global", note]);
+    await flush();
+
+    const promise = engine.fetchEvents([{ ids: [note.id] }]);
+    const req = sockets[0]
+      .frames()
+      .find((f) => f[0] === "REQ" && String(f[1]).startsWith("fetch-"));
+    sockets[0].message(["EVENT", req![1], note]);
+    sockets[0].message(["EOSE", req![1]]);
+
+    const events = await promise;
+    expect(events.map((e) => e.id)).toEqual([note.id]);
+    engine.destroy();
+  });
+});

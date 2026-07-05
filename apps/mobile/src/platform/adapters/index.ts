@@ -55,10 +55,41 @@ const verifier: VerifierAdapter = {
   verify: async (event) => verifyEventSync(event),
 };
 
-// TODO(Phase 1): fetch-based impl + redirect-controlled native fetch for the
-// SSRF-guarded call sites (LNURL/Blossom).
+// RN fetch. Redirect control (the SSRF-guard contract for untrusted URLs —
+// LNURL/Blossom) is NOT implementable with RN's fetch; those call sites stay
+// blocked until a native path exists rather than silently following
+// redirects. First-party API calls (discovery) don't need it.
 const http: HttpAdapter = {
-  fetch: () => notImplemented("Http", "Phase 1"),
+  async fetch(url, init) {
+    if (init?.maxRedirections !== undefined) {
+      notImplemented("Http redirect control", "native module, later phase");
+    }
+    const controller = new AbortController();
+    const timeout = init?.timeoutMs
+      ? setTimeout(() => controller.abort(), init.timeoutMs)
+      : null;
+    try {
+      const response = await fetch(url, {
+        method: init?.method ?? "GET",
+        headers: init?.headers,
+        body: init?.body as BodyInit | undefined,
+        signal: controller.signal,
+      });
+      const headers: Record<string, string> = {};
+      response.headers.forEach((value, key) => {
+        headers[key] = value;
+      });
+      return {
+        status: response.status,
+        headers,
+        text: () => response.text(),
+        json: () => response.json() as Promise<unknown>,
+        bytes: async () => new Uint8Array(await response.arrayBuffer()),
+      };
+    } finally {
+      if (timeout) clearTimeout(timeout);
+    }
+  },
 };
 
 // TODO(Phase 3): APNs/FCM registration + Notifee local notifications.

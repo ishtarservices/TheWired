@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Pressable, View } from "react-native";
 import Animated, { useAnimatedStyle, useSharedValue, withSpring } from "react-native-reanimated";
 
@@ -37,9 +37,11 @@ export function SegmentedControl<T extends string>({
   const segmentWidth = width > 0 ? (width - THUMB_INSET * 2) / options.length : 0;
 
   const translateX = useSharedValue(selectedIndex * segmentWidth);
-  // Keep the shared value in lockstep with props/layout (render-time write is
-  // fine here — it only feeds the animated style).
-  translateX.value = withSpring(selectedIndex * segmentWidth, SPRING.snappy);
+  // Keep the shared value in lockstep with props/layout — in an effect, not
+  // during render (reanimated strict mode flags render-time writes).
+  useEffect(() => {
+    translateX.value = withSpring(selectedIndex * segmentWidth, SPRING.snappy);
+  }, [translateX, selectedIndex, segmentWidth]);
 
   const thumbStyle = useAnimatedStyle(() => ({
     transform: [{ translateX: translateX.value }],

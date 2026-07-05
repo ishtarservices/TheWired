@@ -10,6 +10,7 @@ import type { PlatformAdapters } from "@/core/adapters";
 import { feedSlice } from "./slices/feedSlice";
 import { identitySlice } from "./slices/identitySlice";
 import { lifecycleSlice } from "./slices/lifecycleSlice";
+import { moderationSlice } from "./slices/moderationSlice";
 import { profilesSlice } from "./slices/profilesSlice";
 import { relaysSlice } from "./slices/relaysSlice";
 
@@ -25,6 +26,7 @@ export function createStore(adapters: PlatformAdapters) {
       lifecycle: lifecycleSlice.reducer,
       feed: feedSlice.reducer,
       profiles: profilesSlice.reducer,
+      moderation: moderationSlice.reducer,
     },
     middleware: (getDefaultMiddleware) =>
       getDefaultMiddleware({
