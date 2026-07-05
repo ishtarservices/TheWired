@@ -1,21 +1,23 @@
 // ─── Mobile adapter implementations ──────────────────────────────────
-// Built once at startup (App.tsx) and threaded into createStore(). Real where
-// the platform already provides the capability (WebSocket, SecureStore);
-// explicit not-implemented stubs where the wiring is Phase 0/1 work
+// Built once at startup (App.tsx) and threaded into createStore(). Real:
+// WebSocket, SecureStore, SQLite storage, inline @noble verifier. Explicit
+// not-implemented stubs where the wiring is later-phase work
 // (mobile-guide/08-roadmap.md) — throwing loudly beats silently no-oping.
 
 import * as SecureStore from "expo-secure-store";
 
+import { createSqliteStorage } from "./sqliteStorage";
+import { initAppPrefs } from "../appPrefs";
 import type {
   HttpAdapter,
   PlatformAdapters,
   PushAdapter,
   SecretStoreAdapter,
-  StorageAdapter,
   VerifierAdapter,
   WebSocketFactory,
   WebSocketLike,
 } from "@/core/adapters";
+import { verifyEventSync } from "@/lib/nostr/verifyEvent";
 
 /** RN ships a global WebSocket that is API-compatible with the browser's. */
 const wsFactory: WebSocketFactory = {
@@ -46,17 +48,11 @@ function notImplemented(what: string, phase: string): never {
   throw new Error(`${what} adapter not implemented yet (${phase} — see mobile-guide/08-roadmap.md)`);
 }
 
-// TODO(Phase 1): inline @noble verify first (verifyEventSync port), then a
-// worklet/native implementation for the hot path.
+// Inline @noble verify — the desktop's main-thread fallback path, fine for
+// v1 volumes (guide 06 §4). A worklet/native verifier is a later hot-path
+// optimization behind this same interface.
 const verifier: VerifierAdapter = {
-  verify: () => notImplemented("Verifier", "Phase 1"),
-};
-
-// TODO(Phase 1): op-sqlite-backed KV stores mirroring the IDB schema.
-const storage: StorageAdapter = {
-  getStore: () => notImplemented("Storage", "Phase 1"),
-  openForAccount: () => notImplemented("Storage", "Phase 1"),
-  close: async () => {},
+  verify: async (event) => verifyEventSync(event),
 };
 
 // TODO(Phase 1): fetch-based impl + redirect-controlled native fetch for the
@@ -72,11 +68,16 @@ const push: PushAdapter = {
 };
 
 export function createMobileAdapters(): PlatformAdapters {
+  // expo-sqlite (Expo Go-compatible); op-sqlite is a dev-client-only
+  // upgrade later — the swap is contained in sqliteStorage.ts.
+  const storage = createSqliteStorage();
+  initAppPrefs(storage);
+
   return {
     ws: wsFactory,
     verifier,
     storage,
-    signer: null, // set after login (NIP-46 first — guide 00 decisions)
+    signer: null, // set after login (local nsec today; NIP-46 later)
     secretStore,
     http,
     push,

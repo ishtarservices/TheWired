@@ -23,6 +23,8 @@ import {
 
 import { hydrateSession } from "@/auth/session";
 import { Type } from "@/components/ui/Type";
+import { createNostrEngine, type NostrEngine } from "@/lib/nostr/engine";
+import { EngineProvider } from "@/lib/nostr/EngineContext";
 import { linking } from "@/navigation/linking";
 import { RootNavigator } from "@/navigation/RootNavigator";
 import { createMobileAdapters } from "@/platform/adapters";
@@ -42,8 +44,18 @@ import { setFontsReady } from "@/theme/typography";
 
 export default function App() {
   // Adapters are built once and threaded into the store factory — the same
-  // wiring @thewired/core will consume at Phase 0.
-  const [store] = useState<AppStore>(() => createStore(createMobileAdapters()));
+  // wiring @thewired/core will consume at Phase 0. The engine (relay pool +
+  // event pipeline) rides on the same adapters and store.
+  const [{ store, engine }] = useState(() => {
+    const adapters = createMobileAdapters();
+    const appStore = createStore(adapters);
+    const nostrEngine = createNostrEngine({
+      adapters,
+      dispatch: appStore.dispatch,
+      getState: appStore.getState,
+    });
+    return { store: appStore, engine: nostrEngine };
+  });
 
   // Preset fonts (typography.ts resolves per-preset family → these assets).
   // fontError still renders — typography falls back to the system font.
@@ -67,13 +79,15 @@ export default function App() {
     getStoredThemePreset().then((stored) => setInitialPreset(stored ?? DEFAULT_PRESET));
   }, []);
 
-  useMobileLifecycle(store);
+  useMobileLifecycle(store, engine);
 
   // Cold-start session hydration: keychain → signer → loggedIn/loggedOut.
   // RootNavigator shows a splash while identity.status === "hydrating".
   useEffect(() => {
     store.dispatch(hydrateSession());
   }, [store]);
+
+  useEffect(() => () => engine.destroy(), [engine]);
 
   if (!fontsReady || initialPreset === null) {
     // Bare frame matching app.json backgroundColor — fonts + preset resolve
@@ -85,9 +99,11 @@ export default function App() {
     <GestureHandlerRootView style={{ flex: 1 }}>
       <SafeAreaProvider>
         <StoreProvider store={store}>
-          <ThemeProvider initialPreset={initialPreset}>
-            <ThemedShell />
-          </ThemeProvider>
+          <EngineProvider engine={engine}>
+            <ThemeProvider initialPreset={initialPreset}>
+              <ThemedShell engine={engine} />
+            </ThemeProvider>
+          </EngineProvider>
         </StoreProvider>
       </SafeAreaProvider>
     </GestureHandlerRootView>
@@ -96,11 +112,24 @@ export default function App() {
 
 /** Inside ThemeProvider — spreads the NativeWind vars() on the root View so
  *  every className below resolves the active preset's tokens. */
-function ThemedShell() {
+function ThemedShell({ engine }: { engine: NostrEngine }) {
   const { themeVars, tokens, isDark, config } = useTheme();
   const sessionStatus = useAppSelector((s) => s.identity.status);
+  const pubkey = useAppSelector((s) => s.identity.pubkey);
   const navTheme = useMemo(() => toNavigationTheme(tokens, isDark), [tokens, isDark]);
   const navFonts = useMemo(() => navigationFonts(config.font?.family), [config]);
+
+  // Engine start + identity sync: start once the session resolves (so the
+  // right per-account DB hydrates), then track login/logout/account switch.
+  const engineStarted = sessionStatus !== "hydrating";
+  useEffect(() => {
+    if (!engineStarted) return;
+    engine.start(pubkey).catch(() => {});
+  }, [engine, engineStarted, pubkey]);
+  useEffect(() => {
+    if (!engineStarted) return;
+    engine.setIdentity(pubkey).catch(() => {});
+  }, [engine, engineStarted, pubkey]);
 
   return (
     <View style={[{ flex: 1 }, themeVars]}>
@@ -135,17 +164,27 @@ function OfflineBanner() {
   );
 }
 
-/** AppState + NetInfo → Redux. The relay pool teardown/rebuild hooks onto the
- *  same controller once the core lands (guide 06 §2). */
-function useMobileLifecycle(store: AppStore) {
+/** AppState + NetInfo → Redux + engine (guide 06 §2): background closes the
+ *  pool gracefully, foreground reconnects + resubscribes with fresh `since`,
+ *  connectivity return reconnects immediately instead of waiting out backoff. */
+function useMobileLifecycle(store: AppStore, engine: NostrEngine) {
   useEffect(() => {
     const controller = new MobileLifecycleController({
-      onForeground: () => store.dispatch(appForegrounded({ at: Date.now() })),
-      onBackground: () => store.dispatch(appBackgrounded()),
-      onOnline: () => store.dispatch(setOnline(true)),
+      onForeground: () => {
+        store.dispatch(appForegrounded({ at: Date.now() }));
+        engine.handleForeground();
+      },
+      onBackground: () => {
+        store.dispatch(appBackgrounded());
+        engine.handleBackground();
+      },
+      onOnline: () => {
+        store.dispatch(setOnline(true));
+        engine.handleOnline();
+      },
       onOffline: () => store.dispatch(setOnline(false)),
     });
     controller.start();
     return () => controller.stop();
-  }, [store]);
+  }, [store, engine]);
 }

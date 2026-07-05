@@ -53,7 +53,11 @@ export function RootNavigator() {
           <Root.Group screenOptions={{ presentation: "modal" }}>
             <Root.Screen name="JoinSpace" component={JoinSpaceScreen} options={{ title: "Join Space" }} />
             <Root.Screen name="NowPlaying" component={NowPlayingScreen} options={{ title: "Now Playing" }} />
-            <Root.Screen name="Composer" component={ComposerScreen} options={{ title: "Compose" }} />
+            <Root.Screen
+              name="Composer"
+              component={ComposerScreen}
+              options={{ headerShown: false }}
+            />
           </Root.Group>
 
           {/* Full-screen takeovers */}

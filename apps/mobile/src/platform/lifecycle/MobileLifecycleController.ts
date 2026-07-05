@@ -1,9 +1,9 @@
-// ─── Mobile lifecycle controller (skeleton) ──────────────────────────
+// ─── Mobile lifecycle controller ─────────────────────────────────────
 // The #1 mobile risk (guide 00): iOS suspends the app and kills its sockets
 // seconds after backgrounding; the desktop core has zero AppState/NetInfo
-// handling. This controller owns those transitions. Until the relay pool
-// exists (Phase 0/1 wiring), the hooks only report state — the TODOs mark
-// where teardown/rebuild lands.
+// handling. This controller owns those transitions and stays transport-
+// agnostic — App.tsx routes the events into both Redux (lifecycleSlice) and
+// the Nostr engine (suspend / resume-with-fresh-since / reconnect-now).
 
 import { AppState, type AppStateStatus, type NativeEventSubscription } from "react-native";
 import NetInfo, { type NetInfoSubscription } from "@react-native-community/netinfo";
@@ -37,8 +37,8 @@ export class MobileLifecycleController {
       if (online === this.isOnline) return;
       this.isOnline = online;
       if (online) {
-        // TODO(Phase 1): reconnect the relay pool immediately instead of
-        // waiting out the backoff timers.
+        // App routes this to engine.handleOnline() — immediate reconnect
+        // instead of waiting out the backoff timers.
         this.events.onOnline();
       } else {
         this.events.onOffline();
@@ -61,14 +61,14 @@ export class MobileLifecycleController {
       const backgroundedForMs =
         this.backgroundedAt !== null ? Date.now() - this.backgroundedAt : null;
       this.backgroundedAt = null;
-      // TODO(Phase 1): rebuild the relay pool + resubscribe with fresh `since`
-      // (= last-seen timestamps), because iOS killed the sockets while
+      // App routes this to engine.handleForeground(): reopen the pool and
+      // resubscribe with fresh `since`, because iOS killed the sockets while
       // suspended — reconnection alone would silently miss events.
       this.events.onForeground(backgroundedForMs);
     } else if (next !== "active" && prev === "active") {
       this.backgroundedAt = Date.now();
-      // TODO(Phase 1): graceful teardown — flush the publish outbox, CLOSE
-      // subscriptions, let push carry delivery while backgrounded.
+      // App routes this to engine.handleBackground(): flush persistence and
+      // close sockets proactively rather than letting iOS kill them mid-write.
       this.events.onBackground();
     }
   };

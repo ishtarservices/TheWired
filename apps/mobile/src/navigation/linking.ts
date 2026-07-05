@@ -69,6 +69,7 @@ export const linking: LinkingOptions<RootStackParamList> = {
       NoteThread: "note/:noteId",
       Article: "article/:naddr",
       JoinSpace: "invite/:code",
+      Composer: "compose",
     },
   },
   getStateFromPath(path, options) {

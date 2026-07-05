@@ -4,7 +4,7 @@ import type { NativeStackScreenProps } from "@react-navigation/native-stack";
 import * as Clipboard from "expo-clipboard";
 import { Check, Copy, LogOut, Settings as SettingsIcon, UserRound } from "lucide-react-native";
 import { nip19 } from "nostr-tools";
-import { Pressable, View } from "react-native";
+import { Image, Pressable, View } from "react-native";
 
 import { logout } from "@/auth/session";
 import { truncateKey } from "@/auth/keys";
@@ -18,6 +18,7 @@ import { Pill } from "@/components/ui/Pill";
 import { SectionHeader } from "@/components/ui/SectionHeader";
 import { Type } from "@/components/ui/Type";
 import { haptics } from "@/lib/haptics";
+import { safeImageUri } from "@/lib/nostr/noteContent";
 import type { YouStackParamList } from "@/navigation/types";
 import { useAppDispatch, useAppSelector } from "@/store/hooks";
 import { useTheme } from "@/theme/ThemeContext";
@@ -38,10 +39,15 @@ export function YouScreen({ navigation }: Props) {
   const isGuest = useAppSelector((s) => s.identity.status === "guest");
   const pubkey = useAppSelector((s) => s.identity.pubkey);
   const signerType = useAppSelector((s) => s.identity.signerType);
+  // Live kind-0 — the engine keeps an own-profile subscription while logged in.
+  const profile = useAppSelector((s) =>
+    pubkey ? s.profiles.byPubkey[pubkey] : undefined,
+  );
   const [copiedNpub, setCopiedNpub] = useState(false);
   const [loggingOut, setLoggingOut] = useState(false);
 
   const npub = useMemo(() => (pubkey ? nip19.npubEncode(pubkey) : null), [pubkey]);
+  const displayName = profile?.display_name?.trim() || profile?.name?.trim();
 
   const copyNpub = async () => {
     if (!npub) return;
@@ -77,30 +83,67 @@ export function YouScreen({ navigation }: Props) {
 
   return (
     <Screen scroll contentClassName="px-5">
-      {/* Identity card — big avatar, mono npub with copy affordance. The
-          kind-0 name/banner replace the placeholder once the pool lands (W2). */}
-      <Card className="items-center py-7">
-        <Avatar pubkey={pubkey ?? undefined} name={npub ?? "?"} size={76} />
-        <Pressable
-          className="mt-4 min-h-[44px] flex-row items-center gap-2 rounded-full bg-surface px-4 py-2"
-          onPress={copyNpub}
-          accessibilityRole="button"
-          accessibilityLabel="Copy npub"
-        >
-          <Type role="monoLg" className="text-body">
-            {npub ? truncateKey(npub) : "—"}
-          </Type>
-          {copiedNpub ? (
-            <Check size={14} color={tokens.success} />
-          ) : (
-            <Copy size={14} color={tokens.muted} />
-          )}
-        </Pressable>
-        <View className="mt-3 flex-row gap-2">
-          <Pill
-            label={signerType ? SIGNER_LABELS[signerType] ?? signerType : "no signer"}
-            tone="primary"
+      {/* Identity card — live kind-0 (name/avatar/banner) over the key. */}
+      <Card className="items-center overflow-hidden p-0 pb-7">
+        {safeImageUri(profile?.banner) ? (
+          <Image
+            source={{ uri: safeImageUri(profile?.banner) }}
+            className="h-24 w-full"
+            resizeMode="cover"
+            accessibilityIgnoresInvertColors
           />
+        ) : (
+          <View className="h-24 w-full bg-primary-dim" />
+        )}
+        <View className="-mt-9 items-center px-5">
+          <View className="rounded-full border-4 border-card">
+            <Avatar
+              uri={profile?.picture}
+              pubkey={pubkey ?? undefined}
+              name={displayName ?? npub ?? "?"}
+              size={76}
+            />
+          </View>
+          {displayName ? (
+            <Type role="title" className="mt-3 text-center text-heading" numberOfLines={1}>
+              {displayName}
+            </Type>
+          ) : null}
+          {profile?.nip05 ? (
+            <Type role="caption" className="mt-0.5 text-muted" numberOfLines={1}>
+              {profile.nip05}
+            </Type>
+          ) : null}
+          {profile?.about ? (
+            <Type
+              role="caption"
+              className="mt-2 max-w-[300px] text-center leading-5 text-soft"
+              numberOfLines={3}
+            >
+              {profile.about}
+            </Type>
+          ) : null}
+          <Pressable
+            className="mt-4 min-h-[44px] flex-row items-center gap-2 rounded-full bg-surface px-4 py-2"
+            onPress={copyNpub}
+            accessibilityRole="button"
+            accessibilityLabel="Copy npub"
+          >
+            <Type role="monoLg" className="text-body">
+              {npub ? truncateKey(npub) : "—"}
+            </Type>
+            {copiedNpub ? (
+              <Check size={14} color={tokens.success} />
+            ) : (
+              <Copy size={14} color={tokens.muted} />
+            )}
+          </Pressable>
+          <View className="mt-3 flex-row gap-2">
+            <Pill
+              label={signerType ? SIGNER_LABELS[signerType] ?? signerType : "no signer"}
+              tone="primary"
+            />
+          </View>
         </View>
       </Card>
 

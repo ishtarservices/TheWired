@@ -7,8 +7,10 @@
 import { configureStore } from "@reduxjs/toolkit";
 
 import type { PlatformAdapters } from "@/core/adapters";
+import { feedSlice } from "./slices/feedSlice";
 import { identitySlice } from "./slices/identitySlice";
 import { lifecycleSlice } from "./slices/lifecycleSlice";
+import { profilesSlice } from "./slices/profilesSlice";
 import { relaysSlice } from "./slices/relaysSlice";
 
 export interface ThunkExtra {
@@ -21,6 +23,8 @@ export function createStore(adapters: PlatformAdapters) {
       identity: identitySlice.reducer,
       relays: relaysSlice.reducer,
       lifecycle: lifecycleSlice.reducer,
+      feed: feedSlice.reducer,
+      profiles: profilesSlice.reducer,
     },
     middleware: (getDefaultMiddleware) =>
       getDefaultMiddleware({

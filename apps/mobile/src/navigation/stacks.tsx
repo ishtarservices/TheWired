@@ -33,7 +33,7 @@ export function SpacesStack() {
       <Spaces.Screen
         name="SpaceList"
         component={SpaceListScreen}
-        options={{ ...large, title: "Spaces" }}
+        options={{ ...large, title: "Discover" }}
       />
       <Spaces.Screen name="Space" component={SpaceScreen} options={{ title: "Space" }} />
       <Spaces.Screen name="Channel" component={ChannelScreen} options={{ title: "Channel" }} />

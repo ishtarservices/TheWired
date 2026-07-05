@@ -1,6 +1,7 @@
 import { Image, Text, View } from "react-native";
 
 import { cn } from "@/lib/cn";
+import { safeImageUri } from "@/lib/nostr/noteContent";
 
 // Deterministic fallback color per identity — stands in for the desktop
 // Avatar's gradient fallback until profile data flows.
@@ -26,10 +27,12 @@ export interface AvatarProps {
 export function Avatar({ uri, name, pubkey, size = 40, className }: AvatarProps) {
   const dimension = { width: size, height: size, borderRadius: size / 2 };
 
-  if (uri) {
+  // Profile pictures are untrusted kind-0 data — sanitize before RCTImage.
+  const safeUri = safeImageUri(uri);
+  if (safeUri) {
     return (
       <Image
-        source={{ uri }}
+        source={{ uri: safeUri }}
         style={dimension}
         className={cn("bg-card", className)}
         accessibilityIgnoresInvertColors
