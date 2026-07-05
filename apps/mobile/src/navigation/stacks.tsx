@@ -1,9 +1,10 @@
 // One native stack per tab (guide 03 §2). Drill-down = push/pop with the OS
 // back gesture — replaces the desktop TopBar ◀ ▶ + Redux history stack.
+// Tab roots use the iOS large-title pattern (collapses into glass on scroll).
 
 import { createNativeStackNavigator } from "@react-navigation/native-stack";
 
-import { useStackScreenOptions } from "./screenOptions";
+import { useLargeTitleScreenOptions, useStackScreenOptions } from "./screenOptions";
 import type {
   AIStackParamList,
   MessagesStackParamList,
@@ -26,9 +27,14 @@ import { YouScreen } from "@/screens/you/YouScreen";
 
 const Spaces = createNativeStackNavigator<SpacesStackParamList>();
 export function SpacesStack() {
+  const large = useLargeTitleScreenOptions();
   return (
     <Spaces.Navigator screenOptions={useStackScreenOptions()}>
-      <Spaces.Screen name="SpaceList" component={SpaceListScreen} options={{ title: "Spaces" }} />
+      <Spaces.Screen
+        name="SpaceList"
+        component={SpaceListScreen}
+        options={{ ...large, title: "Spaces" }}
+      />
       <Spaces.Screen name="Space" component={SpaceScreen} options={{ title: "Space" }} />
       <Spaces.Screen name="Channel" component={ChannelScreen} options={{ title: "Channel" }} />
       <Spaces.Screen name="Thread" component={ThreadScreen} options={{ title: "Thread" }} />
@@ -38,9 +44,14 @@ export function SpacesStack() {
 
 const Music = createNativeStackNavigator<MusicStackParamList>();
 export function MusicStack() {
+  const large = useLargeTitleScreenOptions();
   return (
     <Music.Navigator screenOptions={useStackScreenOptions()}>
-      <Music.Screen name="MusicHome" component={MusicHomeScreen} options={{ title: "Music" }} />
+      <Music.Screen
+        name="MusicHome"
+        component={MusicHomeScreen}
+        options={{ ...large, title: "Music" }}
+      />
       <Music.Screen name="Album" component={AlbumScreen} options={{ title: "Album" }} />
     </Music.Navigator>
   );
@@ -48,9 +59,14 @@ export function MusicStack() {
 
 const Messages = createNativeStackNavigator<MessagesStackParamList>();
 export function MessagesStack() {
+  const large = useLargeTitleScreenOptions();
   return (
     <Messages.Navigator screenOptions={useStackScreenOptions()}>
-      <Messages.Screen name="DMList" component={DMListScreen} options={{ title: "Messages" }} />
+      <Messages.Screen
+        name="DMList"
+        component={DMListScreen}
+        options={{ ...large, title: "Messages" }}
+      />
       <Messages.Screen
         name="DMConversation"
         component={DMConversationScreen}
@@ -62,9 +78,14 @@ export function MessagesStack() {
 
 const AI = createNativeStackNavigator<AIStackParamList>();
 export function AIStack() {
+  const large = useLargeTitleScreenOptions();
   return (
     <AI.Navigator screenOptions={useStackScreenOptions()}>
-      <AI.Screen name="AIChatList" component={AIChatListScreen} options={{ title: "AI" }} />
+      <AI.Screen
+        name="AIChatList"
+        component={AIChatListScreen}
+        options={{ ...large, title: "AI" }}
+      />
       <AI.Screen
         name="AIConversation"
         component={AIConversationScreen}
@@ -76,9 +97,10 @@ export function AIStack() {
 
 const You = createNativeStackNavigator<YouStackParamList>();
 export function YouStack() {
+  const large = useLargeTitleScreenOptions();
   return (
     <You.Navigator screenOptions={useStackScreenOptions()}>
-      <You.Screen name="You" component={YouScreen} options={{ title: "You" }} />
+      <You.Screen name="You" component={YouScreen} options={{ ...large, title: "You" }} />
       <You.Screen name="Settings" component={SettingsScreen} options={{ title: "Settings" }} />
     </You.Navigator>
   );

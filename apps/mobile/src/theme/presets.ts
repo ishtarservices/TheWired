@@ -1,10 +1,12 @@
 // ─── Theme Presets ───────────────────────────────────────────────────
 // Foundation subset of the desktop's 14 presets (client/src/lib/themePresets.ts):
-// clean-dark, clean-light, neon. Port the remaining 11 verbatim when the
-// theme settings screen lands — the engine already handles any preset.
+// clean-dark, clean-light, neon — plus wired-black, a mobile-first true-black
+// OLED variant of clean-dark (slightly higher-chroma primary so the accent
+// carries against pure black). Port the remaining desktop presets verbatim
+// when the theme settings screen grows — the engine handles any preset.
 //
-// Fonts are declared for parity but not loaded yet (expo-font later); the
-// foundation renders with the platform font.
+// Fonts load via expo-font in App.tsx; typography.ts resolves each preset's
+// family to the loaded weights (system font until then).
 
 import type { ThemePreset } from "./types";
 
@@ -19,6 +21,19 @@ export const PRESETS: Record<string, ThemePreset> = {
       background: "220 14% 8%",
       foreground: "220 14% 92%",
       primary: "235 55% 58%",
+    },
+    font: { family: "Inter", weight: "300 700" },
+  },
+  "wired-black": {
+    key: "wired-black",
+    title: "Wired Black",
+    emoji: "\u{26AB}",
+    category: "minimal",
+    featured: true,
+    colors: {
+      background: "225 15% 0%",
+      foreground: "220 14% 92%",
+      primary: "235 70% 63%",
     },
     font: { family: "Inter", weight: "300 700" },
   },
@@ -57,6 +72,7 @@ export const PRESETS: Record<string, ThemePreset> = {
  */
 export const MOTION_INTENSITY: Record<string, number> = {
   "clean-dark": 0.5,
+  "wired-black": 0.5,
   "clean-light": 0.5,
   neon: 1.0,
   midnight: 0.7,

@@ -1,14 +1,22 @@
-import type { ReactNode } from "react";
-import { ScrollView, Text, View } from "react-native";
+import type { ComponentType, ReactNode } from "react";
+import { View } from "react-native";
+import { CircleDashed, type LucideProps } from "lucide-react-native";
 
-// Foundation scaffold — every placeholder screen renders through this so the
-// shell is fully themed end to end. Replaced screen-by-screen in Phase 2+.
+import { Screen } from "@/components/layout/Screen";
+import { EmptyState } from "@/components/ui/EmptyState";
+import { Pill } from "@/components/ui/Pill";
+
+// Foundation scaffold — screens not yet built render a calm empty state
+// (one icon, one sentence, at most one action) instead of a placeholder
+// paragraph. Replaced screen-by-screen in Phase 2+.
 
 export interface PlaceholderScreenProps {
   title: string;
-  /** What the real screen will hold (ties back to mobile-guide/03 §3). */
+  /** One sentence about what this screen will hold. */
   description?: string;
-  /** Route params etc. worth showing while screens are stubs. */
+  /** Literal icon for the surface (lucide) — defaults to a dashed circle. */
+  icon?: ComponentType<LucideProps>;
+  /** Route params etc. worth surfacing while screens are stubs. */
   detail?: string;
   children?: ReactNode;
 }
@@ -16,24 +24,24 @@ export interface PlaceholderScreenProps {
 export function PlaceholderScreen({
   title,
   description,
+  icon,
   detail,
   children,
 }: PlaceholderScreenProps) {
   return (
-    <ScrollView
-      className="flex-1 bg-background"
-      contentContainerClassName="gap-4 p-5"
-    >
-      <View className="rounded-lg border border-border bg-card p-4">
-        <Text className="text-lg font-semibold text-heading">{title}</Text>
-        {description ? (
-          <Text className="mt-1 text-sm leading-5 text-soft">{description}</Text>
-        ) : null}
-        {detail ? (
-          <Text className="mt-2 text-xs text-muted">{detail}</Text>
-        ) : null}
-      </View>
-      {children ? <View className="gap-3">{children}</View> : null}
-    </ScrollView>
+    <Screen scroll contentClassName="flex-grow px-5">
+      <EmptyState
+        icon={icon ?? CircleDashed}
+        title={title}
+        message={description}
+        className="py-10"
+      />
+      {detail ? (
+        <View className="items-center pb-4">
+          <Pill label={detail} />
+        </View>
+      ) : null}
+      {children ? <View className="gap-3 pb-6">{children}</View> : null}
+    </Screen>
   );
 }

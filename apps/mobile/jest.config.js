@@ -5,4 +5,9 @@ module.exports = {
   transformIgnorePatterns: [
     "node_modules/(?!(?:\\.pnpm/[^/]+/node_modules/)?((jest-)?react-native|@react-native(-community)?|expo(nent)?|@expo(nent)?/.*|@expo-google-fonts/.*|react-navigation|@react-navigation/.*|@sentry/react-native|native-base|react-native-svg|nativewind|react-native-css-interop|lucide-react-native|react-native-worklets|react-native-reanimated|@gorhom/bottom-sheet|immer|redux|@reduxjs/.*|reselect|nostr-tools|@noble/.*|@scure/.*))",
   ],
+  moduleNameMapper: {
+    // Reanimated's worklets runtime has no Jest host; use the official mock
+    // (+ our useReducedMotion patch — see src/test/reanimatedMock.js).
+    "^react-native-reanimated$": "<rootDir>/src/test/reanimatedMock.js",
+  },
 };

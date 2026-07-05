@@ -1,4 +1,5 @@
 import type { NativeStackScreenProps } from "@react-navigation/native-stack";
+import { MessageCircle } from "lucide-react-native";
 
 import { SignInGate } from "@/components/auth/SignInGate";
 import { Button } from "@/components/ui/Button";
@@ -20,14 +21,15 @@ export function DMListScreen({ navigation }: Props) {
   }
   return (
     <PlaceholderScreen
-      title="Messages"
-      description="NIP-17 DM contact list — ports DMSidebar. Backgrounded delivery moves to push (Phase 3)."
+      icon={MessageCircle}
+      title="No messages yet"
+      description="Encrypted conversations (NIP-17) arrive with the DM phase."
     >
       <Button
         variant="secondary"
         onPress={() => navigation.navigate("DMConversation", { pubkey: "demo-pubkey" })}
       >
-        Open demo conversation →
+        Open demo conversation
       </Button>
     </PlaceholderScreen>
   );

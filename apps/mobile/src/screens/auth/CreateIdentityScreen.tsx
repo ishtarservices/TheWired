@@ -1,19 +1,25 @@
 import { useState } from "react";
 import * as Clipboard from "expo-clipboard";
 import { Check, Copy, Eye, EyeOff, TriangleAlert } from "lucide-react-native";
-import { Platform, ScrollView, Text, View } from "react-native";
+import { View } from "react-native";
 
 import { generateIdentity } from "@/auth/keys";
 import { adoptGeneratedIdentity } from "@/auth/session";
+import { Screen } from "@/components/layout/Screen";
 import { Button } from "@/components/ui/Button";
+import { Card } from "@/components/ui/Card";
+import { SectionHeader } from "@/components/ui/SectionHeader";
+import { Type } from "@/components/ui/Type";
+import { AnimatedView } from "@/lib/animated";
+import { haptics } from "@/lib/haptics";
 import { useAppDispatch } from "@/store/hooks";
+import { useMotion } from "@/theme/motion";
 import { useTheme } from "@/theme/ThemeContext";
-
-const MONO_FONT = Platform.select({ ios: "Menlo", default: "monospace" });
 
 export function CreateIdentityScreen() {
   const dispatch = useAppDispatch();
   const { tokens } = useTheme();
+  const { entering } = useMotion();
 
   // Generated once per visit; committed to the keychain only on confirm.
   const [keys] = useState(generateIdentity);
@@ -27,6 +33,7 @@ export function CreateIdentityScreen() {
 
   const copy = async (which: "npub" | "nsec") => {
     await Clipboard.setStringAsync(which === "npub" ? keys.npub : keys.nsec);
+    haptics.success();
     setCopied(which);
   };
 
@@ -35,6 +42,7 @@ export function CreateIdentityScreen() {
     setError(null);
     try {
       await dispatch(adoptGeneratedIdentity(keys));
+      haptics.success();
       // No navigation — RootNavigator swaps to the tabs when status flips.
     } catch {
       setError("Couldn't save the key to the device keychain. Try again.");
@@ -43,91 +51,96 @@ export function CreateIdentityScreen() {
   };
 
   return (
-    <ScrollView className="flex-1 bg-background" contentContainerClassName="gap-4 p-5">
-      <Text className="text-sm leading-5 text-soft">
+    <Screen scroll contentClassName="gap-1 px-5">
+      <Type role="caption" className="mb-2 mt-2 leading-5 text-soft">
         Your identity is a key pair. The{" "}
-        <Text className="font-semibold text-heading">public key (npub)</Text> is your
-        shareable address. The{" "}
-        <Text className="font-semibold text-heading">secret key (nsec)</Text> is the
-        only way to sign in — there is no reset or recovery.
-      </Text>
+        <Type role="caption" weight={600} className="text-heading">
+          public key (npub)
+        </Type>{" "}
+        is your shareable address. The{" "}
+        <Type role="caption" weight={600} className="text-heading">
+          secret key (nsec)
+        </Type>{" "}
+        is the only way to sign in — there is no reset or recovery.
+      </Type>
 
-      {/* npub */}
-      <View className="rounded-lg border border-border bg-card p-4">
-        <Text className="text-xs font-medium uppercase text-muted">
-          Public key · share freely
-        </Text>
-        <Text
-          className="mt-2 text-xs leading-5 text-body"
-          style={{ fontFamily: MONO_FONT }}
-        >
-          {keys.npub}
-        </Text>
-        <Button
-          className="mt-3 self-start"
-          size="sm"
-          variant="secondary"
-          onPress={() => copy("npub")}
-        >
-          {copied === "npub" ? (
-            <Check size={14} color={tokens.success} />
-          ) : (
-            <Copy size={14} color={tokens.soft} />
-          )}
-          <Text className="text-xs text-body">
-            {copied === "npub" ? "Copied" : "Copy npub"}
-          </Text>
-        </Button>
-      </View>
-
-      {/* nsec */}
-      <View className="rounded-lg border border-border bg-card p-4">
-        <Text className="text-xs font-medium uppercase text-muted">
-          Secret key · never share
-        </Text>
-        <Text
-          className="mt-2 text-xs leading-5 text-body"
-          style={{ fontFamily: MONO_FONT }}
-        >
-          {nsecRevealed ? keys.nsec : "nsec1 " + "•".repeat(24)}
-        </Text>
-        <View className="mt-3 flex-row gap-2">
-          <Button size="sm" variant="secondary" onPress={() => setNsecRevealed((v) => !v)}>
-            {nsecRevealed ? (
-              <EyeOff size={14} color={tokens.soft} />
-            ) : (
-              <Eye size={14} color={tokens.soft} />
-            )}
-            <Text className="text-xs text-body">{nsecRevealed ? "Hide" : "Reveal"}</Text>
-          </Button>
-          <Button size="sm" variant="secondary" onPress={() => copy("nsec")}>
-            {copied === "nsec" ? (
+      <AnimatedView entering={entering(0)}>
+        <SectionHeader label="public key · share freely" />
+        <Card>
+          <Type role="mono" className="leading-5 text-body" selectable>
+            {keys.npub}
+          </Type>
+          <Button
+            className="mt-3 self-start"
+            size="sm"
+            variant="secondary"
+            onPress={() => copy("npub")}
+          >
+            {copied === "npub" ? (
               <Check size={14} color={tokens.success} />
             ) : (
               <Copy size={14} color={tokens.soft} />
             )}
-            <Text className="text-xs text-body">
-              {copied === "nsec" ? "Copied" : "Copy nsec"}
-            </Text>
+            <Type role="caption" weight={500} className="text-body">
+              {copied === "npub" ? "Copied" : "Copy npub"}
+            </Type>
           </Button>
-        </View>
-      </View>
+        </Card>
+      </AnimatedView>
 
-      {/* Warning */}
-      <View className="flex-row gap-3 rounded-lg border border-border bg-panel p-4">
-        <TriangleAlert size={18} color={tokens.warning} />
-        <Text className="flex-1 text-xs leading-5 text-soft">
-          Back the secret key up somewhere safe (password manager, paper). Anyone
-          who has it is you; if you lose it, the identity is gone for good. It's
-          also saved to this device's keychain so you stay signed in.
-        </Text>
-      </View>
+      <AnimatedView entering={entering(1)}>
+        <SectionHeader label="secret key · never share" />
+        <Card>
+          <Type role="mono" className="leading-5 text-body">
+            {nsecRevealed ? keys.nsec : "nsec1 " + "•".repeat(24)}
+          </Type>
+          <View className="mt-3 flex-row gap-2">
+            <Button size="sm" variant="secondary" onPress={() => setNsecRevealed((v) => !v)}>
+              {nsecRevealed ? (
+                <EyeOff size={14} color={tokens.soft} />
+              ) : (
+                <Eye size={14} color={tokens.soft} />
+              )}
+              <Type role="caption" weight={500} className="text-body">
+                {nsecRevealed ? "Hide" : "Reveal"}
+              </Type>
+            </Button>
+            <Button size="sm" variant="secondary" onPress={() => copy("nsec")}>
+              {copied === "nsec" ? (
+                <Check size={14} color={tokens.success} />
+              ) : (
+                <Copy size={14} color={tokens.soft} />
+              )}
+              <Type role="caption" weight={500} className="text-body">
+                {copied === "nsec" ? "Copied" : "Copy nsec"}
+              </Type>
+            </Button>
+          </View>
+        </Card>
+      </AnimatedView>
 
-      {error ? <Text className="text-xs text-destructive">{error}</Text> : null}
+      <AnimatedView entering={entering(2)} className="mt-4">
+        <Card className="flex-row gap-3 bg-surface">
+          <TriangleAlert size={18} color={tokens.warning} />
+          <Type role="caption" className="flex-1 leading-5 text-soft">
+            Back the secret key up somewhere safe (password manager, paper).
+            Anyone who has it is you; if you lose it, the identity is gone for
+            good. It's also saved to this device's keychain so you stay signed in.
+          </Type>
+        </Card>
+      </AnimatedView>
 
-      <Button size="lg" disabled={!backedUp || busy} onPress={finish}>
-        {busy ? "Saving…" : backedUp ? "I've backed it up — continue" : "Reveal or copy your key first"}
-      </Button>
-    </ScrollView>
+      {error ? (
+        <Type role="caption" className="mt-2 text-destructive">
+          {error}
+        </Type>
+      ) : null}
+
+      <AnimatedView entering={entering(3)} className="mt-5">
+        <Button size="lg" disabled={!backedUp} loading={busy} onPress={finish}>
+          {backedUp ? "I've backed it up — continue" : "Reveal or copy your key first"}
+        </Button>
+      </AnimatedView>
+    </Screen>
   );
 }

@@ -1,4 +1,5 @@
 import type { NativeStackScreenProps } from "@react-navigation/native-stack";
+import { View } from "react-native";
 
 import { Avatar } from "@/components/ui/Avatar";
 import type { RootStackParamList } from "@/navigation/types";
@@ -10,10 +11,12 @@ export function ProfileScreen({ route }: Props) {
   return (
     <PlaceholderScreen
       title="Profile"
-      description="Cross-cutting profile screen — reachable from any tab and from nostr:npub/nprofile deep links."
-      detail={`pubkey: ${route.params.pubkey}`}
+      description="Live kind-0 profiles and recent notes arrive with the relay pool."
+      detail={route.params.pubkey}
     >
-      <Avatar pubkey={route.params.pubkey} name="?" size={72} />
+      <View className="items-center pb-2">
+        <Avatar pubkey={route.params.pubkey} name="?" size={72} />
+      </View>
     </PlaceholderScreen>
   );
 }

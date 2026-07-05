@@ -13,6 +13,7 @@ import {
   useState,
   type ReactNode,
 } from "react";
+import type { TextStyle } from "react-native";
 import { vars } from "nativewind";
 
 import { deriveExtras, deriveTokens, isDarkTheme } from "./engine";
@@ -24,7 +25,9 @@ import {
   PRESET_KEYS,
 } from "./presets";
 import { CHART_COLORS } from "./constants";
+import { typeStyle, type TypeRole, type TypeStyleOptions } from "./typography";
 import type { DerivedExtras, DerivedTokens, ThemeConfig } from "./types";
+import { storeThemePreset } from "@/platform/appPrefs";
 
 // Same CSS-variable names as the desktop @theme block, so the Tailwind class
 // vocabulary matches 1:1 (tailwind.config.js references these vars).
@@ -69,16 +72,27 @@ interface ThemeContextValue {
   featuredKeys: string[];
   /** vars() style — App.tsx spreads this on the root View. */
   themeVars: ReturnType<typeof vars>;
+  /** Type-scale style for a role under the active preset's font — for
+   *  styles that can't come from a className (nav options, Type component). */
+  type: (role: TypeRole, options?: TypeStyleOptions) => TextStyle;
   setPreset: (key: string) => void;
   cyclePreset: (direction: 1 | -1) => void;
 }
 
 const ThemeContext = createContext<ThemeContextValue | null>(null);
 
-export function ThemeProvider({ children }: { children: ReactNode }) {
-  // TODO(Phase 0): persist the chosen preset through the StorageAdapter once
-  // the adapters are wired (desktop persists to localStorage).
-  const [preset, setPresetState] = useState<string>(DEFAULT_PRESET);
+export function ThemeProvider({
+  children,
+  initialPreset,
+}: {
+  children: ReactNode;
+  /** Persisted preset read before first paint (App.tsx) — avoids a
+   *  default-theme flash for users on another preset. */
+  initialPreset?: string | null;
+}) {
+  const [preset, setPresetState] = useState<string>(() =>
+    initialPreset && PRESETS[initialPreset] ? initialPreset : DEFAULT_PRESET,
+  );
 
   const config: ThemeConfig = PRESETS[preset] ?? PRESETS[DEFAULT_PRESET];
   const isDark = isDarkTheme(config.colors.background);
@@ -110,7 +124,10 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
   }, [tokens]);
 
   const setPreset = useCallback((key: string) => {
-    if (PRESETS[key]) setPresetState(key);
+    if (PRESETS[key]) {
+      setPresetState(key);
+      storeThemePreset(key);
+    }
   }, []);
 
   const cyclePreset = useCallback(
@@ -119,10 +136,17 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
         const idx = FEATURED_KEYS.indexOf(prev);
         const next =
           (idx + direction + FEATURED_KEYS.length) % FEATURED_KEYS.length;
+        storeThemePreset(FEATURED_KEYS[next]);
         return FEATURED_KEYS[next];
       });
     },
     [],
+  );
+
+  const type = useCallback(
+    (role: TypeRole, options?: TypeStyleOptions) =>
+      typeStyle(role, config.font?.family, options),
+    [config],
   );
 
   const value = useMemo<ThemeContextValue>(
@@ -136,10 +160,11 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
       presetKeys: PRESET_KEYS,
       featuredKeys: FEATURED_KEYS,
       themeVars,
+      type,
       setPreset,
       cyclePreset,
     }),
-    [preset, config, tokens, extras, isDark, themeVars, setPreset, cyclePreset],
+    [preset, config, tokens, extras, isDark, themeVars, type, setPreset, cyclePreset],
   );
 
   return <ThemeContext.Provider value={value}>{children}</ThemeContext.Provider>;

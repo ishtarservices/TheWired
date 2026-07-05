@@ -1,8 +1,9 @@
 import { useNavigation } from "@react-navigation/native";
 import { KeyRound } from "lucide-react-native";
-import { Text, View } from "react-native";
+import { View } from "react-native";
 
 import { Button } from "@/components/ui/Button";
+import { Type } from "@/components/ui/Type";
 import { useTheme } from "@/theme/ThemeContext";
 
 // Shown in place of account-based surfaces while browsing as a guest
@@ -23,15 +24,21 @@ export function SignInGate({ title, message }: SignInGateProps) {
 
   return (
     <View className="flex-1 items-center justify-center bg-background px-6">
-      <View className="w-full items-center rounded-lg border border-border bg-card p-6">
-        <KeyRound size={28} color={tokens.muted} />
-        <Text className="mt-3 text-base font-semibold text-heading">{title}</Text>
-        <Text className="mt-1 text-center text-sm leading-5 text-soft">{message}</Text>
-        <View className="mt-5 w-full gap-2">
-          <Button onPress={() => navigation.navigate("CreateIdentity")}>
+      <View className="w-full max-w-[360px] items-center">
+        <View className="h-16 w-16 items-center justify-center rounded-full bg-primary-dim">
+          <KeyRound size={26} color={tokens.primary} strokeWidth={1.75} />
+        </View>
+        <Type role="title" className="mt-5 text-center text-heading">
+          {title}
+        </Type>
+        <Type role="caption" className="mt-2 max-w-[300px] text-center leading-5 text-muted">
+          {message}
+        </Type>
+        <View className="mt-7 w-full gap-2.5">
+          <Button size="lg" onPress={() => navigation.navigate("CreateIdentity")}>
             Create a new identity
           </Button>
-          <Button variant="secondary" onPress={() => navigation.navigate("Login")}>
+          <Button size="lg" variant="secondary" onPress={() => navigation.navigate("Login")}>
             Log in with my key
           </Button>
         </View>

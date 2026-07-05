@@ -1,4 +1,5 @@
 import type { NativeStackScreenProps } from "@react-navigation/native-stack";
+import { BrainCircuit } from "lucide-react-native";
 
 import { SignInGate } from "@/components/auth/SignInGate";
 import { Button } from "@/components/ui/Button";
@@ -20,8 +21,9 @@ export function AIChatListScreen({ navigation }: Props) {
   }
   return (
     <PlaceholderScreen
-      title="AI"
-      description="Conversation list. Mobile uses cloud keys / NIP-46-style remote engines only — no localhost daemons (guide 00)."
+      icon={BrainCircuit}
+      title="No conversations yet"
+      description="The assistant arrives with cloud and remote engines — no localhost daemons on mobile."
     >
       <Button
         variant="secondary"
@@ -29,7 +31,7 @@ export function AIChatListScreen({ navigation }: Props) {
           navigation.navigate("AIConversation", { conversationId: "demo-conversation" })
         }
       >
-        Open demo conversation →
+        Open demo conversation
       </Button>
     </PlaceholderScreen>
   );
