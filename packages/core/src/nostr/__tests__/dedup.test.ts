@@ -49,8 +49,7 @@ describe("EventDeduplicator", () => {
     }
   });
 
-  it("evicts oldest entries when LRU capacity (100K) is exceeded", () => {
-    // Fill to capacity + 1
+  it("evicts oldest entries when LRU capacity (100K default) is exceeded", () => {
     const CAPACITY = 100_000;
     for (let i = 0; i <= CAPACITY; i++) {
       dedup.markSeen(`evt-${i}`);
@@ -59,5 +58,12 @@ describe("EventDeduplicator", () => {
     expect(dedup.isDuplicate("evt-0")).toBe(false);
     // The last entry should still be present
     expect(dedup.isDuplicate(`evt-${CAPACITY}`)).toBe(true);
+  });
+
+  it("honors a custom (mobile-sized) capacity", () => {
+    const small = new EventDeduplicator(10);
+    for (let i = 0; i <= 10; i++) small.markSeen(`evt-${i}`);
+    expect(small.isDuplicate("evt-0")).toBe(false);
+    expect(small.isDuplicate("evt-10")).toBe(true);
   });
 });

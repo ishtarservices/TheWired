@@ -7,8 +7,10 @@ function kind0(content: string): NostrEvent {
   return { id: "i", pubkey: "pk", created_at: 42, kind: 0, tags: [], content, sig: "s" };
 }
 
-describe("parseProfile", () => {
-  it("parses string fields and stamps created_at", () => {
+// The parser itself is single-sourced (and fully tested) in @thewired/core —
+// this just proves the re-export shim resolves the core package under Metro/jest.
+describe("profiles shim (@thewired/core)", () => {
+  it("parses via the core hardened parser and stamps created_at", () => {
     const profile = parseProfile(
       kind0(JSON.stringify({ name: "alice", about: "hi", picture: "https://x/p.png" })),
     );
@@ -18,32 +20,13 @@ describe("parseProfile", () => {
       picture: "https://x/p.png",
       created_at: 42,
     });
-  });
-
-  it("rejects non-kind-0, bad JSON, and non-object content", () => {
-    expect(parseProfile({ ...kind0("{}"), kind: 1 })).toBeNull();
     expect(parseProfile(kind0("not json"))).toBeNull();
-    expect(parseProfile(kind0('"a string"'))).toBeNull();
-    expect(parseProfile(kind0("[1,2]"))).toBeNull();
   });
 
-  it("drops non-string values and dangerous keys", () => {
-    const profile = parseProfile(
-      kind0(JSON.stringify({ name: 42, about: "ok", __proto__: { hacked: true } })),
-    );
-    expect(profile?.name).toBeUndefined();
-    expect(profile?.about).toBe("ok");
-    expect(({} as Record<string, unknown>).hacked).toBeUndefined();
-  });
-});
-
-describe("profileDisplayName", () => {
-  it("prefers display_name, then name, then shortened pubkey", () => {
+  it("re-exports profileDisplayName", () => {
     const pk = "abcdef0123456789";
-    expect(profileDisplayName({ display_name: "A", name: "b", created_at: 0 }, pk)).toBe("A");
-    expect(profileDisplayName({ name: "b", created_at: 0 }, pk)).toBe("b");
+    expect(profileDisplayName({ display_name: "A", name: "b" }, pk)).toBe("A");
     expect(profileDisplayName(undefined, pk)).toBe("abcdef01…");
-    expect(profileDisplayName({ display_name: "  ", created_at: 0 }, pk)).toBe("abcdef01…");
   });
 });
 

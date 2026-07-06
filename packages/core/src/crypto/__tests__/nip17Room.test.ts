@@ -2,11 +2,14 @@ import { describe, it, expect } from "vitest";
 import {
   roomKeyFromParticipants,
   buildGroupRumor,
+  createGroupMessageWraps,
   participantsOf,
   isGroupDM,
   roomIdOf,
   subjectOf,
 } from "../nip17Room";
+import { unwrapGiftWrap } from "../giftWrap";
+import { makeTestIdentity } from "./testSigner";
 
 describe("roomKeyFromParticipants", () => {
   it("is order-independent and de-duplicated", () => {
@@ -36,6 +39,38 @@ describe("buildGroupRumor", () => {
 
   it("rejects a rumor with no other participants", async () => {
     await expect(buildGroupRumor("self", ["self"], "x")).rejects.toThrow();
+  });
+});
+
+describe("createGroupMessageWraps", () => {
+  it("wraps once per recipient plus a self-wrap, all sharing one rumor id", async () => {
+    const alice = makeTestIdentity();
+    const bob = makeTestIdentity();
+    const carol = makeTestIdentity();
+
+    const result = await createGroupMessageWraps(
+      { myPubkey: alice.pubkey, signer: alice.signer },
+      "hi room",
+      [alice.pubkey, bob.pubkey, carol.pubkey],
+      { subject: "Trio" },
+    );
+
+    expect(result.wraps).toHaveLength(3);
+    expect(result.wraps.map((w) => w.to).sort()).toEqual(
+      [alice.pubkey, bob.pubkey, carol.pubkey].sort(),
+    );
+    expect(result.roomId).toBe(
+      roomKeyFromParticipants([alice.pubkey, bob.pubkey, carol.pubkey]),
+    );
+
+    // Each participant can unwrap their own wrap to the SAME rumor.
+    const bobWrap = result.wraps.find((w) => w.to === bob.pubkey)!;
+    const dm = await unwrapGiftWrap(bob.signer, bobWrap.wrap);
+    expect(dm.sender).toBe(alice.pubkey);
+    expect(dm.content).toBe("hi room");
+    expect(dm.rumorId).toBe(result.rumorId);
+    expect(subjectOf(dm)).toBe("Trio");
+    expect(isGroupDM(dm)).toBe(true);
   });
 });
 

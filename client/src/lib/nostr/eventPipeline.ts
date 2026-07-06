@@ -7,6 +7,7 @@ import { isValidEventStructure } from "./validation";
 import { verifyBridge } from "./verifyWorkerBridge";
 import type { UnknownAction } from "@reduxjs/toolkit";
 import { store } from "../../store";
+import type { AppDispatch, RootState } from "../../store";
 import { putEvent, deleteEvent, deleteAddressableEvent } from "../db/eventStore";
 import { addEvent, addEvents, indexChatMessage, indexReel, indexLongForm, indexLiveStream, indexNote, indexSpaceFeed, removeEventFromAllSpaceFeeds, indexMusicTrack, indexMusicAlbum, indexReply, indexRepost, indexRepostByAuthor, indexQuote, removeChatMessage, hideMessage, removeEvent, removeManyEvents, removeNote, removeRepost, trackDeletedNote, trackDeletedAddr, indexEditedMessage, indexNotes, indexReplies, indexReposts, indexRepostsByAuthor, indexQuotes, indexChatMessages, indexReels, indexLongForms, indexLiveStreams, indexMusicTracks, indexMusicAlbums, indexSpaceFeeds } from "../../store/slices/eventsSlice";
 import { addReaction, addReactions, removeReactionByEventId, type ReactionInput } from "../../store/slices/reactionsSlice";
@@ -63,6 +64,72 @@ function logChatLatency(event: NostrEvent, relayUrl: string, receivedAt: number)
     `kind:9 ${event.id.slice(0, 8)} via ${shortRelay(relayUrl)} — transit ~${transit}ms · pipeline ${pipeline}ms`,
   );
 }
+
+
+// ── Dependency inversion (Phase 0, guide 01 §4) ──────────────────────────────
+// The pipeline's logic is pure and portable; its platform couplings (Redux
+// store, Web Worker verifier, IndexedDB persistence, profile cache, decrypt
+// queue) are injected here. The desktop wires its existing singletons into a
+// default instance below — behavior-identical to the old module-level form.
+
+export interface EventPipelineDeps {
+  /** Store boundary. Thin arrows over the Redux store on desktop. */
+  dispatch: AppDispatch;
+  getState: () => RootState;
+  /** Signature verification (desktop: the Web Worker bridge). */
+  verifier: { verify(event: NostrEvent): Promise<boolean> };
+  /** Event persistence (desktop: IndexedDB eventStore). */
+  persistence: {
+    putEvent(event: NostrEvent): Promise<void>;
+    deleteEvent(id: string): Promise<void>;
+    deleteAddressableEvent(kind: number, pubkey: string, dTag: string): Promise<unknown>;
+  };
+  /** kind:0 sink (desktop: the profileCache singleton). */
+  profileCache: { handleProfileEvent(event: NostrEvent, relayUrl?: string): void };
+  /** Bounded-concurrency gift-wrap decryptor. */
+  decryptQueue: {
+    submit(event: NostrEvent): boolean;
+    clear(): void;
+    setHandler(handler: (event: NostrEvent) => Promise<void> | void): void;
+  };
+}
+
+export type EventPipeline = ReturnType<typeof createEventPipeline>;
+
+/** Pure: pick the ids to evict. `ids` MUST be oldest-first (the entity adapter
+ *  keeps them sorted by created_at asc). Returns the oldest ids NOT referenced by
+ *  any secondary index (or the editedMessages map), capped at the amount needed to
+ *  reach `target`. Exported for tests. Returns [] when at/under `softCap`. */
+export function computeSweep(
+  ids: readonly string[],
+  indices: ReadonlyArray<Record<string, string[]>>,
+  editedMessages: Record<string, string>,
+  softCap: number,
+  target: number,
+): string[] {
+  if (ids.length <= softCap) return [];
+  const referenced = new Set<string>();
+  for (const index of indices) {
+    for (const key in index) {
+      const list = index[key];
+      for (let i = 0; i < list.length; i++) referenced.add(list[i]);
+    }
+  }
+  // Edit events are referenced via editedMessages, not a string[] index.
+  for (const originalId in editedMessages) {
+    referenced.add(originalId);
+    referenced.add(editedMessages[originalId]);
+  }
+  const need = ids.length - target;
+  const evict: string[] = [];
+  for (let i = 0; i < ids.length && evict.length < need; i++) {
+    if (!referenced.has(ids[i])) evict.push(ids[i]);
+  }
+  return evict;
+}
+
+export function createEventPipeline(deps: EventPipelineDeps) {
+  const { dispatch, getState } = deps;
 
 const dedup = new EventDeduplicator();
 
@@ -143,7 +210,7 @@ function emit(action: UnknownAction): void {
   if (indexMusicAlbum.match(action)) { buf.musicAlbums.push(action.payload); return; }
   if (indexSpaceFeed.match(action)) { buf.spaceFeeds.push(action.payload); return; }
   if (trackFeedTimestamp.match(action)) { buf.feedTimestamps.push(action.payload); return; }
-  store.dispatch(action); // not batchable → immediate
+  dispatch(action); // not batchable → immediate
 }
 
 function bufferHasData(b: PipelineBuffer): boolean {
@@ -188,40 +255,8 @@ const ENTITY_SWEEP_TARGET = 18_000; // hysteresis: once over cap, trim down to t
 const SWEEP_CHECK_EVERY = 4; // only run the O(n) scan every Nth flush
 let flushesSinceSweepCheck = 0;
 
-/** Pure: pick the ids to evict. `ids` MUST be oldest-first (the entity adapter
- *  keeps them sorted by created_at asc). Returns the oldest ids NOT referenced by
- *  any secondary index (or the editedMessages map), capped at the amount needed to
- *  reach `target`. Exported for tests. Returns [] when at/under `softCap`. */
-export function computeSweep(
-  ids: readonly string[],
-  indices: ReadonlyArray<Record<string, string[]>>,
-  editedMessages: Record<string, string>,
-  softCap: number,
-  target: number,
-): string[] {
-  if (ids.length <= softCap) return [];
-  const referenced = new Set<string>();
-  for (const index of indices) {
-    for (const key in index) {
-      const list = index[key];
-      for (let i = 0; i < list.length; i++) referenced.add(list[i]);
-    }
-  }
-  // Edit events are referenced via editedMessages, not a string[] index.
-  for (const originalId in editedMessages) {
-    referenced.add(originalId);
-    referenced.add(editedMessages[originalId]);
-  }
-  const need = ids.length - target;
-  const evict: string[] = [];
-  for (let i = 0; i < ids.length && evict.length < need; i++) {
-    if (!referenced.has(ids[i])) evict.push(ids[i]);
-  }
-  return evict;
-}
-
 function sweepWithCaps(softCap: number, target: number): void {
-  const events = store.getState().events;
+  const events = getState().events;
   const indices: Array<Record<string, string[]>> = [
     events.chatMessages, events.reels, events.longform, events.liveStreams,
     events.notesByAuthor, events.spaceFeeds, events.musicTracks, events.musicAlbums,
@@ -229,7 +264,7 @@ function sweepWithCaps(softCap: number, target: number): void {
   ];
   const evict = computeSweep(events.ids, indices, events.editedMessages, softCap, target);
   if (evict.length === 0) return;
-  store.dispatch(removeManyEvents(evict));
+  dispatch(removeManyEvents(evict));
   // CRITICAL: unmark from the dedup LRU so a re-delivery / re-REQ can bring the
   // event back. Skipping this makes evicted events un-refetchable for the session.
   for (let i = 0; i < evict.length; i++) dedup.unmarkSeen(evict[i]);
@@ -242,14 +277,14 @@ function sweepEvents(): void {
 }
 
 /** Test-only: run the sweep with explicit caps (so a test needn't seed 20k events). */
-export function __sweepForTest(softCap: number, target: number): void {
+function __sweepForTest(softCap: number, target: number): void {
   sweepWithCaps(softCap, target);
 }
 
 /** Apply all buffered burst-path ops in one batch — events first, then indices,
  *  so every index entry's event is already in the adapter. Exported for tests
  *  and for synchronous flushing on logout / account switch. */
-export function flushEventPipeline(): void {
+function flushEventPipeline(): void {
   if (flushTimer !== null) {
     clearTimeout(flushTimer);
     flushTimer = null;
@@ -259,24 +294,24 @@ export function flushEventPipeline(): void {
   const b = buf;
   buf = emptyBuffer();
   // Entities first — indices reference them.
-  if (b.events.length) store.dispatch(addEvents(b.events));
-  if (Object.keys(b.counts).length) store.dispatch(incrementCounts(b.counts));
-  if (b.notes.length) store.dispatch(indexNotes(b.notes));
-  if (b.reactions.length) store.dispatch(addReactions(b.reactions));
-  if (b.zaps.length) store.dispatch(addZaps(b.zaps));
-  if (b.pollVotes.length) store.dispatch(addPollVotes(b.pollVotes));
-  if (b.replies.length) store.dispatch(indexReplies(b.replies));
-  if (b.reposts.length) store.dispatch(indexReposts(b.reposts));
-  if (b.repostsByAuthor.length) store.dispatch(indexRepostsByAuthor(b.repostsByAuthor));
-  if (b.quotes.length) store.dispatch(indexQuotes(b.quotes));
-  if (b.chatMessages.length) store.dispatch(indexChatMessages(b.chatMessages));
-  if (b.reels.length) store.dispatch(indexReels(b.reels));
-  if (b.longform.length) store.dispatch(indexLongForms(b.longform));
-  if (b.liveStreams.length) store.dispatch(indexLiveStreams(b.liveStreams));
-  if (b.musicTracks.length) store.dispatch(indexMusicTracks(b.musicTracks));
-  if (b.musicAlbums.length) store.dispatch(indexMusicAlbums(b.musicAlbums));
-  if (b.spaceFeeds.length) store.dispatch(indexSpaceFeeds(b.spaceFeeds));
-  if (b.feedTimestamps.length) store.dispatch(trackFeedTimestamps(b.feedTimestamps));
+  if (b.events.length) dispatch(addEvents(b.events));
+  if (Object.keys(b.counts).length) dispatch(incrementCounts(b.counts));
+  if (b.notes.length) dispatch(indexNotes(b.notes));
+  if (b.reactions.length) dispatch(addReactions(b.reactions));
+  if (b.zaps.length) dispatch(addZaps(b.zaps));
+  if (b.pollVotes.length) dispatch(addPollVotes(b.pollVotes));
+  if (b.replies.length) dispatch(indexReplies(b.replies));
+  if (b.reposts.length) dispatch(indexReposts(b.reposts));
+  if (b.repostsByAuthor.length) dispatch(indexRepostsByAuthor(b.repostsByAuthor));
+  if (b.quotes.length) dispatch(indexQuotes(b.quotes));
+  if (b.chatMessages.length) dispatch(indexChatMessages(b.chatMessages));
+  if (b.reels.length) dispatch(indexReels(b.reels));
+  if (b.longform.length) dispatch(indexLongForms(b.longform));
+  if (b.liveStreams.length) dispatch(indexLiveStreams(b.liveStreams));
+  if (b.musicTracks.length) dispatch(indexMusicTracks(b.musicTracks));
+  if (b.musicAlbums.length) dispatch(indexMusicAlbums(b.musicAlbums));
+  if (b.spaceFeeds.length) dispatch(indexSpaceFeeds(b.spaceFeeds));
+  if (b.feedTimestamps.length) dispatch(trackFeedTimestamps(b.feedTimestamps));
 
   // Bound the entity store after the batch lands (indices are populated, so
   // freshly-added events are already referenced and won't be swept).
@@ -284,7 +319,7 @@ export function flushEventPipeline(): void {
 }
 
 /** Clear all module-level caches (used during account switch) */
-export function resetEventPipelineCaches(): void {
+function resetEventPipelineCaches(): void {
   // Drop any pending burst buffer so a stray timer can't repopulate the store
   // after RESET_ALL wipes it on account switch.
   if (flushTimer !== null) {
@@ -295,7 +330,7 @@ export function resetEventPipelineCaches(): void {
   scheduledDelay = FLUSH_MS;
   flushesSinceSweepCheck = 0;
   dedup.clear();
-  decryptQueue.clear(); // drop queued wraps for the previous account
+  deps.decryptQueue.clear(); // drop queued wraps for the previous account
   authorSetCache.clear();
 }
 
@@ -334,7 +369,7 @@ spaceFeedKinds.add(EVENT_KINDS.REPOST);
  * 3. Signature verification (Web Worker)
  * 4. Dispatch to Redux + index
  */
-export async function processIncomingEvent(
+async function processIncomingEvent(
   event: unknown,
   relayUrl: string,
 ): Promise<void> {
@@ -361,7 +396,7 @@ export async function processIncomingEvent(
 
   // Step 3: Signature verification (Web Worker, async)
   try {
-    const valid = await verifyBridge.verify(event);
+    const valid = await deps.verifier.verify(event);
     if (!valid) {
       if (event.kind === 9) console.warn("[pipeline] kind:9 verify FAIL", event.id.slice(0, 8));
       if (event.kind === EVENT_KINDS.METADATA) log.warn(`kind:0 ${shortKey(event.pubkey)} verify FAIL from ${shortRelay(relayUrl)} — profile rejected`);
@@ -382,8 +417,8 @@ export async function processIncomingEvent(
   // can't saturate the signer / flood a NIP-46 bunker (#4/#25). On overflow, drop
   // and unmark so a later redelivery retries.
   if (event.kind === EVENT_KINDS.GIFT_WRAP) {
-    store.dispatch(incrementEventCount(relayUrl));
-    if (!decryptQueue.submit(event)) {
+    dispatch(incrementEventCount(relayUrl));
+    if (!deps.decryptQueue.submit(event)) {
       dedup.unmarkSeen(event.id);
     }
     return;
@@ -391,7 +426,7 @@ export async function processIncomingEvent(
 
   // Handle WebRTC signaling events (kind:25050) — ephemeral, don't store
   if (event.kind === EVENT_KINDS.WEBRTC_SIGNAL) {
-    store.dispatch(incrementEventCount(relayUrl));
+    dispatch(incrementEventCount(relayUrl));
     handleWebRTCSignal(event);
     return;
   }
@@ -400,7 +435,7 @@ export async function processIncomingEvent(
   if (
     (event.kind === EVENT_KINDS.SHORT_TEXT || event.kind === EVENT_KINDS.REPOST ||
       event.kind === EVENT_KINDS.POLL) &&
-    store.getState().events.deletedNoteIds[event.id]
+    getState().events.deletedNoteIds[event.id]
   ) {
     return;
   }
@@ -412,7 +447,7 @@ export async function processIncomingEvent(
     const dTag = event.tags.find((t: string[]) => t[0] === "d")?.[1];
     if (dTag !== undefined) {
       const addr = `${event.kind}:${event.pubkey}:${dTag}`;
-      const deletedAt = store.getState().events.deletedAddrIds[addr];
+      const deletedAt = getState().events.deletedAddrIds[addr];
       if (deletedAt !== undefined && event.created_at <= deletedAt) {
         return;
       }
@@ -423,18 +458,18 @@ export async function processIncomingEvent(
   // A deletion is only honored if one of the requesters actually authored this
   // event (#21) — so a third party that published a kind:5 for an id it doesn't
   // own can no longer suppress the real note when it shows up.
-  const pendingDeleters = store.getState().events.pendingDeletions[event.id];
+  const pendingDeleters = getState().events.pendingDeletions[event.id];
   if (pendingDeleters && pendingDeleters.length > 0) {
     const authorized = pendingDeleters.includes(event.pubkey);
-    store.dispatch(clearPendingDeletion(event.id));
+    dispatch(clearPendingDeletion(event.id));
     if (authorized && (event.kind === EVENT_KINDS.SHORT_TEXT || event.kind === EVENT_KINDS.REPOST)) {
-      store.dispatch(trackDeletedNote(event.id));
-      deleteEvent(event.id).catch(() => {});
+      dispatch(trackDeletedNote(event.id));
+      deps.persistence.deleteEvent(event.id).catch(() => {});
       return;
     }
     if (authorized && event.kind === EVENT_KINDS.CHAT_MESSAGE) {
-      store.dispatch(hideMessage(event.id));
-      deleteEvent(event.id).catch(() => {});
+      dispatch(hideMessage(event.id));
+      deps.persistence.deleteEvent(event.id).catch(() => {});
       return;
     }
     // Otherwise (unauthorized deleter, or a kind we don't pre-suppress) fall
@@ -463,13 +498,13 @@ export async function processIncomingEvent(
   // Step 4b: Wire kind:0 events into the profile cache
   if (event.kind === EVENT_KINDS.METADATA) {
     log.debug(`kind:0 ${shortKey(event.pubkey)} reached pipeline from ${shortRelay(relayUrl)} → handing to profile cache`);
-    profileCache.handleProfileEvent(event, relayUrl);
+    deps.profileCache.handleProfileEvent(event, relayUrl);
   }
 
   // Step 4c: Persist addressable events to IndexedDB (music, longform, etc.)
   // so they survive page refresh
   if (event.kind >= 30000 && event.kind < 40000) {
-    putEvent(event).catch(() => {/* best-effort persistence */});
+    deps.persistence.putEvent(event).catch(() => {/* best-effort persistence */});
   }
 
   // Step 5: Index by kind (may await NIP-44 decryption for private music events)
@@ -496,7 +531,7 @@ function indexIntoChatChannel(event: NostrEvent, hTag: string): void {
     emit(trackFeedTimestamp({ contextId: indexKey, createdAt: event.created_at }));
   } else {
     // Legacy: no channel tag → route to default chat channel if known
-    const state = store.getState();
+    const state = getState();
     const spaceChannels = state.spaces.channels[hTag];
     const defaultChat = spaceChannels?.find((c) => c.type === "chat" && c.isDefault)
       ?? spaceChannels?.find((c) => c.type === "chat");
@@ -598,11 +633,11 @@ async function indexEvent(event: NostrEvent): Promise<void> {
         const originalId = editTag[1];
         // Apply buffered adds so a same-burst original message resolves.
         flushEventPipeline();
-        const state = store.getState();
+        const state = getState();
         const originalEvent = state.events.entities[originalId];
         // Only accept edits from the same author
         if (originalEvent && originalEvent.pubkey === event.pubkey) {
-          store.dispatch(indexEditedMessage({ originalId, editEventId: event.id }));
+          dispatch(indexEditedMessage({ originalId, editEventId: event.id }));
           // Store the edit event but do NOT add to chatMessages index
         }
         break;
@@ -653,25 +688,25 @@ async function indexEvent(event: NostrEvent): Promise<void> {
 
       // Helper to dispatch track into Redux + artist/collaborator indices
       const dispatchTrack = (track: import("../../types/music").MusicTrack) => {
-        store.dispatch(addTrack(track));
+        dispatch(addTrack(track));
         if (track.artistPubkeys.length > 0) {
           for (const pk of track.artistPubkeys) {
-            store.dispatch(indexTrackByArtist({ pubkey: pk, addressableId: track.addressableId }));
+            dispatch(indexTrackByArtist({ pubkey: pk, addressableId: track.addressableId }));
           }
         } else if (track.artist && track.artist !== event.pubkey) {
-          store.dispatch(indexTrackByArtistName({ normalizedName: track.artist.toLowerCase().trim(), addressableId: track.addressableId }));
+          dispatch(indexTrackByArtistName({ normalizedName: track.artist.toLowerCase().trim(), addressableId: track.addressableId }));
         } else {
-          store.dispatch(indexTrackByArtist({ pubkey: event.pubkey, addressableId: track.addressableId }));
+          dispatch(indexTrackByArtist({ pubkey: event.pubkey, addressableId: track.addressableId }));
         }
         for (const fp of track.featuredArtists) {
-          store.dispatch(indexTrackByArtist({ pubkey: fp, addressableId: track.addressableId }));
+          dispatch(indexTrackByArtist({ pubkey: fp, addressableId: track.addressableId }));
         }
         // Index by collaborator pubkeys so they can discover via selectMyCollaborations
         for (const cp of track.collaborators) {
-          store.dispatch(indexTrackByArtist({ pubkey: cp, addressableId: track.addressableId }));
+          dispatch(indexTrackByArtist({ pubkey: cp, addressableId: track.addressableId }));
         }
         if (track.albumRef) {
-          store.dispatch(indexTrackByAlbum({ albumAddrId: track.albumRef, trackAddrId: track.addressableId }));
+          dispatch(indexTrackByAlbum({ albumAddrId: track.albumRef, trackAddrId: track.addressableId }));
         }
       };
 
@@ -681,7 +716,7 @@ async function indexEvent(event: NostrEvent): Promise<void> {
 
       if (isPrivate && event.content) {
         // Private track with encrypted content — attempt async decryption
-        const myPubkey = store.getState().identity.pubkey;
+        const myPubkey = getState().identity.pubkey;
         if (myPubkey) {
           // Await the decrypt so the track is in Redux before signAndPublish returns
           try {
@@ -702,7 +737,7 @@ async function indexEvent(event: NostrEvent): Promise<void> {
         const track = parseTrackEvent(event);
         dispatchTrack(track);
         // Notify if we're tagged as collaborator/featured on someone else's track
-        const myPubkey = store.getState().identity.pubkey;
+        const myPubkey = getState().identity.pubkey;
         if (myPubkey && event.pubkey !== myPubkey) {
           const isTagged = track.collaborators.includes(myPubkey) ||
             track.featuredArtists.includes(myPubkey);
@@ -717,22 +752,22 @@ async function indexEvent(event: NostrEvent): Promise<void> {
       emit(indexMusicAlbum({ contextId: hTag ?? "global", eventId: event.id }));
 
       const dispatchAlbum = (album: import("../../types/music").MusicAlbum) => {
-        store.dispatch(addAlbum(album));
+        dispatch(addAlbum(album));
         if (album.artistPubkeys.length > 0) {
           for (const pk of album.artistPubkeys) {
-            store.dispatch(indexAlbumByArtist({ pubkey: pk, addressableId: album.addressableId }));
+            dispatch(indexAlbumByArtist({ pubkey: pk, addressableId: album.addressableId }));
           }
         } else if (album.artist && album.artist !== event.pubkey) {
-          store.dispatch(indexAlbumByArtistName({ normalizedName: album.artist.toLowerCase().trim(), addressableId: album.addressableId }));
+          dispatch(indexAlbumByArtistName({ normalizedName: album.artist.toLowerCase().trim(), addressableId: album.addressableId }));
         } else {
-          store.dispatch(indexAlbumByArtist({ pubkey: event.pubkey, addressableId: album.addressableId }));
+          dispatch(indexAlbumByArtist({ pubkey: event.pubkey, addressableId: album.addressableId }));
         }
         for (const fp of album.featuredArtists) {
-          store.dispatch(indexAlbumByArtist({ pubkey: fp, addressableId: album.addressableId }));
+          dispatch(indexAlbumByArtist({ pubkey: fp, addressableId: album.addressableId }));
         }
         // Index by collaborator pubkeys
         for (const cp of album.collaborators) {
-          store.dispatch(indexAlbumByArtist({ pubkey: cp, addressableId: album.addressableId }));
+          dispatch(indexAlbumByArtist({ pubkey: cp, addressableId: album.addressableId }));
         }
       };
 
@@ -741,7 +776,7 @@ async function indexEvent(event: NostrEvent): Promise<void> {
       );
 
       if (isPrivateAlbum && event.content) {
-        const myPubkey = store.getState().identity.pubkey;
+        const myPubkey = getState().identity.pubkey;
         if (myPubkey) {
           try {
             const album = await parsePrivateAlbumEvent(event, myPubkey);
@@ -759,7 +794,7 @@ async function indexEvent(event: NostrEvent): Promise<void> {
         const album = parseAlbumEvent(event);
         dispatchAlbum(album);
         // Notify if we're tagged as collaborator/featured on someone else's album
-        const myPubkey = store.getState().identity.pubkey;
+        const myPubkey = getState().identity.pubkey;
         if (myPubkey && event.pubkey !== myPubkey) {
           const isTagged = album.collaborators.includes(myPubkey) ||
             album.featuredArtists.includes(myPubkey);
@@ -772,13 +807,13 @@ async function indexEvent(event: NostrEvent): Promise<void> {
     }
     case EVENT_KINDS.MUSIC_PLAYLIST: {
       const playlist = parsePlaylistEvent(event);
-      store.dispatch(addPlaylist(playlist));
+      dispatch(addPlaylist(playlist));
       break;
     }
     case EVENT_KINDS.MUSIC_TRACK_NOTES: {
       const annotation = parseAnnotationEvent(event);
       if (annotation) {
-        store.dispatch(addAnnotation(annotation));
+        dispatch(addAnnotation(annotation));
       }
       break;
     }
@@ -790,7 +825,7 @@ async function indexEvent(event: NostrEvent): Promise<void> {
       // supersede the deletion and must NOT be removed.
       // Apply any buffered adds first so same-burst deletion targets resolve.
       flushEventPipeline();
-      const state = store.getState();
+      const state = getState();
       for (const tag of event.tags) {
         if (tag[0] === "a" && tag[1]) {
           const addr = tag[1];
@@ -800,31 +835,31 @@ async function indexEvent(event: NostrEvent): Promise<void> {
           const addrDTag = addr.split(":").slice(2).join(":");
 
           // Track this deletion so future re-deliveries from external relays are blocked
-          store.dispatch(trackDeletedAddr({ addr, deletedAt: event.created_at }));
+          dispatch(trackDeletedAddr({ addr, deletedAt: event.created_at }));
 
           if (kind === EVENT_KINDS.MUSIC_TRACK) {
             const track = state.music.tracks[addr];
             if (track && track.createdAt <= event.created_at) {
-              deleteAddressableEvent(kind, addrPubkey, addrDTag).catch(() => {});
-              store.dispatch(removeTrack(addr));
+              deps.persistence.deleteAddressableEvent(kind, addrPubkey, addrDTag).catch(() => {});
+              dispatch(removeTrack(addr));
             }
           } else if (kind === EVENT_KINDS.MUSIC_ALBUM) {
             const album = state.music.albums[addr];
             if (album && album.createdAt <= event.created_at) {
-              deleteAddressableEvent(kind, addrPubkey, addrDTag).catch(() => {});
-              store.dispatch(removeAlbum(addr));
+              deps.persistence.deleteAddressableEvent(kind, addrPubkey, addrDTag).catch(() => {});
+              dispatch(removeAlbum(addr));
             }
           } else if (kind === EVENT_KINDS.MUSIC_PLAYLIST) {
             const playlist = state.music.playlists[addr];
             if (playlist && playlist.createdAt <= event.created_at) {
-              deleteAddressableEvent(kind, addrPubkey, addrDTag).catch(() => {});
-              store.dispatch(removePlaylist(addr));
+              deps.persistence.deleteAddressableEvent(kind, addrPubkey, addrDTag).catch(() => {});
+              dispatch(removePlaylist(addr));
             }
           } else if (kind === EVENT_KINDS.MUSIC_TRACK_NOTES) {
             for (const [targetRef, anns] of Object.entries(state.music.annotations)) {
               const match = anns.find((a) => a.addressableId === addr);
               if (match && match.createdAt <= event.created_at) {
-                store.dispatch(removeAnnotation({ targetRef, addressableId: addr }));
+                dispatch(removeAnnotation({ targetRef, addressableId: addr }));
                 break;
               }
             }
@@ -835,8 +870,8 @@ async function indexEvent(event: NostrEvent): Promise<void> {
         if (tag[0] === "e" && tag[1]) {
           // Reactions and poll votes aren't stored as entities — clear them
           // from their aggregates via the reverse index (no-op for other ids).
-          store.dispatch(removeReactionByEventId({ eventId: tag[1], byPubkey: event.pubkey }));
-          store.dispatch(removeVoteByEventId({ eventId: tag[1], byPubkey: event.pubkey }));
+          dispatch(removeReactionByEventId({ eventId: tag[1], byPubkey: event.pubkey }));
+          dispatch(removeVoteByEventId({ eventId: tag[1], byPubkey: event.pubkey }));
           const refEvent = state.events.entities[tag[1]];
           if (refEvent) {
             // Target known — apply NIP-09 directly: only the author may delete it.
@@ -846,40 +881,40 @@ async function indexEvent(event: NostrEvent): Promise<void> {
               // to properly respect the created_at supersedence rule.
               const isAddressableEvent = refEvent.kind >= 30000 && refEvent.kind < 40000;
               if (!isAddressableEvent) {
-                deleteEvent(tag[1]).catch(() => {});
+                deps.persistence.deleteEvent(tag[1]).catch(() => {});
               }
               if (refEvent.kind === EVENT_KINDS.CHAT_MESSAGE) {
                 const refHTag = refEvent.tags.find((t) => t[0] === "h")?.[1];
                 if (refHTag) {
                   const refChannelTag = refEvent.tags.find((t) => t[0] === "channel")?.[1];
                   const contextId = refChannelTag ? `${refHTag}:${refChannelTag}` : refHTag;
-                  store.dispatch(removeChatMessage({ contextId, eventId: tag[1] }));
+                  dispatch(removeChatMessage({ contextId, eventId: tag[1] }));
                 }
-                store.dispatch(hideMessage(tag[1]));
-                store.dispatch(removeEvent(tag[1]));
+                dispatch(hideMessage(tag[1]));
+                dispatch(removeEvent(tag[1]));
               } else if (refEvent.kind === EVENT_KINDS.POLL) {
                 const refHTag = refEvent.tags.find((t) => t[0] === "h")?.[1];
                 if (refHTag) {
                   // Chat-scoped poll: remove from the chat timeline
                   const refChannelTag = refEvent.tags.find((t) => t[0] === "channel")?.[1];
                   const contextId = refChannelTag ? `${refHTag}:${refChannelTag}` : refHTag;
-                  store.dispatch(removeChatMessage({ contextId, eventId: tag[1] }));
-                  store.dispatch(hideMessage(tag[1]));
+                  dispatch(removeChatMessage({ contextId, eventId: tag[1] }));
+                  dispatch(hideMessage(tag[1]));
                 } else {
                   // Posts-side poll: remove from notes surfaces
-                  store.dispatch(removeNote({ pubkey: event.pubkey, eventId: tag[1] }));
+                  dispatch(removeNote({ pubkey: event.pubkey, eventId: tag[1] }));
                 }
-                store.dispatch(removeEvent(tag[1]));
-                store.dispatch(trackDeletedNote(tag[1]));
-                store.dispatch(removePoll(tag[1]));
+                dispatch(removeEvent(tag[1]));
+                dispatch(trackDeletedNote(tag[1]));
+                dispatch(removePoll(tag[1]));
               } else if (refEvent.kind === EVENT_KINDS.SHORT_TEXT) {
-                store.dispatch(removeNote({ pubkey: event.pubkey, eventId: tag[1] }));
-                store.dispatch(removeEvent(tag[1]));
-                store.dispatch(trackDeletedNote(tag[1]));
+                dispatch(removeNote({ pubkey: event.pubkey, eventId: tag[1] }));
+                dispatch(removeEvent(tag[1]));
+                dispatch(trackDeletedNote(tag[1]));
               } else if (refEvent.kind === EVENT_KINDS.REPOST) {
-                store.dispatch(removeRepost({ pubkey: event.pubkey, eventId: tag[1] }));
-                store.dispatch(removeEvent(tag[1]));
-                store.dispatch(trackDeletedNote(tag[1]));
+                dispatch(removeRepost({ pubkey: event.pubkey, eventId: tag[1] }));
+                dispatch(removeEvent(tag[1]));
+                dispatch(trackDeletedNote(tag[1]));
               }
             }
             // else: a non-author asked to delete a known event — ignore it.
@@ -888,35 +923,35 @@ async function indexEvent(event: NostrEvent): Promise<void> {
             // suppressing on faith — it is applied only if the target, when it
             // arrives, was actually authored by this deleter (#21). Do NOT delete
             // from IndexedDB here.
-            store.dispatch(trackPendingDeletion({ eventId: tag[1], deleter: event.pubkey }));
+            dispatch(trackPendingDeletion({ eventId: tag[1], deleter: event.pubkey }));
           }
         }
       }
       // Persist the deletion event itself so we can check on next startup
-      putEvent(event).catch(() => {});
+      deps.persistence.putEvent(event).catch(() => {});
       break;
     }
     case EVENT_KINDS.EMOJI_SET: {
       // NIP-30: Custom emoji set (kind:30030)
       const emojiSet = parseEmojiSetEvent(event);
-      store.dispatch(addEmojiSet(emojiSet));
+      dispatch(addEmojiSet(emojiSet));
       // Track space-scoped emoji sets
       const emojiHTag = event.tags.find((t) => t[0] === "h")?.[1];
       if (emojiHTag) {
-        const state = store.getState();
+        const state = getState();
         const existing = state.emoji.spaceEmojiSets[emojiHTag] ?? [];
         if (!existing.includes(emojiSet.addressableId)) {
-          store.dispatch(setSpaceEmojiSets({ spaceId: emojiHTag, setIds: [...existing, emojiSet.addressableId] }));
+          dispatch(setSpaceEmojiSets({ spaceId: emojiHTag, setIds: [...existing, emojiSet.addressableId] }));
         }
       }
       break;
     }
     case EVENT_KINDS.USER_EMOJI_LIST: {
       // NIP-51: User emoji list (kind:10030)
-      const myPubkey = store.getState().identity.pubkey;
+      const myPubkey = getState().identity.pubkey;
       if (event.pubkey === myPubkey) {
         const { emojis } = parseUserEmojiListEvent(event);
-        store.dispatch(setUserEmojis(emojis));
+        dispatch(setUserEmojis(emojis));
       }
       break;
     }
@@ -943,8 +978,8 @@ async function indexEvent(event: NostrEvent): Promise<void> {
       // spaces stay backend-authoritative and trigger a debounced refetch.
       if (!applyNativeGroupEvent(event)) {
         const dTag = event.tags.find((t) => t[0] === "d")?.[1];
-        if (dTag && store.getState().spaces.list.some((s) => s.id === dTag)) {
-          scheduleMemberSync(dTag, store.dispatch);
+        if (dTag && getState().spaces.list.some((s) => s.id === dTag)) {
+          scheduleMemberSync(dTag, dispatch);
         }
       }
       break;
@@ -957,7 +992,7 @@ async function indexEvent(event: NostrEvent): Promise<void> {
       // #5 — authority check. The chat read set includes non-enforcing mirrors and
       // imported relays, so anyone could publish a 9005 to wipe arbitrary messages.
       // Require the author to be in the space's pinned authority set.
-      const space = store.getState().spaces.list.find((s) => s.id === groupId);
+      const space = getState().spaces.list.find((s) => s.id === groupId);
       const verdict = verifySpaceModAuthority(event, space);
       if (verdict === "defer-unknown-space") {
         // Space not loaded yet (rare race: spaces hydrate before chat subs open).
@@ -974,7 +1009,7 @@ async function indexEvent(event: NostrEvent): Promise<void> {
       flushEventPipeline();
       for (const tag of event.tags) {
         if (tag[0] === "e" && tag[1]) {
-          const refEvent = store.getState().events.entities[tag[1]];
+          const refEvent = getState().events.entities[tag[1]];
           if (refEvent) {
             // Scope hardening: only delete messages that actually belong to THIS
             // group, so an admin of one (e.g. self-imported) group can't delete
@@ -983,17 +1018,17 @@ async function indexEvent(event: NostrEvent): Promise<void> {
             if (refHTag && refHTag !== groupId) continue;
             const refChannelTag = refEvent.tags.find((t) => t[0] === "channel")?.[1];
             const contextId = refChannelTag ? `${groupId}:${refChannelTag}` : groupId;
-            store.dispatch(removeChatMessage({ contextId, eventId: tag[1] }));
-            store.dispatch(hideMessage(tag[1]));
-            store.dispatch(removeEvent(tag[1]));
+            dispatch(removeChatMessage({ contextId, eventId: tag[1] }));
+            dispatch(hideMessage(tag[1]));
+            dispatch(removeEvent(tag[1]));
             if (refEvent.kind === EVENT_KINDS.POLL) {
-              store.dispatch(removePoll(tag[1]));
+              dispatch(removePoll(tag[1]));
             }
-            deleteEvent(tag[1]).catch(() => {});
+            deps.persistence.deleteEvent(tag[1]).catch(() => {});
           }
         }
       }
-      putEvent(event).catch(() => {});
+      deps.persistence.putEvent(event).catch(() => {});
       break;
     }
   }
@@ -1026,14 +1061,14 @@ function indexEventIntoSpaceFeeds(event: NostrEvent): void {
     const dTag = event.tags.find((t) => t[0] === "d")?.[1];
     if (dTag) {
       const addrId = `${event.kind}:${event.pubkey}:${dTag}`;
-      const existingTrack = store.getState().music.tracks[addrId] ?? store.getState().music.albums[addrId.replace("31683:", "33123:")];
+      const existingTrack = getState().music.tracks[addrId] ?? getState().music.albums[addrId.replace("31683:", "33123:")];
       if (existingTrack && existingTrack.eventId !== event.id) {
-        store.dispatch(removeEventFromAllSpaceFeeds(existingTrack.eventId));
+        dispatch(removeEventFromAllSpaceFeeds(existingTrack.eventId));
       }
     }
   }
 
-  const state = store.getState();
+  const state = getState();
 
   // Index into Friends Feed if active and author is in follow list
   if (state.spaces.activeSpaceId === "__friends_feed__") {
@@ -1144,11 +1179,11 @@ const HEX64_RE = /^[0-9a-f]{64}$/i;
 
 // The decrypt queue defers gift-wrap handling with bounded concurrency; wire the
 // real handler once (function declaration is hoisted, so this is safe here).
-decryptQueue.setHandler(handleGiftWrap);
+deps.decryptQueue.setHandler(handleGiftWrap);
 
 /** Handle incoming gift wrap (kind:1059) — decrypt and route to DM or friend request */
 async function handleGiftWrap(event: NostrEvent): Promise<void> {
-  const myPubkey = store.getState().identity.pubkey;
+  const myPubkey = getState().identity.pubkey;
   if (!myPubkey) return;
 
   // Only process wraps addressed to us. Recipient wraps from our own sends
@@ -1216,7 +1251,7 @@ async function handleGiftWrap(event: NostrEvent): Promise<void> {
 
     // Snapshot DM state BEFORE dispatch so we can gate the notification on
     // whether this wrap was already processed (e.g. restored from IndexedDB).
-    const dmState = store.getState().dm;
+    const dmState = getState().dm;
     const alreadyProcessed = !!dmState.processedWrapIdSet[dm.wrapId];
 
     // NIP-17: the rumor's created_at IS the real send time.
@@ -1229,7 +1264,7 @@ async function handleGiftWrap(event: NostrEvent): Promise<void> {
     // Extract NIP-30 emoji tags for custom emoji rendering
     const dmEmojiTags = dm.tags.filter((t) => t[0] === "emoji");
 
-    store.dispatch(
+    dispatch(
       addDMMessage({
         partnerPubkey,
         myPubkey,
@@ -1267,7 +1302,7 @@ function handleFriendRequestWrap(
     ? dm.tags.find((t) => t[0] === "p" && t[1] !== myPubkey)?.[1] ?? dm.sender
     : dm.sender;
 
-  const frState = store.getState().friendRequests;
+  const frState = getState().friendRequests;
 
   // Dedup check
   if (frState.processedWrapIds.includes(dm.wrapId)) return;
@@ -1277,7 +1312,7 @@ function handleFriendRequestWrap(
   // clear them from removedPubkeys and process it — they want to re-friend.
   if (frState.removedPubkeys.includes(partnerPubkey)) {
     if (isOwnMessage) return;
-    store.dispatch(clearRemovedPubkey(partnerPubkey));
+    dispatch(clearRemovedPubkey(partnerPubkey));
   }
 
   // NOTE: Do NOT dispatch addProcessedWrapId here — the addFriendRequest reducer
@@ -1293,7 +1328,7 @@ function handleFriendRequestWrap(
       (r) => r.pubkey === partnerPubkey && r.direction === "outgoing" && r.status === "pending",
     );
     if (pendingOutgoing) {
-      store.dispatch(
+      dispatch(
         addFriendRequest({
           id: dm.wrapId,
           pubkey: partnerPubkey,
@@ -1303,15 +1338,15 @@ function handleFriendRequestWrap(
           direction: "incoming",
         }),
       );
-      store.dispatch(markOutgoingAccepted(partnerPubkey));
-      store.dispatch(addKnownFollower(partnerPubkey));
+      dispatch(markOutgoingAccepted(partnerPubkey));
+      dispatch(addKnownFollower(partnerPubkey));
       // Send accept back (don't duplicate the state updates already done above)
       acceptFriendRequestAction(partnerPubkey).catch(() => {});
       return;
     }
   }
 
-  store.dispatch(
+  dispatch(
     addFriendRequest({
       id: dm.wrapId,
       pubkey: partnerPubkey,
@@ -1338,13 +1373,13 @@ function handleFriendAcceptWrap(
     ? dm.tags.find((t) => t[0] === "p" && t[1] !== myPubkey)?.[1] ?? dm.sender
     : dm.sender;
 
-  const frState = store.getState().friendRequests;
+  const frState = getState().friendRequests;
 
   // Dedup check
   if (frState.processedWrapIds.includes(dm.wrapId)) return;
 
   // Track wrap ID to prevent re-processing (was previously missing)
-  store.dispatch(addProcessedWrapId(dm.wrapId));
+  dispatch(addProcessedWrapId(dm.wrapId));
 
   // For incoming accepts: if they're accepting our request, clear from removed list.
   // For own self-wraps of old accepts: skip if partner was removed (relay resurrection).
@@ -1352,19 +1387,19 @@ function handleFriendAcceptWrap(
     if (isOwnMessage) {
       return;
     }
-    store.dispatch(clearRemovedPubkey(partnerPubkey));
+    dispatch(clearRemovedPubkey(partnerPubkey));
   }
 
   if (!isOwnMessage) {
     // They accepted our request
-    store.dispatch(markOutgoingAccepted(partnerPubkey));
-    store.dispatch(acceptFriendRequest(partnerPubkey));
+    dispatch(markOutgoingAccepted(partnerPubkey));
+    dispatch(acceptFriendRequest(partnerPubkey));
     // They accepted, so they follow us — sync knownFollowers
-    store.dispatch(addKnownFollower(partnerPubkey));
+    dispatch(addKnownFollower(partnerPubkey));
     // Auto-follow: friendship implies mutual following.
     // acceptFriendRequestAction handles this for the accepting side,
     // but the sender also needs to follow back when the accept arrives.
-    const currentFollows = store.getState().identity.followList;
+    const currentFollows = getState().identity.followList;
     if (!currentFollows.includes(partnerPubkey)) {
       followUser(partnerPubkey).catch((err) => {
         console.error("[FriendReq] Auto-follow on accept receipt failed:", err);
@@ -1384,15 +1419,15 @@ function handleFriendRemoveWrap(
     ? dm.tags.find((t) => t[0] === "p" && t[1] !== myPubkey)?.[1] ?? dm.sender
     : dm.sender;
 
-  const frState = store.getState().friendRequests;
+  const frState = getState().friendRequests;
 
   // Dedup check
   if (frState.processedWrapIds.includes(dm.wrapId)) return;
-  store.dispatch(addProcessedWrapId(dm.wrapId));
+  dispatch(addProcessedWrapId(dm.wrapId));
 
   if (!isOwnMessage) {
     // The other user removed us as a friend — clear all request state for them
-    store.dispatch(removeFriend(partnerPubkey));
+    dispatch(removeFriend(partnerPubkey));
   }
 }
 
@@ -1418,11 +1453,11 @@ function handleCallInviteWrap(
   const isOwnMessage = dm.sender === myPubkey;
   if (isOwnMessage) return; // Ignore our own outgoing invites
 
-  const callState = store.getState().call;
+  const callState = getState().call;
 
   // Dedup: never re-ring on the same wrap (survives reload / user switch via IDB).
   if (callState.processedWrapIds.includes(dm.wrapId)) return;
-  store.dispatch(addProcessedCallWrapId(dm.wrapId));
+  dispatch(addProcessedCallWrapId(dm.wrapId));
 
   // Drop stale invites resurfaced from relay storage on reconnect.
   if (!isCallWrapFresh(dm.createdAt)) return;
@@ -1439,7 +1474,7 @@ function handleCallInviteWrap(
 
     callLog.info(`incoming invite from=${shortKey(dm.sender)} type=${payload.callType}`);
 
-    store.dispatch(
+    dispatch(
       setIncomingCall({
         callerPubkey: dm.sender,
         roomSecretKey: payload.roomSecretKey,
@@ -1461,13 +1496,13 @@ function handleCallDeclineWrap(
   const isOwnMessage = dm.sender === myPubkey;
   if (isOwnMessage) return;
 
-  const callState = store.getState().call;
+  const callState = getState().call;
   if (callState.processedWrapIds.includes(dm.wrapId)) return;
-  store.dispatch(addProcessedCallWrapId(dm.wrapId));
+  dispatch(addProcessedCallWrapId(dm.wrapId));
   if (!isCallWrapFresh(dm.createdAt)) return;
 
   if (callState.activeCall?.partnerPubkey === dm.sender) {
-    store.dispatch(endCall("declined"));
+    dispatch(endCall("declined"));
   }
 }
 
@@ -1479,13 +1514,13 @@ function handleCallMissedWrap(
   const isOwnMessage = dm.sender === myPubkey;
   if (isOwnMessage) return;
 
-  const callState = store.getState().call;
+  const callState = getState().call;
   if (callState.processedWrapIds.includes(dm.wrapId)) return;
-  store.dispatch(addProcessedCallWrapId(dm.wrapId));
+  dispatch(addProcessedCallWrapId(dm.wrapId));
   if (!isCallWrapFresh(dm.createdAt)) return;
 
   if (callState.incomingCall?.callerPubkey === dm.sender) {
-    store.dispatch(missedCall());
+    dispatch(missedCall());
   }
 }
 
@@ -1502,7 +1537,7 @@ function handleDMEditWrap(
   const originalRumorId = dm.tags.find((t) => t[0] === "e")?.[1];
   if (!originalRumorId || !HEX64_RE.test(partnerPubkey)) return;
 
-  store.dispatch(
+  dispatch(
     editDMMessage({
       partnerPubkey,
       rumorId: originalRumorId,
@@ -1527,7 +1562,7 @@ function handleDMDeleteWrap(
   const originalRumorId = dm.tags.find((t) => t[0] === "e")?.[1];
   if (!originalRumorId || !HEX64_RE.test(partnerPubkey)) return;
 
-  store.dispatch(
+  dispatch(
     remoteDeleteDMMessage({
       partnerPubkey,
       rumorId: originalRumorId,
@@ -1539,7 +1574,7 @@ function handleDMDeleteWrap(
 
 /** Handle an incoming WebRTC signaling event (kind:25050) */
 async function handleWebRTCSignal(event: NostrEvent): Promise<void> {
-  const myPubkey = store.getState().identity.pubkey;
+  const myPubkey = getState().identity.pubkey;
   if (!myPubkey || event.pubkey === myPubkey) return;
 
   // Only process signals addressed to us
@@ -1550,7 +1585,7 @@ async function handleWebRTCSignal(event: NostrEvent): Promise<void> {
   // parseRTCSignal runs a NIP-44 decrypt through the signer — on NIP-46
   // that's a bunker round-trip per event, so forged ciphertexts would be
   // a cheap way to spam the user with approval prompts/latency.
-  const activeCall = store.getState().call.activeCall;
+  const activeCall = getState().call.activeCall;
   if (!activeCall || event.pubkey !== activeCall.partnerPubkey) {
     callLog.debug(
       `kind:25050 dropped pre-decrypt (${!activeCall ? "no active call" : "non-partner sender"}) from=${shortKey(event.pubkey)}`,
@@ -1574,3 +1609,42 @@ async function handleWebRTCSignal(event: NostrEvent): Promise<void> {
     console.debug("[webrtc] Signal processing failed:", (err as Error)?.message ?? err);
   }
 }
+
+  return {
+    processIncomingEvent,
+    flushEventPipeline,
+    resetEventPipelineCaches,
+    __sweepForTest,
+  };
+}
+
+// ── Default desktop instance ─────────────────────────────────────────────────
+// Wired with the app's existing singletons. The dispatch/getState arrows are
+// deliberate: they resolve `store.dispatch` at call time, so account-switch
+// store resets and test spies keep working.
+const defaultPipeline = createEventPipeline({
+  dispatch: ((action: Parameters<AppDispatch>[0]) => store.dispatch(action)) as AppDispatch,
+  getState: () => store.getState(),
+  verifier: verifyBridge,
+  persistence: { putEvent, deleteEvent, deleteAddressableEvent },
+  profileCache,
+  decryptQueue,
+});
+
+/**
+ * Main event processing pipeline (default desktop instance):
+ * 1. Structural validation
+ * 2. Dedup check (LRU)
+ * 3. Signature verification (Web Worker)
+ * 4. Dispatch to Redux + index
+ */
+export const processIncomingEvent = defaultPipeline.processIncomingEvent;
+
+/** Apply all buffered burst-path ops in one batch — see createEventPipeline. */
+export const flushEventPipeline = defaultPipeline.flushEventPipeline;
+
+/** Clear all pipeline caches (used during account switch). */
+export const resetEventPipelineCaches = defaultPipeline.resetEventPipelineCaches;
+
+/** Test-only: run the sweep with explicit caps (so a test needn't seed 20k events). */
+export const __sweepForTest = defaultPipeline.__sweepForTest;

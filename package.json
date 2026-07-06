@@ -21,6 +21,7 @@
     "seed:demo": "tsx --env-file=services/backend/.env scripts/seed-demo.ts",
     "seed:reset": "tsx --env-file=services/backend/.env scripts/seed-demo.ts --reset",
     "seed:clean": "tsx --env-file=services/backend/.env scripts/seed-demo.ts --clean",
+    "test:core": "pnpm --filter @thewired/core test",
     "test:client": "pnpm --filter @thewired/client test",
     "test:client:watch": "pnpm --filter @thewired/client test:watch",
     "test:client:coverage": "pnpm --filter @thewired/client test:coverage",
@@ -28,7 +29,7 @@
     "test:mobile": "pnpm --filter @thewired/mobile test",
     "test:gateway": "cd services/gateway && go test ./...",
     "test:relay": "cd services/relay && cargo test",
-    "test:all": "pnpm test:client && pnpm test:backend && pnpm test:gateway && pnpm test:relay",
+    "test:all": "pnpm test:core && pnpm test:client && pnpm test:backend && pnpm test:gateway && pnpm test:relay",
     "test:e2e": "pnpm --filter @thewired/client test:e2e"
   },
   "pnpm": {

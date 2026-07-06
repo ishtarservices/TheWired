@@ -1,7 +1,7 @@
 import { describe, it, expect } from "vitest";
 import { schnorr } from "@noble/curves/secp256k1";
 import { sha256 } from "@noble/hashes/sha256";
-import { bytesToHex } from "@noble/hashes/utils";
+import { bytesToHex, utf8ToBytes } from "@noble/hashes/utils";
 import { verifyEventSync, type VerifiableEvent } from "../verifyEvent";
 
 /** Build a genuinely schnorr-signed event with a correct id. */
@@ -13,7 +13,7 @@ function signed(over: Partial<VerifiableEvent> = {}): VerifiableEvent {
   const tags = over.tags ?? [];
   const content = over.content ?? "hello";
   const ser = JSON.stringify([0, pubkey, created_at, kind, tags, content]);
-  const id = bytesToHex(sha256(new TextEncoder().encode(ser)));
+  const id = bytesToHex(sha256(utf8ToBytes(ser)));
   const sig = bytesToHex(schnorr.sign(id, sk));
   return { id, pubkey, created_at, kind, tags, content, sig, ...over };
 }

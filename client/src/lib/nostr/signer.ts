@@ -1,10 +1,11 @@
-import type { NostrEvent, UnsignedEvent } from "../../types/nostr";
+import type { EventSigner } from "@thewired/core";
 
-/** Abstract signer interface */
-export interface NostrSigner {
-  getPublicKey(): Promise<string>;
-  signEvent(unsigned: UnsignedEvent): Promise<NostrEvent>;
-}
+/**
+ * Abstract signer interface — now the core `EventSigner` (one signer contract
+ * for desktop + mobile; the NIP-44-capable extension is core's `SignerAdapter`).
+ * The desktop name is kept as an alias so nothing churns.
+ */
+export type NostrSigner = EventSigner;
 
 /** Detect which signer is available */
 export async function detectSigner(): Promise<"nip07" | "tauri" | null> {
