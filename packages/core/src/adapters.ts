@@ -39,8 +39,10 @@ export interface VerifierAdapter {
 // ─── Storage ─────────────────────────────────────────────────────────
 
 /**
- * The 8 logical stores of the desktop IndexedDB schema (+ audio blob cache).
+ * The logical stores of the desktop IndexedDB schema (+ audio blob cache).
  * Maps 1:1 to IDB object stores on desktop and SQLite tables on mobile.
+ * dm_messages/dm_state carry decrypted NIP-17 rumors + conversation state —
+ * local-only by design (rumors are never re-published).
  */
 export type StoreName =
   | "events"
@@ -50,7 +52,9 @@ export type StoreName =
   | "aiConversations"
   | "aiMessages"
   | "aiPendingWrites"
-  | "articleDrafts";
+  | "articleDrafts"
+  | "dm_messages"
+  | "dm_state";
 
 /** Minimal KV surface the lib/db store wrappers need (get/put/delete/iterate). */
 export interface KVStore<T> {

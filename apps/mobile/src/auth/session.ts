@@ -25,6 +25,21 @@ export const GUEST_MODE_KEY = "session.guest";
  */
 export function hydrateSession(): AppThunk<Promise<void>> {
   return async (dispatch, _getState, { adapters }) => {
+    // Dev-only QA hook: `EXPO_PUBLIC_QA_NSEC=nsec… expo start` auto-logs the
+    // simulator in (simctl can't drive taps, so headless QA can't type a key).
+    // Compiled out of release builds (__DEV__) and inert unless the var was
+    // set at bundle time. Deliberately NOT persisted to the keychain.
+    if (__DEV__ && process.env.EXPO_PUBLIC_QA_NSEC) {
+      try {
+        const keys = parseSecretInput(process.env.EXPO_PUBLIC_QA_NSEC);
+        adapters.signer = new LocalNsecSigner(keys.secretKey);
+        dispatch(setIdentity({ pubkey: keys.pubkey, signerType: "local_nsec" }));
+        return;
+      } catch {
+        // fall through to the normal hydration path
+      }
+    }
+
     try {
       const stored = await adapters.secretStore.getSecret(NSEC_SECRET_KEY);
       if (stored) {

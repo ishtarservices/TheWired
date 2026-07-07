@@ -24,6 +24,8 @@ const STORE_NAMES: StoreName[] = [
   "aiMessages",
   "aiPendingWrites",
   "articleDrafts",
+  "dm_messages",
+  "dm_state",
 ];
 
 /** The slice of expo-sqlite's SQLiteDatabase this adapter uses — injectable

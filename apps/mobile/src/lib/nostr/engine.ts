@@ -5,8 +5,10 @@
 // cold-start hydration, the feed/profile subscriptions, publishing, and the
 // lifecycle edges (suspend/resume with fresh `since`).
 
+import { KIND_GIFT_WRAP } from "@thewired/core";
 import type { NostrEvent, NostrFilter, UnsignedEvent } from "@thewired/shared-types";
 
+import { createDmEngine, type DmEngine } from "./dmEngine";
 import { createRelayPool, type RelayPool } from "./relayPool";
 import { parseProfile, type ProfileMetadata } from "./profiles";
 import type { KVStore, PlatformAdapters } from "@/core/adapters";
@@ -58,6 +60,10 @@ export interface NostrEngine {
   publishNote(content: string): Promise<boolean>;
   /** Pull-to-refresh: re-REQ the feed; resolves on EOSE (or timeout). */
   refreshFeed(): Promise<void>;
+  /** NIP-17: wrap + publish a DM (optimistic; resolves when handed off). */
+  sendDM(recipient: string, content: string): Promise<void>;
+  /** Block flow: drop a DM conversation from Redux + SQLite. */
+  removeDMConversation(peerPubkey: string): Promise<void>;
   handleForeground(): void;
   handleBackground(): void;
   handleOnline(): void;
@@ -145,6 +151,13 @@ export function createNostrEngine(deps: NostrEngineDeps): NostrEngine {
     }
     if (!valid) return; // fail closed
 
+    // Gift wraps route to the DM engine only — never into feed/collector
+    // surfaces (their content is ciphertext until unwrapped).
+    if (event.kind === KIND_GIFT_WRAP) {
+      if (firstTime) dm.handleWrapEvent(event);
+      return;
+    }
+
     if (collector && !collector.events.some((e) => e.id === event.id)) {
       collector.events.push(event);
     }
@@ -169,6 +182,7 @@ export function createNostrEngine(deps: NostrEngineDeps): NostrEngine {
   }
 
   function handleEose(subId: string): void {
+    if (dm.handleEose(subId)) return;
     if (subId === FEED_SUB) {
       flushFeedBuffer();
       dispatch(feedStatusChanged("live"));
@@ -200,6 +214,7 @@ export function createNostrEngine(deps: NostrEngineDeps): NostrEngine {
       dispatch(setRelayStatus({ url, status }));
     },
     onOk: (eventId, accepted) => {
+      dm.handleOk(eventId, accepted);
       const waiter = publishWaiters.get(eventId);
       if (waiter && accepted) {
         clearTimeout(waiter.timer);
@@ -207,6 +222,37 @@ export function createNostrEngine(deps: NostrEngineDeps): NostrEngine {
         waiter.resolve(true);
       }
     },
+  });
+
+  function fetchEventsImpl(filters: NostrFilter[], timeoutMs = 8000): Promise<NostrEvent[]> {
+    const subId = `fetch-${fetchSeq++}`;
+    return new Promise<NostrEvent[]>((resolve) => {
+      const done = () => {
+        const collector = collectors.get(subId);
+        if (!collector) return;
+        collectors.delete(subId);
+        clearTimeout(collector.timer);
+        if (collector.graceTimer) clearTimeout(collector.graceTimer);
+        pool.unsubscribe(subId);
+        resolve(collector.events);
+      };
+      collectors.set(subId, {
+        events: [],
+        done,
+        timer: setTimeout(done, timeoutMs),
+        graceTimer: null,
+      });
+      pool.subscribe(subId, filters);
+    });
+  }
+
+  const dm: DmEngine = createDmEngine({
+    adapters,
+    dispatch,
+    getState,
+    pool,
+    relays,
+    fetchEvents: fetchEventsImpl,
   });
 
   function subscribeFeed(since?: number): void {
@@ -281,14 +327,21 @@ export function createNostrEngine(deps: NostrEngineDeps): NostrEngine {
       const { lastSeenAt } = getState().feed;
       subscribeFeed(lastSeenAt > 0 ? lastSeenAt - RESUME_OVERLAP_SEC : undefined);
       subscribeOwnProfile();
+      if (pubkey && adapters.signer) {
+        await dm.start(pubkey).catch(() => {});
+      }
     },
 
     async setIdentity(pubkey: string | null): Promise<void> {
       if (pubkey === ownPubkey) return;
+      dm.stop();
       ownPubkey = pubkey;
       if (pubkey) {
         await adapters.storage.openForAccount(pubkey).catch(() => {});
         subscribeOwnProfile();
+        if (adapters.signer) {
+          await dm.start(pubkey).catch(() => {});
+        }
       } else {
         pool.unsubscribe(OWN_PROFILE_SUB);
         // Back to the app-global DB (lazy reopen on next access).
@@ -296,27 +349,7 @@ export function createNostrEngine(deps: NostrEngineDeps): NostrEngine {
       }
     },
 
-    fetchEvents(filters: NostrFilter[], timeoutMs = 8000): Promise<NostrEvent[]> {
-      const subId = `fetch-${fetchSeq++}`;
-      return new Promise<NostrEvent[]>((resolve) => {
-        const done = () => {
-          const collector = collectors.get(subId);
-          if (!collector) return;
-          collectors.delete(subId);
-          clearTimeout(collector.timer);
-          if (collector.graceTimer) clearTimeout(collector.graceTimer);
-          pool.unsubscribe(subId);
-          resolve(collector.events);
-        };
-        collectors.set(subId, {
-          events: [],
-          done,
-          timer: setTimeout(done, timeoutMs),
-          graceTimer: null,
-        });
-        pool.subscribe(subId, filters);
-      });
-    },
+    fetchEvents: fetchEventsImpl,
 
     requestProfiles(pubkeys: string[]): void {
       const known = getState().profiles.byPubkey;
@@ -385,14 +418,24 @@ export function createNostrEngine(deps: NostrEngineDeps): NostrEngine {
       });
     },
 
+    sendDM(recipient: string, content: string): Promise<void> {
+      return dm.sendDM(recipient, content);
+    },
+
+    removeDMConversation(peerPubkey: string): Promise<void> {
+      return dm.removeConversation(peerPubkey);
+    },
+
     handleForeground(): void {
       if (!started) return;
       pool.resume();
       // iOS killed the sockets while suspended — rebuild the feed REQ with a
-      // fresh `since` so suspended-time events backfill (guide 06 §2).
+      // fresh `since` so suspended-time events backfill (guide 06 §2). The DM
+      // sub resubscribes with its own (3-day lookback) watermark.
       const { lastSeenAt } = getState().feed;
       subscribeFeed(lastSeenAt > 0 ? lastSeenAt - RESUME_OVERLAP_SEC : undefined);
       subscribeOwnProfile();
+      dm.handleForeground();
     },
 
     handleBackground(): void {
@@ -408,6 +451,7 @@ export function createNostrEngine(deps: NostrEngineDeps): NostrEngine {
     },
 
     destroy(): void {
+      dm.destroy();
       if (feedFlushTimer) clearTimeout(feedFlushTimer);
       for (const timer of profileBatches.values()) clearTimeout(timer);
       profileBatches.clear();

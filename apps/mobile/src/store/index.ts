@@ -7,6 +7,7 @@
 import { configureStore } from "@reduxjs/toolkit";
 
 import type { PlatformAdapters } from "@/core/adapters";
+import { dmSlice } from "./slices/dmSlice";
 import { feedSlice } from "./slices/feedSlice";
 import { identitySlice } from "./slices/identitySlice";
 import { lifecycleSlice } from "./slices/lifecycleSlice";
@@ -27,6 +28,7 @@ export function createStore(adapters: PlatformAdapters) {
       feed: feedSlice.reducer,
       profiles: profilesSlice.reducer,
       moderation: moderationSlice.reducer,
+      dm: dmSlice.reducer,
     },
     middleware: (getDefaultMiddleware) =>
       getDefaultMiddleware({
