@@ -1,5 +1,6 @@
 import { memo, useMemo } from "react";
 import { useNavigation } from "@react-navigation/native";
+import { Zap as ZapIcon } from "lucide-react-native";
 import { Image, Pressable, View } from "react-native";
 import type { NostrEvent } from "@thewired/shared-types";
 
@@ -25,6 +26,7 @@ export interface NoteCardProps {
 export const NoteCard = memo(function NoteCard({ event, onPress, onLongPress }: NoteCardProps) {
   const navigation = useNavigation();
   const profile = useAppSelector((s) => s.profiles.byPubkey[event.pubkey]);
+  const zaps = useAppSelector((s) => s.zaps.byEvent[event.id]);
   const { text, images } = useMemo(() => splitNoteContent(event.content), [event.content]);
   const name = profileDisplayName(profile, event.pubkey);
 
@@ -77,6 +79,16 @@ export const NoteCard = memo(function NoteCard({ event, onPress, onLongPress }: 
             </View>
           ) : null}
         </Pressable>
+      ) : null}
+
+      {zaps && zaps.count > 0 ? (
+        <View className="mt-2.5 flex-row items-center gap-1">
+          <ZapIcon size={12} color="#eab308" fill="#eab308" strokeWidth={1} />
+          <Type role="micro" tabular weight={500} className="text-muted">
+            {Math.round(zaps.msat / 1000).toLocaleString()} sats
+            {zaps.count > 1 ? ` · ${zaps.count} zaps` : ""}
+          </Type>
+        </View>
       ) : null}
     </Card>
   );

@@ -5,6 +5,7 @@ import { Screen } from "@/components/layout/Screen";
 import { Card } from "@/components/ui/Card";
 import { SectionHeader } from "@/components/ui/SectionHeader";
 import { Type } from "@/components/ui/Type";
+import { WalletSection } from "@/components/zaps/WalletSection";
 import { haptics } from "@/lib/haptics";
 import { deriveTokens } from "@/theme/engine";
 import { PRESETS } from "@/theme/presets";
@@ -102,12 +103,13 @@ export function SettingsScreen() {
         reduce-motion setting always wins
       </Type>
 
+      <WalletSection />
+
       <SectionHeader label="coming soon" />
       <Card>
         <Type role="caption" className="leading-5 text-muted">
-          Security, wallet, relays and feature toggles land with their
-          surfaces (Phase 2+). Host-relay and the auto-updater stay
-          desktop-only.
+          Security, relays and feature toggles land with their surfaces
+          (Phase 2+). Host-relay and the auto-updater stay desktop-only.
         </Type>
       </Card>
     </Screen>

@@ -53,6 +53,10 @@ export function NoteThreadScreen({ route, navigation }: Props) {
       })
       .catch(() => !cancelled && setReplies([]));
 
+    // Zap receipts for the root — the engine folds them into zapsSlice, which
+    // the NoteCard footer renders (W6: counts update when receipts are seen).
+    engine.fetchEvents([{ kinds: [9735], "#e": [noteId], limit: 100 }]).catch(() => {});
+
     // Backfill authors for names/avatars once replies land.
     return () => {
       cancelled = true;

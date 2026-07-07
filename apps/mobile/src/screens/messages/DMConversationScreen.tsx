@@ -33,7 +33,7 @@ import { useTheme } from "@/theme/ThemeContext";
 
 type Props = NativeStackScreenProps<MessagesStackParamList, "DMConversation">;
 
-/** A message row or a day separator, for the inverted FlatList. */
+/** A message row or a day separator. */
 type Row =
   | { kind: "message"; message: DMMessage }
   | { kind: "day"; label: string; key: string };
@@ -80,6 +80,7 @@ export function DMConversationScreen({ route, navigation }: Props) {
   const [draft, setDraft] = useState("");
   const [sendError, setSendError] = useState<string | null>(null);
   const sheetRef = useRef<ActionsSheetRef>(null);
+  const listRef = useRef<FlatList<Row>>(null);
   const [sheetTarget, setSheetTarget] = useState<DMMessage | null>(null);
 
   const peerName = profileDisplayName(profile, peer);
@@ -100,19 +101,21 @@ export function DMConversationScreen({ route, navigation }: Props) {
     }, [dispatch, peer]),
   );
 
-  // Inverted list: newest first, day separators AFTER (visually above) the
-  // last message of each day.
+  // Ascending order with a day separator before each day's first message.
+  // Deliberately NOT an inverted FlatList — the scaleY:-1 trick renders
+  // persistently blurry content under RN 0.86's new architecture; we scroll
+  // to the end instead.
   const rows = useMemo<Row[]>(() => {
     const list = messages ?? [];
     const out: Row[] = [];
-    for (let i = list.length - 1; i >= 0; i--) {
-      const msg = list[i];
-      out.push({ kind: "message", message: msg });
-      const prev = i > 0 ? list[i - 1] : null;
+    let lastDay: string | null = null;
+    for (const msg of list) {
       const label = dayLabel(msg.createdAt);
-      if (!prev || dayLabel(prev.createdAt) !== label) {
+      if (label !== lastDay) {
         out.push({ kind: "day", label, key: `day-${msg.wrapId}` });
+        lastDay = label;
       }
+      out.push({ kind: "message", message: msg });
     }
     return out;
   }, [messages]);
@@ -258,25 +261,26 @@ export function DMConversationScreen({ route, navigation }: Props) {
       className="flex-1 bg-background"
     >
       <FlatList
+        ref={listRef}
         data={rows}
-        inverted
         keyExtractor={(item) => (item.kind === "day" ? item.key : item.message.wrapId)}
         renderItem={renderRow}
         contentContainerStyle={{
           paddingHorizontal: 14,
-          // inverted: "top" padding is the visual bottom (composer side)
-          paddingTop: 10,
-          paddingBottom: insets.headerHeight + 12,
+          paddingTop: insets.headerHeight + 10,
+          paddingBottom: 10,
           flexGrow: 1,
+          justifyContent: "flex-end",
+        }}
+        onContentSizeChange={() => {
+          if (rows.length > 0) listRef.current?.scrollToEnd({ animated: false });
         }}
         ListEmptyComponent={
-          <View style={{ transform: [{ scaleY: -1 }] }}>
-            <EmptyState
-              icon={MessageCircle}
-              title={`Say hi to ${peerName}`}
-              message="Messages are end-to-end encrypted — only the two of you can read them."
-            />
-          </View>
+          <EmptyState
+            icon={MessageCircle}
+            title={`Say hi to ${peerName}`}
+            message="Messages are end-to-end encrypted — only the two of you can read them."
+          />
         }
         keyboardDismissMode="interactive"
       />
@@ -290,7 +294,7 @@ export function DMConversationScreen({ route, navigation }: Props) {
       ) : (
         <View
           className="flex-row items-end gap-2 border-t border-border-light bg-background px-3 pt-2"
-          style={{ paddingBottom: Math.max(safe.bottom, 8) }}
+          style={{ paddingBottom: Math.max(insets.bottom, safe.bottom, 8) + 6 }}
         >
           <TextInput
             value={draft}

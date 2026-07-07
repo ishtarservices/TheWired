@@ -1,11 +1,12 @@
 import { useCallback, useMemo, useRef, useState, type ReactNode } from "react";
 import { Alert } from "react-native";
 import * as Clipboard from "expo-clipboard";
-import { Ban, Copy, Flag, Link2 } from "lucide-react-native";
+import { Ban, Copy, Flag, Link2, Zap } from "lucide-react-native";
 import { nip19 } from "nostr-tools";
 import type { NostrEvent } from "@thewired/shared-types";
 
 import { ActionsSheet, type ActionsSheetRef } from "@/components/ui/ActionsSheet";
+import { ZapSheet, type ZapTarget } from "@/components/zaps/ZapSheet";
 import { haptics } from "@/lib/haptics";
 import { profileDisplayName } from "@/lib/nostr/profiles";
 import { blockUser, reportEvent } from "@/store/moderation";
@@ -29,6 +30,7 @@ export function useNoteActions(): NoteActions {
   const dispatch = useAppDispatch();
   const sheetRef = useRef<ActionsSheetRef>(null);
   const [event, setEvent] = useState<NostrEvent | null>(null);
+  const [zapTarget, setZapTarget] = useState<ZapTarget | null>(null);
 
   const profile = useAppSelector((s) =>
     event ? s.profiles.byPubkey[event.pubkey] : undefined,
@@ -47,6 +49,15 @@ export function useNoteActions(): NoteActions {
     if (!event) return [];
     const name = profileDisplayName(profile, event.pubkey);
     return [
+      {
+        icon: Zap,
+        label: `Tip ${name}`,
+        sublabel: "Send sats as a zap — a tip between people",
+        onPress: () => {
+          sheetRef.current?.dismiss();
+          setZapTarget({ recipientPubkey: event.pubkey, event });
+        },
+      },
       {
         icon: Copy,
         label: "Copy text",
@@ -109,6 +120,11 @@ export function useNoteActions(): NoteActions {
 
   return {
     open,
-    sheet: <ActionsSheet ref={sheetRef} title={title} actions={actions} />,
+    sheet: (
+      <>
+        <ActionsSheet ref={sheetRef} title={title} actions={actions} />
+        <ZapSheet target={zapTarget} onClose={() => setZapTarget(null)} />
+      </>
+    ),
   };
 }

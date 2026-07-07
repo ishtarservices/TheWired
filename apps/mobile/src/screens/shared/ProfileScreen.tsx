@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import type { NativeStackScreenProps } from "@react-navigation/native-stack";
 import * as Clipboard from "expo-clipboard";
-import { Ban, Check, Copy, EllipsisVertical, UserRound } from "lucide-react-native";
+import { Ban, Check, Copy, EllipsisVertical, UserRound, Zap } from "lucide-react-native";
 import { nip19 } from "nostr-tools";
 import { Alert, FlatList, Image, Pressable, View } from "react-native";
 import type { NostrEvent } from "@thewired/shared-types";
@@ -15,6 +15,7 @@ import { Button } from "@/components/ui/Button";
 import { EmptyState } from "@/components/ui/EmptyState";
 import { SectionHeader } from "@/components/ui/SectionHeader";
 import { Type } from "@/components/ui/Type";
+import { ZapSheet, type ZapTarget } from "@/components/zaps/ZapSheet";
 import { useEngine } from "@/lib/nostr/EngineContext";
 import { haptics } from "@/lib/haptics";
 import { safeImageUri } from "@/lib/nostr/noteContent";
@@ -42,6 +43,7 @@ export function ProfileScreen({ route }: Props) {
   const isBlocked = useAppSelector((s) => !!s.moderation.mutedPubkeys[pubkey]);
   const [notes, setNotes] = useState<NostrEvent[] | null>(null);
   const [copied, setCopied] = useState(false);
+  const [zapTarget, setZapTarget] = useState<ZapTarget | null>(null);
 
   const npub = useMemo(() => {
     try {
@@ -115,14 +117,29 @@ export function ProfileScreen({ route }: Props) {
           <View className="rounded-full border-4 border-background">
             <Avatar uri={profile?.picture} pubkey={pubkey} name={name} size={80} />
           </View>
-          <Pressable
-            accessibilityRole="button"
-            accessibilityLabel="User actions"
-            onPress={openUserActions}
-            className="mb-1 h-10 w-10 items-center justify-center rounded-full bg-surface-hover"
-          >
-            <EllipsisVertical size={18} color={tokens.soft} />
-          </Pressable>
+          <View className="mb-1 flex-row items-center gap-2">
+            {profile?.lud16 || profile?.lud06 ? (
+              <Pressable
+                accessibilityRole="button"
+                accessibilityLabel={`Tip ${name}`}
+                onPress={() => {
+                  haptics.tap();
+                  setZapTarget({ recipientPubkey: pubkey });
+                }}
+                className="h-10 w-10 items-center justify-center rounded-full bg-surface-hover"
+              >
+                <Zap size={17} color={tokens.warning} />
+              </Pressable>
+            ) : null}
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel="User actions"
+              onPress={openUserActions}
+              className="h-10 w-10 items-center justify-center rounded-full bg-surface-hover"
+            >
+              <EllipsisVertical size={18} color={tokens.soft} />
+            </Pressable>
+          </View>
         </View>
 
         <Type role="title" className="mt-3 text-heading" numberOfLines={1}>
@@ -220,6 +237,7 @@ export function ProfileScreen({ route }: Props) {
         }
       />
       {noteActions.sheet}
+      <ZapSheet target={zapTarget} onClose={() => setZapTarget(null)} />
     </View>
   );
 }

@@ -6,12 +6,13 @@
 // lifecycle edges (suspend/resume with fresh `since`).
 
 import { KIND_GIFT_WRAP } from "@thewired/core";
+import { getSatoshisAmountFromBolt11 } from "nostr-tools/nip57";
 import type { NostrEvent, NostrFilter, UnsignedEvent } from "@thewired/shared-types";
 
 import { createDmEngine, type DmEngine } from "./dmEngine";
 import { createRelayPool, type RelayPool } from "./relayPool";
 import { parseProfile, type ProfileMetadata } from "./profiles";
-import type { KVStore, PlatformAdapters } from "@/core/adapters";
+import type { KVStore, PlatformAdapters, SignerAdapter } from "@/core/adapters";
 import type { AppDispatch, RootState } from "@/store";
 import {
   feedEventsReceived,
@@ -20,6 +21,7 @@ import {
 } from "@/store/slices/feedSlice";
 import { profileReceived, profilesHydrated } from "@/store/slices/profilesSlice";
 import { setRelayStatus } from "@/store/slices/relaysSlice";
+import { zapReceiptSeen } from "@/store/slices/zapsSlice";
 
 /** 3 sockets max on mobile — battery discipline (guide 06 §3). */
 export const DEFAULT_RELAYS = [
@@ -60,6 +62,12 @@ export interface NostrEngine {
   publishNote(content: string): Promise<boolean>;
   /** Pull-to-refresh: re-REQ the feed; resolves on EOSE (or timeout). */
   refreshFeed(): Promise<void>;
+  /** The active signer (null when logged out/guest) — for NIP-98/zap flows
+   *  that sign outside the engine's own publish paths. */
+  getSigner(): SignerAdapter | null;
+  /** The platform adapters — for per-screen sessions (space chat) and the
+   *  wallet client, which own their own on-demand sockets. */
+  getAdapters(): PlatformAdapters;
   /** NIP-17: wrap + publish a DM (optimistic; resolves when handed off). */
   sendDM(recipient: string, content: string): Promise<void>;
   /** Block flow: drop a DM conversation from Redux + SQLite. */
@@ -156,6 +164,26 @@ export function createNostrEngine(deps: NostrEngineDeps): NostrEngine {
     if (event.kind === KIND_GIFT_WRAP) {
       if (firstTime) dm.handleWrapEvent(event);
       return;
+    }
+
+    // kind-9735 zap receipts fold into the aggregate slice (never stored as
+    // full events — desktop pattern) but still reach collectors so a
+    // NoteThread one-shot fetch can pull them.
+    if (event.kind === 9735 && firstTime) {
+      const targetId = event.tags.find((t) => t[0] === "e")?.[1];
+      const bolt11 = event.tags.find((t) => t[0] === "bolt11")?.[1];
+      if (targetId && bolt11) {
+        try {
+          const sats = getSatoshisAmountFromBolt11(bolt11);
+          if (sats > 0) {
+            dispatch(
+              zapReceiptSeen({ receiptId: event.id, targetEventId: targetId, msat: sats * 1000 }),
+            );
+          }
+        } catch {
+          // malformed bolt11 — ignore
+        }
+      }
     }
 
     if (collector && !collector.events.some((e) => e.id === event.id)) {
@@ -416,6 +444,14 @@ export function createNostrEngine(deps: NostrEngineDeps): NostrEngine {
         };
         eoseWaiters.push(wrapped);
       });
+    },
+
+    getSigner(): SignerAdapter | null {
+      return adapters.signer;
+    },
+
+    getAdapters(): PlatformAdapters {
+      return adapters;
     },
 
     sendDM(recipient: string, content: string): Promise<void> {

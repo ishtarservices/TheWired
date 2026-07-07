@@ -18,6 +18,41 @@ function rootScreen(name: keyof RootStackParamList, params: object): ResultState
   } as unknown as ResultState;
 }
 
+/** A single screen inside one tab's stack. Deep links into nested stack
+ *  screens must NOT materialize the parent screens beneath them — a
+ *  simultaneous multi-screen push wedges the native stack transition on
+ *  iOS 26 (react-native-screens 4.25): the top screen never presents and the
+ *  one beneath stays dimmed. Single-route states present instantly. */
+function tabScreen(tab: string, screen: string, params: object): ResultState {
+  return {
+    routes: [
+      {
+        name: "Tabs",
+        state: {
+          routes: [{ name: tab, state: { routes: [{ name: screen, params }] } }],
+        },
+      },
+    ],
+  } as unknown as ResultState;
+}
+
+/** Nested-stack paths that need single-route states (see tabScreen). */
+function stateFromNestedPath(path: string): ResultState | undefined {
+  const clean = path.replace(/^\/+/, "").split("?")[0];
+
+  const dm = /^dm\/([0-9a-f]{64})$/i.exec(clean);
+  if (dm) return tabScreen("MessagesTab", "DMConversation", { pubkey: dm[1] });
+
+  const channel = /^space\/([^/]+)\/channel\/([^/]+)$/.exec(clean);
+  if (channel) {
+    return tabScreen("SpacesTab", "Channel", {
+      spaceId: decodeURIComponent(channel[1]),
+      channelId: decodeURIComponent(channel[2]),
+    });
+  }
+  return undefined;
+}
+
 /** nostr:npub… / note… / nevent… / naddr… → Profile / NoteThread / Article. */
 function stateFromNostrEntity(path: string): ResultState | undefined {
   const entity = path.replace(/^\/+/, "").split("?")[0];
@@ -56,7 +91,13 @@ export const linking: LinkingOptions<RootStackParamList> = {
     screens: {
       Tabs: {
         screens: {
-          SpacesTab: { screens: { SpaceList: "spaces" } },
+          SpacesTab: {
+            screens: {
+              SpaceList: "spaces",
+              Space: "space/:spaceId",
+              Channel: "space/:spaceId/channel/:channelId",
+            },
+          },
           MusicTab: { screens: { MusicHome: "music" } },
           MessagesTab: {
             screens: { DMList: "dm", DMConversation: "dm/:pubkey" },
@@ -73,6 +114,10 @@ export const linking: LinkingOptions<RootStackParamList> = {
     },
   },
   getStateFromPath(path, options) {
-    return stateFromNostrEntity(path) ?? getStateFromPath(path, options);
+    return (
+      stateFromNostrEntity(path) ??
+      stateFromNestedPath(path) ??
+      getStateFromPath(path, options)
+    );
   },
 };

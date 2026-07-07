@@ -14,6 +14,7 @@ import { lifecycleSlice } from "./slices/lifecycleSlice";
 import { moderationSlice } from "./slices/moderationSlice";
 import { profilesSlice } from "./slices/profilesSlice";
 import { relaysSlice } from "./slices/relaysSlice";
+import { zapsSlice } from "./slices/zapsSlice";
 
 export interface ThunkExtra {
   adapters: PlatformAdapters;
@@ -29,6 +30,7 @@ export function createStore(adapters: PlatformAdapters) {
       profiles: profilesSlice.reducer,
       moderation: moderationSlice.reducer,
       dm: dmSlice.reducer,
+      zaps: zapsSlice.reducer,
     },
     middleware: (getDefaultMiddleware) =>
       getDefaultMiddleware({

@@ -32,6 +32,8 @@ export interface RelayPoolCallbacks {
   onStatus(url: string, status: RelayStatus): void;
   /** OK frames — publish acknowledgements. */
   onOk?(eventId: string, accepted: boolean, message: string, relayUrl: string): void;
+  /** NIP-42 challenge — respond via auth() when a signer is available. */
+  onAuth?(challenge: string, relayUrl: string): void;
 }
 
 export interface RelayPool {
@@ -43,6 +45,8 @@ export interface RelayPool {
   unsubscribe(subId: string): void;
   /** Send EVENT to every open relay; queued per-relay while connecting. */
   publish(event: NostrEvent): void;
+  /** NIP-42: send a signed kind-22242 AUTH response (to one relay, or all). */
+  auth(event: NostrEvent, relayUrl?: string): void;
   /** Background: close sockets + cancel timers; subscriptions stay
    *  registered for resume(). */
   suspend(): void;
@@ -130,8 +134,10 @@ export function createRelayPool(
       case "NOTICE":
         console.warn(`[pool] ${conn.url} NOTICE: ${msg[1]}`);
         break;
-      // AUTH: the public bootstrap set doesn't challenge; NIP-42 lands with
-      // the shared core.
+      case "AUTH":
+        // NIP-42 challenge (the platform relay gates group-chat reads).
+        callbacks.onAuth?.(msg[1], conn.url);
+        break;
     }
   }
 
@@ -246,6 +252,15 @@ export function createRelayPool(
     publish(event: NostrEvent): void {
       for (const conn of conns.values()) {
         send(conn, ["EVENT", event]);
+      }
+    },
+
+    auth(event: NostrEvent, relayUrl?: string): void {
+      for (const conn of conns.values()) {
+        if (relayUrl && conn.url !== relayUrl) continue;
+        if (conn.ws && conn.ws.readyState === WS_OPEN) {
+          conn.ws.send(JSON.stringify(["AUTH", event]));
+        }
       }
     },
 
