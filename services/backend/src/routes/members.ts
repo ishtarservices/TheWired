@@ -110,9 +110,20 @@ export const membersRoutes: FastifyPluginAsync = async (server) => {
     await db
       .delete(memberRoles)
       .where(and(eq(memberRoles.spaceId, id), eq(memberRoles.pubkey, pubkey)));
-    await db
+    const removed = await db
       .delete(spaceMembers)
-      .where(and(eq(spaceMembers.spaceId, id), eq(spaceMembers.pubkey, pubkey)));
+      .where(and(eq(spaceMembers.spaceId, id), eq(spaceMembers.pubkey, pubkey)))
+      .returning({ pubkey: spaceMembers.pubkey });
+
+    // Keep the denormalized counter in step with the rows — join increments,
+    // so leave must decrement (idempotent: a repeat leave removes no row and
+    // decrements nothing; clamped so drifted rows can't go negative).
+    if (removed.length > 0) {
+      await db
+        .update(spaces)
+        .set({ memberCount: sql`GREATEST(${spaces.memberCount} - 1, 0)` })
+        .where(eq(spaces.id, id));
+    }
 
     return { data: { left: true } };
   });
