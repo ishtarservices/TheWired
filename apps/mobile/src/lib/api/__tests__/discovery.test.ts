@@ -1,4 +1,4 @@
-import { parseListedSpaces } from "../discovery";
+import { parseCategories, parseListedSpaces } from "../discovery";
 
 const SPACE = {
   id: "seed1",
@@ -55,5 +55,27 @@ describe("parseListedSpaces", () => {
       data: [{ ...SPACE, tags: ["good", 42, null, "also"] }],
     });
     expect(spaces[0].tags).toEqual(["good", "also"]);
+  });
+});
+
+describe("parseCategories", () => {
+  it("parses slug-keyed rows with spaceCount", () => {
+    const categories = parseCategories({
+      data: [
+        { slug: "culture", name: "Culture", spaceCount: 7, icon: "🎌", position: 1 },
+        { slug: "dev", name: "Dev" },
+        { name: "no slug" },
+        null,
+      ],
+    });
+    expect(categories).toEqual([
+      { slug: "culture", name: "Culture", spaceCount: 7 },
+      { slug: "dev", name: "Dev", spaceCount: 0 },
+    ]);
+  });
+
+  it("degrades to [] on junk", () => {
+    expect(parseCategories(null)).toEqual([]);
+    expect(parseCategories({ data: {} })).toEqual([]);
   });
 });

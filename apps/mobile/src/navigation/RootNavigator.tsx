@@ -20,6 +20,7 @@ import { MediaLightboxScreen } from "@/screens/shared/MediaLightboxScreen";
 import { NoteThreadScreen } from "@/screens/shared/NoteThreadScreen";
 import { NowPlayingScreen } from "@/screens/shared/NowPlayingScreen";
 import { ProfileScreen } from "@/screens/shared/ProfileScreen";
+import { VideoPlayerScreen } from "@/screens/shared/VideoPlayerScreen";
 import { useAppSelector } from "@/store/hooks";
 
 const Root = createNativeStackNavigator<RootStackParamList>();
@@ -63,6 +64,7 @@ export function RootNavigator() {
           {/* Full-screen takeovers */}
           <Root.Group screenOptions={{ presentation: "fullScreenModal", headerShown: false }}>
             <Root.Screen name="MediaLightbox" component={MediaLightboxScreen} />
+            <Root.Screen name="VideoPlayer" component={VideoPlayerScreen} />
             <Root.Screen name="IncomingCall" component={IncomingCallScreen} />
           </Root.Group>
 

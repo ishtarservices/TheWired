@@ -50,6 +50,25 @@ function stateFromNestedPath(path: string): ResultState | undefined {
       channelId: decodeURIComponent(channel[2]),
     });
   }
+
+  const members = /^space\/([^/]+)\/members$/.exec(clean);
+  if (members) {
+    return tabScreen("SpacesTab", "SpaceMembers", {
+      spaceId: decodeURIComponent(members[1]),
+    });
+  }
+
+  // space/:id/feed/:channelType/:channelId(?label=…) — the four feed channels.
+  const feed = /^space\/([^/]+)\/feed\/(notes|media|articles|music)\/([^/]+)$/.exec(clean);
+  if (feed) {
+    const label = /[?&]label=([^&]+)/.exec(path.split("?")[1] ?? "");
+    return tabScreen("SpacesTab", "SpaceFeed", {
+      spaceId: decodeURIComponent(feed[1]),
+      channelType: feed[2],
+      channelId: decodeURIComponent(feed[3]),
+      label: label ? decodeURIComponent(label[1]) : feed[2],
+    });
+  }
   return undefined;
 }
 
@@ -93,7 +112,8 @@ export const linking: LinkingOptions<RootStackParamList> = {
         screens: {
           SpacesTab: {
             screens: {
-              SpaceList: "spaces",
+              SpacesHome: "spaces",
+              Discover: "discover",
               Space: "space/:spaceId",
               Channel: "space/:spaceId/channel/:channelId",
             },

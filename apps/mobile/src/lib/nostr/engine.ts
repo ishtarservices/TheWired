@@ -23,12 +23,10 @@ import { profileReceived, profilesHydrated } from "@/store/slices/profilesSlice"
 import { setRelayStatus } from "@/store/slices/relaysSlice";
 import { zapReceiptSeen } from "@/store/slices/zapsSlice";
 
-/** 3 sockets max on mobile — battery discipline (guide 06 §3). */
-export const DEFAULT_RELAYS = [
-  "wss://relay.thewired.app",
-  "wss://relay.damus.io",
-  "wss://nos.lol",
-];
+/** 3 sockets max on mobile — battery discipline (guide 06 §3). App relay is
+ *  env-resolved (local :7777 in dev, thewired.app in release — lib/env.ts). */
+export { DEFAULT_RELAYS } from "@/lib/env";
+import { DEFAULT_RELAYS } from "@/lib/env";
 
 const FEED_SUB = "feed-global";
 const OWN_PROFILE_SUB = "own-profile";

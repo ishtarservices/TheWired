@@ -14,6 +14,7 @@ import type { LucideProps } from "lucide-react-native";
 import type { ComponentType } from "react";
 
 import { AIStack, MessagesStack, MusicStack, SpacesStack, YouStack } from "./stacks";
+import { tabResetAction } from "./tabReset";
 import type { MainTabParamList } from "./types";
 import { haptics } from "@/lib/haptics";
 import { GLASS_BLUR_INTENSITY } from "@/theme/constants";
@@ -75,6 +76,15 @@ function GlassTabBackground() {
   );
 }
 
+/** Each tab's root screen — re-pressing the active tab resets to it. */
+const TAB_ROOTS: Record<keyof MainTabParamList, string> = {
+  SpacesTab: "SpacesHome",
+  MusicTab: "MusicHome",
+  MessagesTab: "DMList",
+  AITab: "AIChatList",
+  YouTab: "You",
+};
+
 export function TabNavigator() {
   const { tokens, extras, type } = useTheme();
 
@@ -97,9 +107,22 @@ export function TabNavigator() {
           fontFamily: type("micro").fontFamily,
         },
       }}
-      screenListeners={{
-        tabPress: () => haptics.selection(),
-      }}
+      screenListeners={({ navigation, route }) => ({
+        tabPress: (e) => {
+          haptics.selection();
+          // Re-press on the already-active tab → back to that tab's root
+          // (also the only way out of a deep-linked single-route stack).
+          if (!navigation.isFocused()) return;
+          // Own the re-press: the default POP_TO_TOP can't handle a
+          // single-route stack (dev warning) — swap in a scoped reset.
+          e.preventDefault();
+          const childState = navigation
+            .getState()
+            .routes.find((r) => r.key === route.key)?.state;
+          const action = tabResetAction(childState, TAB_ROOTS[route.name]);
+          if (action) navigation.dispatch(action);
+        },
+      })}
     >
       <Tab.Screen
         name="SpacesTab"

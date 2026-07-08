@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useNavigation } from "@react-navigation/native";
 import type { NativeStackScreenProps } from "@react-navigation/native-stack";
-import { Hash, Send } from "lucide-react-native";
+import { Hash, Send, Users, WifiOff } from "lucide-react-native";
 import {
   FlatList,
   KeyboardAvoidingView,
@@ -20,27 +20,26 @@ import { Button } from "@/components/ui/Button";
 import { EmptyState } from "@/components/ui/EmptyState";
 import { Skeleton, SkeletonCircle } from "@/components/ui/Skeleton";
 import { Type } from "@/components/ui/Type";
-import {
-  fetchSpaceChannels,
-  fetchSpaceDetail,
-  fetchSpaceMemberPubkeys,
-  joinSpace,
-} from "@/lib/api/spaces";
+import { fetchSpaceMemberPubkeys, joinSpace } from "@/lib/api/spaces";
+import { cachedSpaceChannels, cachedSpaceDetail, invalidateSpace } from "@/lib/api/spaceCache";
 import { haptics } from "@/lib/haptics";
 import { createChatSession, type ChatSession } from "@/lib/nostr/chatSession";
 import { DEFAULT_RELAYS } from "@/lib/nostr/engine";
 import { useEngine } from "@/lib/nostr/EngineContext";
 import { profileDisplayName } from "@/lib/nostr/profiles";
-import { formatRelativeTime } from "@/lib/time";
+import { useBackFallback } from "@/navigation/useBackFallback";
 import type { SpacesStackParamList } from "@/navigation/types";
 import { useAppSelector } from "@/store/hooks";
 import { useTheme } from "@/theme/ThemeContext";
+import { buildChatRows, timeLabel, type ChatRow } from "./chatRows";
 
-// Space chat (W6): guest-browsable kind-9 reading over an ON-DEMAND socket to
-// the space's hostRelay (opened for this screen, closed on leave — the
-// resting set stays at the 3 bootstrap sockets). Posting is the gated action:
-// members compose; logged-in non-members get the Join CTA; guests get
-// sign-in buttons. The relay enforces membership via NIP-29 h-tag rules.
+// Space chat (W6, polished): guest-browsable kind-9 reading over an
+// ON-DEMAND socket to the space's hostRelay (opened for this screen, closed
+// on leave — the resting set stays at the 3 bootstrap sockets). Messages
+// group Discord-style (same author within 5 min) under day separators.
+// Posting is the gated action: members compose; logged-in non-members get
+// the Join CTA; guests get sign-in buttons. The relay enforces membership
+// via NIP-29 h-tag rules.
 
 type Props = NativeStackScreenProps<SpacesStackParamList, "Channel">;
 
@@ -69,6 +68,31 @@ export function ChannelScreen({ route, navigation }: Props) {
   const [joining, setJoining] = useState(false);
   const sessionRef = useRef<ChatSession | null>(null);
 
+  // Deep-linked (single-route) mounts have no parent — "up" goes to the space.
+  useBackFallback(
+    navigation,
+    useCallback(() => navigation.replace("Space", { spaceId }), [navigation, spaceId]),
+  );
+
+  // Members icon → the space's roster.
+  useEffect(() => {
+    navigation.setOptions({
+      headerRight: () => (
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel="View members"
+          hitSlop={8}
+          onPress={() => {
+            haptics.selection();
+            navigation.navigate("SpaceMembers", { spaceId });
+          }}
+        >
+          <Users size={20} color={tokens.heading} />
+        </Pressable>
+      ),
+    });
+  }, [navigation, spaceId, tokens]);
+
   // Resolve the space (hostRelay, mode, channel meta), then open the
   // per-screen socket. Falls back to the app relay for platform spaces.
   useEffect(() => {
@@ -76,8 +100,8 @@ export function ChannelScreen({ route, navigation }: Props) {
     let session: ChatSession | null = null;
 
     Promise.all([
-      fetchSpaceDetail(spaceId),
-      fetchSpaceChannels(spaceId).catch(() => []),
+      cachedSpaceDetail(spaceId),
+      cachedSpaceChannels(spaceId).catch(() => []),
     ])
       .then(([detail, channels]) => {
         if (cancelled) return;
@@ -135,6 +159,9 @@ export function ChannelScreen({ route, navigation }: Props) {
     [messages, muted],
   );
 
+  // Day separators + consecutive-author grouping (pure, tested helper).
+  const rows = useMemo(() => buildChatRows(visible), [visible]);
+
   // Backfill kind-0s for chatters.
   const authorsKey = useMemo(
     () => [...new Set(visible.map((m) => m.pubkey))].sort().join(","),
@@ -146,7 +173,7 @@ export function ChannelScreen({ route, navigation }: Props) {
 
   // Ascending order, scroll-to-end — NOT an inverted FlatList (persistently
   // blurry under RN 0.86's new architecture).
-  const listRef = useRef<FlatList<NostrEvent>>(null);
+  const listRef = useRef<FlatList<ChatRow>>(null);
 
   const send = useCallback(() => {
     const session = sessionRef.current;
@@ -168,6 +195,7 @@ export function ChannelScreen({ route, navigation }: Props) {
     joinSpace(spaceId, signer)
       .then(() => {
         haptics.success();
+        invalidateSpace(spaceId);
         setIsMember(true);
       })
       .catch((e) => setSendError(e instanceof Error ? e.message : "Couldn't join."))
@@ -175,21 +203,51 @@ export function ChannelScreen({ route, navigation }: Props) {
   }, [engine, spaceId]);
 
   const renderRow = useCallback(
-    ({ item }: { item: NostrEvent }) => {
-      const profile = profiles[item.pubkey];
-      const name = profileDisplayName(profile, item.pubkey);
+    ({ item }: { item: ChatRow }) => {
+      if (item.kind === "day") {
+        return (
+          <View className="items-center py-3">
+            <View className="rounded-full bg-surface px-3 py-1">
+              <Type role="micro" weight={500} className="text-muted">
+                {item.label}
+              </Type>
+            </View>
+          </View>
+        );
+      }
+      const { event, grouped } = item;
+      const profile = profiles[event.pubkey];
+      const name = profileDisplayName(profile, event.pubkey);
+
+      if (grouped) {
+        // Continuation of the author's run — content only, aligned with the
+        // name column (36pt avatar + 12pt gap).
+        return (
+          <Pressable
+            accessibilityRole="button"
+            onLongPress={() => noteActions.open(event)}
+            delayLongPress={300}
+            className="px-4 py-0.5"
+          >
+            <Type role="body" className="leading-5 text-soft" style={{ marginLeft: 48 }}>
+              {event.content}
+            </Type>
+          </Pressable>
+        );
+      }
+
       return (
         <Pressable
           accessibilityRole="button"
-          onLongPress={() => noteActions.open(item)}
+          onLongPress={() => noteActions.open(event)}
           delayLongPress={300}
-          className="flex-row gap-3 px-4 py-2"
+          className="flex-row gap-3 px-4 pb-0.5 pt-2.5"
         >
           <Pressable
             accessibilityRole="button"
-            onPress={() => rootNavigation.navigate("Profile", { pubkey: item.pubkey })}
+            onPress={() => rootNavigation.navigate("Profile", { pubkey: event.pubkey })}
           >
-            <Avatar uri={profile?.picture} name={name} pubkey={item.pubkey} size={36} />
+            <Avatar uri={profile?.picture} name={name} pubkey={event.pubkey} size={36} />
           </Pressable>
           <View className="flex-1">
             <View className="flex-row items-baseline gap-2">
@@ -197,11 +255,11 @@ export function ChannelScreen({ route, navigation }: Props) {
                 {name}
               </Type>
               <Type role="micro" tabular className="text-faint">
-                {formatRelativeTime(item.created_at)}
+                {timeLabel(event.created_at)}
               </Type>
             </View>
             <Type role="body" className="mt-0.5 leading-5 text-soft">
-              {item.content}
+              {event.content}
             </Type>
           </View>
         </Pressable>
@@ -222,8 +280,8 @@ export function ChannelScreen({ route, navigation }: Props) {
     >
       <FlatList
         ref={listRef}
-        data={visible}
-        keyExtractor={(item) => item.id}
+        data={rows}
+        keyExtractor={(item) => item.key}
         renderItem={renderRow}
         contentContainerStyle={{
           paddingTop: insets.headerHeight + 8,
@@ -232,7 +290,7 @@ export function ChannelScreen({ route, navigation }: Props) {
           justifyContent: "flex-end",
         }}
         onContentSizeChange={() => {
-          if (visible.length > 0) listRef.current?.scrollToEnd({ animated: false });
+          if (rows.length > 0) listRef.current?.scrollToEnd({ animated: false });
         }}
         ListEmptyComponent={
           sessionState === "loading" ? (
@@ -261,6 +319,15 @@ export function ChannelScreen({ route, navigation }: Props) {
         }
         keyboardDismissMode="interactive"
       />
+
+      {sessionState === "error" && visible.length > 0 ? (
+        <View className="mx-3 mb-1 flex-row items-center gap-2 rounded-xl bg-surface px-3 py-2">
+          <WifiOff size={13} color={tokens.warning} />
+          <Type role="micro" weight={500} className="text-muted">
+            Relay unreachable — showing what loaded.
+          </Type>
+        </View>
+      ) : null}
 
       {sendError ? (
         <View className="px-4 pb-1">

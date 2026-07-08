@@ -22,6 +22,7 @@ import { Type } from "@/components/ui/Type";
 import { haptics } from "@/lib/haptics";
 import { useEngine } from "@/lib/nostr/EngineContext";
 import { profileDisplayName } from "@/lib/nostr/profiles";
+import { useBackFallback } from "@/navigation/useBackFallback";
 import type { MessagesStackParamList } from "@/navigation/types";
 import { blockUser, reportEvent } from "@/store/moderation";
 import { useAppDispatch, useAppSelector } from "@/store/hooks";
@@ -84,6 +85,12 @@ export function DMConversationScreen({ route, navigation }: Props) {
   const [sheetTarget, setSheetTarget] = useState<DMMessage | null>(null);
 
   const peerName = profileDisplayName(profile, peer);
+
+  // Deep-linked (single-route) mounts have no parent — "up" goes to the list.
+  useBackFallback(
+    navigation,
+    useCallback(() => navigation.replace("DMList"), [navigation]),
+  );
 
   useEffect(() => {
     navigation.setOptions({ title: peerName });

@@ -6,9 +6,18 @@
 import type { NavigatorScreenParams } from "@react-navigation/native";
 
 export type SpacesStackParamList = {
-  SpaceList: undefined;
+  /** `spaceId` preselects that space's pane (deep links, notification taps). */
+  SpacesHome: { spaceId?: string } | undefined;
+  Discover: undefined;
   Space: { spaceId: string };
   Channel: { spaceId: string; channelId: string };
+  SpaceFeed: {
+    spaceId: string;
+    channelId: string;
+    channelType: "notes" | "media" | "articles" | "music";
+    label: string;
+  };
+  SpaceMembers: { spaceId: string };
   Thread: { spaceId: string; channelId: string; rootEventId: string };
 };
 
@@ -58,6 +67,7 @@ export type RootStackParamList = {
   NowPlaying: undefined;
   Composer: { mode: "note" | "reply" | "quote"; targetEventId?: string } | undefined;
   MediaLightbox: { srcs: string[]; startIndex?: number };
+  VideoPlayer: { src: string };
   IncomingCall: { callId: string; peerPubkey: string };
 };
 

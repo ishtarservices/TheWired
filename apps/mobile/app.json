@@ -51,7 +51,8 @@
     "plugins": [
       "expo-secure-store",
       "expo-font",
-      "expo-sqlite"
+      "expo-sqlite",
+      "expo-video"
     ]
   }
 }
