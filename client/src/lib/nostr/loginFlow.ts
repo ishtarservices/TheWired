@@ -27,7 +27,14 @@ import { parseDMRelayList, clearDMRelayCache } from "./dmRelayList";
 import { EVENT_KINDS } from "../../types/nostr";
 import { saveUserState, getUserState } from "../db/userStateStore";
 import { getProfile } from "../db/profileStore";
-import { loadSpaces, saveSpaces } from "../db/spaceStore";
+import {
+  loadSpaces,
+  saveSpaces,
+  addSpaceToStore,
+  updateSpaceInStore,
+  removeSpaceFromStore,
+} from "../db/spaceStore";
+import type { Space, SpaceChannel } from "../../types/space";
 import { loadEnabledFeatures } from "../../features/settings/featuresPersistence";
 import { setEnabledFeatures } from "../../store/slices/featuresSlice";
 import { loadFeedPrefs } from "../../features/friends/feedPrefsPersistence";
@@ -39,12 +46,18 @@ import { updateSpaceMembers } from "../../store/slices/spacesSlice";
 import { syncSpaceMembers } from "../../store/thunks/spaceMembers";
 import { loadMusicLibrary } from "../db/musicStore";
 import { getEventsByKind } from "../db/eventStore";
-import { setSpaces, removeSpace, setChannels, setActiveSpace } from "../../store/slices/spacesSlice";
+import {
+  setSpaces,
+  addSpace,
+  updateSpace,
+  removeSpace,
+  setChannels,
+  setActiveSpace,
+} from "../../store/slices/spacesSlice";
 import { trackPendingDeletion, restoreDeletedAddrIds } from "../../store/slices/eventsSlice";
 import { addNotification } from "../../store/slices/notificationSlice";
-import { validateSpaces, fetchMySpaces } from "../api/spaces";
+import { fetchMySpaces } from "../api/spaces";
 import { saveChannels } from "../db/channelStore";
-import { removeSpaceFromStore } from "../db/spaceStore";
 import {
   addTracks,
   addAlbums,
@@ -79,7 +92,7 @@ import { loadFriendRequestState, startFriendRequestPersistence, cancelPendingSav
 import { loadNotificationState, startNotificationPersistence, cancelPendingSave as cancelNotificationSave, flushPendingSave as flushNotificationSave } from "../../features/notifications/notificationPersistence";
 import { resetEventPipelineCaches } from "./eventPipeline";
 import { verifyBridge } from "./verifyWorkerBridge";
-import { startBackgroundChatSubs, closeBgChatSub, stopAllBgChatSubs } from "./groupSubscriptions";
+import { startBackgroundChatSubs, openBgChatSub, closeBgChatSub, stopAllBgChatSubs } from "./groupSubscriptions";
 import { publishOutbox } from "./publishOutbox";
 import { loadChannels } from "../db/channelStore";
 import { initLastChannelCache, clearLastChannelCache } from "../db/lastChannelCache";
@@ -346,29 +359,134 @@ function subscribeUserData(
   });
 }
 
-/** Validate cached space IDs against backend and remove any that no longer exist */
-async function validateAndPurgeStaleSpaces(spaceIds: string[]): Promise<void> {
-  if (spaceIds.length === 0) return;
-  const res = await validateSpaces(spaceIds);
-  const deleted = res.data.deleted;
-  if (deleted.length === 0) return;
+/** One entry of the backend `GET /spaces/my-spaces` response. */
+type MySpaceEntry = Awaited<ReturnType<typeof fetchMySpaces>>["data"][number];
 
-  for (const id of deleted) {
-    closeBgChatSub(id);
-    store.dispatch(removeSpace(id));
-    removeSpaceFromStore(id);
+/** Map a my-spaces entry to a local Space (same shape the join flow produces). */
+function mySpaceEntryToSpace(entry: MySpaceEntry): Space {
+  return {
+    id: entry.space.id,
+    hostRelay: entry.space.hostRelay,
+    name: entry.space.name,
+    picture: entry.space.picture ?? undefined,
+    about: entry.space.about ?? undefined,
+    isPrivate: false,
+    adminPubkeys: [],
+    memberPubkeys: [],
+    feedPubkeys: entry.feedPubkeys,
+    mode: entry.space.mode,
+    creatorPubkey: entry.space.creatorPubkey ?? "",
+    createdAt: 0,
+    spaceType: "platform",
+    channelSource: "backend",
+  };
+}
+
+/** Normalize backend channels (backfill feedMode for pre-feedMode rows). */
+function normalizeChannels(channels: MySpaceEntry["channels"]): SpaceChannel[] {
+  return channels.map((ch: any) => ({ ...ch, feedMode: ch.feedMode ?? "all" }));
+}
+
+/**
+ * Stale-while-revalidate reconcile of the joined-spaces list against the
+ * backend's authoritative membership (`GET /spaces/my-spaces`). The cached
+ * list is already on screen when this runs; it then:
+ *  - ADDS memberships this device has never seen (joined/created on another
+ *    device, or seeded server-side) — the cache-first design otherwise never
+ *    shows them, since spaces only enter the cache via local create/join;
+ *  - REMOVES backend-backed spaces absent from my-spaces (left on another
+ *    device, kicked, or space deleted — this supersedes the old
+ *    /spaces/validate purge, which only caught deletions);
+ *  - refreshes drifted metadata in place.
+ * NIP-29-native spaces are relay-authoritative and never touched. Only spaces
+ * present in the login-time snapshot are eligible for removal, so a space
+ * joined on THIS device while the fetch was in flight can never be dropped.
+ * On fetch failure the cache stays exactly as-is.
+ */
+async function reconcileMySpaces(cachedSpaces: Space[]): Promise<void> {
+  const res = await fetchMySpaces();
+  const remoteById = new Map(res.data.map((e) => [e.space.id, e]));
+  const cachedIds = new Set(cachedSpaces.map((s) => s.id));
+  let removed = 0;
+
+  // Removals + metadata refresh (backend-backed spaces from the snapshot only)
+  for (const cached of cachedSpaces) {
+    if (!isBackendBacked(cached)) continue;
+    const live = store.getState().spaces.list.find((s) => s.id === cached.id);
+    if (!live) continue; // already removed elsewhere
+    const entry = remoteById.get(cached.id);
+    if (!entry) {
+      closeBgChatSub(cached.id);
+      store.dispatch(removeSpace(cached.id));
+      await removeSpaceFromStore(cached.id);
+      removed++;
+      continue;
+    }
+    const next: Space = {
+      ...live,
+      name: entry.space.name,
+      picture: entry.space.picture ?? undefined,
+      about: entry.space.about ?? undefined,
+      mode: entry.space.mode,
+      hostRelay: entry.space.hostRelay,
+      creatorPubkey: entry.space.creatorPubkey ?? live.creatorPubkey,
+      feedPubkeys: entry.feedPubkeys,
+    };
+    const changed =
+      next.name !== live.name ||
+      next.picture !== live.picture ||
+      next.about !== live.about ||
+      next.mode !== live.mode ||
+      next.hostRelay !== live.hostRelay ||
+      next.creatorPubkey !== live.creatorPubkey ||
+      next.feedPubkeys.length !== live.feedPubkeys.length ||
+      next.feedPubkeys.some((p, i) => p !== live.feedPubkeys[i]);
+    if (changed) {
+      store.dispatch(updateSpace(next));
+      await updateSpaceInStore(next);
+    }
   }
 
-  const names = deleted.length === 1 ? "A space you joined" : `${deleted.length} spaces you joined`;
-  store.dispatch(
-    addNotification({
-      id: `space-removed-${Date.now()}`,
-      type: "chat",
-      title: "Space removed",
-      body: `${names} no longer exist and have been removed.`,
-      timestamp: Date.now(),
-    }),
+  // Additions. Skip ids that still exist locally — including a nip29-native
+  // space that happens to share an id (overwriting it would be a hijack; see
+  // addSpace #42).
+  const additions = res.data.filter(
+    (e) =>
+      !cachedIds.has(e.space.id) &&
+      !store.getState().spaces.list.some((s) => s.id === e.space.id),
   );
+  for (const entry of additions) {
+    const space = mySpaceEntryToSpace(entry);
+    store.dispatch(addSpace(space));
+    await addSpaceToStore(space);
+    const channels = normalizeChannels(entry.channels);
+    if (channels.length > 0) {
+      await saveChannels(space.id, channels);
+      store.dispatch(setChannels({ spaceId: space.id, channels }));
+    }
+    // Wire the always-on chat sub + member sync the same way a local join does.
+    openBgChatSub(space);
+    void store.dispatch(syncSpaceMembers(space.id));
+  }
+
+  if (additions.length > 0 || removed > 0) {
+    startupLog.info(`spaces reconcile: +${additions.length} added, -${removed} removed`);
+  }
+  if (removed > 0) {
+    const body =
+      removed === 1
+        ? "A space was removed — you left it on another device or it no longer exists."
+        : `${removed} spaces were removed — you left them on another device or they no longer exist.`;
+    store.dispatch(
+      addNotification({
+        id: `space-removed-${Date.now()}`,
+        type: "chat",
+        title: "Spaces updated",
+        body,
+        timestamp: Date.now(),
+      }),
+    );
+  }
 }
 
 /**
@@ -664,51 +782,26 @@ export async function performLogin(
   // Hydrate the per-account Feed preferences (toggles + local hidden accounts).
   store.dispatch(setFeedPrefs(await loadFeedPrefs()));
   let savedSpaces = await loadSpaces();
+  let recoveredFromBackend = false;
 
   // If local cache is empty, recover from backend (covers logout/reimport,
-  // cache wipe, phantom account bug, or first multi-device login)
+  // cache wipe, phantom account bug, or first multi-device login). Blocking:
+  // there is nothing cached to paint, so wait for the authoritative list.
   if (savedSpaces.length === 0) {
     try {
       const res = await fetchMySpaces();
       if (res.data.length > 0) {
-        savedSpaces = res.data.map((entry) => ({
-          id: entry.space.id,
-          hostRelay: entry.space.hostRelay,
-          name: entry.space.name,
-          picture: entry.space.picture ?? undefined,
-          about: entry.space.about ?? undefined,
-          isPrivate: false,
-          adminPubkeys: [],
-          memberPubkeys: [],
-          feedPubkeys: entry.feedPubkeys,
-          mode: entry.space.mode as "read" | "read-write",
-          creatorPubkey: entry.space.creatorPubkey ?? "",
-          createdAt: 0,
-          spaceType: "platform" as const,
-          channelSource: "backend" as const,
-        }));
+        savedSpaces = res.data.map(mySpaceEntryToSpace);
+        recoveredFromBackend = true;
 
-        // Persist recovered spaces + channels to IndexedDB for next startup
+        // Persist recovered spaces + channels to IndexedDB for next startup,
+        // and hydrate channels into Redux
         await saveSpaces(savedSpaces);
         for (const entry of res.data) {
           if (entry.channels.length > 0) {
-            // Normalize channels to ensure feedMode is present (backward compat)
-            const normalized = entry.channels.map((ch: any) => ({
-              ...ch,
-              feedMode: ch.feedMode ?? "all",
-            }));
-            await saveChannels(entry.space.id, normalized);
-          }
-        }
-
-        // Hydrate channels into Redux
-        for (const entry of res.data) {
-          if (entry.channels.length > 0) {
-            const normalized = entry.channels.map((ch: any) => ({
-              ...ch,
-              feedMode: ch.feedMode ?? "all",
-            }));
-            store.dispatch(setChannels({ spaceId: entry.space.id, channels: normalized }));
+            const channels = normalizeChannels(entry.channels);
+            await saveChannels(entry.space.id, channels);
+            store.dispatch(setChannels({ spaceId: entry.space.id, channels }));
           }
         }
       }
@@ -745,8 +838,14 @@ export async function performLogin(
       void store.dispatch(syncSpaceMembers(space.id));
     }
 
-    // Non-blocking: validate cached spaces against backend and purge stale ones
-    validateAndPurgeStaleSpaces(backendSpaces.map((s) => s.id)).catch(() => {});
+    // Non-blocking stale-while-revalidate: the cached list is already on
+    // screen; reconcile it against the backend's authoritative membership —
+    // adds spaces joined on other devices, drops ones left elsewhere or
+    // deleted, refreshes drifted metadata. Skipped when the list was just
+    // recovered from that same endpoint above.
+    if (!recoveredFromBackend) {
+      reconcileMySpaces(savedSpaces).catch(() => {});
+    }
 
     // Preload cached channels for all spaces from IndexedDB so the
     // notification evaluator can resolve the correct channel IDs
