@@ -99,7 +99,9 @@ async function renderScreen(
         <EngineProvider engine={engine}>
           <NoteThreadScreen
             route={{ key: "t", name: "NoteThread", params } as never}
-            navigation={{} as never}
+            navigation={
+              { canGoBack: () => true, setOptions: jest.fn(), replace: jest.fn() } as never
+            }
           />
         </EngineProvider>
       </Provider>

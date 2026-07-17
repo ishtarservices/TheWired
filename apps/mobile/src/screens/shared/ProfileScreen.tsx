@@ -21,6 +21,7 @@ import { haptics } from "@/lib/haptics";
 import { safeImageUri } from "@/lib/nostr/noteContent";
 import { profileDisplayName } from "@/lib/nostr/profiles";
 import type { RootStackParamList } from "@/navigation/types";
+import { useBackFallback } from "@/navigation/useBackFallback";
 import { blockUser, reportEvent, unblockUser } from "@/store/moderation";
 import { useAppDispatch, useAppSelector } from "@/store/hooks";
 import { useTheme } from "@/theme/ThemeContext";
@@ -31,7 +32,13 @@ import { useTheme } from "@/theme/ThemeContext";
 
 type Props = NativeStackScreenProps<RootStackParamList, "Profile">;
 
-export function ProfileScreen({ route }: Props) {
+export function ProfileScreen({ route, navigation }: Props) {
+  // Cold-start deep links (npub links) mount this as a single-route state —
+  // no parent, no native chevron. "Up" goes to the tabs root.
+  useBackFallback(
+    navigation,
+    useCallback(() => navigation.replace("Tabs", { screen: "SpacesTab", params: { screen: "SpacesHome" } }), [navigation]),
+  );
   const { pubkey } = route.params;
   const engine = useEngine();
   const dispatch = useAppDispatch();

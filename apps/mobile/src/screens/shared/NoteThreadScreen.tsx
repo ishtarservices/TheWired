@@ -15,6 +15,7 @@ import { Type } from "@/components/ui/Type";
 import { useEngine } from "@/lib/nostr/EngineContext";
 import { EngagementWindow } from "@/lib/nostr/engagementWindow";
 import type { RootStackParamList } from "@/navigation/types";
+import { useBackFallback } from "@/navigation/useBackFallback";
 import { useOpenThread } from "@/navigation/openThread";
 import { useAppSelector } from "@/store/hooks";
 import { THREAD_EVENTS_CAP } from "@/store/slices/threadsSlice";
@@ -33,9 +34,16 @@ const REPLY_INDENT = 16;
 
 type Props = NativeStackScreenProps<RootStackParamList, "NoteThread">;
 
-export function NoteThreadScreen({ route }: Props) {
+export function NoteThreadScreen({ route, navigation }: Props) {
   const { noteId, rootId: rootIdParam } = route.params;
   const engine = useEngine();
+  // Cold-start deep links (notification taps, links from other apps) mount
+  // this as a single-route state — no parent, no native chevron. "Up" goes
+  // to the tabs root.
+  useBackFallback(
+    navigation,
+    useCallback(() => navigation.replace("Tabs", { screen: "SpacesTab", params: { screen: "SpacesHome" } }), [navigation]),
+  );
   const insets = useScreenInsets({ scroll: true });
   const { tokens } = useTheme();
   const noteActions = useNoteActions();
