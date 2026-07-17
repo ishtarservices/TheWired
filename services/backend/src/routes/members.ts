@@ -1,6 +1,6 @@
 import type { FastifyPluginAsync } from "fastify";
 import { z } from "zod";
-import { validate, nonEmptyString, hexId } from "../lib/validation.js";
+import { validate, nonEmptyString, hexId, positiveInt, nonNegativeInt } from "../lib/validation.js";
 import { db } from "../db/connection.js";
 import { spaceMembers, memberRoles, spaceFeedSources } from "../db/schema/members.js";
 import { spaces } from "../db/schema/spaces.js";
@@ -8,21 +8,52 @@ import { spaceRoles } from "../db/schema/permissions.js";
 import { spaceChannels } from "../db/schema/channels.js";
 import { eq, and, sql, asc } from "drizzle-orm";
 import { onboardingService } from "../services/onboardingService.js";
+import { profileCacheService, toMemberProfile, PROFILE_JOIN_CAP } from "../services/profileCacheService.js";
 
 const idParams = z.object({ id: nonEmptyString });
+const memberListQuery = z.object({
+  limit: positiveInt(1000).optional(),
+  offset: nonNegativeInt.optional(),
+});
 const feedSourcesBody = z.object({
   pubkeys: z.array(hexId).min(1).max(100),
 });
 const feedSourceDeleteParams = z.object({ id: nonEmptyString, pubkey: hexId });
 
 export const membersRoutes: FastifyPluginAsync = async (server) => {
-  server.get<{ Params: { id: string } }>("/:id/members", async (request, reply) => {
-    const params = validate(idParams, request.params, reply);
-    if (!params) return;
-    const { id } = params;
-    const members = await db.select().from(spaceMembers).where(eq(spaceMembers.spaceId, id));
-    return { data: members };
-  });
+  server.get<{ Params: { id: string }; Querystring: { limit?: string; offset?: string } }>(
+    "/:id/members",
+    async (request, reply) => {
+      const params = validate(idParams, request.params, reply);
+      if (!params) return;
+      const query = validate(memberListQuery, request.query, reply);
+      if (!query) return;
+      const { id } = params;
+
+      let membersQuery = db
+        .select()
+        .from(spaceMembers)
+        .where(eq(spaceMembers.spaceId, id))
+        .orderBy(asc(spaceMembers.joinedAt))
+        .$dynamic();
+      if (query.limit !== undefined) membersQuery = membersQuery.limit(query.limit);
+      if (query.offset !== undefined) membersQuery = membersQuery.offset(query.offset);
+      const members = await membersQuery;
+
+      // Inline cached profiles for the first PROFILE_JOIN_CAP rows (facepiles);
+      // rows beyond the cap keep profile: null.
+      const profiles = await profileCacheService.getBatchProfiles(
+        members.slice(0, PROFILE_JOIN_CAP).map((m) => m.pubkey),
+      );
+      const byPubkey = new Map(profiles.map((p) => [p.pubkey, p]));
+      return {
+        data: members.map((m, i) => ({
+          ...m,
+          profile: i < PROFILE_JOIN_CAP ? toMemberProfile(byPubkey.get(m.pubkey)) : null,
+        })),
+      };
+    },
+  );
 
   /** POST /:id/members/me — Join a listed space (adds the authenticated user as a member) */
   server.post<{ Params: { id: string } }>("/:id/members/me", async (request, reply) => {
