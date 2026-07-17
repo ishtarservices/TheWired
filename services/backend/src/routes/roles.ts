@@ -2,6 +2,7 @@ import { z } from "zod";
 import type { FastifyPluginAsync } from "fastify";
 import { roleService } from "../services/roleService.js";
 import { permissionService } from "../services/permissionService.js";
+import { profileCacheService, toMemberProfile, PROFILE_JOIN_CAP } from "../services/profileCacheService.js";
 import { requirePubkey, requireSpaceCreator } from "../lib/authz.js";
 import { validate, hexId, nonEmptyString } from "../lib/validation.js";
 
@@ -226,7 +227,20 @@ export const rolesRoutes: FastifyPluginAsync = async (server) => {
       if (!params) return;
 
       const members = await roleService.getAllMembersWithRoles(params.spaceId);
-      return { data: members };
+
+      // Inline cached profiles for the first PROFILE_JOIN_CAP rows (facepiles);
+      // rows beyond the cap keep profile: null. Enrichment stays at the route
+      // layer so roleService remains pure.
+      const profiles = await profileCacheService.getBatchProfiles(
+        members.slice(0, PROFILE_JOIN_CAP).map((m) => m.pubkey),
+      );
+      const byPubkey = new Map(profiles.map((p) => [p.pubkey, p]));
+      return {
+        data: members.map((m, i) => ({
+          ...m,
+          profile: i < PROFILE_JOIN_CAP ? toMemberProfile(byPubkey.get(m.pubkey)) : null,
+        })),
+      };
     },
   );
 
