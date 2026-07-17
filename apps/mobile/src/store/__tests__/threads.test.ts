@@ -3,7 +3,13 @@ import type { NostrEvent } from "@thewired/shared-types";
 import type { PlatformAdapters } from "@/core/adapters";
 import { createSqliteStorage, type SqlDatabase } from "@/platform/adapters/sqliteStorage";
 import { createStore } from "@/store";
-import { PERSIST_PER_THREAD, THREAD_PERSIST_ROOTS, hydrateThread, persistThread } from "../threads";
+import {
+  PERSIST_PER_THREAD,
+  THREAD_PERSIST_ROOTS,
+  hydrateThread,
+  persistThread,
+  resolveRootFromStorage,
+} from "../threads";
 import {
   selectThreadEvents,
   threadEventsMerged,
@@ -140,6 +146,30 @@ describe("threads persistence thunks", () => {
     threadsTable(dbs)!.set(ROOT_ID, "not json");
     await expect(store.dispatch(hydrateThread(ROOT_ID))).resolves.toBeUndefined();
     expect(selectThreadEvents(store.getState(), ROOT_ID)).toEqual([]);
+  });
+
+  it("resolveRootFromStorage maps a mid-thread note to its persisted root (relaunch deep link)", async () => {
+    const dbs = new Map<string, FakeDb>();
+    const storeA = makeStore(dbs);
+    const reply = evt("b".repeat(64), 200);
+    storeA.dispatch(
+      threadEventsMerged({ rootId: ROOT_ID, events: [evt(ROOT_ID, 100), reply] }),
+    );
+    await storeA.dispatch(persistThread(ROOT_ID));
+
+    // Relaunch: fresh store, empty alias index — only storage knows the map.
+    const storeB = makeStore(dbs);
+    const resolved = await storeB.dispatch(resolveRootFromStorage(reply.id));
+    expect(resolved).toBe(ROOT_ID);
+    // The hit hydrated the conversation as a side effect.
+    expect(selectThreadEvents(storeB.getState(), ROOT_ID).map((e) => e.id)).toEqual([
+      ROOT_ID,
+      reply.id,
+    ]);
+
+    // Root-keyed lookups resolve too, and unknown notes come back undefined.
+    expect(await storeB.dispatch(resolveRootFromStorage(ROOT_ID))).toBe(ROOT_ID);
+    expect(await storeB.dispatch(resolveRootFromStorage("f".repeat(64)))).toBeUndefined();
   });
 
   it("prunes the stalest rows past THREAD_PERSIST_ROOTS", async () => {

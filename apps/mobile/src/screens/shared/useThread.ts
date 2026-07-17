@@ -13,6 +13,7 @@ import type { NostrEvent } from "@thewired/shared-types";
 import { useEngine } from "@/lib/nostr/EngineContext";
 import { useAppDispatch, useAppSelector } from "@/store/hooks";
 import { selectFeedEvent } from "@/store/slices/feedSlice";
+import { selectAnyRelayConnected } from "@/store/slices/relaysSlice";
 import {
   selectRootIdFor,
   selectThreadEntry,
@@ -21,7 +22,7 @@ import {
   THREAD_STALE_SEC,
   type ThreadEntry,
 } from "@/store/slices/threadsSlice";
-import { hydrateThread, persistThread } from "@/store/threads";
+import { hydrateThread, persistThread, resolveRootFromStorage } from "@/store/threads";
 
 /** Trailing debounce for the SQLite write-back (ChannelScreen parity). */
 const PERSIST_DEBOUNCE_MS = 400;
@@ -45,37 +46,49 @@ export function useThread(noteId: string, rootIdParam?: string): UseThreadResult
 
   const aliasRoot = useAppSelector((s) => selectRootIdFor(s, noteId));
   const cachedNote = useAppSelector((s) => selectFeedEvent(s, noteId));
+  const anyRelayConnected = useAppSelector(selectAnyRelayConnected);
   const [resolvedRoot, setResolvedRoot] = useState<string | null>(null);
   const [notFound, setNotFound] = useState(false);
 
   const cachedRoot = cachedNote ? (parseThreadRef(cachedNote).rootId ?? noteId) : undefined;
   const rootId = rootIdParam ?? aliasRoot ?? cachedRoot ?? resolvedRoot ?? undefined;
 
-  // Last-resort root resolution: the note is in no cache — fetch it alone,
-  // parse its refs, and seed the conversation with it.
+  // Last-resort root resolution: storage scan first (a relaunch + deep link
+  // can't map noteId → root via the session alias index, but the persisted
+  // conversation can), then a one-shot {ids} fetch. Re-runs on the
+  // relay-connected edge: at cold boot this races the socket dial and an
+  // empty answer must not be a permanent "Note unavailable" dead end.
   useEffect(() => {
     if (rootId) return;
     let cancelled = false;
-    engine
-      .fetchEvents([{ ids: [noteId] }])
-      .then((events) => {
-        if (cancelled) return;
-        const event = events.find((e) => e.id === noteId);
-        if (!event) {
-          setNotFound(true);
-          return;
-        }
-        const root = parseThreadRef(event).rootId ?? noteId;
-        dispatch(threadEventsMerged({ rootId: root, events: [event] }));
-        setResolvedRoot(root);
-      })
-      .catch(() => {
-        if (!cancelled) setNotFound(true);
-      });
+    (async () => {
+      const storedRoot = await dispatch(resolveRootFromStorage(noteId)).catch(
+        () => undefined,
+      );
+      if (cancelled) return;
+      if (storedRoot) {
+        setNotFound(false);
+        setResolvedRoot(storedRoot);
+        return;
+      }
+      const events = await engine.fetchEvents([{ ids: [noteId] }]);
+      if (cancelled) return;
+      const event = events.find((e) => e.id === noteId);
+      if (!event) {
+        setNotFound(true);
+        return;
+      }
+      const root = parseThreadRef(event).rootId ?? noteId;
+      dispatch(threadEventsMerged({ rootId: root, events: [event] }));
+      setNotFound(false);
+      setResolvedRoot(root);
+    })().catch(() => {
+      if (!cancelled) setNotFound(true);
+    });
     return () => {
       cancelled = true;
     };
-  }, [engine, dispatch, rootId, noteId]);
+  }, [engine, dispatch, rootId, noteId, anyRelayConnected]);
 
   // The focus event may live only in the feed cache (feedSlice prunes at
   // FEED_CAP; the thread cache owns its own copy) — seed it across so the
@@ -103,6 +116,8 @@ export function useThread(noteId: string, rootIdParam?: string): UseThreadResult
   // SWR: load once per (rootId, noteId) mount — cold, seeded-only ("idle"),
   // or stale entries refetch; a fresh "ready" renders straight from cache.
   // Imperative entry read (ref) so status flips can't re-trigger the effect.
+  // Re-runs on the relay-connected edge: a load that raced the cold-boot
+  // socket dial settles "ready" with nothing — retry once relays are up.
   const entryRef = useRef(entry);
   entryRef.current = entry;
   useEffect(() => {
@@ -111,9 +126,10 @@ export function useThread(noteId: string, rootIdParam?: string): UseThreadResult
     const staleAt = Math.floor(Date.now() / 1000) - THREAD_STALE_SEC;
     const shouldLoad =
       !current || current.status === "idle" ||
-      (current.status === "ready" && current.fetchedAt < staleAt);
+      (current.status === "ready" &&
+        (current.fetchedAt < staleAt || current.events.length === 0));
     if (shouldLoad) engine.loadThread(rootId, noteId).catch(() => {});
-  }, [engine, rootId, noteId]);
+  }, [engine, rootId, noteId, anyRelayConnected]);
 
   // Ancestor backfill: while the chain doesn't reach the root, fetch the
   // next missing parent by id. Each merged hop recomputes the tree, which

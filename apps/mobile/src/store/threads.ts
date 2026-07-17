@@ -26,6 +26,39 @@ function isValidEvent(e: unknown): e is NostrEvent {
   return !!event && typeof event.id === "string" && typeof event.created_at === "number";
 }
 
+/**
+ * Cold-start root resolution from storage: `aliasToRoot` is session-only,
+ * so a relaunch + deep link onto a mid-thread note can't map noteId → root
+ * without the network — even though the conversation sits in SQLite (rows
+ * are keyed by ROOT id). Scan the (≤ THREAD_PERSIST_ROOTS) rows for the
+ * note, hydrate the hit, and return its root id. Returns undefined when the
+ * note is in no stored conversation.
+ */
+export function resolveRootFromStorage(noteId: string): AppThunk<Promise<string | undefined>> {
+  return async (dispatch, getState, { adapters }) => {
+    const known = getState().threads.aliasToRoot[noteId];
+    if (known) return known;
+    try {
+      const store = adapters.storage.getStore<ThreadRow>("threads");
+      const keys = await store.getAllKeys();
+      if (keys.includes(noteId)) {
+        await dispatch(hydrateThread(noteId));
+        return noteId;
+      }
+      for (const key of keys) {
+        const row = await store.get(key);
+        if (row?.events?.some((e) => e?.id === noteId)) {
+          await dispatch(hydrateThread(key));
+          return key;
+        }
+      }
+    } catch {
+      // fresh device / corrupt store — fall through to network resolution
+    }
+    return undefined;
+  };
+}
+
 export function hydrateThread(rootId: string): AppThunk<Promise<void>> {
   return async (dispatch, getState, { adapters }) => {
     if (getState().threads.hydrated[rootId]) return;
