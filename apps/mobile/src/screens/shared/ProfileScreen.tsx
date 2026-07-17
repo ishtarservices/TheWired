@@ -102,15 +102,17 @@ export function ProfileScreen({ route }: Props) {
 
   const header = (
     <View className="mb-2">
+      {/* Full-bleed banner — the list itself has no horizontal padding now
+          (flat NoteCard rows own theirs). */}
       {safeImageUri(profile?.banner) ? (
         <Image
           source={{ uri: safeImageUri(profile?.banner) }}
-          className="h-36 w-full rounded-xl"
+          className="h-36 w-full"
           resizeMode="cover"
           accessibilityIgnoresInvertColors
         />
       ) : (
-        <View className="h-36 w-full rounded-xl bg-primary-dim" />
+        <View className="h-36 w-full bg-primary-dim" />
       )}
       <View className="-mt-10 px-4">
         <View className="flex-row items-end justify-between">
@@ -178,9 +180,9 @@ export function ProfileScreen({ route }: Props) {
 
   const renderItem = useCallback(
     ({ item }: { item: NostrEvent }) => (
-      <NoteCard event={item} onLongPress={() => noteActions.open(item)} />
+      <NoteCard event={item} onLongPress={noteActions.open} footer={noteActions.footer} />
     ),
-    [noteActions],
+    [noteActions.open, noteActions.footer],
   );
 
   if (isBlocked) {
@@ -217,12 +219,10 @@ export function ProfileScreen({ route }: Props) {
         contentContainerStyle={{
           paddingTop: insets.top,
           paddingBottom: insets.bottom + 24,
-          paddingHorizontal: 16,
         }}
-        ItemSeparatorComponent={NoteSeparator}
         ListEmptyComponent={
           notes === null ? (
-            <View className="gap-2.5">
+            <View>
               {Array.from({ length: 3 }, (_, i) => (
                 <NoteCardSkeleton key={i} />
               ))}
@@ -240,8 +240,4 @@ export function ProfileScreen({ route }: Props) {
       <ZapSheet target={zapTarget} onClose={() => setZapTarget(null)} />
     </View>
   );
-}
-
-function NoteSeparator() {
-  return <View className="h-2.5" />;
 }

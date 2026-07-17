@@ -47,7 +47,14 @@ export function RootNavigator() {
 
           {/* Cross-cutting pushes */}
           <Root.Screen name="Profile" component={ProfileScreen} options={{ title: "Profile" }} />
-          <Root.Screen name="NoteThread" component={NoteThreadScreen} options={{ title: "Thread" }} />
+          <Root.Screen
+            name="NoteThread"
+            component={NoteThreadScreen}
+            // Distinct instance per focused note: params never merge across
+            // different threads, and RN7 popTo (P2) can target by note id.
+            getId={({ params }) => params.noteId}
+            options={{ title: "Thread" }}
+          />
           <Root.Screen name="Article" component={ArticleScreen} options={{ title: "Article" }} />
 
           {/* Sheet-style modals */}

@@ -1,6 +1,6 @@
 import { useEffect } from "react";
 import { View, type ViewProps } from "react-native";
-import Animated, {
+import {
   Easing,
   ReduceMotion,
   cancelAnimation,
@@ -10,6 +10,7 @@ import Animated, {
   withTiming,
 } from "react-native-reanimated";
 
+import { AnimatedPlainView } from "@/lib/animated";
 import { cn } from "@/lib/cn";
 import { useMotion } from "@/theme/motion";
 
@@ -17,9 +18,9 @@ import { useMotion } from "@/theme/motion";
 // what's coming — never a bare Spinner. The pulse is a soft opacity breathe;
 // reduce-motion (or a 0-intensity preset) renders it static.
 //
-// The pulsing element carries ONLY the animated style (no className) — the
-// two can't share an element (see lib/animated.ts); the shape itself is a
-// plain View inside.
+// The pulsing element is an AnimatedPlainView carrying ONLY the animated
+// style — the css-interop-registered Animated.View drops animated styles
+// (see lib/animated.ts); the shape itself is a plain View inside.
 
 const PULSE_MS = 900;
 
@@ -46,7 +47,7 @@ function Pulse({ children }: { children: React.ReactNode }) {
 
   const pulseStyle = useAnimatedStyle(() => ({ opacity: opacity.value }));
 
-  return <Animated.View style={pulseStyle}>{children}</Animated.View>;
+  return <AnimatedPlainView style={pulseStyle}>{children}</AnimatedPlainView>;
 }
 
 export interface SkeletonProps extends ViewProps {

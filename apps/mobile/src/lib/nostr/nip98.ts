@@ -4,6 +4,8 @@
 // checks created_at freshness (±60s) and the u/method tags, then injects
 // X-Auth-Pubkey for the backend.
 
+import { bytesToHex, randomBytes } from "@noble/hashes/utils";
+
 import type { EventSigner } from "@/core/adapters";
 
 export const HTTP_AUTH_KIND = 27235;
@@ -43,6 +45,10 @@ export async function buildNip98Header(
     tags: [
       ["u", url],
       ["method", method],
+      // created_at is second-granular: parallel requests to the same endpoint
+      // would otherwise hash to identical event ids and trip the gateway's
+      // single-use replay guard (401 AUTH_REPLAY on batch uploads).
+      ["nonce", bytesToHex(randomBytes(16))],
     ],
     content: "",
   });

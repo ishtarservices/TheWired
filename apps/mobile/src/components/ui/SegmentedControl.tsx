@@ -1,8 +1,9 @@
 import { useEffect, useState } from "react";
 import { Pressable, View } from "react-native";
-import Animated, { useAnimatedStyle, useSharedValue, withSpring } from "react-native-reanimated";
+import { useAnimatedStyle, useSharedValue, withSpring } from "react-native-reanimated";
 
 import { Type } from "./Type";
+import { AnimatedPlainView } from "@/lib/animated";
 import { cn } from "@/lib/cn";
 import { haptics } from "@/lib/haptics";
 import { SHADOWS } from "@/theme/constants";
@@ -58,8 +59,8 @@ export function SegmentedControl<T extends string>({
       accessibilityRole="tablist"
     >
       {segmentWidth > 0 ? (
-        // Animated style ⇒ no className on this element (lib/animated.ts).
-        <Animated.View
+        // Animated style ⇒ AnimatedPlainView, no className (lib/animated.ts).
+        <AnimatedPlainView
           style={[
             {
               position: "absolute",

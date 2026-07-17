@@ -181,17 +181,19 @@ export function ZapSheet({
                       setCustom("");
                       haptics.selection();
                     }}
+                    // Selected = outline, not fill — the sheet's one primary
+                    // fill is the confirm button (one-inversion rule).
                     className={
                       selected
-                        ? "flex-1 items-center rounded-xl bg-primary px-2 py-2.5"
-                        : "flex-1 items-center rounded-xl bg-field px-2 py-2.5"
+                        ? "flex-1 items-center rounded-xl border border-primary bg-field px-2 py-2.5"
+                        : "flex-1 items-center rounded-xl border border-transparent bg-field px-2 py-2.5"
                     }
                   >
                     <Type
                       role="caption"
                       weight={600}
                       tabular
-                      className={selected ? "text-primary-foreground" : "text-heading"}
+                      className={selected ? "text-heading" : "text-soft"}
                     >
                       {preset.toLocaleString()}
                     </Type>

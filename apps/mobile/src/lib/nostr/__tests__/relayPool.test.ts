@@ -213,6 +213,26 @@ describe("relayPool", () => {
     expect(sockets).toHaveLength(2);
   });
 
+  it("reconnectNow cycles half-open sockets (readyState OPEN but dead on the wire)", () => {
+    // The iOS network-flap failure mode: the socket still reports OPEN but
+    // never fires error/close again — connectivity recovery must not trust it.
+    const { factory, sockets } = makeFactory();
+    const pool = createRelayPool(factory, makeCallbacks());
+    pool.connect(["wss://a"]);
+    pool.subscribe("sub1", [{ kinds: [1], limit: 50 }]);
+    sockets[0].open();
+    expect(sockets[0].frames()).toContainEqual(["REQ", "sub1", { kinds: [1], limit: 50 }]);
+
+    pool.reconnectNow();
+
+    // The zombie was torn down and a fresh socket dialed…
+    expect(sockets[0].closed).toBe(true);
+    expect(sockets).toHaveLength(2);
+    // …and the tracked REQ replays once the new socket opens.
+    sockets[1].open();
+    expect(sockets[1].frames()).toContainEqual(["REQ", "sub1", { kinds: [1], limit: 50 }]);
+  });
+
   it("destroy closes everything and stops timers", () => {
     const { factory, sockets } = makeFactory();
     const pool = createRelayPool(factory, makeCallbacks());

@@ -89,7 +89,7 @@ export function DMListScreen({ navigation }: Props) {
           }
           trailing={
             <View className="items-end gap-1">
-              <Type role="micro" tabular className="text-faint">
+              <Type role="meta" tabular className="text-faint">
                 {formatRelativeTime(item.lastMessageAt)}
               </Type>
               {item.unreadCount > 0 ? (

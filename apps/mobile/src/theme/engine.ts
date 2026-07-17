@@ -5,7 +5,7 @@
 // The CSS-injection half of the desktop engine is replaced by NativeWind
 // vars() in ThemeContext.
 
-import type { DerivedTokens, DerivedExtras } from "./types";
+import type { DerivedTokens, DerivedExtras, SemanticsMode } from "./types";
 
 interface HSL {
   h: number;
@@ -77,11 +77,32 @@ export function isDarkTheme(bg: string): boolean {
 
 // ─── Token Derivation (same math as desktop deriveTokens) ────────────
 
-export function deriveTokens(bg: string, fg: string, primary: string): DerivedTokens {
+// Semantic sources stay chromatic by default; "muted" keeps destructive
+// readable as danger (low-sat red) and pulls success/warning to near-grey so
+// monochrome presets never flash green/amber. Lightness adjust is shared.
+const SEMANTIC_SOURCES: Record<
+  SemanticsMode,
+  { destructive: string; success: string; warning: string }
+> = {
+  full: { destructive: "0 72% 51%", success: "142 71% 45%", warning: "38 92% 50%" },
+  muted: { destructive: "0 30% 51%", success: "142 8% 45%", warning: "38 12% 50%" },
+};
+
+export interface DeriveTokensOptions {
+  semantics?: SemanticsMode;
+}
+
+export function deriveTokens(
+  bg: string,
+  fg: string,
+  primary: string,
+  opts: DeriveTokensOptions = {},
+): DerivedTokens {
   const bgHSL = parseHSL(bg);
   const fgHSL = parseHSL(fg);
   const priHSL = parseHSL(primary);
   const isDark = bgHSL.l < 50;
+  const semantics = SEMANTIC_SOURCES[opts.semantics ?? "full"];
 
   // Direction: lighter or darker from background
   const dir = isDark ? 1 : -1;
@@ -111,10 +132,10 @@ export function deriveTokens(bg: string, fg: string, primary: string): DerivedTo
     borderLight: lerpL(bgHSL, fgHSL, 0.1),
 
     ring: withAlphaHSL(priHSL, 0.5),
-    destructive: adjustToTheme("0 72% 51%", isDark),
+    destructive: adjustToTheme(semantics.destructive, isDark),
     destructiveForeground: "hsl(0, 0%, 100%)",
-    success: adjustToTheme("142 71% 45%", isDark),
-    warning: adjustToTheme("38 92% 50%", isDark),
+    success: adjustToTheme(semantics.success, isDark),
+    warning: adjustToTheme(semantics.warning, isDark),
   };
 }
 

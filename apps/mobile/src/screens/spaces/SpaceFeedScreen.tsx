@@ -2,7 +2,13 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useNavigation } from "@react-navigation/native";
 import type { NativeStackScreenProps } from "@react-navigation/native-stack";
 import { BookOpen, FileText, Image as ImageIcon, Music } from "lucide-react-native";
-import { FlatList, RefreshControl, View, useWindowDimensions } from "react-native";
+import {
+  FlatList,
+  RefreshControl,
+  View,
+  useWindowDimensions,
+  type ViewToken,
+} from "react-native";
 import type { NostrEvent } from "@thewired/shared-types";
 
 import { NoteCard, NoteCardSkeleton } from "@/components/notes/NoteCard";
@@ -19,7 +25,10 @@ import {
 import { cachedSpaceChannels, cachedSpaceDetail } from "@/lib/api/spaceCache";
 import { haptics } from "@/lib/haptics";
 import { useEngine } from "@/lib/nostr/EngineContext";
+import { EngagementWindow } from "@/lib/nostr/engagementWindow";
+import { parseThreadRef } from "@/lib/nostr/noteTags";
 import { useBackFallback } from "@/navigation/useBackFallback";
+import { openThread as openThreadNav } from "@/navigation/openThread";
 import {
   buildSpaceFeedFilters,
   selectFeedAuthors,
@@ -27,7 +36,9 @@ import {
   type SpaceFeedType,
 } from "@/lib/nostr/spaceFeedRoutes";
 import type { SpacesStackParamList } from "@/navigation/types";
-import { useAppSelector } from "@/store/hooks";
+import { useAppDispatch, useAppSelector } from "@/store/hooks";
+import { markChannelRead } from "@/store/spacePreviews";
+import { spaceMusicArtworkSeen } from "@/store/slices/spacePreviewsSlice";
 import { useTheme } from "@/theme/ThemeContext";
 import { articleNaddr, parseArticleEvents, type ArticleItem } from "./articleParser";
 import { parseMediaEvents, type MediaItem } from "./mediaEventParser";
@@ -68,6 +79,7 @@ export function SpaceFeedScreen({ route, navigation }: Props) {
   const { width } = useWindowDimensions();
   const insets = useScreenInsets({ scroll: true });
   const noteActions = useNoteActions();
+  const dispatch = useAppDispatch();
   const muted = useAppSelector((s) => s.moderation.mutedPubkeys);
 
   const [events, setEvents] = useState<NostrEvent[] | null>(null);
@@ -93,6 +105,31 @@ export function SpaceFeedScreen({ route, navigation }: Props) {
     setEvents(null);
     setHasMore(true);
   }, [spaceId, channelId, channelType]);
+
+  // Opening the feed reads it (SpacesHome unread/opacity state).
+  useEffect(() => {
+    dispatch(markChannelRead(spaceId, channelId));
+  }, [dispatch, spaceId, channelId]);
+
+  // Viewport-windowed engagement for the notes channel — same wiring as
+  // GlobalNotesFeed. Root cards get live reply/like/zap counts, which also
+  // powers the reply peek ("view replies · N" only shows when counts exist).
+  const windowRef = useRef<EngagementWindow | null>(null);
+  if (!windowRef.current) windowRef.current = new EngagementWindow(engine);
+  useEffect(() => () => windowRef.current?.dispose(), []);
+  const viewabilityPairs = useRef([
+    {
+      viewabilityConfig: { itemVisiblePercentThreshold: 1 },
+      onViewableItemsChanged: ({ changed }: { changed: ViewToken[] }) => {
+        for (const token of changed) {
+          const item = token.item as FeedItem | undefined;
+          if (item?.kind === "note") {
+            windowRef.current?.report(item.event.id, token.index ?? 0, token.isViewable);
+          }
+        }
+      },
+    },
+  ]).current;
 
   /** Space context → whose content fills this channel. Resolved once. */
   const resolveAuthors = useCallback(async (): Promise<string[]> => {
@@ -200,6 +237,18 @@ export function SpaceFeedScreen({ route, navigation }: Props) {
     }
   }, [events, muted, channelType]);
 
+  // Cover art the music feed just fetched feeds the SpacesHome releases row
+  // (spacePreviews slice) — reuse of this page, never a new subscription.
+  useEffect(() => {
+    if (channelType !== "music") return;
+    const artworks = items.flatMap((i) =>
+      i.kind === "music" && i.music.artwork ? [i.music.artwork] : [],
+    );
+    if (artworks.length > 0) {
+      dispatch(spaceMusicArtworkSeen({ spaceId, artworks }));
+    }
+  }, [dispatch, spaceId, channelType, items]);
+
   // Media grid geometry (3 columns inside the 16pt screen padding).
   const tileSize = Math.floor((width - 32 - GRID_GAP * 2) / 3);
   const gridImages = useMemo(
@@ -222,6 +271,15 @@ export function SpaceFeedScreen({ route, navigation }: Props) {
     [gridImages, rootNavigation],
   );
 
+  const openThread = useCallback(
+    (note: NostrEvent) =>
+      openThreadNav(rootNavigation, {
+        noteId: note.id,
+        rootId: parseThreadRef(note).rootId ?? note.id,
+      }),
+    [rootNavigation],
+  );
+
   const renderItem = useCallback(
     ({ item }: { item: FeedItem }) => {
       switch (item.kind) {
@@ -229,8 +287,10 @@ export function SpaceFeedScreen({ route, navigation }: Props) {
           return (
             <NoteCard
               event={item.event}
-              onPress={() => rootNavigation.navigate("NoteThread", { noteId: item.event.id })}
-              onLongPress={() => noteActions.open(item.event)}
+              onPress={openThread}
+              onLongPress={noteActions.open}
+              footer={noteActions.footer}
+              peek
             />
           );
         case "media":
@@ -258,7 +318,7 @@ export function SpaceFeedScreen({ route, navigation }: Props) {
           return <TrackRow item={item.music} onLongPress={() => noteActions.open(item.music.event)} />;
       }
     },
-    [rootNavigation, noteActions, tileSize, openMedia, hostRelay],
+    [rootNavigation, noteActions, tileSize, openMedia, hostRelay, openThread],
   );
 
   const isGrid = channelType === "media";
@@ -275,15 +335,20 @@ export function SpaceFeedScreen({ route, navigation }: Props) {
         data={items}
         keyExtractor={(item) => item.key}
         renderItem={renderItem}
+        viewabilityConfigCallbackPairs={viewabilityPairs}
         numColumns={isGrid ? 3 : 1}
         columnWrapperStyle={isGrid ? { gap: GRID_GAP } : undefined}
         contentInsetAdjustmentBehavior="automatic"
         contentContainerStyle={{
           paddingTop: insets.top + 8,
           paddingBottom: insets.bottom + 24,
-          paddingHorizontal: 16,
+          // Notes are flat full-bleed rows (NoteCard owns padding + hairline
+          // divider); the other channel types keep the inset layout.
+          paddingHorizontal: channelType === "notes" ? 0 : 16,
         }}
-        ItemSeparatorComponent={isGrid ? GridSeparator : RowSeparator}
+        ItemSeparatorComponent={
+          isGrid ? GridSeparator : channelType === "notes" ? undefined : RowSeparator
+        }
         refreshControl={
           <RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={tokens.muted} />
         }

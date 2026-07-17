@@ -43,6 +43,10 @@ export interface VerifierAdapter {
  * Maps 1:1 to IDB object stores on desktop and SQLite tables on mobile.
  * dm_messages/dm_state carry decrypted NIP-17 rumors + conversation state —
  * local-only by design (rumors are never re-published).
+ * space_chat caches verified kind-9 channel backlogs, one row per
+ * `${spaceId}/${channelId}`, for hydrate-before-network chat paint.
+ * threads caches conversation events, one row per thread root id
+ * ({ savedAt, events }), for hydrate-before-network thread paint.
  */
 export type StoreName =
   | "events"
@@ -54,7 +58,9 @@ export type StoreName =
   | "aiPendingWrites"
   | "articleDrafts"
   | "dm_messages"
-  | "dm_state";
+  | "dm_state"
+  | "space_chat"
+  | "threads";
 
 /** Minimal KV surface the lib/db store wrappers need (get/put/delete/iterate). */
 export interface KVStore<T> {

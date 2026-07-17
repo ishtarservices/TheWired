@@ -1,9 +1,14 @@
 // ─── Theme Presets ───────────────────────────────────────────────────
-// Foundation subset of the desktop's 14 presets (client/src/lib/themePresets.ts):
-// clean-dark, clean-light, neon — plus wired-black, a mobile-first true-black
-// OLED variant of clean-dark (slightly higher-chroma primary so the accent
-// carries against pure black). Port the remaining desktop presets verbatim
-// when the theme settings screen grows — the engine handles any preset.
+// signal — the mobile default: pure monochrome (all three core colors at
+// S=0, the engine's lightness-only derivation produces a neutral ramp), the
+// accent IS the inversion (white fill, near-black text), muted semantics,
+// film grain, and the two-voice type system (Space Grotesk display over
+// Inter body; the meta roles carry JetBrains Mono independent of preset).
+// Plus a foundation subset of the desktop's 14 presets
+// (client/src/lib/themePresets.ts): clean-dark, clean-light, neon — and
+// wired-black, a mobile-first true-black OLED variant of clean-dark. Port the
+// remaining desktop presets verbatim when the theme settings screen grows —
+// the engine handles any preset.
 //
 // Fonts load via expo-font in App.tsx; typography.ts resolves each preset's
 // family to the loaded weights (system font until then).
@@ -11,6 +16,21 @@
 import type { ThemePreset } from "./types";
 
 export const PRESETS: Record<string, ThemePreset> = {
+  signal: {
+    key: "signal",
+    title: "Signal",
+    emoji: "\u{25FE}",
+    category: "minimal",
+    featured: true,
+    colors: {
+      background: "0 0% 4%", // #0a0a0a
+      foreground: "0 0% 95%",
+      primary: "0 0% 100%", // the accent is the inversion
+    },
+    font: { family: "Inter", displayFamily: "Space Grotesk", weight: "300 700" },
+    semantics: "muted",
+    grain: true,
+  },
   "clean-dark": {
     key: "clean-dark",
     title: "Clean Dark",
@@ -71,6 +91,7 @@ export const PRESETS: Record<string, ThemePreset> = {
  * CSS. Full 14-key map kept so ported presets pick up their value for free.
  */
 export const MOTION_INTENSITY: Record<string, number> = {
+  signal: 0.5,
   "clean-dark": 0.5,
   "wired-black": 0.5,
   "clean-light": 0.5,
@@ -90,7 +111,7 @@ export const MOTION_INTENSITY: Record<string, number> = {
 
 export const PRESET_KEYS = Object.keys(PRESETS);
 export const FEATURED_KEYS = PRESET_KEYS.filter((k) => PRESETS[k].featured);
-export const DEFAULT_PRESET = "clean-dark";
+export const DEFAULT_PRESET = "signal";
 
 export function getPreset(key: string): ThemePreset | undefined {
   return PRESETS[key];

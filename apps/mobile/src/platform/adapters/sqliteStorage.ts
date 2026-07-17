@@ -1,5 +1,5 @@
 // ─── SQLite StorageAdapter (expo-sqlite) ─────────────────────────────
-// Mobile counterpart of the desktop IndexedDB layer: the 8 logical stores
+// Mobile counterpart of the desktop IndexedDB layer: the logical stores
 // become kv_<store> tables. Two databases:
 //   • thewired_app        — app-global / pre-login (guest cache, app prefs)
 //   • thewired_<pubkey>   — per-account isolation, same convention as the
@@ -26,6 +26,8 @@ const STORE_NAMES: StoreName[] = [
   "articleDrafts",
   "dm_messages",
   "dm_state",
+  "space_chat",
+  "threads",
 ];
 
 /** The slice of expo-sqlite's SQLiteDatabase this adapter uses — injectable

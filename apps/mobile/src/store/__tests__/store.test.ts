@@ -5,7 +5,7 @@ import {
   appForegrounded,
   setOnline,
 } from "../slices/lifecycleSlice";
-import { setRelayStatus } from "../slices/relaysSlice";
+import { selectAnyRelayConnected, setRelayStatus } from "../slices/relaysSlice";
 import type { PlatformAdapters } from "@/core/adapters";
 
 // The factory only threads adapters through — a bare object exercises the
@@ -60,6 +60,20 @@ describe("createStore(adapters)", () => {
     const store = createStore(fakeAdapters());
     store.dispatch(setRelayStatus({ url: "wss://relay.thewired.app", status: "connected" }));
     expect(store.getState().relays.statuses["wss://relay.thewired.app"]).toBe("connected");
+  });
+
+  it("reports connectivity evidence only while some relay is connected", () => {
+    const store = createStore(fakeAdapters());
+    expect(selectAnyRelayConnected(store.getState())).toBe(false);
+
+    store.dispatch(setRelayStatus({ url: "wss://a", status: "connecting" }));
+    expect(selectAnyRelayConnected(store.getState())).toBe(false);
+
+    store.dispatch(setRelayStatus({ url: "wss://b", status: "connected" }));
+    expect(selectAnyRelayConnected(store.getState())).toBe(true);
+
+    store.dispatch(setRelayStatus({ url: "wss://b", status: "disconnected" }));
+    expect(selectAnyRelayConnected(store.getState())).toBe(false);
   });
 
   it("tracks lifecycle transitions", () => {

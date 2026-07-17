@@ -4,8 +4,9 @@ import { View } from "react-native";
 import { Type } from "./Type";
 import { cn } from "@/lib/cn";
 
-// Lowercase-calm section label (untitled.stream register): quiet, small,
-// generous top spacing so sections breathe without divider lines.
+// Lowercase-calm section label in the protocol voice (metaLabel — mono,
+// tracked by the role itself): quiet, small, generous top spacing so
+// sections breathe without divider lines.
 
 export interface SectionHeaderProps {
   label: string;
@@ -17,7 +18,7 @@ export interface SectionHeaderProps {
 export function SectionHeader({ label, action, className }: SectionHeaderProps) {
   return (
     <View className={cn("flex-row items-end justify-between px-1 pb-2 pt-5", className)}>
-      <Type role="caption" weight={500} className="lowercase tracking-wide text-muted">
+      <Type role="metaLabel" className="lowercase text-muted">
         {label}
       </Type>
       {action ?? null}

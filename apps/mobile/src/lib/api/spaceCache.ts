@@ -5,6 +5,7 @@
 import {
   fetchSpaceChannels,
   fetchSpaceDetail,
+  fetchSpaceMemberPubkeys,
   type SpaceChannel,
   type SpaceDetail,
 } from "./spaces";
@@ -18,6 +19,7 @@ interface Entry<T> {
 
 const details = new Map<string, Entry<SpaceDetail>>();
 const channels = new Map<string, Entry<SpaceChannel[]>>();
+const members = new Map<string, Entry<string[]>>();
 
 function through<T>(
   map: Map<string, Entry<T>>,
@@ -44,14 +46,23 @@ export function cachedSpaceChannels(spaceId: string): Promise<SpaceChannel[]> {
   return through(channels, spaceId, fetchSpaceChannels);
 }
 
+/** DISPLAY-ONLY member pubkeys (avatar stacks). Membership CHECKS (join CTA,
+ *  composer gating) must keep calling fetchSpaceMemberPubkeys directly — the
+ *  header rule "membership is deliberately NOT cached" applies to them. */
+export function cachedSpaceMembers(spaceId: string): Promise<string[]> {
+  return through(members, spaceId, fetchSpaceMemberPubkeys);
+}
+
 /** Call after join/leave (memberCount, mode-dependent UI) — next read refetches. */
 export function invalidateSpace(spaceId: string): void {
   details.delete(spaceId);
   channels.delete(spaceId);
+  members.delete(spaceId);
 }
 
 /** Test hook. */
 export function clearSpaceCache(): void {
   details.clear();
   channels.clear();
+  members.clear();
 }

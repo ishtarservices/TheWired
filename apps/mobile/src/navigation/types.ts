@@ -59,7 +59,9 @@ export type RootStackParamList = {
 
   // Cross-cutting pushes (reachable from any tab / deep link)
   Profile: { pubkey: string };
-  NoteThread: { noteId: string };
+  /** `rootId` rides along when the caller had the event in hand — the thread
+   *  renders from the session cache with no fetch. Route via openThread. */
+  NoteThread: { noteId: string; rootId?: string };
   Article: { naddr: string };
 
   // Modals / sheets

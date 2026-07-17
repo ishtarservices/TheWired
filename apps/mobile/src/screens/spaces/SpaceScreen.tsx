@@ -24,7 +24,8 @@ import { haptics } from "@/lib/haptics";
 import { useEngine } from "@/lib/nostr/EngineContext";
 import { useBackFallback } from "@/navigation/useBackFallback";
 import type { SpacesStackParamList } from "@/navigation/types";
-import { useAppSelector } from "@/store/hooks";
+import { useAppDispatch, useAppSelector } from "@/store/hooks";
+import { purgeSpaceChat } from "@/store/spaceChat";
 import { useTheme } from "@/theme/ThemeContext";
 import { buildChannelRows, type ChannelListRow } from "./channelGroups";
 import { ChannelRow } from "./components/ChannelRow";
@@ -44,6 +45,7 @@ export function SpaceScreen({ navigation, route }: Props) {
   const insets = useScreenInsets({ scroll: true });
   const { tokens } = useTheme();
   const engine = useEngine();
+  const dispatch = useAppDispatch();
   const myPubkey = useAppSelector((s) => s.identity.pubkey);
   const isGuest = useAppSelector((s) => s.identity.status === "guest");
 
@@ -119,6 +121,7 @@ export function SpaceScreen({ navigation, route }: Props) {
             .then(() => {
               haptics.warning();
               invalidateSpace(spaceId);
+              dispatch(purgeSpaceChat(spaceId));
               load();
             })
             .catch((e) => {
@@ -127,7 +130,7 @@ export function SpaceScreen({ navigation, route }: Props) {
         },
       },
     ]);
-  }, [engine, detail, spaceId, load]);
+  }, [engine, detail, spaceId, load, dispatch]);
 
   const openMembers = useCallback(
     () => navigation.navigate("SpaceMembers", { spaceId }),

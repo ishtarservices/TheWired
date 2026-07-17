@@ -20,11 +20,17 @@ import {
   SpaceGrotesk_600SemiBold,
   SpaceGrotesk_700Bold,
 } from "@expo-google-fonts/space-grotesk";
+import {
+  JetBrainsMono_400Regular,
+  JetBrainsMono_500Medium,
+} from "@expo-google-fonts/jetbrains-mono";
 
 import { hydrateSession } from "@/auth/session";
-import { Type } from "@/components/ui/Type";
+import { GrainOverlay } from "@/components/layout/GrainOverlay";
+import { OfflineBanner } from "@/components/layout/OfflineBanner";
 import { createNostrEngine, type NostrEngine } from "@/lib/nostr/engine";
 import { EngineProvider } from "@/lib/nostr/EngineContext";
+import { TimeTickProvider } from "@/lib/timeTick";
 import { linking } from "@/navigation/linking";
 import { RootNavigator } from "@/navigation/RootNavigator";
 import { createMobileAdapters } from "@/platform/adapters";
@@ -33,11 +39,15 @@ import { MobileLifecycleController } from "@/platform/lifecycle/MobileLifecycleC
 import { createStore, type AppStore } from "@/store";
 import { useAppDispatch, useAppSelector } from "@/store/hooks";
 import { hydrateModeration } from "@/store/moderation";
+import { hydrateSpacePreviews } from "@/store/spacePreviews";
+import { spaceChatCleared } from "@/store/slices/spaceChatSlice";
+import { spacePreviewsCleared } from "@/store/slices/spacePreviewsSlice";
 import {
   appBackgrounded,
   appForegrounded,
   setOnline,
 } from "@/store/slices/lifecycleSlice";
+import { selectAnyRelayConnected } from "@/store/slices/relaysSlice";
 import { ThemeProvider, useTheme } from "@/theme/ThemeContext";
 import { navigationFonts, toNavigationTheme } from "@/theme/navigationTheme";
 import { DEFAULT_PRESET } from "@/theme/presets";
@@ -69,6 +79,8 @@ export default function App() {
     SpaceGrotesk_500Medium,
     SpaceGrotesk_600SemiBold,
     SpaceGrotesk_700Bold,
+    JetBrainsMono_400Regular,
+    JetBrainsMono_500Medium,
   });
   const fontsReady = fontsLoaded || !!fontError;
   setFontsReady(fontsLoaded);
@@ -93,7 +105,7 @@ export default function App() {
   if (!fontsReady || initialPreset === null) {
     // Bare frame matching app.json backgroundColor — fonts + preset resolve
     // in well under a second; rendering text now would flash system fonts.
-    return <View style={{ flex: 1, backgroundColor: "#121317" }} />;
+    return <View style={{ flex: 1, backgroundColor: "#0a0a0a" }} />;
   }
 
   return (
@@ -126,9 +138,17 @@ function ThemedShell({ engine }: { engine: NostrEngine }) {
   const engineStarted = sessionStatus !== "hydrating";
   useEffect(() => {
     if (!engineStarted) return;
+    // Account switch: previews/read-state/chat backlogs must not leak across
+    // identities — clear, then rehydrate from the (per-account) storage that
+    // just opened (chat re-hydrates lazily per channel).
+    dispatch(spacePreviewsCleared());
+    dispatch(spaceChatCleared());
     engine
       .start(pubkey)
-      .then(() => dispatch(hydrateModeration()))
+      .then(() => {
+        dispatch(hydrateModeration());
+        dispatch(hydrateSpacePreviews());
+      })
       .catch(() => {});
   }, [engine, engineStarted, pubkey, dispatch]);
   useEffect(() => {
@@ -143,53 +163,56 @@ function ThemedShell({ engine }: { engine: NostrEngine }) {
         // flashing the Welcome screen at already-logged-in users.
         <View className="flex-1 bg-background" />
       ) : (
-        <>
+        <TimeTickProvider>
           <NavigationContainer theme={{ ...navTheme, fonts: navFonts }} linking={linking}>
             <RootNavigator />
           </NavigationContainer>
           <OfflineBanner />
-        </>
+        </TimeTickProvider>
       )}
+      <GrainOverlay />
       <StatusBar style={isDark ? "light" : "dark"} />
-    </View>
-  );
-}
-
-function OfflineBanner() {
-  const isOnline = useAppSelector((s) => s.lifecycle.isOnline);
-  if (isOnline) return null;
-  return (
-    <View className="absolute left-0 right-0 top-14 items-center" pointerEvents="none">
-      <View className="rounded-full bg-warning px-4 py-1.5">
-        <Type role="micro" weight={600} className="text-background">
-          offline — reconnecting when the network returns
-        </Type>
-      </View>
     </View>
   );
 }
 
 /** AppState + NetInfo → Redux + engine (guide 06 §2): background closes the
  *  pool gracefully, foreground reconnects + resubscribes with fresh `since`,
- *  connectivity return reconnects immediately instead of waiting out backoff. */
+ *  connectivity return reconnects immediately instead of waiting out backoff.
+ *  NetInfo lies on iOS, so relay sockets double as connectivity evidence:
+ *  the controller consults live socket state whenever NetInfo claims
+ *  offline, and a socket reaching "connected" while the banner is up pushes
+ *  the recovery through reportOnlineEvidence(). */
 function useMobileLifecycle(store: AppStore, engine: NostrEngine) {
   useEffect(() => {
-    const controller = new MobileLifecycleController({
-      onForeground: () => {
-        store.dispatch(appForegrounded({ at: Date.now() }));
-        engine.handleForeground();
+    const controller = new MobileLifecycleController(
+      {
+        onForeground: () => {
+          store.dispatch(appForegrounded({ at: Date.now() }));
+          engine.handleForeground();
+        },
+        onBackground: () => {
+          store.dispatch(appBackgrounded());
+          engine.handleBackground();
+        },
+        onOnline: () => {
+          store.dispatch(setOnline(true));
+          engine.handleOnline();
+        },
+        onOffline: () => store.dispatch(setOnline(false)),
       },
-      onBackground: () => {
-        store.dispatch(appBackgrounded());
-        engine.handleBackground();
-      },
-      onOnline: () => {
-        store.dispatch(setOnline(true));
-        engine.handleOnline();
-      },
-      onOffline: () => store.dispatch(setOnline(false)),
-    });
+      { hasConnectivityEvidence: () => selectAnyRelayConnected(store.getState()) },
+    );
     controller.start();
-    return () => controller.stop();
+    const unsubscribe = store.subscribe(() => {
+      const s = store.getState();
+      if (!s.lifecycle.isOnline && selectAnyRelayConnected(s)) {
+        controller.reportOnlineEvidence();
+      }
+    });
+    return () => {
+      unsubscribe();
+      controller.stop();
+    };
   }, [store, engine]);
 }

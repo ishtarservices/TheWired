@@ -10,7 +10,7 @@
       "thewired",
       "nostr"
     ],
-    "backgroundColor": "#121317",
+    "backgroundColor": "#0a0a0a",
     "ios": {
       "supportsTablet": true,
       "bundleIdentifier": "app.thewired.mobile",
@@ -21,7 +21,7 @@
     "android": {
       "package": "app.thewired.mobile",
       "adaptiveIcon": {
-        "backgroundColor": "#121317",
+        "backgroundColor": "#0a0a0a",
         "foregroundImage": "./assets/android-icon-foreground.png",
         "backgroundImage": "./assets/android-icon-background.png",
         "monochromeImage": "./assets/android-icon-monochrome.png"

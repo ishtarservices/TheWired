@@ -57,4 +57,33 @@ describe("buildNip98Header", () => {
     expect(verifyEventSync(decoded)).toBe(true);
     expect(decoded.pubkey).toBe(signer.pubkey);
   });
+
+  it("adds a unique nonce so parallel same-second requests get distinct event ids", async () => {
+    const signer = new LocalNsecSigner(generateSecretKey());
+    const url = "https://api.thewired.app/api/music/upload";
+    // Pin the clock: identical created_at is exactly the collision that made
+    // the gateway's single-use replay guard 401 parallel batch uploads.
+    const nowSpy = jest.spyOn(Date, "now").mockReturnValue(1_700_000_000_000);
+    try {
+      const [first, second] = await Promise.all([
+        buildNip98Header(signer, url, "POST"),
+        buildNip98Header(signer, url, "POST"),
+      ]);
+      const a = JSON.parse(base64DecodeUtf8(first.slice("Nostr ".length))) as NostrEvent;
+      const b = JSON.parse(base64DecodeUtf8(second.slice("Nostr ".length))) as NostrEvent;
+
+      expect(a.created_at).toBe(b.created_at);
+      const nonceA = a.tags.find((t) => t[0] === "nonce")?.[1];
+      const nonceB = b.tags.find((t) => t[0] === "nonce")?.[1];
+      expect(nonceA).toMatch(/^[0-9a-f]{32}$/);
+      expect(nonceB).toMatch(/^[0-9a-f]{32}$/);
+      expect(nonceA).not.toBe(nonceB);
+      expect(a.id).not.toBe(b.id);
+      // Still verifiable — the gateway ignores unknown tags but re-hashes them all.
+      expect(verifyEventSync(a)).toBe(true);
+      expect(verifyEventSync(b)).toBe(true);
+    } finally {
+      nowSpy.mockRestore();
+    }
+  });
 });

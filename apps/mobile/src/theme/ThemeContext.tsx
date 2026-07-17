@@ -66,6 +66,8 @@ interface ThemeContextValue {
   tokens: DerivedTokens;
   extras: DerivedExtras;
   isDark: boolean;
+  /** Film-grain canvas overlay on (signal-style texture presets). */
+  grain: boolean;
   /** 0–1, gates Reanimated animation amplitude per preset. */
   motionIntensity: number;
   presetKeys: string[];
@@ -103,6 +105,7 @@ export function ThemeProvider({
         config.colors.background,
         config.colors.foreground,
         config.colors.primary,
+        { semantics: config.semantics },
       ),
     [config],
   );
@@ -145,7 +148,7 @@ export function ThemeProvider({
 
   const type = useCallback(
     (role: TypeRole, options?: TypeStyleOptions) =>
-      typeStyle(role, config.font?.family, options),
+      typeStyle(role, config.font, options),
     [config],
   );
 
@@ -156,6 +159,7 @@ export function ThemeProvider({
       tokens,
       extras,
       isDark,
+      grain: config.grain ?? false,
       motionIntensity: MOTION_INTENSITY[preset] ?? 0.5,
       presetKeys: PRESET_KEYS,
       featuredKeys: FEATURED_KEYS,

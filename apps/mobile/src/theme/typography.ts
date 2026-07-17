@@ -1,11 +1,15 @@
 // ─── Type scale ──────────────────────────────────────────────────────
 // One set of typographic roles for the whole app (W1 design system). Roles,
 // not ad-hoc sizes: screens compose <Type role="…"> (components/ui/Type.tsx)
-// so the scale can evolve in one place. The font *family* comes from the
-// active preset (ThemeConfig.font — same contract as desktop themePresets),
-// resolved here to the concrete @expo-google-fonts asset names.
+// so the scale can evolve in one place. Each role speaks one of three voices:
+//   body    — the preset's font family (ThemeConfig.font.family)
+//   display — the preset's displayFamily (falls back to family)
+//   meta    — the protocol voice: JetBrains Mono once loaded, the platform
+//             mono stack until then. Timestamps, counts, ids, mode badges —
+//             anything where the network is reporting, not a human speaking.
 
 import { Platform, type TextStyle } from "react-native";
+import type { ThemeFont } from "./types";
 
 export type TypeRole =
   | "display" // screen-title moments, big confident numerals (Coinbase scale)
@@ -13,11 +17,15 @@ export type TypeRole =
   | "headline" // row titles, emphasized body
   | "body" // default copy
   | "caption" // secondary meta
-  | "micro" // smallest labels (tab bar, pills)
+  | "micro" // smallest labels (pills, dense chrome)
+  | "meta" // protocol voice: timestamps, counts, relay/status text
+  | "metaLabel" // protocol voice, tracked-out section/mode labels
   | "mono" // keys, npubs, ids
   | "monoLg"; // emphasized mono (identity card)
 
 export type FontWeightKey = 400 | 500 | 600 | 700;
+
+type Voice = "body" | "display" | "meta";
 
 /** Platform mono stacks — system-provided, no font download needed. */
 export const MONO_FONT = Platform.select({ ios: "Menlo", default: "monospace" });
@@ -43,6 +51,12 @@ const GOOGLE_FONTS: Record<string, Record<FontWeightKey, string>> = {
   },
 };
 
+/** The meta voice loads regular + medium only; heavier weights clamp to 500. */
+const JETBRAINS_MONO: Record<400 | 500, string> = {
+  400: "JetBrainsMono_400Regular",
+  500: "JetBrainsMono_500Medium",
+};
+
 // App.tsx flips this once useFonts resolves; until then (or if loading
 // failed) we resolve to the system font so iOS never sees an unregistered
 // fontFamily (which redboxes in dev).
@@ -63,24 +77,33 @@ export function resolveFontFamily(
   return GOOGLE_FONTS[family]?.[weight];
 }
 
+/** Meta-voice family: platform mono stack until fonts load, JetBrains after. */
+export function resolveMonoFamily(weight: FontWeightKey): string | undefined {
+  if (!fontsReady) return MONO_FONT;
+  return JETBRAINS_MONO[weight >= 500 ? 500 : 400];
+}
+
 interface RoleSpec {
   fontSize: number;
   lineHeight: number;
   letterSpacing: number;
   weight: FontWeightKey;
-  mono?: boolean;
+  voice?: Voice; // default "body"
 }
 
-/** The scale. Display sits in the 28–34pt "large confident" band. */
+/** The scale. Display sits in the 28–34pt "large confident" band; the meta
+ *  roles carry ~0.08em tracking so the mono voice reads as labeling. */
 const ROLE_SPECS: Record<TypeRole, RoleSpec> = {
-  display: { fontSize: 32, lineHeight: 38, letterSpacing: -0.8, weight: 700 },
-  title: { fontSize: 22, lineHeight: 28, letterSpacing: -0.4, weight: 600 },
+  display: { fontSize: 32, lineHeight: 38, letterSpacing: -0.8, weight: 700, voice: "display" },
+  title: { fontSize: 22, lineHeight: 28, letterSpacing: -0.4, weight: 600, voice: "display" },
   headline: { fontSize: 17, lineHeight: 22, letterSpacing: -0.2, weight: 600 },
   body: { fontSize: 15, lineHeight: 21, letterSpacing: 0, weight: 400 },
   caption: { fontSize: 13, lineHeight: 17, letterSpacing: 0, weight: 400 },
   micro: { fontSize: 11, lineHeight: 14, letterSpacing: 0.1, weight: 500 },
-  mono: { fontSize: 13, lineHeight: 18, letterSpacing: 0, weight: 400, mono: true },
-  monoLg: { fontSize: 15, lineHeight: 21, letterSpacing: 0, weight: 500, mono: true },
+  meta: { fontSize: 11, lineHeight: 15, letterSpacing: 0.9, weight: 400, voice: "meta" },
+  metaLabel: { fontSize: 10, lineHeight: 14, letterSpacing: 0.8, weight: 500, voice: "meta" },
+  mono: { fontSize: 13, lineHeight: 18, letterSpacing: 0, weight: 400, voice: "meta" },
+  monoLg: { fontSize: 15, lineHeight: 21, letterSpacing: 0, weight: 500, voice: "meta" },
 };
 
 export interface TypeStyleOptions {
@@ -93,12 +116,20 @@ export interface TypeStyleOptions {
 /** Compose the TextStyle for a role under the active preset font. */
 export function typeStyle(
   role: TypeRole,
-  presetFamily: string | undefined,
+  font: ThemeFont | undefined,
   options: TypeStyleOptions = {},
 ): TextStyle {
   const spec = ROLE_SPECS[role];
+  const voice = spec.voice ?? "body";
   const weight = options.weight ?? spec.weight;
-  const family = spec.mono ? MONO_FONT : resolveFontFamily(presetFamily, weight);
+
+  let family: string | undefined;
+  if (voice === "meta") {
+    family = resolveMonoFamily(weight);
+  } else {
+    const presetFamily = voice === "display" ? (font?.displayFamily ?? font?.family) : font?.family;
+    family = resolveFontFamily(presetFamily, weight);
+  }
 
   const style: TextStyle = {
     fontSize: spec.fontSize,
@@ -107,8 +138,8 @@ export function typeStyle(
     fontFamily: family,
   };
   // Custom font files carry their weight in the family name; the system font
-  // (and the mono stack) still needs fontWeight.
-  if (!family || spec.mono) {
+  // (and the fallback mono stack) still needs fontWeight.
+  if (!family || family === MONO_FONT) {
     style.fontWeight = String(weight) as TextStyle["fontWeight"];
   }
   if (options.tabular) {

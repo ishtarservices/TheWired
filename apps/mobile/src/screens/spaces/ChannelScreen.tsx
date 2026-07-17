@@ -11,13 +11,14 @@ import {
   View,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import type { NostrEvent } from "@thewired/shared-types";
 
+import { NoteText } from "@/components/content/NoteText";
 import { useScreenInsets } from "@/components/layout/Screen";
 import { useNoteActions } from "@/components/notes/useNoteActions";
 import { Avatar } from "@/components/ui/Avatar";
 import { Button } from "@/components/ui/Button";
 import { EmptyState } from "@/components/ui/EmptyState";
+import { LiveDot } from "@/components/ui/LiveDot";
 import { Skeleton, SkeletonCircle } from "@/components/ui/Skeleton";
 import { Type } from "@/components/ui/Type";
 import { fetchSpaceMemberPubkeys, joinSpace } from "@/lib/api/spaces";
@@ -29,7 +30,11 @@ import { useEngine } from "@/lib/nostr/EngineContext";
 import { profileDisplayName } from "@/lib/nostr/profiles";
 import { useBackFallback } from "@/navigation/useBackFallback";
 import type { SpacesStackParamList } from "@/navigation/types";
-import { useAppSelector } from "@/store/hooks";
+import { useAppDispatch, useAppSelector } from "@/store/hooks";
+import { hydrateChannelBacklog, persistChannelBacklog } from "@/store/spaceChat";
+import { markChannelRead } from "@/store/spacePreviews";
+import { chatMessageReceived, selectChannelMessages } from "@/store/slices/spaceChatSlice";
+import { channelPreviewUpserted } from "@/store/slices/spacePreviewsSlice";
 import { useTheme } from "@/theme/ThemeContext";
 import { buildChatRows, timeLabel, type ChatRow } from "./chatRows";
 
@@ -40,10 +45,14 @@ import { buildChatRows, timeLabel, type ChatRow } from "./chatRows";
 // Posting is the gated action: members compose; logged-in non-members get
 // the Join CTA; guests get sign-in buttons. The relay enforces membership
 // via NIP-29 h-tag rules.
+//
+// Messages live in the spaceChat slice and hydrate from SQLite before the
+// socket dials (dm/feed parity) — re-entering a channel paints instantly;
+// the live backlog merges by event id with deterministic ordering.
 
 type Props = NativeStackScreenProps<SpacesStackParamList, "Channel">;
 
-const MAX_MESSAGES = 200;
+const PERSIST_DEBOUNCE_MS = 400;
 
 export function ChannelScreen({ route, navigation }: Props) {
   const { spaceId, channelId } = route.params;
@@ -54,12 +63,15 @@ export function ChannelScreen({ route, navigation }: Props) {
   const safe = useSafeAreaInsets();
   const noteActions = useNoteActions();
 
+  const dispatch = useAppDispatch();
   const myPubkey = useAppSelector((s) => s.identity.pubkey);
   const isGuest = useAppSelector((s) => s.identity.status === "guest");
   const profiles = useAppSelector((s) => s.profiles.byPubkey);
   const muted = useAppSelector((s) => s.moderation.mutedPubkeys);
+  const mutedRef = useRef(muted);
+  mutedRef.current = muted;
 
-  const [messages, setMessages] = useState<NostrEvent[]>([]);
+  const messages = useAppSelector((s) => selectChannelMessages(s, spaceId, channelId));
   const [sessionState, setSessionState] = useState<"loading" | "live" | "error">("loading");
   const [isMember, setIsMember] = useState<boolean | null>(null);
   const [spaceMode, setSpaceMode] = useState<string>("platform");
@@ -74,24 +86,55 @@ export function ChannelScreen({ route, navigation }: Props) {
     useCallback(() => navigation.replace("Space", { spaceId }), [navigation, spaceId]),
   );
 
-  // Members icon → the space's roster.
+  // Members icon → the space's roster; a breathing dot marks the socket live
+  // (liveness = motion + contrast, never a green dot).
   useEffect(() => {
     navigation.setOptions({
       headerRight: () => (
-        <Pressable
-          accessibilityRole="button"
-          accessibilityLabel="View members"
-          hitSlop={8}
-          onPress={() => {
-            haptics.selection();
-            navigation.navigate("SpaceMembers", { spaceId });
-          }}
-        >
-          <Users size={20} color={tokens.heading} />
-        </Pressable>
+        <View className="flex-row items-center gap-3">
+          {sessionState === "live" ? <LiveDot /> : null}
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel="View members"
+            hitSlop={8}
+            onPress={() => {
+              haptics.selection();
+              navigation.navigate("SpaceMembers", { spaceId });
+            }}
+          >
+            <Users size={20} color={tokens.heading} />
+          </Pressable>
+        </View>
       ),
     });
-  }, [navigation, spaceId, tokens]);
+  }, [navigation, spaceId, tokens, sessionState]);
+
+  // Cached backlog first — the SQLite read races the socket dial below, so
+  // a previously visited channel paints before the relay answers.
+  useEffect(() => {
+    dispatch(hydrateChannelBacklog(spaceId, channelId));
+  }, [dispatch, spaceId, channelId]);
+
+  // Write-through, debounced: a backlog trickle collapses to ~1 row write;
+  // unmount flushes (safe after identity clear — the thunk empty-guards).
+  const persistTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const schedulePersist = useCallback(() => {
+    if (persistTimer.current) clearTimeout(persistTimer.current);
+    persistTimer.current = setTimeout(() => {
+      persistTimer.current = null;
+      dispatch(persistChannelBacklog(spaceId, channelId));
+    }, PERSIST_DEBOUNCE_MS);
+  }, [dispatch, spaceId, channelId]);
+  useEffect(
+    () => () => {
+      if (persistTimer.current) {
+        clearTimeout(persistTimer.current);
+        persistTimer.current = null;
+      }
+      dispatch(persistChannelBacklog(spaceId, channelId));
+    },
+    [dispatch, spaceId, channelId],
+  );
 
   // Resolve the space (hostRelay, mode, channel meta), then open the
   // per-screen socket. Falls back to the app relay for platform spaces.
@@ -119,11 +162,21 @@ export function ChannelScreen({ route, navigation }: Props) {
           channelId,
           isDefaultChannel,
           onMessage: (event) => {
-            setMessages((prev) => {
-              if (prev.some((m) => m.id === event.id)) return prev;
-              const next = [...prev, event].sort((a, b) => a.created_at - b.created_at);
-              return next.length > MAX_MESSAGES ? next.slice(-MAX_MESSAGES) : next;
-            });
+            dispatch(chatMessageReceived({ spaceId, channelId, event }));
+            schedulePersist();
+            // Feed the SpacesHome preview row — muted authors never surface
+            // (the reducer can't read the moderation slice; filter here).
+            if (!mutedRef.current[event.pubkey]) {
+              dispatch(
+                channelPreviewUpserted({
+                  spaceId,
+                  channelId,
+                  createdAt: event.created_at,
+                  senderPubkey: event.pubkey,
+                  content: event.content,
+                }),
+              );
+            }
           },
           onStatus: (status) => {
             if (status === "connected") setSessionState("live");
@@ -141,7 +194,18 @@ export function ChannelScreen({ route, navigation }: Props) {
       session?.destroy();
       sessionRef.current = null;
     };
-  }, [spaceId, channelId, engine, navigation]);
+    // schedulePersist's own deps are a subset of this effect's, so its
+    // identity is stable here — no extra socket teardowns.
+  }, [spaceId, channelId, engine, navigation, dispatch, schedulePersist]);
+
+  // Viewing the channel reads it — on entry, and again on leave so messages
+  // that arrived while open count as read.
+  useEffect(() => {
+    dispatch(markChannelRead(spaceId, channelId));
+    return () => {
+      dispatch(markChannelRead(spaceId, channelId));
+    };
+  }, [dispatch, spaceId, channelId]);
 
   // Membership → composer vs Join CTA.
   useEffect(() => {
@@ -229,9 +293,9 @@ export function ChannelScreen({ route, navigation }: Props) {
             delayLongPress={300}
             className="px-4 py-0.5"
           >
-            <Type role="body" className="leading-5 text-soft" style={{ marginLeft: 48 }}>
-              {event.content}
-            </Type>
+            <View style={{ marginLeft: 48 }}>
+              <NoteText content={event.content} textClassName="leading-5 text-soft" />
+            </View>
           </Pressable>
         );
       }
@@ -258,9 +322,11 @@ export function ChannelScreen({ route, navigation }: Props) {
                 {timeLabel(event.created_at)}
               </Type>
             </View>
-            <Type role="body" className="mt-0.5 leading-5 text-soft">
-              {event.content}
-            </Type>
+            <NoteText
+              content={event.content}
+              containerClassName="mt-0.5"
+              textClassName="leading-5 text-soft"
+            />
           </View>
         </Pressable>
       );
@@ -321,10 +387,11 @@ export function ChannelScreen({ route, navigation }: Props) {
       />
 
       {sessionState === "error" && visible.length > 0 ? (
-        <View className="mx-3 mb-1 flex-row items-center gap-2 rounded-xl bg-surface px-3 py-2">
-          <WifiOff size={13} color={tokens.warning} />
-          <Type role="micro" weight={500} className="text-muted">
-            Relay unreachable — showing what loaded.
+        // Status without color: mono text on a hairline-bordered surface.
+        <View className="mx-3 mb-1 flex-row items-center gap-2 rounded-xl border border-border-light px-3 py-2">
+          <WifiOff size={13} color={tokens.muted} />
+          <Type role="meta" className="text-muted">
+            relay unreachable — showing what loaded
           </Type>
         </View>
       ) : null}

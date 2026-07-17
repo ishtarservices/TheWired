@@ -10,7 +10,26 @@ import {
 describe("theme presets", () => {
   it("has a valid default preset", () => {
     expect(PRESETS[DEFAULT_PRESET]).toBeDefined();
-    expect(DEFAULT_PRESET).toBe("clean-dark");
+    expect(DEFAULT_PRESET).toBe("signal");
+  });
+
+  it("signal is pure monochrome with grain and muted semantics", () => {
+    const signal = PRESETS.signal;
+    for (const value of Object.values(signal.colors)) {
+      expect(parseHSL(value).s).toBe(0);
+    }
+    expect(parseHSL(signal.colors.background).l).toBe(4); // #0a0a0a
+    expect(parseHSL(signal.colors.primary).l).toBe(100); // accent = inversion
+    expect(signal.grain).toBe(true);
+    expect(signal.semantics).toBe("muted");
+    expect(signal.font?.displayFamily).toBe("Space Grotesk");
+  });
+
+  it("only signal carries grain (other presets unaffected)", () => {
+    for (const key of PRESET_KEYS.filter((k) => k !== "signal")) {
+      expect(PRESETS[key].grain ?? false).toBe(false);
+      expect(PRESETS[key].semantics ?? "full").toBe("full");
+    }
   });
 
   it("keys are consistent (key field matches map key, featured ⊆ all)", () => {

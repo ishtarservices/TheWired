@@ -15,6 +15,7 @@ import {
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { SignInGate } from "@/components/auth/SignInGate";
+import { NoteText } from "@/components/content/NoteText";
 import { useScreenInsets } from "@/components/layout/Screen";
 import { ActionsSheet, type ActionsSheetRef } from "@/components/ui/ActionsSheet";
 import { EmptyState } from "@/components/ui/EmptyState";
@@ -224,12 +225,10 @@ export function DMConversationScreen({ route, navigation }: Props) {
                 : "max-w-[80%] rounded-2xl rounded-bl-md bg-card px-3.5 py-2.5"
             }
           >
-            <Type
-              role="body"
-              className={mine ? "text-primary-foreground" : "text-heading"}
-            >
-              {msg.content}
-            </Type>
+            <NoteText
+              content={msg.content}
+              textClassName={mine ? "text-primary-fg" : "text-heading"}
+            />
           </View>
           <View className="mt-0.5 flex-row items-center gap-1.5 px-1">
             <Type role="micro" tabular className="text-faint">

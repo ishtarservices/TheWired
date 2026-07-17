@@ -11,6 +11,8 @@ import * as SecureStore from "expo-secure-store";
 import type { MobileStorage } from "./adapters/sqliteStorage";
 
 const THEME_PRESET_KEY = "prefs.themePreset";
+const SPACES_SELECTION_KEY = "prefs.spacesSelection";
+const FEED_SCOPE_KEY = "prefs.feedScope";
 
 let storage: MobileStorage | null = null;
 
@@ -45,4 +47,38 @@ export function storeThemePreset(key: string): void {
   } else {
     SecureStore.setItemAsync(THEME_PRESET_KEY, key).catch(() => {});
   }
+}
+
+/** Last SpacesHome switcher selection, as JSON (screens/spaces/
+ *  spacesSelection.ts owns the shape + guards). App-global like the preset —
+ *  a stale space from another account collapses to feed in the screen. */
+export async function getStoredSpacesSelection(): Promise<string | null> {
+  try {
+    if (!storage) return null;
+    const stored = await storage.getAppStore<string>("user_state").get(SPACES_SELECTION_KEY);
+    return stored ?? null;
+  } catch {
+    return null;
+  }
+}
+
+export function storeSpacesSelection(json: string): void {
+  storage?.getAppStore<string>("user_state").put(SPACES_SELECTION_KEY, json).catch(() => {});
+}
+
+/** Last global/follows feed tab, as a bare string (screens/spaces/feedScope.ts
+ *  owns the guard). App-global like the rest — a stale "follows" for a guest
+ *  just shows the sign-in empty state. */
+export async function getStoredFeedScope(): Promise<string | null> {
+  try {
+    if (!storage) return null;
+    const stored = await storage.getAppStore<string>("user_state").get(FEED_SCOPE_KEY);
+    return stored ?? null;
+  } catch {
+    return null;
+  }
+}
+
+export function storeFeedScope(scope: string): void {
+  storage?.getAppStore<string>("user_state").put(FEED_SCOPE_KEY, scope).catch(() => {});
 }

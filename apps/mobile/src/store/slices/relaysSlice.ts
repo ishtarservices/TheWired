@@ -30,3 +30,12 @@ export const relaysSlice = createSlice({
 });
 
 export const { setRelayStatus, removeRelay } = relaysSlice.actions;
+
+/** Any live engine socket is app-level proof of connectivity — the
+ *  lifecycle controller's evidence input (beats a lying NetInfo). */
+export function selectAnyRelayConnected(state: { relays: RelaysState }): boolean {
+  for (const status of Object.values(state.relays.statuses)) {
+    if (status === "connected") return true;
+  }
+  return false;
+}

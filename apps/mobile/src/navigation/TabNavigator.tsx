@@ -2,24 +2,21 @@
 // Native tab semantics give us the keep-alive the desktop faked with `hidden`
 // classes (audio keeps playing, AI keeps streaming across tab switches).
 //
-// W1 chrome: the bar is glass — expo-blur behind a translucent wash of the
-// theme background, absolutely positioned so content scrolls beneath it.
-// Screens pad their bottom edge via useBottomTabBarHeight (Screen component).
+// Chrome is the floating glass pill (FloatingTabBar) — icons only, the
+// sliding primary circle marks the active tab. Screens pad their bottom edge
+// via useScreenInsets (components/layout/Screen); the pill reports its real
+// height through BottomTabBarHeightCallbackContext.
 
-import { Platform, StyleSheet, View } from "react-native";
 import { createBottomTabNavigator } from "@react-navigation/bottom-tabs";
-import { BlurView } from "expo-blur";
 import { BrainCircuit, Boxes, CircleUser, MessageCircle, Music } from "lucide-react-native";
 import type { LucideProps } from "lucide-react-native";
 import type { ComponentType } from "react";
 
+import { FloatingTabBar } from "./FloatingTabBar";
 import { AIStack, MessagesStack, MusicStack, SpacesStack, YouStack } from "./stacks";
 import { tabResetAction } from "./tabReset";
 import type { MainTabParamList } from "./types";
 import { haptics } from "@/lib/haptics";
-import { GLASS_BLUR_INTENSITY } from "@/theme/constants";
-import { withAlpha } from "@/theme/engine";
-import { useTheme } from "@/theme/ThemeContext";
 
 const Tab = createBottomTabNavigator<MainTabParamList>();
 
@@ -32,48 +29,7 @@ function TabIcon({
   color: string;
   focused: boolean;
 }) {
-  const { tokens } = useTheme();
-  return (
-    <View
-      style={
-        focused && Platform.OS === "ios"
-          ? {
-              // Soft glow behind the active icon (iOS shadow-as-glow).
-              shadowColor: tokens.primary,
-              shadowOpacity: 0.55,
-              shadowRadius: 10,
-              shadowOffset: { width: 0, height: 0 },
-            }
-          : undefined
-      }
-    >
-      <Icon color={color} size={24} strokeWidth={focused ? 2.25 : 1.75} />
-    </View>
-  );
-}
-
-function GlassTabBackground() {
-  const { config, extras, isDark } = useTheme();
-  if (Platform.OS !== "ios") {
-    return (
-      <View style={[StyleSheet.absoluteFill, { backgroundColor: extras.glassBg }]} />
-    );
-  }
-  return (
-    <BlurView
-      intensity={GLASS_BLUR_INTENSITY * 3}
-      tint={isDark ? "dark" : "light"}
-      style={StyleSheet.absoluteFill}
-    >
-      {/* Theme wash over the system blur so the bar carries the preset hue. */}
-      <View
-        style={[
-          StyleSheet.absoluteFill,
-          { backgroundColor: withAlpha(config.colors.background, 0.55) },
-        ]}
-      />
-    </BlurView>
-  );
+  return <Icon color={color} size={22} strokeWidth={focused ? 2.25 : 1.75} />;
 }
 
 /** Each tab's root screen — re-pressing the active tab resets to it. */
@@ -86,27 +42,10 @@ const TAB_ROOTS: Record<keyof MainTabParamList, string> = {
 };
 
 export function TabNavigator() {
-  const { tokens, extras, type } = useTheme();
-
   return (
     <Tab.Navigator
-      screenOptions={{
-        headerShown: false,
-        tabBarActiveTintColor: tokens.primary,
-        tabBarInactiveTintColor: tokens.muted,
-        tabBarBackground: () => <GlassTabBackground />,
-        tabBarStyle: {
-          position: "absolute",
-          backgroundColor: "transparent",
-          borderTopWidth: StyleSheet.hairlineWidth,
-          borderTopColor: extras.glassBorder,
-          elevation: 0,
-        },
-        tabBarLabelStyle: {
-          fontSize: 11,
-          fontFamily: type("micro").fontFamily,
-        },
-      }}
+      tabBar={(props) => <FloatingTabBar {...props} />}
+      screenOptions={{ headerShown: false }}
       screenListeners={({ navigation, route }) => ({
         tabPress: (e) => {
           haptics.selection();

@@ -33,7 +33,12 @@ export function SpacesStack() {
   const large = useLargeTitleScreenOptions();
   return (
     <Spaces.Navigator screenOptions={useStackScreenOptions()}>
-      <Spaces.Screen name="SpacesHome" component={SpacesHomeScreen} options={{ title: "Spaces" }} />
+      {/* SpacesHome owns its chrome (mono label + switcher) — no native header. */}
+      <Spaces.Screen
+        name="SpacesHome"
+        component={SpacesHomeScreen}
+        options={{ title: "Spaces", headerShown: false }}
+      />
       <Spaces.Screen
         name="Discover"
         component={DiscoverScreen}

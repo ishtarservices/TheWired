@@ -1,36 +1,51 @@
 import { useCallback, useMemo, useRef, useState, type ReactNode } from "react";
 import { Alert } from "react-native";
+import { useNavigation } from "@react-navigation/native";
 import * as Clipboard from "expo-clipboard";
-import { Ban, Copy, Flag, Link2, Zap } from "lucide-react-native";
+import { useStore } from "react-redux";
+import { Ban, Copy, Flag, Link2, Repeat2, Share2, Zap } from "lucide-react-native";
 import { nip19 } from "nostr-tools";
 import type { NostrEvent } from "@thewired/shared-types";
 
+import { ShareNoteSheet } from "@/components/notes/ShareNoteSheet";
+import type { NoteFooterHandlers } from "@/components/notes/NoteCardFooter";
 import { ActionsSheet, type ActionsSheetRef } from "@/components/ui/ActionsSheet";
 import { ZapSheet, type ZapTarget } from "@/components/zaps/ZapSheet";
 import { haptics } from "@/lib/haptics";
+import { useEngine } from "@/lib/nostr/EngineContext";
 import { profileDisplayName } from "@/lib/nostr/profiles";
 import { blockUser, reportEvent } from "@/store/moderation";
 import { useAppDispatch, useAppSelector } from "@/store/hooks";
+import { selectMyReaction, selectMyRepost } from "@/store/slices/engagementSlice";
+import type { RootState } from "@/store";
 
-// Long-press actions for any note (App Store 1.2 moderation surface):
-// copy text / copy id, report (queued locally for now), block author
-// (immediately hides their content everywhere on this device). One sheet
-// instance per screen:
+// Note interactions, two surfaces from one hook (one instance per screen):
+// the visible footer row (reply · repost · like · zap · share) and the
+// long-press sheet (share/copy/report/block — App Store 1.2 moderation
+// surface). Guests browse; actions gate in place (requireIdentity → Login).
 //
 //   const noteActions = useNoteActions();
-//   <NoteCard onLongPress={() => noteActions.open(event)} />
+//   <NoteCard footer={noteActions.footer} onLongPress={noteActions.open} />
 //   {noteActions.sheet}
 
 export interface NoteActions {
   open: (event: NostrEvent) => void;
+  /** Stable handler object for NoteCard's footer action row. */
+  footer: NoteFooterHandlers;
   sheet: ReactNode;
 }
 
 export function useNoteActions(): NoteActions {
   const dispatch = useAppDispatch();
+  const navigation = useNavigation();
+  const engine = useEngine();
+  const store = useStore<RootState>();
   const sheetRef = useRef<ActionsSheetRef>(null);
+  const repostSheetRef = useRef<ActionsSheetRef>(null);
   const [event, setEvent] = useState<NostrEvent | null>(null);
   const [zapTarget, setZapTarget] = useState<ZapTarget | null>(null);
+  const [shareTarget, setShareTarget] = useState<NostrEvent | null>(null);
+  const [repostTarget, setRepostTarget] = useState<NostrEvent | null>(null);
 
   const profile = useAppSelector((s) =>
     event ? s.profiles.byPubkey[event.pubkey] : undefined,
@@ -45,6 +60,76 @@ export function useNoteActions(): NoteActions {
     requestAnimationFrame(() => sheetRef.current?.present());
   }, []);
 
+  // Footer handlers — one stable object so memo'd cards never re-render from
+  // handler identity churn. Imperative state reads go through the store.
+  const footer = useMemo<NoteFooterHandlers>(() => {
+    const requireIdentity = (verb: string): boolean => {
+      if (store.getState().identity.status === "loggedIn") return true;
+      haptics.warning();
+      Alert.alert(
+        `Sign in to ${verb}`,
+        "Actions are signed by your key — browsing stays open without one.",
+        [
+          { text: "Not now", style: "cancel" },
+          { text: "Sign in", onPress: () => navigation.navigate("Login") },
+        ],
+      );
+      return false;
+    };
+
+    return {
+      reply(target) {
+        haptics.tap();
+        // ComposerScreen owns the sign-in gate for replies.
+        navigation.navigate("Composer", { mode: "reply", targetEventId: target.id });
+      },
+      repost(target) {
+        if (!requireIdentity("repost")) return;
+        const state = store.getState();
+        if (selectMyRepost(state, target.id, state.identity.pubkey)) return; // one-way in v1
+        haptics.tap();
+        setRepostTarget(target);
+        requestAnimationFrame(() => repostSheetRef.current?.present());
+      },
+      like(target) {
+        if (!requireIdentity("like notes")) return;
+        const state = store.getState();
+        if (selectMyReaction(state, target.id, state.identity.pubkey) !== undefined) return;
+        haptics.tap();
+        engine.publishReaction(target).catch(() => haptics.error());
+      },
+      zap(target) {
+        haptics.tap();
+        // ZapSheet self-handles guest / no-wallet states.
+        setZapTarget({ recipientPubkey: target.pubkey, event: target });
+      },
+      share(target) {
+        haptics.tap();
+        setShareTarget(target); // copy-link stays guest-usable inside the sheet
+      },
+    };
+  }, [engine, navigation, store]);
+
+  const repostActions = useMemo(() => {
+    if (!repostTarget) return [];
+    return [
+      {
+        icon: Repeat2,
+        label: "Repost",
+        sublabel: "Rebroadcast this note to your relays",
+        onPress: () => {
+          repostSheetRef.current?.dismiss();
+          const target = repostTarget;
+          setRepostTarget(null);
+          engine
+            .publishRepost(target)
+            .then(() => haptics.success())
+            .catch(() => haptics.error());
+        },
+      },
+    ];
+  }, [repostTarget, engine]);
+
   const actions = useMemo(() => {
     if (!event) return [];
     const name = profileDisplayName(profile, event.pubkey);
@@ -56,6 +141,15 @@ export function useNoteActions(): NoteActions {
         onPress: () => {
           sheetRef.current?.dismiss();
           setZapTarget({ recipientPubkey: event.pubkey, event });
+        },
+      },
+      {
+        icon: Share2,
+        label: "Share note",
+        sublabel: "Copy link, send as message, post to a space",
+        onPress: () => {
+          sheetRef.current?.dismiss();
+          setShareTarget(event);
         },
       },
       {
@@ -120,10 +214,13 @@ export function useNoteActions(): NoteActions {
 
   return {
     open,
+    footer,
     sheet: (
       <>
         <ActionsSheet ref={sheetRef} title={title} actions={actions} />
+        <ActionsSheet ref={repostSheetRef} title="repost" actions={repostActions} />
         <ZapSheet target={zapTarget} onClose={() => setZapTarget(null)} />
+        <ShareNoteSheet target={shareTarget} onClose={() => setShareTarget(null)} />
       </>
     ),
   };

@@ -8,12 +8,17 @@ import { configureStore } from "@reduxjs/toolkit";
 
 import type { PlatformAdapters } from "@/core/adapters";
 import { dmSlice } from "./slices/dmSlice";
+import { engagementSlice } from "./slices/engagementSlice";
 import { feedSlice } from "./slices/feedSlice";
+import { followsSlice } from "./slices/followsSlice";
 import { identitySlice } from "./slices/identitySlice";
 import { lifecycleSlice } from "./slices/lifecycleSlice";
 import { moderationSlice } from "./slices/moderationSlice";
 import { profilesSlice } from "./slices/profilesSlice";
 import { relaysSlice } from "./slices/relaysSlice";
+import { spaceChatSlice } from "./slices/spaceChatSlice";
+import { spacePreviewsSlice } from "./slices/spacePreviewsSlice";
+import { threadsSlice } from "./slices/threadsSlice";
 import { zapsSlice } from "./slices/zapsSlice";
 
 export interface ThunkExtra {
@@ -26,10 +31,15 @@ export function createStore(adapters: PlatformAdapters) {
       identity: identitySlice.reducer,
       relays: relaysSlice.reducer,
       lifecycle: lifecycleSlice.reducer,
+      engagement: engagementSlice.reducer,
       feed: feedSlice.reducer,
+      follows: followsSlice.reducer,
       profiles: profilesSlice.reducer,
       moderation: moderationSlice.reducer,
       dm: dmSlice.reducer,
+      spaceChat: spaceChatSlice.reducer,
+      spacePreviews: spacePreviewsSlice.reducer,
+      threads: threadsSlice.reducer,
       zaps: zapsSlice.reducer,
     },
     middleware: (getDefaultMiddleware) =>

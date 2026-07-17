@@ -36,7 +36,7 @@ export function ChannelRow({
       }
       trailing={
         channel.isDefault ? (
-          <Type role="micro" weight={500} className="text-faint">
+          <Type role="metaLabel" className="text-faint">
             home
           </Type>
         ) : undefined

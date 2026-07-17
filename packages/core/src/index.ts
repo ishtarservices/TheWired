@@ -10,3 +10,4 @@ export * from "./crypto/giftWrap";
 export * from "./crypto/nip17Room";
 export * from "./nostr/dedup";
 export * from "./nostr/profileParser";
+export * from "./nostr/thread";

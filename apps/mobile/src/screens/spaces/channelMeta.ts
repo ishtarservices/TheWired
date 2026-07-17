@@ -53,3 +53,23 @@ export function channelSubtitle(
 export function isEnterableChannelType(type: string): boolean {
   return type === "chat" || type === "notes" || type === "media" || type === "articles" || type === "music";
 }
+
+/**
+ * Mode-badge label for the space header. Backend `space_mode` values:
+ * "platform" | "decentralized" | "nip29" — nip29-native spaces are the
+ * self-hosted ones (relay-only, no backend authority). Unknown values hide
+ * the badge (never guess). Note the API parse defaults an absent space_mode
+ * to "platform" (lib/api/spaces.ts), so "absent" only occurs pre-load.
+ */
+export function spaceModeBadgeLabel(spaceMode: string | undefined): string | null {
+  switch (spaceMode) {
+    case "nip29":
+      return "self-hosted";
+    case "decentralized":
+      return "decentralized";
+    case "platform":
+      return "platform";
+    default:
+      return null;
+  }
+}

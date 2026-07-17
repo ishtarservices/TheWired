@@ -7,9 +7,15 @@ import { HeaderHeightContext } from "@react-navigation/elements";
 import { cn } from "@/lib/cn";
 
 // Layout under glass chrome (W1 §3): iOS headers are transparent blur and the
-// tab bar is absolute, so content must inset itself. This is the one place
-// that knows how. Contexts (not hooks) so screens outside a tab/header scope
-// resolve to 0 instead of throwing.
+// tab bar is a floating pill positioned absolutely, so content must inset
+// itself. This is the one place that knows how. Contexts (not hooks) so
+// screens outside a tab/header scope resolve to 0 instead of throwing.
+//
+// tabBarHeight comes from FloatingTabBar's own onLayout report (pill + float
+// gap + bottom safe area — React Navigation only estimates custom bars), so
+// the math below needs no pill-specific cases. Until that first onLayout
+// lands, consumers see the navigator's stock estimate for one frame —
+// cosmetic only.
 
 export interface ScreenInsets {
   /** Manual top padding — 0 on iOS scroll surfaces (UIKit adjusts). */

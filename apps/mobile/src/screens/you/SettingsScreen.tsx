@@ -30,6 +30,7 @@ function PresetSwatch({
     preset.colors.background,
     preset.colors.foreground,
     preset.colors.primary,
+    { semantics: preset.semantics },
   );
 
   return (

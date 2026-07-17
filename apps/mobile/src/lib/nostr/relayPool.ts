@@ -284,11 +284,13 @@ export function createRelayPool(
     reconnectNow(): void {
       if (suspended || destroyed) return;
       for (const conn of conns.values()) {
-        if (conn.ws && conn.ws.readyState === WS_OPEN) continue;
         clearReconnect(conn);
         conn.attempts = 0;
-        // Tear down any half-open socket before dialing fresh (new network
-        // interface after a Wi-Fi ↔ cellular handoff).
+        // Cycle EVERY socket — including readyState OPEN ones. After a
+        // network change, iOS sockets routinely stay half-open: OPEN by
+        // readyState but dead on the wire, never firing error/close. Any
+        // socket predating the connectivity edge is untrustworthy; dialing
+        // fresh is cheap (3 sockets) and tracked REQs replay on open.
         if (conn.ws) closeSocket(conn);
         openSocket(conn);
       }
