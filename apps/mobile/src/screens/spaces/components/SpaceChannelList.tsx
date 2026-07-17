@@ -3,36 +3,29 @@
 // as one FlatList. Rows are dense and hairline-divided, enriched only with
 // data the app has already fetched (spacePreviews slice) — a bare row is the
 // designed state, not a failure. Long-press opens the channel quick-actions
-// sheet. Remounts per space via key={spaceId} in the parent; spaceCache
-// makes rapid switcher hops cheap.
+// sheet. Remounts per space via key={spaceId} in the parent; the space-meta
+// cache makes rapid switcher hops instant (SQLite hydrate + SWR refresh).
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo } from "react";
 import { Boxes } from "lucide-react-native";
 import { FlatList, View } from "react-native";
-import type { SpaceChannel, SpaceDetail } from "@/lib/api/spaces";
+import type { SpaceChannel } from "@/lib/api/spaces";
 
 import { Button } from "@/components/ui/Button";
 import { EmptyState } from "@/components/ui/EmptyState";
 import { Skeleton, SkeletonCircle } from "@/components/ui/Skeleton";
 import { Type } from "@/components/ui/Type";
-import {
-  cachedSpaceChannels,
-  cachedSpaceDetail,
-  cachedSpaceMembers,
-} from "@/lib/api/spaceCache";
 import { useEngine } from "@/lib/nostr/EngineContext";
-import { profileDisplayName } from "@/lib/nostr/profiles";
 import { useAppSelector } from "@/store/hooks";
-import {
-  channelKey,
-  selectSpaceMusicArtwork,
-} from "@/store/slices/spacePreviewsSlice";
 import { buildChannelSections, type SectionRow } from "../channelSections";
 import { selectLiveItems } from "../liveItems";
 import { useChannelActions } from "../useChannelActions";
-import { ChannelRowRich } from "./ChannelRowRich";
-import { LiveNowRow } from "./LiveNowRow";
-import { MusicChannelRow } from "./MusicChannelRow";
+import { useSpaceMeta } from "../useSpaceMeta";
+import {
+  ChannelRowConnected,
+  LiveNowRowConnected,
+  MusicChannelRowConnected,
+} from "./ChannelRowConnected";
 import { SpaceHeader } from "./SpaceHeader";
 
 const HEADER_MEMBERS_SHOWN = 3;
@@ -49,31 +42,18 @@ export function SpaceChannelList({
   onOpenChannel: (channel: SpaceChannel) => void;
 }) {
   const engine = useEngine();
-  const [detail, setDetail] = useState<SpaceDetail | null>(null);
-  const [channels, setChannels] = useState<SpaceChannel[] | null>(null);
-  const [memberPubkeys, setMemberPubkeys] = useState<string[]>([]);
-  const [error, setError] = useState<string | null>(null);
   const channelActions = useChannelActions(spaceId);
 
+  // Space meta (detail/channels/display roster) from the SWR cache —
+  // instant SQLite paint on switcher hops, background refresh on focus.
+  // Backend-cached member profiles are seeded by the thunk itself.
+  const { detail, channels, memberPubkeys, error, refresh } = useSpaceMeta(spaceId);
+
+  // NO whole-map selectors here (previews/lastReadAt/profiles) — the
+  // space-signal sub updates those live, and a map subscription would
+  // re-render every row per incoming kind-9/kind-0. Rows connect themselves
+  // (ChannelRowConnected) with per-key selectors.
   const liveItems = useAppSelector((s) => selectLiveItems(s, spaceId));
-  const previews = useAppSelector((s) => s.spacePreviews.previews);
-  const lastReadAt = useAppSelector((s) => s.spacePreviews.lastReadAt);
-  const artworks = useAppSelector((s) => selectSpaceMusicArtwork(s, spaceId));
-  const profiles = useAppSelector((s) => s.profiles.byPubkey);
-
-  const load = useCallback(() => {
-    setError(null);
-    setDetail(null);
-    setChannels(null);
-    cachedSpaceDetail(spaceId)
-      .then(setDetail)
-      .catch((e) => setError(e instanceof Error ? e.message : "Space unavailable."));
-    cachedSpaceChannels(spaceId).then(setChannels).catch(() => setChannels([]));
-    // Display-only avatar stack — membership checks stay uncached elsewhere.
-    cachedSpaceMembers(spaceId).then(setMemberPubkeys).catch(() => {});
-  }, [spaceId]);
-
-  useEffect(load, [load]);
 
   // Kind-0 backfill for the presence stack.
   useEffect(() => {
@@ -82,8 +62,14 @@ export function SpaceChannelList({
     }
   }, [engine, memberPubkeys]);
 
-  const rows = buildChannelSections(channels, detail?.spaceMode, liveItems);
+  const rows = useMemo(
+    () => buildChannelSections(channels, detail?.spaceMode, liveItems),
+    [channels, detail?.spaceMode, liveItems],
+  );
 
+  // Deps are stable handlers only — a preview/profile update re-renders
+  // exactly the affected connected row, never the list.
+  const openSheet = channelActions.open;
   const renderRow = useCallback(
     ({ item }: { item: SectionRow }) => {
       switch (item.kind) {
@@ -96,70 +82,34 @@ export function SpaceChannelList({
             </View>
           );
         case "live":
-          return (
-            <LiveNowRow
-              item={item.item}
-              participantNames={item.item.participantPubkeys.map((pubkey) =>
-                profileDisplayName(profiles[pubkey], pubkey),
-              )}
-              // Unreachable until a live source exists (selectLiveItems → []);
-              // voice/listen-together wire the real join here.
-              onJoin={() => {}}
-            />
-          );
+          return <LiveNowRowConnected item={item.item} />;
         case "musicChannel":
           return (
-            <MusicChannelRow
+            <MusicChannelRowConnected
+              spaceId={spaceId}
               channel={item.channel}
-              artworks={artworks}
-              onPress={() => onOpenChannel(item.channel)}
-              onLongPress={() => channelActions.open(item.channel)}
+              onOpenChannel={onOpenChannel}
+              onLongPressChannel={openSheet}
             />
           );
-        case "channel": {
-          const key = channelKey(spaceId, item.channel.id);
-          const preview = previews[key];
-          const readAt = lastReadAt[key];
-          const unreadCount =
-            readAt === undefined || !preview
-              ? 0
-              : preview.eventTimestamps.filter((t) => t > readAt).length;
+        case "channel":
           return (
-            <ChannelRowRich
+            <ChannelRowConnected
+              spaceId={spaceId}
               channel={item.channel}
               enterable={item.enterable}
-              preview={
-                preview
-                  ? {
-                      lastText: preview.lastText,
-                      senderName: profileDisplayName(
-                        profiles[preview.lastSenderPubkey],
-                        preview.lastSenderPubkey,
-                      ),
-                      lastEventAt: preview.lastEventAt,
-                    }
-                  : undefined
-              }
-              unreadCount={unreadCount}
-              onPress={item.enterable ? () => onOpenChannel(item.channel) : undefined}
-              onLongPress={() => channelActions.open(item.channel)}
+              onOpenChannel={onOpenChannel}
+              onLongPressChannel={openSheet}
             />
           );
-        }
       }
     },
-    [
-      spaceId,
-      previews,
-      lastReadAt,
-      artworks,
-      profiles,
-      onOpenChannel,
-      channelActions,
-    ],
+    [spaceId, onOpenChannel, openSheet],
   );
 
-  if (error) {
+  // A failed background refresh keeps stale data on screen — the error
+  // page only shows when there's nothing to paint at all.
+  if (error && !detail) {
     return (
       <View className="flex-1" style={{ paddingBottom }}>
         <EmptyState
@@ -167,7 +117,7 @@ export function SpaceChannelList({
           title="Space unavailable"
           message={error}
           action={
-            <Button variant="secondary" onPress={load}>
+            <Button variant="secondary" onPress={refresh}>
               Try again
             </Button>
           }

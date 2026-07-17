@@ -2,8 +2,8 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useNavigation } from "@react-navigation/native";
 import type { NativeStackScreenProps } from "@react-navigation/native-stack";
 import * as Clipboard from "expo-clipboard";
-import { Boxes, Copy, LogOut, MoreHorizontal, Users } from "lucide-react-native";
-import { Alert, FlatList, Pressable, View } from "react-native";
+import { Boxes, Copy, LogOut, MoreHorizontal, UsersRound } from "lucide-react-native";
+import { Alert, FlatList, Pressable, RefreshControl, View } from "react-native";
 
 import { useScreenInsets } from "@/components/layout/Screen";
 import { ActionsSheet, type ActionsSheetRef, type SheetAction } from "@/components/ui/ActionsSheet";
@@ -11,14 +11,8 @@ import { Button } from "@/components/ui/Button";
 import { EmptyState } from "@/components/ui/EmptyState";
 import { SectionHeader } from "@/components/ui/SectionHeader";
 import { Skeleton, SkeletonCircle, SkeletonText } from "@/components/ui/Skeleton";
-import {
-  fetchSpaceMemberPubkeys,
-  joinSpace,
-  leaveSpace,
-  type SpaceChannel,
-  type SpaceDetail,
-} from "@/lib/api/spaces";
-import { cachedSpaceChannels, cachedSpaceDetail, invalidateSpace } from "@/lib/api/spaceCache";
+import { invalidateMembership, isMemberOf } from "@/lib/api/membership";
+import { joinSpace, leaveSpace, type SpaceChannel, type SpaceDetail } from "@/lib/api/spaces";
 import { isSpaceFeedType } from "@/lib/nostr/spaceFeedRoutes";
 import { haptics } from "@/lib/haptics";
 import { useEngine } from "@/lib/nostr/EngineContext";
@@ -26,11 +20,13 @@ import { useBackFallback } from "@/navigation/useBackFallback";
 import type { SpacesStackParamList } from "@/navigation/types";
 import { useAppDispatch, useAppSelector } from "@/store/hooks";
 import { purgeSpaceChat } from "@/store/spaceChat";
+import { invalidateSpaceMeta } from "@/store/spaceMeta";
 import { useTheme } from "@/theme/ThemeContext";
 import { buildChannelRows, type ChannelListRow } from "./channelGroups";
 import { ChannelRow } from "./components/ChannelRow";
 import { MemberFacepile } from "./components/MemberFacepile";
 import { SpaceHero } from "./components/SpaceHero";
+import { useSpaceMeta } from "./useSpaceMeta";
 
 // The space home: hero identity block, join/leave, member facepile, and the
 // channel list grouped by category — every channel type opens its view
@@ -49,10 +45,7 @@ export function SpaceScreen({ navigation, route }: Props) {
   const myPubkey = useAppSelector((s) => s.identity.pubkey);
   const isGuest = useAppSelector((s) => s.identity.status === "guest");
 
-  const [detail, setDetail] = useState<SpaceDetail | null>(null);
-  const [channels, setChannels] = useState<SpaceChannel[] | null>(null);
-  const [members, setMembers] = useState<string[] | null>(null);
-  const [error, setError] = useState<string | null>(null);
+  const [isMember, setIsMember] = useState<boolean | null>(null);
   const [joining, setJoining] = useState(false);
   const sheetRef = useRef<ActionsSheetRef>(null);
 
@@ -62,25 +55,39 @@ export function SpaceScreen({ navigation, route }: Props) {
     useCallback(() => navigation.replace("SpacesHome"), [navigation]),
   );
 
-  const load = useCallback(() => {
-    setError(null);
-    cachedSpaceDetail(spaceId)
-      .then((d) => {
-        setDetail(d);
-        navigation.setOptions({ title: d.name });
+  // Detail/channels + display roster from the SWR cache — instant paint on
+  // revisits; the thunk seeds the backend-cached member profiles itself.
+  const { detail, channels, memberPubkeys, status, error, refresh } =
+    useSpaceMeta(spaceId);
+
+  useEffect(() => {
+    if (detail) navigation.setOptions({ title: detail.name });
+  }, [navigation, detail]);
+
+  // Membership stays uncached-by-contract (join CTA correctness) — checked
+  // through membership.ts's 10s dedup window, never the display roster.
+  useEffect(() => {
+    if (!myPubkey) {
+      setIsMember(false);
+      return;
+    }
+    let cancelled = false;
+    isMemberOf(spaceId, myPubkey)
+      .then((member) => {
+        if (!cancelled) setIsMember(member);
       })
-      .catch((e) => setError(e instanceof Error ? e.message : "Space unavailable."));
-    cachedSpaceChannels(spaceId).then(setChannels).catch(() => setChannels([]));
-    fetchSpaceMemberPubkeys(spaceId).then(setMembers).catch(() => setMembers([]));
-  }, [spaceId, navigation]);
+      .catch(() => {
+        if (!cancelled) setIsMember(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [spaceId, myPubkey]);
 
-  useEffect(load, [load]);
-
-  const isMember = !!myPubkey && !!members?.includes(myPubkey);
   const isPlatform = detail ? detail.spaceMode !== "nip29" : true;
 
-  // Facepile avatars need kind-0s.
-  const facepilePubkeys = useMemo(() => (members ?? []).slice(0, 8), [members]);
+  // Facepile avatars need kind-0s (display-only roster prefix).
+  const facepilePubkeys = useMemo(() => memberPubkeys.slice(0, 8), [memberPubkeys]);
   useEffect(() => {
     if (facepilePubkeys.length > 0) engine.requestProfiles(facepilePubkeys);
   }, [engine, facepilePubkeys]);
@@ -99,14 +106,15 @@ export function SpaceScreen({ navigation, route }: Props) {
     joinSpace(spaceId, signer)
       .then(() => {
         haptics.success();
-        invalidateSpace(spaceId);
-        load();
+        setIsMember(true);
+        invalidateMembership(spaceId);
+        dispatch(invalidateSpaceMeta(spaceId));
       })
       .catch((e) => {
         Alert.alert("Couldn't join", e instanceof Error ? e.message : "Try again.");
       })
       .finally(() => setJoining(false));
-  }, [isGuest, myPubkey, engine, spaceId, rootNavigation, load]);
+  }, [isGuest, myPubkey, engine, spaceId, rootNavigation, dispatch]);
 
   const onLeave = useCallback(() => {
     const signer = engine.getSigner();
@@ -120,9 +128,10 @@ export function SpaceScreen({ navigation, route }: Props) {
           leaveSpace(spaceId, signer)
             .then(() => {
               haptics.warning();
-              invalidateSpace(spaceId);
+              setIsMember(false);
+              invalidateMembership(spaceId);
+              dispatch(invalidateSpaceMeta(spaceId));
               dispatch(purgeSpaceChat(spaceId));
-              load();
             })
             .catch((e) => {
               Alert.alert("Couldn't leave", e instanceof Error ? e.message : "Try again.");
@@ -130,7 +139,7 @@ export function SpaceScreen({ navigation, route }: Props) {
         },
       },
     ]);
-  }, [engine, detail, spaceId, load, dispatch]);
+  }, [engine, detail, spaceId, dispatch]);
 
   const openMembers = useCallback(
     () => navigation.navigate("SpaceMembers", { spaceId }),
@@ -140,7 +149,7 @@ export function SpaceScreen({ navigation, route }: Props) {
   const sheetActions = useMemo<SheetAction[]>(() => {
     const actions: SheetAction[] = [
       {
-        icon: Users,
+        icon: UsersRound,
         label: "View members",
         onPress: () => {
           sheetRef.current?.dismiss();
@@ -227,7 +236,11 @@ export function SpaceScreen({ navigation, route }: Props) {
     [openChannel],
   );
 
-  const memberCount = detail?.memberCount || members?.length || 0;
+  const memberCount = detail?.memberCount || memberPubkeys.length || 0;
+
+  // Stale-while-revalidate: a failed background refresh keeps the cached
+  // hero on screen; the error page needs an empty cache.
+  const blockingError = detail ? null : error;
 
   return (
     <View className="flex-1 bg-background">
@@ -241,11 +254,18 @@ export function SpaceScreen({ navigation, route }: Props) {
           paddingBottom: insets.bottom + 24,
           paddingHorizontal: 16,
         }}
+        refreshControl={
+          <RefreshControl
+            refreshing={status === "refreshing"}
+            onRefresh={refresh}
+            tintColor={tokens.muted}
+          />
+        }
         ListHeaderComponent={
           <SpaceScreenHeader
             detail={detail}
-            error={error}
-            isMember={isMember}
+            error={blockingError}
+            isMember={isMember === true}
             isPlatform={isPlatform}
             joining={joining}
             memberCount={memberCount}
@@ -255,7 +275,7 @@ export function SpaceScreen({ navigation, route }: Props) {
           />
         }
         ListEmptyComponent={
-          channels === null ? (
+          blockingError ? null : channels === null ? (
             <View className="gap-2.5 pt-2">
               {Array.from({ length: 4 }, (_, i) => (
                 <View key={i} className="flex-row items-center gap-3 rounded-xl bg-card p-4">
@@ -267,7 +287,7 @@ export function SpaceScreen({ navigation, route }: Props) {
                 </View>
               ))}
             </View>
-          ) : error ? null : (
+          ) : (
             <EmptyState
               icon={Boxes}
               title="No channels listed"

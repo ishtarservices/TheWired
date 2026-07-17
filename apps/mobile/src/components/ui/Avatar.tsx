@@ -1,3 +1,4 @@
+import { useState } from "react";
 import { Image, Text, View } from "react-native";
 
 import { cn } from "@/lib/cn";
@@ -26,15 +27,21 @@ export interface AvatarProps {
 
 export function Avatar({ uri, name, pubkey, size = 40, className }: AvatarProps) {
   const dimension = { width: size, height: size, borderRadius: size / 2 };
+  // A 404/dead-host bitmap must not stick as a grey bg-card circle forever —
+  // fall through to the initial fallback. Comparing against the failed uri
+  // (not a boolean) self-resets when a kind-0 refresh changes the picture.
+  const [failedUri, setFailedUri] = useState<string | null>(null);
 
   // Profile pictures are untrusted kind-0 data — sanitize before RCTImage.
   const safeUri = safeImageUri(uri);
-  if (safeUri) {
+  if (safeUri && failedUri !== safeUri) {
     return (
       <Image
         source={{ uri: safeUri }}
         style={dimension}
         className={cn("bg-card", className)}
+        onError={() => setFailedUri(safeUri)}
+        testID="avatar-image"
         accessibilityIgnoresInvertColors
       />
     );

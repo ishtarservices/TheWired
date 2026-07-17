@@ -180,4 +180,44 @@ describe("chat session", () => {
     expect(sockets[0].frames().some((f) => f[0] === "AUTH")).toBe(false);
     session.destroy();
   });
+
+  it("suspend() closes the socket and cancels backoff redials", () => {
+    jest.useFakeTimers();
+    try {
+      const { session, sockets } = makeHarness();
+      sockets[0].open();
+      // Server-side drop → the pool schedules a backoff redial…
+      sockets[0].readyState = 3;
+      sockets[0].onclose?.({ code: 1006, reason: "" });
+      session.suspend();
+      // …which suspend() must cancel: no redial while backgrounded, ever.
+      jest.advanceTimersByTime(300_000);
+      expect(sockets).toHaveLength(1);
+      session.destroy();
+    } finally {
+      jest.useRealTimers();
+    }
+  });
+
+  it("suspend() closes a live socket; resume() reopens and replays the kind-9 REQ", async () => {
+    const { session, sockets, received } = makeHarness();
+    sockets[0].open();
+
+    session.suspend();
+    expect(sockets[0].readyState).toBe(3); // closed proactively, not by iOS
+    expect(sockets).toHaveLength(1);
+
+    session.resume();
+    expect(sockets).toHaveLength(2); // fresh dial
+    sockets[1].open();
+    const req = sockets[1].frames().find((f) => f[0] === "REQ")!;
+    expect(req[2]).toMatchObject({ kinds: [9], "#h": [SPACE], limit: 60 });
+
+    // The replayed sub is live — foreground catch-up events still route.
+    const msg = chatEvent("welcome back", [["h", SPACE]]);
+    sockets[1].message(["EVENT", req[1], msg]);
+    await flush();
+    expect(received.map((e) => e.content)).toContain("welcome back");
+    session.destroy();
+  });
 });

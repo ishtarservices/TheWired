@@ -1,8 +1,7 @@
 // ─── Space channel previews / read state ─────────────────────────────
 // Honest-degradation metadata for the SpacesHome channel list: last-message
 // previews and unread counts exist ONLY for channels this session has
-// actually seen data for (the per-screen chat socket, the space feed's
-// one-shot pages) — no extra relay traffic is ever opened to fill a row.
+// actually seen data for (the space-signal sub, the per-screen chat socket).
 // A row with no entry renders as name + chevron and must look intentional.
 //
 // previews/musicArtwork are in-memory only; lastReadAt persists through
@@ -10,12 +9,34 @@
 
 import { createSlice, type PayloadAction } from "@reduxjs/toolkit";
 
+export interface PreviewEntry {
+  /** Event id — dedup key (the signal sub and an open ChannelScreen socket
+   *  can both deliver the same event). */
+  id: string;
+  /** created_at, unix seconds. */
+  at: number;
+}
+
 export interface ChannelPreview {
   lastEventAt: number; // unix seconds
   lastSenderPubkey: string;
   lastText: string;
-  /** Bounded timestamps of messages seen this session — unread derivation. */
-  eventTimestamps: number[];
+  /** Bounded evidence of messages seen this session — unread derivation.
+   *  Own messages are excluded: they update the preview line but never
+   *  count as unread. */
+  entries: PreviewEntry[];
+}
+
+/** One verified, channel-matched, mute-filtered message for the batch upsert. */
+export interface ChannelMessageSeen {
+  spaceId: string;
+  channelId: string;
+  eventId: string;
+  createdAt: number;
+  senderPubkey: string;
+  content: string;
+  /** Authored by the active identity. */
+  isOwn: boolean;
 }
 
 interface SpacePreviewsState {
@@ -35,7 +56,7 @@ const initialState: SpacePreviewsState = {
   musicArtwork: {},
 };
 
-const MAX_TIMESTAMPS = 100;
+const MAX_ENTRIES = 100;
 const MAX_ARTWORK = 8;
 
 export function channelKey(spaceId: string, channelId: string): string {
@@ -51,43 +72,31 @@ export const spacePreviewsSlice = createSlice({
   name: "spacePreviews",
   initialState,
   reducers: {
-    /** A verified, channel-matched message (chat socket backlog or live).
-     *  Callers filter muted authors BEFORE dispatching. */
-    channelPreviewUpserted(
-      state,
-      action: PayloadAction<{
-        spaceId: string;
-        channelId: string;
-        createdAt: number;
-        senderPubkey: string;
-        content: string;
-      }>,
-    ) {
-      const { spaceId, channelId, createdAt, senderPubkey, content } = action.payload;
-      const key = channelKey(spaceId, channelId);
-      const existing = state.previews[key];
-      if (!existing) {
-        state.previews[key] = {
-          lastEventAt: createdAt,
-          lastSenderPubkey: senderPubkey,
-          lastText: truncatePreview(content),
-          eventTimestamps: [createdAt],
-        };
-        return;
-      }
-      if (createdAt >= existing.lastEventAt) {
-        existing.lastEventAt = createdAt;
-        existing.lastSenderPubkey = senderPubkey;
-        existing.lastText = truncatePreview(content);
-      }
-      if (!existing.eventTimestamps.includes(createdAt)) {
-        existing.eventTimestamps.push(createdAt);
-        if (existing.eventTimestamps.length > MAX_TIMESTAMPS) {
-          existing.eventTimestamps.sort((a, b) => a - b);
-          existing.eventTimestamps.splice(
-            0,
-            existing.eventTimestamps.length - MAX_TIMESTAMPS,
-          );
+    /** Verified, channel-matched messages (signal sub backfill/live, chat
+     *  socket backlog/live). Callers filter muted authors BEFORE dispatching.
+     *  Batched: a cold backfill must not be one dispatch per event. */
+    channelPreviewsUpserted(state, action: PayloadAction<ChannelMessageSeen[]>) {
+      for (const m of action.payload) {
+        const key = channelKey(m.spaceId, m.channelId);
+        let preview = state.previews[key];
+        if (!preview) {
+          preview = state.previews[key] = {
+            lastEventAt: m.createdAt,
+            lastSenderPubkey: m.senderPubkey,
+            lastText: truncatePreview(m.content),
+            entries: [],
+          };
+        } else if (m.createdAt >= preview.lastEventAt) {
+          preview.lastEventAt = m.createdAt;
+          preview.lastSenderPubkey = m.senderPubkey;
+          preview.lastText = truncatePreview(m.content);
+        }
+        if (m.isOwn) continue;
+        if (preview.entries.some((e) => e.id === m.eventId)) continue;
+        preview.entries.push({ id: m.eventId, at: m.createdAt });
+        if (preview.entries.length > MAX_ENTRIES) {
+          preview.entries.sort((a, b) => a.at - b.at);
+          preview.entries.splice(0, preview.entries.length - MAX_ENTRIES);
         }
       }
     },
@@ -128,7 +137,7 @@ export const spacePreviewsSlice = createSlice({
 });
 
 export const {
-  channelPreviewUpserted,
+  channelPreviewsUpserted,
   channelMarkedRead,
   spaceLastReadHydrated,
   spaceMusicArtworkSeen,
@@ -162,7 +171,7 @@ export function selectChannelUnreadCount(
   if (readAt === undefined) return 0;
   const preview = state.spacePreviews.previews[key];
   if (!preview) return 0;
-  return preview.eventTimestamps.filter((t) => t > readAt).length;
+  return preview.entries.filter((e) => e.at > readAt).length;
 }
 
 const EMPTY_ARTWORK: string[] = [];

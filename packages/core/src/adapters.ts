@@ -47,6 +47,9 @@ export interface VerifierAdapter {
  * `${spaceId}/${channelId}`, for hydrate-before-network chat paint.
  * threads caches conversation events, one row per thread root id
  * ({ savedAt, events }), for hydrate-before-network thread paint.
+ * space_meta caches space detail/channels/display-roster, one row per
+ * space id ({ savedAt, fetchedAt, detail, channels, memberPubkeys }),
+ * for hydrate-before-network space paint.
  */
 export type StoreName =
   | "events"
@@ -60,6 +63,7 @@ export type StoreName =
   | "dm_messages"
   | "dm_state"
   | "space_chat"
+  | "space_meta"
   | "threads";
 
 /** Minimal KV surface the lib/db store wrappers need (get/put/delete/iterate). */

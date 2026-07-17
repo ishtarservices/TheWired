@@ -245,3 +245,60 @@ describe("relayPool", () => {
     expect(sockets).toHaveLength(2); // no new dials
   });
 });
+
+describe("per-sub relay targeting", () => {
+  beforeEach(() => jest.useFakeTimers());
+
+  it("sends a targeted REQ only to its relay; broadcast subs reach all", () => {
+    const { factory, sockets } = makeFactory();
+    const pool = createRelayPool(factory, makeCallbacks());
+    pool.connect(["wss://a", "wss://b"]);
+    sockets[0].open();
+    sockets[1].open();
+
+    pool.subscribe("targeted", [{ kinds: [9] }], ["wss://a"]);
+    pool.subscribe("broadcast", [{ kinds: [1] }]);
+
+    const reqIds = (socket: FakeSocket) =>
+      socket.frames().filter((f) => f[0] === "REQ").map((f) => f[1]);
+    expect(reqIds(sockets[0])).toEqual(["targeted", "broadcast"]);
+    expect(reqIds(sockets[1])).toEqual(["broadcast"]);
+  });
+
+  it("replays targeted subs only on their relay after suspend/resume", () => {
+    const { factory, sockets } = makeFactory();
+    const pool = createRelayPool(factory, makeCallbacks());
+    pool.connect(["wss://a", "wss://b"]);
+    pool.subscribe("targeted", [{ kinds: [9] }], ["wss://a"]);
+    pool.subscribe("broadcast", [{ kinds: [1] }]);
+
+    pool.suspend();
+    pool.resume();
+    // resume redials in connect order: sockets[2] = a, sockets[3] = b.
+    sockets[2].open();
+    sockets[3].open();
+
+    const reqIds = (socket: FakeSocket) =>
+      socket.frames().filter((f) => f[0] === "REQ").map((f) => f[1]);
+    expect(reqIds(sockets[2])).toEqual(["targeted", "broadcast"]);
+    expect(reqIds(sockets[3])).toEqual(["broadcast"]);
+  });
+
+  it("retargeting closes the stale server-side sub; unsubscribe CLOSEs targets only", () => {
+    const { factory, sockets } = makeFactory();
+    const pool = createRelayPool(factory, makeCallbacks());
+    pool.connect(["wss://a", "wss://b"]);
+    sockets[0].open();
+    sockets[1].open();
+
+    pool.subscribe("sig", [{ kinds: [9] }], ["wss://a"]);
+    pool.subscribe("sig", [{ kinds: [9] }], ["wss://b"]);
+    expect(sockets[0].frames()).toContainEqual(["CLOSE", "sig"]);
+    expect(sockets[1].frames()).toContainEqual(["REQ", "sig", { kinds: [9] }]);
+
+    pool.unsubscribe("sig");
+    expect(sockets[1].frames()).toContainEqual(["CLOSE", "sig"]);
+    // a never got a CLOSE for a sub it no longer carries beyond the retarget one.
+    expect(sockets[0].frames().filter((f) => f[0] === "CLOSE")).toHaveLength(1);
+  });
+});

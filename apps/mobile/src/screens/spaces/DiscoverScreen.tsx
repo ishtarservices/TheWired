@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { NativeStackScreenProps } from "@react-navigation/native-stack";
 import { Boxes, Search, SearchX, X } from "lucide-react-native";
 import { FlatList, Pressable, RefreshControl, TextInput, View } from "react-native";
@@ -77,15 +77,24 @@ export function DiscoverScreen({ navigation }: Props) {
 
   useEffect(loadRails, [loadRails]);
 
+  // B8 — last-write-wins guard: rapid sort/category/search toggles can
+  // resolve out of order and paint stale results over fresh ones. Only the
+  // newest in-flight request may touch state (success AND error paths).
+  const directorySeqRef = useRef(0);
   const loadDirectory = useCallback(() => {
+    const seq = ++directorySeqRef.current;
     setDirectoryError(null);
     return fetchListedSpaces({
       sort,
       category: category === "all" ? undefined : category,
       search: debouncedSearch || undefined,
     })
-      .then(setDirectory)
+      .then((spaces) => {
+        if (seq !== directorySeqRef.current) return;
+        setDirectory(spaces);
+      })
       .catch((e) => {
+        if (seq !== directorySeqRef.current) return;
         setDirectory([]);
         setDirectoryError(e instanceof Error ? e.message : "Couldn't load the directory.");
       });

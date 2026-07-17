@@ -35,8 +35,17 @@ export interface ChatSession {
   /** Sign + publish a kind-9 to the host relay. Resolves true on OK; rejects
    *  with the relay's reason when membership rules refuse it. */
   post(content: string): Promise<boolean>;
-  /** Foreground catch-up: re-REQ the backlog window. */
+  /** Online-edge catch-up while foregrounded: cycle the socket + fresh REQ. */
   resubscribe(): void;
+  /** Background: close the socket and cancel backoff redials — iOS kills the
+   *  socket anyway; without this the pool keeps redialing in the background
+   *  (the exact waste pool.suspend() exists to prevent). The sub registry
+   *  survives for resume(). */
+  suspend(): void;
+  /** Foreground: reopen the socket — the pool's onopen replay re-REQs the
+   *  kind-9 backlog window, catching up on what arrived while suspended.
+   *  A NIP-42 re-challenge on the fresh socket flows through onAuth. */
+  resume(): void;
   destroy(): void;
 }
 
@@ -161,6 +170,14 @@ export function createChatSession(deps: ChatSessionDeps): ChatSession {
     resubscribe(): void {
       pool.reconnectNow();
       subscribe();
+    },
+
+    suspend(): void {
+      pool.suspend();
+    },
+
+    resume(): void {
+      pool.resume();
     },
 
     destroy(): void {

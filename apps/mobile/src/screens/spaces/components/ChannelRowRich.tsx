@@ -5,6 +5,7 @@
 // intentional — honest degradation, never placeholder text. Pure props;
 // the parent list resolves store state (preview/unread/sender name).
 
+import { memo } from "react";
 import { Pressable, StyleSheet, View } from "react-native";
 import { ChevronRight } from "lucide-react-native";
 
@@ -25,7 +26,7 @@ export interface ChannelRowRichProps {
 
 const READ_NAME_OPACITY = 0.55;
 
-export function ChannelRowRich({
+export const ChannelRowRich = memo(function ChannelRowRich({
   channel,
   preview,
   unreadCount = 0,
@@ -98,4 +99,4 @@ export function ChannelRowRich({
       ) : null}
     </Pressable>
   );
-}
+});

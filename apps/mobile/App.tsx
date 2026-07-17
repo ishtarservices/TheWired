@@ -39,8 +39,10 @@ import { MobileLifecycleController } from "@/platform/lifecycle/MobileLifecycleC
 import { createStore, type AppStore } from "@/store";
 import { useAppDispatch, useAppSelector } from "@/store/hooks";
 import { hydrateModeration } from "@/store/moderation";
+import { hydrateMySpaces } from "@/store/spaceMeta";
 import { hydrateSpacePreviews } from "@/store/spacePreviews";
 import { spaceChatCleared } from "@/store/slices/spaceChatSlice";
+import { spaceMetaCleared } from "@/store/slices/spaceMetaSlice";
 import { spacePreviewsCleared } from "@/store/slices/spacePreviewsSlice";
 import {
   appBackgrounded,
@@ -138,16 +140,18 @@ function ThemedShell({ engine }: { engine: NostrEngine }) {
   const engineStarted = sessionStatus !== "hydrating";
   useEffect(() => {
     if (!engineStarted) return;
-    // Account switch: previews/read-state/chat backlogs must not leak across
-    // identities — clear, then rehydrate from the (per-account) storage that
-    // just opened (chat re-hydrates lazily per channel).
+    // Account switch: previews/read-state/chat backlogs/space meta must not
+    // leak across identities — clear, then rehydrate from the (per-account)
+    // storage that just opened (chat/space meta re-hydrate lazily per key).
     dispatch(spacePreviewsCleared());
     dispatch(spaceChatCleared());
+    dispatch(spaceMetaCleared());
     engine
       .start(pubkey)
       .then(() => {
         dispatch(hydrateModeration());
         dispatch(hydrateSpacePreviews());
+        dispatch(hydrateMySpaces());
       })
       .catch(() => {});
   }, [engine, engineStarted, pubkey, dispatch]);

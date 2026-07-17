@@ -39,9 +39,13 @@ export interface RelayPoolCallbacks {
 export interface RelayPool {
   /** Open sockets to this relay set (idempotent; extra relays are dropped). */
   connect(urls: string[]): void;
-  /** Track + send a REQ everywhere (re-sent automatically on reconnect).
-   *  Re-subscribing with an existing id replaces its filters. */
-  subscribe(subId: string, filters: NostrFilter[]): void;
+  /** Track + send a REQ (re-sent automatically on reconnect). Re-subscribing
+   *  with an existing id replaces its filters. `relayUrls` scopes the REQ to
+   *  those relays only (exact match against connect() urls) — used for subs
+   *  whose events must come from a trusted relay (e.g. membership-gated
+   *  kind-9: public relays don't enforce #h, so a broadcast REQ would let
+   *  anyone spoof rows). Omitted = all relays, unchanged behavior. */
+  subscribe(subId: string, filters: NostrFilter[], relayUrls?: string[]): void;
   unsubscribe(subId: string): void;
   /** Send EVENT to every open relay; queued per-relay while connecting. */
   publish(event: NostrEvent): void;
@@ -70,10 +74,20 @@ export function createRelayPool(
   wsFactory: WebSocketFactory,
   callbacks: RelayPoolCallbacks,
 ): RelayPool {
+  interface SubEntry {
+    filters: NostrFilter[];
+    /** Undefined = every relay; otherwise only these (exact url match). */
+    urls?: string[];
+  }
+
   const conns = new Map<string, RelayConn>();
-  const subscriptions = new Map<string, NostrFilter[]>();
+  const subscriptions = new Map<string, SubEntry>();
   let suspended = false;
   let destroyed = false;
+
+  function subTargets(entry: SubEntry, url: string): boolean {
+    return !entry.urls || entry.urls.includes(url);
+  }
 
   function setStatus(conn: RelayConn, status: RelayStatus): void {
     if (conn.status === status) return;
@@ -159,8 +173,9 @@ export function createRelayPool(
     ws.onopen = () => {
       conn.attempts = 0;
       // Re-send tracked REQs first, then any queued messages (publishes).
-      for (const [subId, filters] of subscriptions) {
-        ws.send(JSON.stringify(["REQ", subId, ...filters]));
+      for (const [subId, entry] of subscriptions) {
+        if (!subTargets(entry, conn.url)) continue;
+        ws.send(JSON.stringify(["REQ", subId, ...entry.filters]));
       }
       const queued = conn.queue;
       conn.queue = [];
@@ -230,19 +245,28 @@ export function createRelayPool(
       }
     },
 
-    subscribe(subId: string, filters: NostrFilter[]): void {
-      subscriptions.set(subId, filters);
+    subscribe(subId: string, filters: NostrFilter[], relayUrls?: string[]): void {
+      const prev = subscriptions.get(subId);
+      const entry: SubEntry = { filters, urls: relayUrls };
+      subscriptions.set(subId, entry);
       for (const conn of conns.values()) {
-        if (conn.ws && conn.ws.readyState === WS_OPEN) {
-          conn.ws.send(JSON.stringify(["REQ", subId, ...filters]));
+        const open = conn.ws && conn.ws.readyState === WS_OPEN;
+        if (subTargets(entry, conn.url)) {
+          if (open) conn.ws!.send(JSON.stringify(["REQ", subId, ...filters]));
+          // Not open → the registry replay on `onopen` covers it.
+        } else if (prev && subTargets(prev, conn.url) && open) {
+          // Retargeted away from this relay — close the stale server-side sub.
+          conn.ws!.send(JSON.stringify(["CLOSE", subId]));
         }
-        // Not open → the registry replay on `onopen` covers it.
       }
     },
 
     unsubscribe(subId: string): void {
-      if (!subscriptions.delete(subId)) return;
+      const entry = subscriptions.get(subId);
+      if (!entry) return;
+      subscriptions.delete(subId);
       for (const conn of conns.values()) {
+        if (!subTargets(entry, conn.url)) continue;
         if (conn.ws && conn.ws.readyState === WS_OPEN) {
           conn.ws.send(JSON.stringify(["CLOSE", subId]));
         }

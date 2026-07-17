@@ -1,14 +1,14 @@
 import { Pressable, View } from "react-native";
 import { ChevronRight } from "lucide-react-native";
 
-import { Avatar } from "@/components/ui/Avatar";
 import { Type } from "@/components/ui/Type";
 import { haptics } from "@/lib/haptics";
-import { useAppSelector } from "@/store/hooks";
 import { useTheme } from "@/theme/ThemeContext";
+import { MemberBubble } from "./MemberBubble";
 
 // Overlapping first-N member avatars + count → the members screen. Profiles
-// resolve lazily from the store (the screen backfills kind-0s).
+// resolve lazily from the store (the screen backfills kind-0s); each bubble
+// connects itself so kind-0 arrivals re-render one bubble, not the pile.
 
 const SHOWN = 8;
 
@@ -22,7 +22,6 @@ export function MemberFacepile({
   onPress: () => void;
 }) {
   const { tokens } = useTheme();
-  const profiles = useAppSelector((s) => s.profiles.byPubkey);
   const shown = pubkeys.slice(0, SHOWN);
 
   return (
@@ -36,18 +35,9 @@ export function MemberFacepile({
       className="min-h-[56px] flex-row items-center rounded-xl px-3 py-2 active:bg-surface-hover"
     >
       <View className="flex-row">
-        {shown.map((pubkey, i) => {
-          const profile = profiles[pubkey];
-          return (
-            <View
-              key={pubkey}
-              className="rounded-full bg-background p-0.5"
-              style={i > 0 ? { marginLeft: -10 } : undefined}
-            >
-              <Avatar uri={profile?.picture} name={profile?.name} pubkey={pubkey} size={30} />
-            </View>
-          );
-        })}
+        {shown.map((pubkey, i) => (
+          <MemberBubble key={pubkey} pubkey={pubkey} size={30} overlap={i > 0 ? -10 : 0} />
+        ))}
       </View>
       <View className="ml-2.5 flex-1">
         <Type role="caption" weight={500} className="text-soft">

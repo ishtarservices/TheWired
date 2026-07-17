@@ -41,19 +41,20 @@ function cardFrame(borderColor: string) {
   };
 }
 
-// The card carries its own canvas-colored surface (bg-background) so its
-// text tokens keep their designed contrast wherever it's hosted — on the
-// canvas it's invisible, inside a primary-filled DM bubble it insets.
+// The card carries its own quiet surface (bg-card — one step above the
+// canvas) so it reads as a held object rather than a wireframe outline, and
+// its text tokens keep their designed contrast wherever it's hosted — on the
+// canvas it lifts subtly, inside a primary-filled DM bubble it insets.
 
 function EmbedSkeleton() {
   const { tokens } = useTheme();
   return (
     <View
-      className="mt-2 rounded-xl bg-background px-3 py-2.5"
+      className="mt-2 rounded-xl bg-card px-3 py-2"
       style={cardFrame(tokens.borderLight)}
     >
       <View className="flex-row items-center gap-2">
-        <SkeletonCircle size={20} />
+        <SkeletonCircle size={18} />
         <Skeleton className="h-3 w-24" />
       </View>
       <Skeleton className="mt-2 h-3.5 w-4/5" />
@@ -64,11 +65,13 @@ function EmbedSkeleton() {
 function EmbedUnavailable() {
   const { tokens } = useTheme();
   return (
+    // A missing note is a whisper, not a banner — the pill hugs its text
+    // instead of stretching to a full-width bar.
     <View
-      className="mt-2 rounded-xl bg-background px-3 py-2.5"
+      className="mt-2 self-start rounded-full bg-card px-3 py-1.5"
       style={cardFrame(tokens.borderLight)}
     >
-      <Type role="meta" className="text-muted">
+      <Type role="metaLabel" className="lowercase text-faint">
         note unavailable
       </Type>
     </View>
@@ -88,6 +91,9 @@ export interface EmbeddedNoteCardProps {
 
 export function EmbeddedNoteCard({ refSegment, renderPreview }: EmbeddedNoteCardProps) {
   const depth = useContext(EmbedDepthContext);
+  // Depth 1 = a quote inside a quote — compact: tighter, back on the canvas
+  // tone so the nesting reads as figure-ground alternation.
+  const compact = depth >= 1;
   const { tokens } = useTheme();
   const navigation = useNavigation();
   const engine = useEngine();
@@ -132,15 +138,25 @@ export function EmbeddedNoteCard({ refSegment, renderPreview }: EmbeddedNoteCard
       accessibilityRole="button"
       accessibilityLabel={isArticle ? `Open article by ${name}` : `Open note by ${name}`}
       onPress={open}
-      className="mt-2 rounded-xl bg-background px-3 py-2.5 active:bg-surface-hover"
+      className={
+        compact
+          ? "mt-1.5 rounded-lg bg-background px-2.5 py-1.5 active:bg-surface-hover"
+          : "mt-2 rounded-xl bg-card px-3 py-2 active:bg-surface-hover"
+      }
       style={cardFrame(tokens.borderLight)}
     >
       <View className="flex-row items-center gap-2">
-        <Avatar uri={profile?.picture} name={name} pubkey={event.pubkey} size={20} />
+        <Avatar
+          uri={profile?.picture}
+          name={name}
+          pubkey={event.pubkey}
+          size={compact ? 14 : 18}
+        />
         <Type role="caption" weight={600} className="shrink text-heading" numberOfLines={1}>
           {name}
         </Type>
-        <Type role="micro" tabular className="text-faint">
+        {/* Date anchored to the card edge — a composed row, not a float. */}
+        <Type role="micro" tabular className="ml-auto pl-2 text-faint">
           {timeLabel(event.created_at)}
         </Type>
       </View>
@@ -158,7 +174,7 @@ function ArticlePreview({ event }: { event: NostrEvent }) {
   const title = tagValue(event, "title")?.trim() || "Untitled";
   const summary = tagValue(event, "summary")?.trim();
   return (
-    <View className="mt-1.5">
+    <View className="mt-1">
       <Type role="caption" weight={600} className="text-heading" numberOfLines={2}>
         {title}
       </Type>

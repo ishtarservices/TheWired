@@ -5,6 +5,7 @@
 
 import type { AppThunk } from "@/store";
 import {
+  channelKey,
   channelMarkedRead,
   spaceLastReadHydrated,
 } from "./slices/spacePreviewsSlice";
@@ -30,7 +31,14 @@ export function hydrateSpacePreviews(): AppThunk<Promise<void>> {
 
 export function markChannelRead(spaceId: string, channelId: string): AppThunk<Promise<void>> {
   return async (dispatch, getState, { adapters }) => {
-    dispatch(channelMarkedRead({ spaceId, channelId, at: Math.floor(Date.now() / 1000) }));
+    // Clock-skew guard: a peer whose clock runs ahead posts created_at >
+    // device-now; stamping device time alone would keep that message unread
+    // forever. Being in the channel means everything currently present was
+    // seen — advance to the newest seen event when it's ahead of the clock.
+    const now = Math.floor(Date.now() / 1000);
+    const preview = getState().spacePreviews.previews[channelKey(spaceId, channelId)];
+    const at = Math.max(now, preview?.lastEventAt ?? 0);
+    dispatch(channelMarkedRead({ spaceId, channelId, at }));
     await adapters.storage
       .getStore<Record<string, number>>("user_state")
       .put(LAST_READ_KEY, getState().spacePreviews.lastReadAt)

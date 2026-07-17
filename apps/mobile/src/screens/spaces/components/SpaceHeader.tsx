@@ -7,14 +7,13 @@
 import { Pressable, StyleSheet, View } from "react-native";
 import { ChevronRight } from "lucide-react-native";
 
-import { Avatar } from "@/components/ui/Avatar";
 import { Skeleton, SkeletonCircle } from "@/components/ui/Skeleton";
 import { Type } from "@/components/ui/Type";
 import { haptics } from "@/lib/haptics";
-import { useAppSelector } from "@/store/hooks";
 import { useTheme } from "@/theme/ThemeContext";
 import type { SpaceDetail } from "@/lib/api/spaces";
 import { spaceModeBadgeLabel } from "../channelMeta";
+import { MemberBubble } from "./MemberBubble";
 
 const STACK_SHOWN = 3;
 
@@ -28,7 +27,6 @@ export function SpaceHeader({
   onOpenSpace: () => void;
 }) {
   const { tokens } = useTheme();
-  const profiles = useAppSelector((s) => s.profiles.byPubkey);
 
   if (!detail) {
     return (
@@ -91,30 +89,21 @@ export function SpaceHeader({
         <View className="mt-2.5 flex-row items-center">
           {stack.length > 0 ? (
             <View className="mr-2 flex-row">
-              {stack.map((pubkey, i) => {
-                const profile = profiles[pubkey];
-                return (
-                  <View
-                    key={pubkey}
-                    className="rounded-full bg-background p-0.5"
-                    style={i > 0 ? { marginLeft: -8 } : undefined}
-                  >
-                    <Avatar
-                      uri={profile?.picture}
-                      name={profile?.name}
-                      pubkey={pubkey}
-                      size={22}
-                    />
-                  </View>
-                );
-              })}
+              {stack.map((pubkey, i) => (
+                <MemberBubble
+                  key={pubkey}
+                  pubkey={pubkey}
+                  size={22}
+                  overlap={i > 0 ? -8 : 0}
+                />
+              ))}
             </View>
           ) : null}
           {active > 0 ? (
-            // activeMembers24h = distinct authors of kind-1/9 events for the
-            // space during the last aggregated day (backend
-            // analyticsAggregator, daily rollup) — "recently", not live
-            // presence; never claim "online".
+            // activeMembers24h = distinct authors of kind-1/9 events in the
+            // ROLLING last 24h (backend analyticsAggregator refreshRollingStats,
+            // hourly, zeroed when idle) — "recently", not live presence; never
+            // claim "online".
             <Type role="meta" tabular className="text-muted">
               {active} active recently
             </Type>

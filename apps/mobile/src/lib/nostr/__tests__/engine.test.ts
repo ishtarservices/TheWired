@@ -104,7 +104,9 @@ function kind3By(sk: Uint8Array, follows: string[], created_at = 1_700_000_000):
   );
 }
 
-function makeHarness(opts: { dbs?: Map<string, FakeDb>; signer?: boolean } = {}) {
+function makeHarness(
+  opts: { dbs?: Map<string, FakeDb>; signer?: boolean; relays?: string[] } = {},
+) {
   const sockets: FakeSocket[] = [];
   const dbs = opts.dbs ?? new Map<string, FakeDb>();
   const storage = createSqliteStorage(async (name) => {
@@ -138,7 +140,7 @@ function makeHarness(opts: { dbs?: Map<string, FakeDb>; signer?: boolean } = {})
     adapters,
     dispatch: store.dispatch,
     getState: store.getState,
-    relays: ["wss://test"],
+    relays: opts.relays ?? ["wss://test"],
   });
   return { engine, store, sockets, dbs };
 }
@@ -1054,6 +1056,93 @@ describe("thread cache (loadThread + optimistic replies)", () => {
       .filter((f) => f[0] === "REQ" && String(f[1]).startsWith("fetch-"));
     expect(fetchReqs).toHaveLength(0);
     expect(store.getState().threads.byRoot[rootId]?.loadingOlder).toBe(false);
+    engine.destroy();
+  });
+});
+
+describe("NIP-42 + space signal", () => {
+  it("answers the app relay's AUTH with a kind-22242 and re-REQs the signal sub", async () => {
+    const { engine, sockets } = makeHarness({ signer: true });
+    await engine.start(pubkey);
+    sockets[0].open();
+
+    engine.setSignalSpaces([{ spaceId: "space-1", hostRelay: null }]);
+    const sigReqs = () =>
+      sockets[0].frames().filter((f) => f[0] === "REQ" && f[1] === "space-signal");
+    expect(sigReqs()).toHaveLength(1);
+    expect(sigReqs()[0][2]).toMatchObject({ kinds: [9], "#h": ["space-1"] });
+
+    sockets[0].message(["AUTH", "challenge-token"]);
+    await flush();
+
+    const auth = sockets[0].frames().find((f) => f[0] === "AUTH")!;
+    const authEvent = auth[1] as NostrEvent;
+    expect(authEvent.kind).toBe(22242);
+    expect(authEvent.pubkey).toBe(pubkey);
+    expect(authEvent.tags).toContainEqual(["challenge", "challenge-token"]);
+    expect(authEvent.tags).toContainEqual(["relay", "wss://test"]);
+
+    // Debounced post-AUTH re-REQ under the authenticated read set.
+    await new Promise((resolve) => setTimeout(resolve, 500));
+    expect(sigReqs()).toHaveLength(2);
+    engine.destroy();
+  });
+
+  it("ignores AUTH challenges from relays other than the app relay", async () => {
+    const { engine, sockets } = makeHarness({
+      signer: true,
+      relays: ["wss://test", "wss://public.example"],
+    });
+    await engine.start(pubkey);
+    sockets[0].open();
+    sockets[1].open();
+
+    sockets[1].message(["AUTH", "public-challenge"]);
+    await flush();
+    expect(sockets[1].frames().find((f) => f[0] === "AUTH")).toBeUndefined();
+    engine.destroy();
+  });
+
+  it("guests ignore AUTH and never open the signal sub", async () => {
+    const { engine, sockets } = makeHarness();
+    await engine.start(null);
+    sockets[0].open();
+
+    engine.setSignalSpaces([{ spaceId: "space-1", hostRelay: null }]);
+    sockets[0].message(["AUTH", "challenge-token"]);
+    await flush();
+
+    expect(sockets[0].frames().find((f) => f[0] === "AUTH")).toBeUndefined();
+    expect(
+      sockets[0].frames().filter((f) => f[0] === "REQ" && f[1] === "space-signal"),
+    ).toHaveLength(0);
+    engine.destroy();
+  });
+
+  it("routes signal kind-9s to previews (batched), never into the feed", async () => {
+    const { engine, store, sockets } = makeHarness({ signer: true });
+    await engine.start(pubkey);
+    sockets[0].open();
+    engine.setSignalSpaces([{ spaceId: "space-1", hostRelay: null }]);
+
+    const chat = finalizeEvent(
+      {
+        kind: 9,
+        created_at: 1_700_000_000,
+        tags: [["h", "space-1"], ["channel", "general"]],
+        content: "live signal",
+      },
+      generateSecretKey(),
+    );
+    sockets[0].message(["EVENT", "space-signal", chat]);
+    await flush();
+
+    const preview =
+      store.getState().spacePreviews.previews["space-1/general"];
+    expect(preview).toBeDefined();
+    expect(preview.lastText).toBe("live signal");
+    expect(preview.entries).toHaveLength(1);
+    expect(store.getState().feed.byContext.global.ids).toHaveLength(0);
     engine.destroy();
   });
 });

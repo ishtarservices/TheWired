@@ -17,6 +17,7 @@ import { moderationSlice } from "./slices/moderationSlice";
 import { profilesSlice } from "./slices/profilesSlice";
 import { relaysSlice } from "./slices/relaysSlice";
 import { spaceChatSlice } from "./slices/spaceChatSlice";
+import { spaceMetaSlice } from "./slices/spaceMetaSlice";
 import { spacePreviewsSlice } from "./slices/spacePreviewsSlice";
 import { threadsSlice } from "./slices/threadsSlice";
 import { zapsSlice } from "./slices/zapsSlice";
@@ -38,6 +39,7 @@ export function createStore(adapters: PlatformAdapters) {
       moderation: moderationSlice.reducer,
       dm: dmSlice.reducer,
       spaceChat: spaceChatSlice.reducer,
+      spaceMeta: spaceMetaSlice.reducer,
       spacePreviews: spacePreviewsSlice.reducer,
       threads: threadsSlice.reducer,
       zaps: zapsSlice.reducer,

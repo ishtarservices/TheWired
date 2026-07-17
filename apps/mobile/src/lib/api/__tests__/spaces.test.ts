@@ -3,6 +3,7 @@ import {
   parseSpaceChannels,
   parseSpaceDetail,
   parseSpaceMemberRoles,
+  parseSpaceMembers,
   parseSpaceRoles,
 } from "../spaces";
 
@@ -209,5 +210,55 @@ describe("parseMySpaces", () => {
   it("degrades to empty on junk", () => {
     expect(parseMySpaces(null)).toEqual([]);
     expect(parseMySpaces({ data: "x" })).toEqual([]);
+  });
+});
+
+describe("parseSpaceMembers (inline backend profiles)", () => {
+  const row = (pubkey: string, profile: unknown) => ({
+    spaceId: "s1",
+    pubkey,
+    joinedAt: "2026-01-01T00:00:00Z",
+    profile,
+  });
+
+  it("extracts pubkeys plus profile records mapped to ProfileMetadata", () => {
+    const { pubkeys, profiles } = parseSpaceMembers({
+      data: [
+        row("a".repeat(64), {
+          name: "alice",
+          displayName: "Alice",
+          picture: "https://cdn.example/a.jpg",
+          nip05: "alice@example.com",
+          createdAt: 1_700_000_000,
+        }),
+        row("b".repeat(64), null),
+      ],
+    });
+    expect(pubkeys).toEqual(["a".repeat(64), "b".repeat(64)]);
+    expect(profiles["a".repeat(64)]).toEqual({
+      name: "alice",
+      display_name: "Alice",
+      picture: "https://cdn.example/a.jpg",
+      nip05: "alice@example.com",
+      created_at: 1_700_000_000,
+    });
+    expect(profiles["b".repeat(64)]).toBeUndefined();
+  });
+
+  it("maps a null/missing backend createdAt to created_at 0 so relay kind-0s win", () => {
+    const { profiles } = parseSpaceMembers({
+      data: [row("c".repeat(64), { name: "carol", createdAt: null })],
+    });
+    expect(profiles["c".repeat(64)].created_at).toBe(0);
+  });
+
+  it("tolerates old-backend rows without a profile field and junk payloads", () => {
+    const { pubkeys, profiles } = parseSpaceMembers({
+      // Bare-string rows are the legacy tolerated shape; null rows drop.
+      data: [{ spaceId: "s1", pubkey: "d".repeat(64), joinedAt: "x" }, "e".repeat(64), null],
+    });
+    expect(pubkeys).toEqual(["d".repeat(64), "e".repeat(64)]);
+    expect(profiles).toEqual({});
+    expect(parseSpaceMembers(null)).toEqual({ pubkeys: [], profiles: {} });
   });
 });

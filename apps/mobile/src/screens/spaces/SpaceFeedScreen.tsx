@@ -18,11 +18,8 @@ import { Button } from "@/components/ui/Button";
 import { EmptyState } from "@/components/ui/EmptyState";
 import { Skeleton } from "@/components/ui/Skeleton";
 import { Type } from "@/components/ui/Type";
-import {
-  fetchFeedSources,
-  fetchSpaceMemberPubkeys,
-} from "@/lib/api/spaces";
-import { cachedSpaceChannels, cachedSpaceDetail } from "@/lib/api/spaceCache";
+import { fetchMembershipRoster } from "@/lib/api/membership";
+import { fetchFeedSources } from "@/lib/api/spaces";
 import { haptics } from "@/lib/haptics";
 import { useEngine } from "@/lib/nostr/EngineContext";
 import { EngagementWindow } from "@/lib/nostr/engagementWindow";
@@ -37,6 +34,7 @@ import {
 } from "@/lib/nostr/spaceFeedRoutes";
 import type { SpacesStackParamList } from "@/navigation/types";
 import { useAppDispatch, useAppSelector } from "@/store/hooks";
+import { ensureSpaceMeta } from "@/store/spaceMeta";
 import { markChannelRead } from "@/store/spacePreviews";
 import { spaceMusicArtworkSeen } from "@/store/slices/spacePreviewsSlice";
 import { useTheme } from "@/theme/ThemeContext";
@@ -131,22 +129,29 @@ export function SpaceFeedScreen({ route, navigation }: Props) {
     },
   ]).current;
 
-  /** Space context → whose content fills this channel. Resolved once. */
+  /** Space context → whose content fills this channel. Resolved once.
+   *  Authors come from the FULL membership roster (membership.ts), never
+   *  the meta slice's display prefix — a hydrated 50-row roster would
+   *  silently drop members' posts from the feed. */
   const resolveAuthors = useCallback(async (): Promise<string[]> => {
     if (authorsRef.current) return authorsRef.current;
-    const [detail, channels, members, feedSources] = await Promise.all([
-      cachedSpaceDetail(spaceId),
-      cachedSpaceChannels(spaceId).catch(() => []),
-      fetchSpaceMemberPubkeys(spaceId),
+    const [meta, members, feedSources] = await Promise.all([
+      dispatch(ensureSpaceMeta(spaceId)),
+      // []-tolerant like fetchSpaceMemberPubkeys was: a members failure
+      // degrades the author set; a missing space (below) is the hard error.
+      fetchMembershipRoster(spaceId).catch(() => [] as string[]),
       fetchFeedSources(spaceId),
     ]);
+    const detail = meta?.detail;
+    if (!detail) throw new Error(meta?.error ?? "Space unavailable.");
+    const channels = meta.channels ?? [];
     setHostRelay(detail.hostRelay);
     const channel = channels.find((c) => c.id === channelId);
     const curated = channel?.feedMode === "curated" || detail.mode === "read";
     const authors = selectFeedAuthors({ members, feedSources, curated });
     authorsRef.current = authors;
     return authors;
-  }, [spaceId, channelId]);
+  }, [spaceId, channelId, dispatch]);
 
   const fetchPage = useCallback(
     async (until?: number): Promise<NostrEvent[]> => {

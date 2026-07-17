@@ -1,5 +1,4 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { useFocusEffect } from "@react-navigation/native";
 import type { BottomTabNavigationProp } from "@react-navigation/bottom-tabs";
 import type { NativeStackScreenProps } from "@react-navigation/native-stack";
 import { View } from "react-native";
@@ -7,7 +6,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { useScreenInsets } from "@/components/layout/Screen";
 import { Type } from "@/components/ui/Type";
-import { fetchMySpaces, type MySpace, type SpaceChannel } from "@/lib/api/spaces";
+import { type MySpace, type SpaceChannel } from "@/lib/api/spaces";
 import { isSpaceFeedType } from "@/lib/nostr/spaceFeedRoutes";
 import { useEngine } from "@/lib/nostr/EngineContext";
 import {
@@ -24,6 +23,7 @@ import {
   serializeSpaceSelection,
   type SpaceSelection,
 } from "./spacesSelection";
+import { useMySpaces } from "./useSpaceMeta";
 
 // The Spaces tab home — single vertical screen (signal redesign): a mono
 // "spaces" label over the horizontal switcher (feed · discover · joined
@@ -39,13 +39,18 @@ type Props = NativeStackScreenProps<SpacesStackParamList, "SpacesHome">;
  *  Primed once from storage so the last-viewed space survives cold starts. */
 let lastSelection: SpaceSelection | null = null;
 
+const NO_SPACES: MySpace[] = [];
+
 export function SpacesHomeScreen({ navigation, route }: Props) {
   const insets = useScreenInsets();
   const safe = useSafeAreaInsets();
   const engine = useEngine();
   const isLoggedIn = useAppSelector((s) => s.identity.status === "loggedIn");
 
-  const [mySpaces, setMySpaces] = useState<MySpace[]>([]);
+  // Joined spaces from the space-meta cache (hydrated once in App.tsx,
+  // refreshed on focus — join/leave flows force-refresh via invalidation).
+  const { spaces } = useMySpaces();
+  const mySpaces = spaces ?? NO_SPACES;
   // null = storage read in flight (ms; content area renders nothing rather
   // than flashing feed → stored space).
   const [selection, setSelection] = useState<SpaceSelection | null>(lastSelection);
@@ -76,38 +81,31 @@ export function SpacesHomeScreen({ navigation, route }: Props) {
     if (routeSpaceId) select({ kind: "space", spaceId: routeSpaceId });
   }, [routeSpaceId, select]);
 
-  // Refresh the switcher whenever the tab regains focus (joins/leaves happen
-  // on pushed screens); a selected space that's no longer joined falls back
-  // to the feed.
-  useFocusEffect(
-    useCallback(() => {
-      const signer = engine.getSigner();
-      if (!isLoggedIn || !signer) {
-        setMySpaces([]);
-        return;
+  // Live previews/unread for every joined app-relay space — one engine sub;
+  // identical sets no-op, so refeeds on every refresh are free. Guests
+  // resolve to [] (loadMySpaces' guest path), which closes the sub.
+  useEffect(() => {
+    engine.setSignalSpaces(
+      mySpaces.map((s) => ({ spaceId: s.id, hostRelay: s.hostRelay })),
+    );
+  }, [engine, mySpaces]);
+
+  // A selected space that's no longer joined falls back to the feed (leaves
+  // happen on pushed screens). Guests keep their browsed selection — the
+  // joined list is legitimately empty for them.
+  useEffect(() => {
+    if (!isLoggedIn || spaces === null) return;
+    setSelection((current) => {
+      if (
+        current?.kind === "space" &&
+        !spaces.some((s) => s.id === current.spaceId)
+      ) {
+        lastSelection = { kind: "feed" };
+        return lastSelection;
       }
-      let cancelled = false;
-      fetchMySpaces(signer)
-        .then((spaces) => {
-          if (cancelled) return;
-          setMySpaces(spaces);
-          setSelection((current) => {
-            if (
-              current?.kind === "space" &&
-              !spaces.some((s) => s.id === current.spaceId)
-            ) {
-              lastSelection = { kind: "feed" };
-              return lastSelection;
-            }
-            return current;
-          });
-        })
-        .catch(() => {});
-      return () => {
-        cancelled = true;
-      };
-    }, [engine, isLoggedIn]),
-  );
+      return current;
+    });
+  }, [isLoggedIn, spaces]);
 
   // Tab re-press while already at rest on this screen: TabNavigator's reset
   // returns null (stack already at root), so nothing happens by default —
@@ -140,6 +138,20 @@ export function SpacesHomeScreen({ navigation, route }: Props) {
     [navigation],
   );
 
+  // Stable per-selected-space handlers — SpaceChannelList's memo'd rows keep
+  // these in their renderItem deps, so identity may only change when the
+  // selected space does (which remounts the list anyway).
+  const selectedSpaceId = selection?.kind === "space" ? selection.spaceId : null;
+  const openSelectedSpace = useCallback(() => {
+    if (selectedSpaceId) navigation.navigate("Space", { spaceId: selectedSpaceId });
+  }, [navigation, selectedSpaceId]);
+  const openSelectedChannel = useCallback(
+    (channel: SpaceChannel) => {
+      if (selectedSpaceId) openChannel(selectedSpaceId, channel);
+    },
+    [openChannel, selectedSpaceId],
+  );
+
   return (
     <View className="flex-1 bg-background">
       {/* Pinned top block — never remounts as the content below swaps. */}
@@ -166,10 +178,8 @@ export function SpacesHomeScreen({ navigation, route }: Props) {
             key={selection.spaceId}
             spaceId={selection.spaceId}
             paddingBottom={insets.bottom}
-            onOpenSpace={() =>
-              navigation.navigate("Space", { spaceId: selection.spaceId })
-            }
-            onOpenChannel={(channel) => openChannel(selection.spaceId, channel)}
+            onOpenSpace={openSelectedSpace}
+            onOpenChannel={openSelectedChannel}
           />
         ) : (
           <GlobalNotesFeed ref={feedRef} paddingTop={4} paddingBottom={insets.bottom} />

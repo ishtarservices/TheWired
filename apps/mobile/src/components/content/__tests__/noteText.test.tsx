@@ -94,15 +94,57 @@ describe("NoteText", () => {
     expect(screen.queryByText(/nevent1/)).toBeNull();
   });
 
-  it("depth-guards nested refs: an embedded note's own ref renders as a link, not a card", async () => {
-    const innerRef = nip19.neventEncode({ id: "c".repeat(64) });
-    const nesting: NostrEvent = { ...embeddedNote, content: `nested nostr:${innerRef}` };
-    const engine = makeEngine([nesting]);
+  it("renders a quote-of-a-quote as a nested compact card (desktop parity)", async () => {
+    const INNER_ID = "c".repeat(64);
+    const innerNote: NostrEvent = {
+      ...embeddedNote,
+      id: INNER_ID,
+      content: "innermost quote",
+    };
+    const nesting: NostrEvent = {
+      ...embeddedNote,
+      content: `nested nostr:${nip19.neventEncode({ id: INNER_ID })}`,
+    };
+    const engine = {
+      requestProfiles: jest.fn(),
+      // First fetch resolves the outer embed, second the nested one.
+      fetchEvents: jest
+        .fn()
+        .mockResolvedValueOnce([nesting])
+        .mockResolvedValueOnce([innerNote]),
+    } as unknown as NostrEngine;
+    await renderNoteText(`outer nostr:${nip19.neventEncode({ id: EMBED_ID })}`, engine);
+
+    // The inner quote SHOWS as a card, not a bare link.
+    expect(await screen.findByText("innermost quote")).toBeOnTheScreen();
+    expect(screen.queryByText("↗ note")).toBeNull();
+    expect(engine.fetchEvents).toHaveBeenCalledTimes(2);
+  });
+
+  it("depth-guards at level two: the innermost ref renders as a link, never fetched", async () => {
+    const DEEPEST = "d".repeat(64);
+    const INNER_ID = "c".repeat(64);
+    const inner: NostrEvent = {
+      ...embeddedNote,
+      id: INNER_ID,
+      content: `deeper nostr:${nip19.neventEncode({ id: DEEPEST })}`,
+    };
+    const outer: NostrEvent = {
+      ...embeddedNote,
+      content: `nested nostr:${nip19.neventEncode({ id: INNER_ID })}`,
+    };
+    const engine = {
+      requestProfiles: jest.fn(),
+      fetchEvents: jest
+        .fn()
+        .mockResolvedValueOnce([outer])
+        .mockResolvedValueOnce([inner]),
+    } as unknown as NostrEngine;
     await renderNoteText(`outer nostr:${nip19.neventEncode({ id: EMBED_ID })}`, engine);
 
     expect(await screen.findByText("↗ note")).toBeOnTheScreen();
-    // Only the outer ref fetched — the nested one must not recurse.
-    expect(engine.fetchEvents).toHaveBeenCalledTimes(1);
+    // Outer + nested fetched; the depth-2 ref must not recurse further.
+    expect(engine.fetchEvents).toHaveBeenCalledTimes(2);
   });
 
   it("renders a share consisting solely of a ref with no empty text line", async () => {

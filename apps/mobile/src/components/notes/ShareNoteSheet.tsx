@@ -25,8 +25,7 @@ import { Avatar } from "@/components/ui/Avatar";
 import { Button } from "@/components/ui/Button";
 import { ListRow } from "@/components/ui/ListRow";
 import { Type } from "@/components/ui/Type";
-import { fetchMySpaces, type MySpace, type SpaceChannel } from "@/lib/api/spaces";
-import { cachedSpaceChannels, cachedSpaceDetail } from "@/lib/api/spaceCache";
+import { type MySpace, type SpaceChannel } from "@/lib/api/spaces";
 import { haptics } from "@/lib/haptics";
 import { DEFAULT_RELAYS } from "@/lib/env";
 import { useEngine } from "@/lib/nostr/EngineContext";
@@ -34,7 +33,12 @@ import { resolveHexPubkey } from "@/lib/nostr/dmEngine";
 import { postNoteRefToChannel } from "@/lib/nostr/shareToSpace";
 import { profileDisplayName } from "@/lib/nostr/profiles";
 import { channelIcon, channelSubtitle } from "@/screens/spaces/channelMeta";
-import { useAppSelector } from "@/store/hooks";
+import { useAppDispatch, useAppSelector } from "@/store/hooks";
+import {
+  selectMySpaces,
+  selectMySpacesStatus,
+} from "@/store/slices/spaceMetaSlice";
+import { ensureSpaceMeta, loadMySpaces } from "@/store/spaceMeta";
 import { useTheme } from "@/theme/ThemeContext";
 
 // Share a note: copy its nevent link, forward it into a DM, or post it into
@@ -58,16 +62,23 @@ export function ShareNoteSheet({
   const insets = useSafeAreaInsets();
   const navigation = useNavigation();
   const engine = useEngine();
+  const dispatch = useAppDispatch();
   const isLoggedIn = useAppSelector((s) => s.identity.status === "loggedIn");
   const myPubkey = useAppSelector((s) => s.identity.pubkey);
   const conversations = useAppSelector((s) => s.dm.conversations);
   const profiles = useAppSelector((s) => s.profiles.byPubkey);
+  // Joined spaces from the space-meta cache. The sheet isn't a navigator
+  // screen (raw Modal), so no useFocusEffect — loadMySpaces dispatches on
+  // step entry instead; the staleness gate keeps repeat opens free.
+  const spaces = useAppSelector(selectMySpaces);
+  const spacesStatus = useAppSelector(selectMySpacesStatus);
+  // A load this sheet triggered that settled without producing a list —
+  // the "Couldn't load" + Retry state (status returns to "idle" on failure).
+  const spacesError = spaces === null && spacesStatus === "idle";
 
   const [step, setStep] = useState<Step>("menu");
   const [error, setError] = useState<string | null>(null);
   const [npubInput, setNpubInput] = useState("");
-  const [spaces, setSpaces] = useState<MySpace[] | null>(null);
-  const [spacesError, setSpacesError] = useState(false);
   const [pickedSpace, setPickedSpace] = useState<MySpace | null>(null);
   const [channels, setChannels] = useState<SpaceChannel[] | null>(null);
   const [channelsError, setChannelsError] = useState(false);
@@ -80,8 +91,6 @@ export function ShareNoteSheet({
     setStep("menu");
     setError(null);
     setNpubInput("");
-    setSpaces(null);
-    setSpacesError(false);
     setPickedSpace(null);
     setChannels(null);
     setChannelsError(false);
@@ -102,26 +111,30 @@ export function ShareNoteSheet({
   };
 
   const loadSpaces = useCallback(() => {
-    const signer = engine.getSigner();
-    if (!signer) return;
-    setSpaces(null);
-    setSpacesError(false);
-    fetchMySpaces(signer)
-      .then(setSpaces)
-      .catch(() => setSpacesError(true));
-  }, [engine]);
+    // Stale-gated — instant when SpacesHome already has the list warm.
+    void dispatch(loadMySpaces());
+  }, [dispatch]);
 
-  const loadChannels = useCallback((space: MySpace) => {
-    setChannels(null);
-    setChannelsError(false);
-    cachedSpaceChannels(space.id)
-      .then((all) =>
-        setChannels(
-          all.filter((c) => c.type === "chat").sort((a, b) => a.position - b.position),
-        ),
-      )
-      .catch(() => setChannelsError(true));
-  }, []);
+  const loadChannels = useCallback(
+    (space: MySpace) => {
+      setChannels(null);
+      setChannelsError(false);
+      dispatch(ensureSpaceMeta(space.id))
+        .then((meta) => {
+          if (!meta || meta.channels === null) {
+            setChannelsError(true);
+            return;
+          }
+          setChannels(
+            meta.channels
+              .filter((c) => c.type === "chat")
+              .sort((a, b) => a.position - b.position),
+          );
+        })
+        .catch(() => setChannelsError(true));
+    },
+    [dispatch],
+  );
 
   const sendToDM = async (pubkey: string) => {
     try {
@@ -154,8 +167,10 @@ export function ShareNoteSheet({
     setStep("sending");
     setError(null);
     try {
-      const detail = await cachedSpaceDetail(pickedSpace.id);
-      const all = await cachedSpaceChannels(pickedSpace.id);
+      const meta = await dispatch(ensureSpaceMeta(pickedSpace.id));
+      const detail = meta?.detail;
+      if (!detail) throw new Error(meta?.error ?? "Space unavailable.");
+      const all = meta.channels ?? [];
       // ChannelScreen's rule: untagged messages route to the default chat
       // channel; when no chat channel is marked default, the picked one is it.
       const isDefaultChannel =

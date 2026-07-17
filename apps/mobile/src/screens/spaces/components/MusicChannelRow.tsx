@@ -3,6 +3,7 @@
 // subscription) with a hairline "+N" overflow tile. With no artwork cached
 // yet it degrades to the plain ChannelRowRich.
 
+import { memo } from "react";
 import { Image, StyleSheet, View } from "react-native";
 import { Pressable } from "react-native";
 
@@ -23,7 +24,7 @@ export interface MusicChannelRowProps {
   onLongPress?: () => void;
 }
 
-export function MusicChannelRow({
+export const MusicChannelRow = memo(function MusicChannelRow({
   channel,
   artworks,
   onPress,
@@ -96,4 +97,4 @@ export function MusicChannelRow({
       </View>
     </Pressable>
   );
-}
+});

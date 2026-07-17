@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useNavigation } from "@react-navigation/native";
 import type { NativeStackScreenProps } from "@react-navigation/native-stack";
-import { Users } from "lucide-react-native";
+import { UsersRound } from "lucide-react-native";
 import { FlatList, Pressable, View } from "react-native";
 
 import { useScreenInsets } from "@/components/layout/Screen";
@@ -10,16 +10,17 @@ import { EmptyState } from "@/components/ui/EmptyState";
 import { Skeleton, SkeletonCircle } from "@/components/ui/Skeleton";
 import { Type } from "@/components/ui/Type";
 import {
-  fetchSpaceMemberPubkeys,
   fetchSpaceMemberRoles,
+  fetchSpaceMembers,
   fetchSpaceRoles,
 } from "@/lib/api/spaces";
-import { cachedSpaceDetail } from "@/lib/api/spaceCache";
 import { useEngine } from "@/lib/nostr/EngineContext";
 import { profileDisplayName } from "@/lib/nostr/profiles";
 import { useBackFallback } from "@/navigation/useBackFallback";
 import type { SpacesStackParamList } from "@/navigation/types";
-import { useAppSelector } from "@/store/hooks";
+import { useAppDispatch, useAppSelector } from "@/store/hooks";
+import { profilesHydrated } from "@/store/slices/profilesSlice";
+import { ensureSpaceMeta } from "@/store/spaceMeta";
 import { buildRoleGroups, type RoleGroup } from "./roleGroups";
 
 // Role-grouped member roster (desktop MemberList, Discord register): color
@@ -38,6 +39,7 @@ export function SpaceMembersScreen({ route, navigation }: Props) {
   const { spaceId } = route.params;
   const rootNavigation = useNavigation();
   const engine = useEngine();
+  const dispatch = useAppDispatch();
   const insets = useScreenInsets({ scroll: true });
   const profiles = useAppSelector((s) => s.profiles.byPubkey);
 
@@ -55,23 +57,44 @@ export function SpaceMembersScreen({ route, navigation }: Props) {
     Promise.all([
       fetchSpaceMemberRoles(spaceId),
       fetchSpaceRoles(spaceId),
-      cachedSpaceDetail(spaceId).catch(() => null),
+      // Meta cache for creatorPubkey — instant on drill-downs from the space.
+      dispatch(ensureSpaceMeta(spaceId))
+        .then((meta) => meta?.detail ?? null)
+        .catch(() => null),
     ])
       .then(async ([memberRoles, roles, detail]) => {
-        if (memberRoles.length > 0) {
-          setGroups(buildRoleGroups(memberRoles, roles, detail?.creatorPubkey ?? null));
+        // Inline backend profiles paint the roster in one round trip; the
+        // capped kind-0 backfill below stays as the freshener.
+        if (Object.keys(memberRoles.profiles).length > 0) {
+          dispatch(profilesHydrated(memberRoles.profiles));
+        }
+        if (memberRoles.members.length > 0) {
+          setGroups(
+            buildRoleGroups(memberRoles.members, roles, detail?.creatorPubkey ?? null),
+          );
           return;
         }
         // No backend roster (native space) — flat pubkey list, one group.
-        const pubkeys = await fetchSpaceMemberPubkeys(spaceId);
+        const flat = await fetchSpaceMembers(spaceId);
+        if (Object.keys(flat.profiles).length > 0) {
+          dispatch(profilesHydrated(flat.profiles));
+        }
         setGroups(
-          pubkeys.length > 0
-            ? [{ roleId: "__flat__", label: "Members", color: null, position: 0, pubkeys }]
+          flat.pubkeys.length > 0
+            ? [
+                {
+                  roleId: "__flat__",
+                  label: "Members",
+                  color: null,
+                  position: 0,
+                  pubkeys: flat.pubkeys,
+                },
+              ]
             : [],
         );
       })
       .catch((e) => setError(e instanceof Error ? e.message : "Members unavailable."));
-  }, [spaceId]);
+  }, [spaceId, dispatch]);
 
   useEffect(load, [load]);
 
@@ -167,7 +190,7 @@ export function SpaceMembersScreen({ route, navigation }: Props) {
             </View>
           ) : (
             <EmptyState
-              icon={Users}
+              icon={UsersRound}
               title={error ? "Members unavailable" : "No members listed"}
               message={error ?? "This space hasn't published a member list the app can read."}
             />

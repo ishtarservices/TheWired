@@ -5,6 +5,7 @@
 
 import { API_BASE } from "./discovery";
 import { buildNip98Header } from "@/lib/nostr/nip98";
+import type { ProfileMetadata } from "@/lib/nostr/profiles";
 import type { EventSigner } from "@/core/adapters";
 
 export interface SpaceDetail {
@@ -210,7 +211,11 @@ export async function fetchSpaceMemberPubkeys(spaceId: string): Promise<string[]
     `${API_BASE}/spaces/${encodeURIComponent(spaceId)}/members`,
   );
   if (!response.ok) return [];
-  const data = ((await response.json()) as { data?: unknown }).data;
+  return parseMemberPubkeys(await response.json());
+}
+
+export function parseMemberPubkeys(payload: unknown): string[] {
+  const data = ((payload ?? {}) as { data?: unknown }).data;
   if (!Array.isArray(data)) return [];
   return data
     .map((m) =>
@@ -221,6 +226,60 @@ export async function fetchSpaceMemberPubkeys(spaceId: string): Promise<string[]
           : null,
     )
     .filter((p): p is string => p !== null);
+}
+
+/** Inline profiles the backend joins onto member rows (profileCache; may be
+ *  absent against an old backend). `created_at` maps from the cached kind-0
+ *  version clock — null/missing becomes 0 so any relay kind-0 outranks an
+ *  unversioned backend row (profilesSlice newest-wins upsert). */
+export function parseInlineProfiles(payload: unknown): Record<string, ProfileMetadata> {
+  const data = ((payload ?? {}) as { data?: unknown }).data;
+  const out: Record<string, ProfileMetadata> = {};
+  if (!Array.isArray(data)) return out;
+  for (const raw of data) {
+    if (typeof raw !== "object" || raw === null) continue;
+    const row = raw as Record<string, unknown>;
+    if (typeof row.pubkey !== "string") continue;
+    const profile = row.profile;
+    if (typeof profile !== "object" || profile === null) continue;
+    const p = profile as Record<string, unknown>;
+    const parsed: ProfileMetadata = {
+      created_at: typeof p.createdAt === "number" ? p.createdAt : 0,
+    };
+    const name = str(p.name);
+    const displayName = str(p.displayName);
+    const picture = str(p.picture);
+    const nip05 = str(p.nip05);
+    if (name) parsed.name = name;
+    if (displayName) parsed.display_name = displayName;
+    if (picture) parsed.picture = picture;
+    if (nip05) parsed.nip05 = nip05;
+    out[row.pubkey] = parsed;
+  }
+  return out;
+}
+
+export interface SpaceMembersResult {
+  pubkeys: string[];
+  /** Backend-cached profiles keyed by pubkey — seed profilesSlice via
+   *  profilesHydrated so facepiles paint without a relay round trip. */
+  profiles: Record<string, ProfileMetadata>;
+}
+
+export function parseSpaceMembers(payload: unknown): SpaceMembersResult {
+  return {
+    pubkeys: parseMemberPubkeys(payload),
+    profiles: parseInlineProfiles(payload),
+  };
+}
+
+/** Members + inline backend profiles (display surfaces — facepiles/rosters). */
+export async function fetchSpaceMembers(spaceId: string): Promise<SpaceMembersResult> {
+  const response = await fetch(
+    `${API_BASE}/spaces/${encodeURIComponent(spaceId)}/members`,
+  );
+  if (!response.ok) return { pubkeys: [], profiles: {} };
+  return parseSpaceMembers(await response.json());
 }
 
 /** Curated feed-source pubkeys (feed-mode spaces + curated channels). */
@@ -242,12 +301,24 @@ export async function fetchSpaceRoles(spaceId: string): Promise<SpaceRoleInfo[]>
   return parseSpaceRoles(await response.json());
 }
 
-export async function fetchSpaceMemberRoles(spaceId: string): Promise<SpaceMemberRoles[]> {
+export interface SpaceMemberRolesResult {
+  members: SpaceMemberRoles[];
+  /** Inline backend profiles (same enrichment as /members). */
+  profiles: Record<string, ProfileMetadata>;
+}
+
+export async function fetchSpaceMemberRoles(
+  spaceId: string,
+): Promise<SpaceMemberRolesResult> {
   const response = await fetch(
     `${API_BASE}/spaces/${encodeURIComponent(spaceId)}/member-roles`,
   );
-  if (!response.ok) return [];
-  return parseSpaceMemberRoles(await response.json());
+  if (!response.ok) return { members: [], profiles: {} };
+  const payload = await response.json();
+  return {
+    members: parseSpaceMemberRoles(payload),
+    profiles: parseInlineProfiles(payload),
+  };
 }
 
 /** Join a platform space: authenticated POST via NIP-98 over the signer. */

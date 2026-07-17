@@ -27,6 +27,7 @@ const STORE_NAMES: StoreName[] = [
   "dm_messages",
   "dm_state",
   "space_chat",
+  "space_meta",
   "threads",
 ];
 

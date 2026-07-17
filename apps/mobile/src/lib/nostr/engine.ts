@@ -11,6 +11,8 @@ import type { NostrEvent, NostrFilter, UnsignedEvent } from "@thewired/shared-ty
 
 import { createDmEngine, type DmEngine } from "./dmEngine";
 import { createRelayPool, type RelayPool } from "./relayPool";
+import { createSpaceSignal, type SpaceSignal } from "./spaceSignal";
+import { normalizeRelayUrl } from "./relayUrl";
 import { parseFollowList } from "./follows";
 import { parseThreadRef, reactionTargetId, repostTargetId } from "./noteTags";
 import { parseProfile, type ProfileMetadata } from "./profiles";
@@ -49,6 +51,7 @@ import {
   threadsCleared,
 } from "@/store/slices/threadsSlice";
 import { zapReceiptSeen } from "@/store/slices/zapsSlice";
+import { ensureSpaceMeta } from "@/store/spaceMeta";
 
 /** 3 sockets max on mobile — battery discipline (guide 06 §3). App relay is
  *  env-resolved (local :7777 in dev, thewired.app in release — lib/env.ts). */
@@ -122,6 +125,10 @@ export interface NostrEngine {
     content: string,
     target: { eventId: string; pubkey: string; rootId?: string },
   ): Promise<boolean>;
+  /** Feed the space-signal sub the joined-space set (SpacesHome focus
+   *  effect). One relay-targeted sub on the app relay updates previews +
+   *  unread for every joined app-relay space; identical sets no-op. */
+  setSignalSpaces(spaces: Array<{ spaceId: string; hostRelay: string | null }>): void;
   /** The active signer (null when logged out/guest) — for NIP-98/zap flows
    *  that sign outside the engine's own publish paths. */
   getSigner(): SignerAdapter | null;
@@ -287,7 +294,13 @@ export function createNostrEngine(deps: NostrEngineDeps): NostrEngine {
     }
   }
 
-  async function routeEvent(subId: string, event: NostrEvent): Promise<void> {
+  async function routeEvent(subId: string, event: NostrEvent, relayUrl: string): Promise<void> {
+    // Space-signal kind-9s route to their own module only — never into the
+    // feed/collector surfaces (verification happens inside handleEvent).
+    if (spaceSignal.ownsSub(subId)) {
+      spaceSignal.handleEvent(event, relayUrl);
+      return;
+    }
     const collector = collectors.get(subId);
     const firstTime = markSeen(event.id);
     // A relay re-send after a context filter swap is new to the *other*
@@ -427,8 +440,8 @@ export function createNostrEngine(deps: NostrEngineDeps): NostrEngine {
   }
 
   const pool: RelayPool = createRelayPool(adapters.ws, {
-    onEvent: (subId, event) => {
-      routeEvent(subId, event).catch(() => {});
+    onEvent: (subId, event, relayUrl) => {
+      routeEvent(subId, event, relayUrl).catch(() => {});
     },
     onEose: (subId) => handleEose(subId),
     onStatus: (url, status) => {
@@ -443,7 +456,36 @@ export function createNostrEngine(deps: NostrEngineDeps): NostrEngine {
         waiter.resolve(true);
       }
     },
+    onAuth: (challenge, relayUrl) => {
+      answerAuthChallenge(challenge, relayUrl).catch(() => {});
+    },
   });
+
+  /** NIP-42 for the shared pool. Only the app relay's challenges are
+   *  answered — public relays also send AUTH, and binding our key to them
+   *  buys nothing for the subs we run there. The kind-22242 OK frame falls
+   *  through onOk harmlessly (no publish waiter). */
+  const appRelayUrl = relays[0];
+  async function answerAuthChallenge(challenge: string, relayUrl: string): Promise<void> {
+    if (normalizeRelayUrl(relayUrl) !== normalizeRelayUrl(appRelayUrl)) return;
+    const signer = adapters.signer;
+    if (!signer) return;
+    const signed = await signer.signEvent({
+      pubkey: await signer.getPublicKey(),
+      created_at: Math.floor(Date.now() / 1000),
+      kind: 22242,
+      tags: [
+        ["relay", relayUrl],
+        ["challenge", challenge],
+      ],
+      content: "",
+    });
+    pool.auth(signed, relayUrl);
+    // The signal sub is the only auth-gated REQ on this pool — re-REQ it so
+    // it runs under the authenticated read set (public-kind subs already
+    // answered fine pre-auth).
+    spaceSignal.handleAuthed();
+  }
 
   function fetchEventsImpl(filters: NostrFilter[], timeoutMs = 8000): Promise<NostrEvent[]> {
     const subId = `fetch-${fetchSeq++}`;
@@ -474,6 +516,25 @@ export function createNostrEngine(deps: NostrEngineDeps): NostrEngine {
     pool,
     relays,
     fetchEvents: fetchEventsImpl,
+  });
+
+  const spaceSignal: SpaceSignal = createSpaceSignal({
+    adapters,
+    dispatch,
+    getState,
+    pool,
+    appRelayUrl,
+    // The space-meta cache is the directory source. Reject when channels
+    // are unavailable (fetch failed / still owned by another caller) so the
+    // signal drops its untagged buffer and retries, instead of caching a
+    // bogus "chat"-only directory built from [].
+    fetchChannelDirectory: (spaceId) =>
+      dispatch(ensureSpaceMeta(spaceId)).then((entry) => {
+        if (!entry || entry.channels === null) {
+          throw new Error("channel directory unavailable");
+        }
+        return entry.channels;
+      }),
   });
 
   function requestProfilesImpl(pubkeys: string[]): void {
@@ -763,6 +824,9 @@ export function createNostrEngine(deps: NostrEngineDeps): NostrEngine {
     async setIdentity(pubkey: string | null): Promise<void> {
       if (pubkey === ownPubkey) return;
       dm.stop();
+      // The signal set belongs to the old identity's joined spaces — close it;
+      // SpacesHome's focus effect re-feeds the new identity's set.
+      spaceSignal.stop();
       ownPubkey = pubkey;
       // Follows must never leak across identities — clear before the new
       // account's sync (or the logged-out resub) runs. The thread cache
@@ -973,6 +1037,10 @@ export function createNostrEngine(deps: NostrEngineDeps): NostrEngine {
       setFeedContextImpl(context);
     },
 
+    setSignalSpaces(spaces): void {
+      spaceSignal.setSpaces(spaces);
+    },
+
     async refreshFollows(): Promise<void> {
       await syncFollows(ownPubkey);
     },
@@ -1003,6 +1071,10 @@ export function createNostrEngine(deps: NostrEngineDeps): NostrEngine {
       const { lastSeenAt } = getState().feed.byContext[feedContext];
       subscribeFeed(lastSeenAt > 0 ? lastSeenAt - RESUME_OVERLAP_SEC : undefined);
       subscribeOwnProfile();
+      // Fresh-`since` re-REQ — the onopen registry replay ran pre-AUTH and
+      // got nothing for the auth-gated signal sub; this re-REQs post-resume
+      // (and the relay's fresh AUTH challenge re-REQs again once answered).
+      spaceSignal.resubscribe();
       dm.handleForeground();
     },
 
@@ -1022,6 +1094,7 @@ export function createNostrEngine(deps: NostrEngineDeps): NostrEngine {
 
     destroy(): void {
       dm.destroy();
+      spaceSignal.destroy();
       if (feedFlushTimer) clearTimeout(feedFlushTimer);
       if (engagementFlushTimer) clearTimeout(engagementFlushTimer);
       if (threadFlushTimer) clearTimeout(threadFlushTimer);

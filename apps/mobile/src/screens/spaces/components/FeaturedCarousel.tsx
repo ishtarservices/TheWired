@@ -1,7 +1,7 @@
 import { useCallback, useState } from "react";
 import { FlatList, Image, Pressable, View, useWindowDimensions } from "react-native";
 import { LinearGradient } from "expo-linear-gradient";
-import { Users } from "lucide-react-native";
+import { UsersRound } from "lucide-react-native";
 import type { ListedSpace } from "@/lib/api/discovery";
 
 import { Avatar } from "@/components/ui/Avatar";
@@ -64,7 +64,7 @@ function FeaturedCard({
           {space.featured ? <Pill label="featured" tone="primary" /> : null}
         </View>
         <View className="mt-1 flex-row items-center gap-1.5">
-          <Users size={12} color="rgba(255,255,255,0.75)" />
+          <UsersRound size={12} color="rgba(255,255,255,0.75)" />
           <Type role="micro" tabular weight={500} style={{ color: "rgba(255,255,255,0.75)" }}>
             {space.memberCount} members
           </Type>

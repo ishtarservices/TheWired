@@ -10,6 +10,7 @@ import { openThread } from "@/navigation/openThread";
 import type { TypeRole } from "@/theme/typography";
 import { EmbedDepthContext, MAX_EMBED_DEPTH } from "./embedDepth";
 import { EmbeddedNoteCard } from "./EmbeddedNoteCard";
+import { collapseInlineSeams } from "./inlineSeams";
 import { MentionText } from "./MentionText";
 import type { EmbedRef } from "./useEmbeddedEvent";
 
@@ -70,25 +71,25 @@ export function NoteText({
     Linking.openURL(url).catch(() => {});
   };
 
-  const inline: ReactNode[] = [];
+  const inlineRaw: ReactNode[] = [];
   const blocks: EmbedRef[] = [];
 
   segments.forEach((seg, i) => {
     switch (seg.type) {
       case "text":
-        inline.push(seg.text);
+        inlineRaw.push(seg.text);
         break;
       case "hashtag":
-        inline.push(`#${seg.value}`);
+        inlineRaw.push(`#${seg.value}`);
         break;
       case "mention":
-        inline.push(
+        inlineRaw.push(
           <MentionText key={`m${i}`} pubkey={seg.pubkey} role={role} className={textClassName} />,
         );
         break;
       case "url":
       case "image":
-        inline.push(
+        inlineRaw.push(
           <Type
             key={`u${i}`}
             role={role}
@@ -106,7 +107,7 @@ export function NoteText({
         if (seg.type === "event-ref" && suppressEventIds?.includes(seg.id)) break;
         if (depth >= MAX_EMBED_DEPTH) {
           // Inside an embed: a plain tappable link, no card, no fetch.
-          inline.push(
+          inlineRaw.push(
             <Type
               key={`r${i}`}
               role={role}
@@ -126,6 +127,10 @@ export function NoteText({
       }
     }
   });
+
+  // Collapse the double gap a lifted-out ref leaves mid-text ("sharing
+  // this  by @loki") — both neighbors kept the ref's surrounding spaces.
+  const inline = collapseInlineSeams(inlineRaw);
 
   // Trim the seams a lifted-out ref leaves behind so a share that is just
   // "nostr:nevent1…" renders as the card alone, no empty text line.
@@ -160,7 +165,9 @@ export function NoteText({
           renderPreview={(text) => (
             <NoteText
               content={text}
-              numberOfLines={3}
+              // The card this mounts inherits our depth: full cards get 3
+              // preview lines, nested compact cards (depth 1) get 2.
+              numberOfLines={depth === 0 ? 3 : 2}
               role="caption"
               containerClassName="mt-1"
               textClassName="leading-5 text-soft"
