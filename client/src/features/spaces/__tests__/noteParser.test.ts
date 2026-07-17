@@ -70,4 +70,32 @@ describe("parseThreadRef / isRootNote (sanity)", () => {
   it("a reply is not a root note", () => {
     expect(isRootNote(ev([["e", ROOT, "", "root"]]))).toBe(false);
   });
+
+  it("a lone mention-marked e-tag is NOT a reply (quote post, core parity)", () => {
+    const e = ev([["e", ROOT, "", "mention"]]);
+    expect(parseThreadRef(e)).toEqual({
+      rootId: null,
+      replyId: null,
+      mentionedPubkeys: [],
+    });
+    expect(isRootNote(e)).toBe(true);
+    expect(isDirectReply(e, ROOT)).toBe(false);
+  });
+
+  it("all-mention multi e-tags are not a reply either", () => {
+    const e = ev([
+      ["e", ROOT, "", "mention"],
+      ["e", CHILD, "", "mention"],
+    ]);
+    expect(parseThreadRef(e).rootId).toBeNull();
+  });
+
+  it("keeps mentionedPubkeys from p tags (desktop-only field)", () => {
+    const pk = "b".repeat(64);
+    const e = ev([
+      ["e", ROOT, "", "root"],
+      ["p", pk],
+    ]);
+    expect(parseThreadRef(e).mentionedPubkeys).toEqual([pk]);
+  });
 });
