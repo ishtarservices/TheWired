@@ -1,3 +1,5 @@
+import { bytesToHex, randomBytes } from "@noble/hashes/utils";
+
 import { getSigner } from "@/lib/nostr/loginFlow";
 import { signingQueue } from "@/lib/nostr/signingQueue";
 
@@ -15,6 +17,10 @@ export async function buildNip98Header(url: string, method: string): Promise<str
     tags: [
       ["u", url],
       ["method", method.toUpperCase()],
+      // created_at is second-granular: parallel requests to the same endpoint
+      // would otherwise hash to identical event ids and trip the gateway's
+      // single-use replay guard (401 AUTH_REPLAY on batch uploads).
+      ["nonce", bytesToHex(randomBytes(16))],
     ],
     content: "",
   };
