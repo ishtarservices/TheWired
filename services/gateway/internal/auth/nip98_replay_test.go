@@ -163,6 +163,57 @@ func TestMiddleware_Replay_SecondUseRejected(t *testing.T) {
 	}
 }
 
+// Parallel same-second requests share pubkey/created_at/u/method/content, so
+// without a differentiator they hash to ONE event id and the single-use guard
+// 401s all but the first (batch uploads lost tracks to AUTH_REPLAY). Clients
+// now attach a per-request `nonce` tag; events differing only by nonce must
+// get distinct ids and both pass.
+func TestMiddleware_NonceTag_ParallelSameSecondAccepted(t *testing.T) {
+	guard := &fakeReplayGuard{seen: map[string]bool{}}
+	inner := &captureHandler{}
+	handler := NIP98MiddlewareWithReplay(guard, inner)
+
+	priv, err := btcec.NewPrivateKey()
+	if err != nil {
+		t.Fatalf("keygen: %v", err)
+	}
+	url := "http://localhost:9080/api/music/upload"
+	now := time.Now().Unix()
+
+	sign := func(nonce string) string {
+		ev := NostrEvent{
+			PubKey:    hex.EncodeToString(schnorr.SerializePubKey(priv.PubKey())),
+			CreatedAt: now,
+			Kind:      27235,
+			Tags:      [][]string{{"u", url}, {"method", "POST"}, {"nonce", nonce}},
+			Content:   "",
+		}
+		serialized, err := serializeEvent(&ev)
+		if err != nil {
+			t.Fatalf("serialize: %v", err)
+		}
+		hash := sha256.Sum256(serialized)
+		ev.ID = hex.EncodeToString(hash[:])
+		sig, err := schnorr.Sign(priv, hash[:])
+		if err != nil {
+			t.Fatalf("sign: %v", err)
+		}
+		ev.Sig = hex.EncodeToString(sig.Serialize())
+		j, _ := json.Marshal(ev)
+		return "Nostr " + base64.StdEncoding.EncodeToString(j)
+	}
+
+	for i, header := range []string{sign("aa11"), sign("bb22")} {
+		req := httptest.NewRequest("POST", url, nil)
+		req.Header.Set("Authorization", header)
+		rr := httptest.NewRecorder()
+		handler.ServeHTTP(rr, req)
+		if rr.Code != http.StatusOK {
+			t.Fatalf("request %d with distinct nonce should pass, got %d (%s)", i+1, rr.Code, rr.Body.String())
+		}
+	}
+}
+
 // #64 — a replay-store outage must NOT lock out auth: fail open.
 func TestMiddleware_Replay_FailOpenOnStoreError(t *testing.T) {
 	guard := &fakeReplayGuard{seen: map[string]bool{}, err: errors.New("redis down")}
