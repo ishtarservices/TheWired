@@ -36,6 +36,7 @@ import { RootNavigator } from "@/navigation/RootNavigator";
 import { createMobileAdapters } from "@/platform/adapters";
 import { getStoredThemePreset } from "@/platform/appPrefs";
 import { MobileLifecycleController } from "@/platform/lifecycle/MobileLifecycleController";
+import { attachStore as attachMusicStore } from "@/lib/music/playerService";
 import { createStore, type AppStore } from "@/store";
 import { useAppDispatch, useAppSelector } from "@/store/hooks";
 import { hydrateModeration } from "@/store/moderation";
@@ -62,6 +63,8 @@ export default function App() {
   const [{ store, engine }] = useState(() => {
     const adapters = createMobileAdapters();
     const appStore = createStore(adapters);
+    // Let the RNTP event bridge dispatch playback-mirror updates into the store.
+    attachMusicStore(appStore.dispatch);
     const nostrEngine = createNostrEngine({
       adapters,
       dispatch: appStore.dispatch,

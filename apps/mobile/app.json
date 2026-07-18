@@ -16,10 +16,19 @@
       "bundleIdentifier": "app.thewired.mobile",
       "associatedDomains": [
         "applinks:thewired.app"
-      ]
+      ],
+      "infoPlist": {
+        "UIBackgroundModes": [
+          "audio"
+        ]
+      }
     },
     "android": {
       "package": "app.thewired.mobile",
+      "permissions": [
+        "android.permission.FOREGROUND_SERVICE",
+        "android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK"
+      ],
       "adaptiveIcon": {
         "backgroundColor": "#0a0a0a",
         "foregroundImage": "./assets/android-icon-foreground.png",

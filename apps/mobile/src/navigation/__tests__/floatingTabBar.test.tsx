@@ -2,8 +2,11 @@ import { fireEvent, screen, userEvent } from "@testing-library/react-native";
 import { BottomTabBarHeightCallbackContext } from "@react-navigation/bottom-tabs";
 import type { BottomTabBarProps } from "@react-navigation/bottom-tabs";
 import { render } from "@testing-library/react-native";
+import { configureStore } from "@reduxjs/toolkit";
+import { Provider as StoreProvider } from "react-redux";
 
 import { FloatingTabBar } from "../FloatingTabBar";
+import { musicSlice } from "@/store/slices/musicSlice";
 import { ThemeProvider } from "@/theme/ThemeContext";
 
 jest.mock("expo-haptics", () => ({
@@ -44,12 +47,17 @@ function makeProps(overrides: { index?: number; defaultPrevented?: boolean } = {
 }
 
 function renderBar(props: BottomTabBarProps, onHeight?: (h: number) => void) {
+  // FloatingTabBar now hosts the MiniPlayer (useAppSelector) — a music-only
+  // store satisfies it; with no current track the MiniPlayer renders null.
+  const store = configureStore({ reducer: { music: musicSlice.reducer } });
   return render(
-    <ThemeProvider>
-      <BottomTabBarHeightCallbackContext.Provider value={onHeight}>
-        <FloatingTabBar {...props} />
-      </BottomTabBarHeightCallbackContext.Provider>
-    </ThemeProvider>,
+    <StoreProvider store={store}>
+      <ThemeProvider>
+        <BottomTabBarHeightCallbackContext.Provider value={onHeight}>
+          <FloatingTabBar {...props} />
+        </BottomTabBarHeightCallbackContext.Provider>
+      </ThemeProvider>
+    </StoreProvider>,
   );
 }
 

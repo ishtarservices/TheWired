@@ -14,6 +14,7 @@ import { followsSlice } from "./slices/followsSlice";
 import { identitySlice } from "./slices/identitySlice";
 import { lifecycleSlice } from "./slices/lifecycleSlice";
 import { moderationSlice } from "./slices/moderationSlice";
+import { musicSlice } from "./slices/musicSlice";
 import { profilesSlice } from "./slices/profilesSlice";
 import { relaysSlice } from "./slices/relaysSlice";
 import { spaceChatSlice } from "./slices/spaceChatSlice";
@@ -37,6 +38,7 @@ export function createStore(adapters: PlatformAdapters) {
       follows: followsSlice.reducer,
       profiles: profilesSlice.reducer,
       moderation: moderationSlice.reducer,
+      music: musicSlice.reducer,
       dm: dmSlice.reducer,
       spaceChat: spaceChatSlice.reducer,
       spaceMeta: spaceMetaSlice.reducer,

@@ -39,6 +39,8 @@ import {
   followsReceived,
 } from "@/store/slices/followsSlice";
 import { profileReceived, profilesHydrated } from "@/store/slices/profilesSlice";
+import { reset as resetPlayback } from "@/lib/music/playerService";
+import { musicCleared } from "@/store/slices/musicSlice";
 import { setRelayStatus } from "@/store/slices/relaysSlice";
 import {
   REPLY_PAGE_LIMIT,
@@ -834,6 +836,10 @@ export function createNostrEngine(deps: NostrEngineDeps): NostrEngine {
       // state shouldn't straddle identities.
       clearFollowsState();
       dispatch(threadsCleared());
+      // Music catalog + player mirror belong to the old identity — reset the
+      // Redux mirror and stop native playback (no-op if never set up).
+      dispatch(musicCleared());
+      void resetPlayback();
       if (pubkey) {
         await adapters.storage.openForAccount(pubkey).catch(() => {});
         subscribeOwnProfile();

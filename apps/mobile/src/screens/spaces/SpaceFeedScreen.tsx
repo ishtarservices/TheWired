@@ -34,6 +34,7 @@ import {
 } from "@/lib/nostr/spaceFeedRoutes";
 import type { SpacesStackParamList } from "@/navigation/types";
 import { useAppDispatch, useAppSelector } from "@/store/hooks";
+import { playQueue } from "@/store/music";
 import { ensureSpaceMeta } from "@/store/spaceMeta";
 import { markChannelRead } from "@/store/spacePreviews";
 import { spaceMusicArtworkSeen } from "@/store/slices/spacePreviewsSlice";
@@ -254,6 +255,22 @@ export function SpaceFeedScreen({ route, navigation }: Props) {
     }
   }, [dispatch, spaceId, channelType, items]);
 
+  // Tapping a track plays the whole channel as the queue (desktop parity),
+  // starting at the tapped item. playQueue filters unplayable rows (albums /
+  // private / no-audio) and remaps the index onto the playable subset.
+  const musicItems = useMemo<MusicItem[]>(
+    () => items.flatMap((i) => (i.kind === "music" ? [i.music] : [])),
+    [items],
+  );
+  const playTrack = useCallback(
+    (track: MusicItem) => {
+      const idx = musicItems.findIndex((m) => m.id === track.id);
+      haptics.selection();
+      void dispatch(playQueue(musicItems, Math.max(0, idx)));
+    },
+    [musicItems, dispatch],
+  );
+
   // Media grid geometry (3 columns inside the 16pt screen padding).
   const tileSize = Math.floor((width - 32 - GRID_GAP * 2) / 3);
   const gridImages = useMemo(
@@ -320,10 +337,16 @@ export function SpaceFeedScreen({ route, navigation }: Props) {
             />
           );
         case "music":
-          return <TrackRow item={item.music} onLongPress={() => noteActions.open(item.music.event)} />;
+          return (
+            <TrackRow
+              item={item.music}
+              onPress={item.music.kind === "track" ? () => playTrack(item.music) : undefined}
+              onLongPress={() => noteActions.open(item.music.event)}
+            />
+          );
       }
     },
-    [rootNavigation, noteActions, tileSize, openMedia, hostRelay, openThread],
+    [rootNavigation, noteActions, tileSize, openMedia, hostRelay, openThread, playTrack],
   );
 
   const isGrid = channelType === "media";

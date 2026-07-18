@@ -25,6 +25,7 @@ import {
 import { CommonActions } from "@react-navigation/native";
 import { BlurView } from "expo-blur";
 
+import { MiniPlayer } from "@/components/music/MiniPlayer";
 import { GLASS_BLUR_INTENSITY } from "@/theme/constants";
 import { withAlpha } from "@/theme/engine";
 import { SPRING } from "@/theme/motion";
@@ -98,6 +99,11 @@ export function FloatingTabBar({ state, descriptors, navigation, insets }: Botto
       }}
       onLayout={(e) => onHeightChange?.(e.nativeEvent.layout.height)}
     >
+      {/* Docked mini-player above the pill — its height folds into this
+          container's onLayout report, so useScreenInsets clears both. Renders
+          null when nothing is playing. navigate bubbles to the root NowPlaying
+          modal (same path MusicHome uses). */}
+      <MiniPlayer onOpen={() => navigation.navigate("NowPlaying")} />
       <View
         style={{
           height: PILL_HEIGHT,
