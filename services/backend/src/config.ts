@@ -43,6 +43,10 @@ export const config = {
   /** DNS zone under which each user's relay gets a stable subdomain
    *  (`<id>.relay.thewired.app`). Must live inside CLOUDFLARE_ZONE_ID. */
   tunnelHostnameZone: process.env.TUNNEL_HOSTNAME_ZONE ?? "relay.thewired.app",
+  /** HMAC secret for minting/verifying media capability tokens (private-track
+   *  playback via `?tk=`). Required in production — minting throws if empty and
+   *  NODE_ENV=production; a deterministic dev fallback is used otherwise. */
+  mediaTokenSecret: process.env.MEDIA_TOKEN_SECRET ?? "",
   /** Blossom blob storage directory */
   blobDir: process.env.BLOB_DIR ?? "blobs",
   /** Max blob upload size in bytes (default 100MB) */

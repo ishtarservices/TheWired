@@ -3,42 +3,47 @@ import { join, resolve } from "node:path";
 import { mkdir, stat, unlink, rename } from "node:fs/promises";
 import { createReadStream, createWriteStream } from "node:fs";
 import { createHash } from "node:crypto";
-import { eq, and, desc, lt, sql } from "drizzle-orm";
+import { eq, and, desc, lt } from "drizzle-orm";
 import { db } from "../db/connection.js";
 import { blobs, blobOwners } from "../db/schema/blobs.js";
-import { spaceMembers } from "../db/schema/members.js";
 import { config } from "../config.js";
 import { nanoid } from "../lib/id.js";
 import { verifyBlossomAuth } from "../middleware/blossomAuth.js";
+import { getProtectedRefForBlob, authorizeProtectedRef } from "../services/blobAccess.js";
+import { verifyMediaToken } from "../lib/mediaToken.js";
 
 const BLOB_DIR = resolve(process.cwd(), config.blobDir);
 const MAX_BLOB_SIZE = config.maxBlobSize;
 const SHA256_REGEX = /^([0-9a-f]{64})(?:\.\w+)?$/;
 
-interface ProtectedEventRef {
-  pubkey: string;
-  tags: string[][];
-}
-
-/**
- * Check if a blob hash is referenced by a private music event (visibility=private/unlisted).
- * Space-scoped blobs (h-tag only) are NOT gated here — their protection comes from the
- * relay auth filter which prevents unauthorized users from discovering the blob URL.
- * Gating space-scoped blobs would break <img> and <audio> tags which can't send auth headers.
- */
-async function findProtectedEventForBlob(sha256: string): Promise<ProtectedEventRef | null> {
-  const rows = await db.execute(
-    sql`SELECT pubkey, tags FROM relay.events
-        WHERE kind IN (31683, 33123)
-        AND visibility IS NOT NULL
-        AND tags::text LIKE ${"%" + sha256 + "%"}
-        LIMIT 1`,
-  );
-  const row = (rows as unknown as Array<{ pubkey: string; tags: unknown }>)[0];
-  if (!row) return null;
-
-  const tags = typeof row.tags === "string" ? JSON.parse(row.tags) : row.tags;
-  return { pubkey: row.pubkey, tags: tags as string[][] };
+/** Parse an HTTP `Range: bytes=start-end` header against a known size.
+ *  Returns null (absent/unparseable → serve full), "unsatisfiable" (→416),
+ *  or an inclusive { start, end }. Single-range only. */
+function parseRange(
+  header: string | undefined,
+  size: number,
+): { start: number; end: number } | "unsatisfiable" | null {
+  if (!header) return null;
+  const m = /^bytes=(\d*)-(\d*)$/.exec(header.trim());
+  if (!m) return null;
+  const [, startStr, endStr] = m;
+  if (startStr === "" && endStr === "") return null;
+  let start: number;
+  let end: number;
+  if (startStr === "") {
+    const n = parseInt(endStr, 10);
+    if (!n) return "unsatisfiable";
+    start = Math.max(0, size - n);
+    end = size - 1;
+  } else {
+    start = parseInt(startStr, 10);
+    end = endStr === "" ? size - 1 : parseInt(endStr, 10);
+  }
+  if (Number.isNaN(start) || Number.isNaN(end) || start > end || start >= size) {
+    return "unsatisfiable";
+  }
+  if (end >= size) end = size - 1;
+  return { start, end };
 }
 
 export async function blossomRoutes(server: FastifyInstance) {
@@ -61,41 +66,16 @@ export async function blossomRoutes(server: FastifyInstance) {
       return reply.status(404).header("X-Reason", "Blob not found").send();
     }
 
-    // Access control: check if this blob is referenced by a protected music event
-    const protectedEvent = await findProtectedEventForBlob(sha256);
-    if (protectedEvent) {
-      const authPubkey = (request as any).pubkey as string | undefined;
-      const tags: string[][] = protectedEvent.tags;
-      const hTag = tags.find((t: string[]) => t[0] === "h")?.[1];
-
-      // No auth → deny protected content (return 404 to not reveal existence)
-      if (!authPubkey) {
-        return reply.status(404).send();
-      }
-
-      // Author always has access
-      if (authPubkey !== protectedEvent.pubkey) {
-        // Check collaborator access (p-tag)
-        const isCollaborator = tags.some(
-          (t: string[]) => t[0] === "p" && t[1] === authPubkey,
-        );
-
-        if (!isCollaborator) {
-          // Check space membership if h-tagged
-          if (hTag) {
-            const membership = await db
-              .select()
-              .from(spaceMembers)
-              .where(and(eq(spaceMembers.spaceId, hTag), eq(spaceMembers.pubkey, authPubkey)))
-              .limit(1);
-            if (membership.length === 0) {
-              return reply.status(404).send();
-            }
-          } else {
-            // Private event, not author, not collaborator → deny
-            return reply.status(404).send();
-          }
-        }
+    // Access control: a blob referenced by a protected (private/unlisted/space) music
+    // event requires either a valid capability token (?tk=, for header-less <audio>/HLS)
+    // or an authorized viewer (NIP-98 → X-Auth-Pubkey). 404 on denial to hide existence.
+    const protectedRef = await getProtectedRefForBlob(sha256);
+    if (protectedRef) {
+      const tk = (request.query as { tk?: string }).tk;
+      if (!verifyMediaToken(sha256, tk)) {
+        const authPubkey = (request as any).pubkey as string | undefined;
+        const allowed = await authorizeProtectedRef(protectedRef, authPubkey);
+        if (!allowed) return reply.status(404).send();
       }
     }
 
@@ -107,13 +87,36 @@ export async function blossomRoutes(server: FastifyInstance) {
       return reply.status(404).header("X-Reason", "Blob not found on disk").send();
     }
 
-    // Use short cache for protected content, long cache for public
-    const cacheControl = protectedEvent
-      ? "private, max-age=3600"
+    const contentType = blob.type ?? "application/octet-stream";
+    // Protected content must never be cached by a shared cache; public blobs are immutable.
+    const cacheControl = protectedRef
+      ? "private, no-store"
       : "public, max-age=31536000, immutable";
 
+    // Range support (seeking on large audio) — applied AFTER the access check above.
+    const range = parseRange(request.headers.range, blob.size);
+    if (range === "unsatisfiable") {
+      return reply
+        .status(416)
+        .header("Content-Range", `bytes */${blob.size}`)
+        .header("Accept-Ranges", "bytes")
+        .send();
+    }
+    if (range) {
+      const { start, end } = range;
+      return reply
+        .status(206)
+        .header("Content-Type", contentType)
+        .header("Content-Length", end - start + 1)
+        .header("Content-Range", `bytes ${start}-${end}/${blob.size}`)
+        .header("Accept-Ranges", "bytes")
+        .header("Cache-Control", cacheControl)
+        .header("ETag", `"${sha256}"`)
+        .send(createReadStream(filePath, { start, end }));
+    }
+
     return reply
-      .header("Content-Type", blob.type ?? "application/octet-stream")
+      .header("Content-Type", contentType)
       .header("Content-Length", blob.size)
       .header("Accept-Ranges", "bytes")
       .header("Cache-Control", cacheControl)

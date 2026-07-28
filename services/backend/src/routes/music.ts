@@ -9,6 +9,7 @@ import { musicUploads } from "../db/schema/music.js";
 import { config } from "../config.js";
 import { getTranscodeQueue } from "../lib/queue.js";
 import { validate, hexId, nonEmptyString, limitParam, offsetParam } from "../lib/validation.js";
+import { mintMediaToken } from "../lib/mediaToken.js";
 
 const pubkeySlugParams = z.object({
   pubkey: hexId,
@@ -117,6 +118,29 @@ async function checkEventVisibility(
   }
 
   return true;
+}
+
+/** Extract the primary audio blob sha256 from an event's imeta tags. Prefers an
+ *  explicit `x <sha>` sub-tag; falls back to a 64-hex match in the `url`. Returns
+ *  null when no plaintext sha is present (e.g. NIP-44-encrypted tracks). */
+function extractAudioSha(tags: string[][]): string | null {
+  let fallback: string | null = null;
+  for (const tag of tags) {
+    if (tag[0] !== "imeta") continue;
+    const parts: Record<string, string> = {};
+    for (let i = 1; i < tag.length; i++) {
+      const s = tag[i];
+      const sp = s.indexOf(" ");
+      if (sp > 0) parts[s.slice(0, sp)] = s.slice(sp + 1);
+    }
+    if (parts.m && !parts.m.startsWith("audio/")) continue; // skip cover-art imeta
+    if (parts.x && /^[0-9a-f]{64}$/.test(parts.x)) return parts.x;
+    if (!fallback && parts.url) {
+      const m = parts.url.match(/[0-9a-f]{64}/);
+      if (m) fallback = m[0];
+    }
+  }
+  return fallback;
 }
 
 export const musicRoutes: FastifyPluginAsync = async (server) => {
@@ -514,6 +538,81 @@ export const musicRoutes: FastifyPluginAsync = async (server) => {
       }
 
       return { data: { status: row.status } };
+    },
+  );
+
+  // GET /music/access/:pubkey/:slug -- Mint a short-lived capability token for a
+  // gated track's media so header-less <audio>/HLS can fetch it. Authorization is
+  // Nostr-native (author / p-collaborator / space member), same as /resolve. Public
+  // tracks return { gated: false } (no token needed).
+  server.get<{ Params: { pubkey: string; slug: string } }>(
+    "/access/:pubkey/:slug",
+    async (request, reply) => {
+      const params = validate(pubkeySlugParams, request.params, reply);
+      if (!params) return;
+      const { pubkey, slug } = params;
+
+      const rows = (await db.execute(
+        sql`SELECT id, pubkey, created_at, kind, tags, content, sig
+            FROM relay.events
+            WHERE kind = 31683
+              AND pubkey = ${pubkey}
+              AND tags @> ${JSON.stringify([["d", slug]])}::jsonb
+            ORDER BY created_at DESC
+            LIMIT 1`,
+      )) as unknown as RelayEvent[];
+
+      if (rows.length === 0) {
+        return reply.status(404).send({ error: "Track not found", code: "NOT_FOUND" });
+      }
+      const event = rows[0];
+
+      const isProtected =
+        event.tags.some((t) => t[0] === "h") ||
+        ["private", "unlisted"].includes(
+          event.tags.find((t) => t[0] === "visibility")?.[1] ?? "",
+        );
+
+      // Public track: no token required — client plays the plain URL.
+      if (!isProtected) return { data: { gated: false as const } };
+
+      // Enforce the same policy as /resolve; writes a 404 to `reply` on denial.
+      const authPubkey = (request.headers["x-auth-pubkey"] as string) ?? null;
+      const allowed = await checkEventVisibility(event, pubkey, authPubkey, reply);
+      if (!allowed) return;
+
+      const sha = extractAudioSha(event.tags);
+      // No plaintext sha (e.g. NIP-44-encrypted track) → backend can't gate the blob;
+      // no token needed and the client plays the decrypted URL directly.
+      if (!sha) return { data: { gated: false as const } };
+
+      const { token, exp } = mintMediaToken(sha);
+
+      const [upload] = await db
+        .select({
+          status: musicUploads.transcodeStatus,
+          hlsMasterPath: musicUploads.hlsMasterPath,
+        })
+        .from(musicUploads)
+        .where(eq(musicUploads.sha256, sha))
+        .orderBy(sql`CASE ${musicUploads.transcodeStatus} WHEN 'ready' THEN 0 ELSE 1 END`)
+        .limit(1);
+
+      const hlsMaster =
+        upload?.status === "ready" && upload.hlsMasterPath
+          ? `${config.publicUrl}/${upload.hlsMasterPath}?tk=${token}`
+          : null;
+
+      return {
+        data: {
+          gated: true as const,
+          exp,
+          token,
+          sha256: sha,
+          blobUrl: `${config.publicUrl}/${sha}?tk=${token}`,
+          hlsMaster,
+        },
+      };
     },
   );
 

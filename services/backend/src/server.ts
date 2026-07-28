@@ -1,4 +1,4 @@
-import Fastify from "fastify";
+import Fastify, { type FastifyRequest } from "fastify";
 import cors from "@fastify/cors";
 import helmet from "@fastify/helmet";
 import multipart from "@fastify/multipart";
@@ -38,6 +38,22 @@ export async function createServer() {
   const server = Fastify({
     logger: {
       level: config.logLevel,
+      serializers: {
+        // Redact media capability tokens (?tk=) so they never land in request logs.
+        req(request: FastifyRequest) {
+          const url =
+            typeof request.url === "string"
+              ? request.url.replace(/([?&]tk=)[^&#]*/gi, "$1REDACTED")
+              : request.url;
+          return {
+            method: request.method,
+            url,
+            hostname: request.hostname,
+            remoteAddress: request.ip,
+            remotePort: request.socket?.remotePort,
+          };
+        },
+      },
     },
   });
 
