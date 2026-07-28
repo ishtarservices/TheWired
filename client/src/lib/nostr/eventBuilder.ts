@@ -1,44 +1,10 @@
 import type { UnsignedEvent } from "../../types/nostr";
-import type { Kind0Profile } from "../../types/profile";
 import type { RelayListEntry } from "../../types/relay";
 
-/** Build an unsigned kind:0 metadata event.
- *
- *  Read-modify-write: `profile` (the edited fields) is merged OVER `base` (the
- *  last-known kind:0 content), so fields the editing UI doesn't model — lud06,
- *  NIP-57 pointers, custom keys — survive a republish instead of being wiped.
- *  An edited field set to "" removes that key (an intentional clear).
- *
- *  Throws if the resulting content would be empty — publishing an empty kind:0
- *  permanently wipes the user's profile on all relays. */
-export function buildProfileEvent(
-  pubkey: string,
-  profile: Kind0Profile,
-  base?: Kind0Profile,
-): UnsignedEvent {
-  const merged: Record<string, unknown> = { ...(base ?? {}), ...profile };
-  const content: Record<string, unknown> = {};
-  for (const [key, value] of Object.entries(merged)) {
-    // created_at is an event-level field, never profile content. The rest are
-    // prototype-pollution keys: never assign them via bracket notation (it would
-    // set `content`'s prototype) nor republish them out of preserved fields.
-    if (key === "created_at" || key === "__proto__" || key === "constructor" || key === "prototype") continue;
-    if (value === undefined || value === null || value === "") continue;
-    content[key] = value;
-  }
-
-  if (Object.keys(content).length === 0) {
-    throw new Error("Refusing to build kind:0 with empty profile — this would wipe the user's metadata on all relays");
-  }
-
-  return {
-    pubkey,
-    created_at: Math.floor(Date.now() / 1000),
-    kind: 0,
-    tags: [],
-    content: JSON.stringify(content),
-  };
-}
+// buildProfileEvent lives in @thewired/core (shared with mobile). Re-exported
+// below alongside buildFollowListEvent so existing desktop import sites are
+// unchanged.
+export { buildProfileEvent, buildFollowListEvent } from "@thewired/core";
 
 /** File metadata for imeta tags (NIP-94 inline) */
 export interface AttachmentMeta {
@@ -492,26 +458,6 @@ export function buildChatEditEvent(
     kind: 9,
     tags,
     content: newContent,
-  };
-}
-
-/** Build an unsigned kind:3 follow list event (NIP-02).
- *  Throws if the follow list is empty — publishing an empty kind:3
- *  permanently wipes the user's contact list on all relays. */
-export function buildFollowListEvent(
-  pubkey: string,
-  follows: string[],
-): UnsignedEvent {
-  if (follows.length === 0) {
-    throw new Error("Refusing to build kind:3 with empty follow list — this would wipe the user's contacts on all relays");
-  }
-
-  return {
-    pubkey,
-    created_at: Math.floor(Date.now() / 1000),
-    kind: 3,
-    tags: follows.map((pk) => ["p", pk]),
-    content: "",
   };
 }
 

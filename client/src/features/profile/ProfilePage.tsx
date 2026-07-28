@@ -41,12 +41,10 @@ import { Spinner } from "../../components/ui/Spinner";
 import { useProfile } from "./useProfile";
 import { useZap } from "../wallet/WalletProvider";
 import { useProfileFeed } from "./useProfileNotes";
-import { useFollowData } from "./useFollowData";
 import { useMutualFollow } from "./useMutualFollow";
 import { EngagementCollectorProvider } from "./engagementCollector";
 import { PROFILE_RELAYS } from "../../lib/nostr/constants";
 import { ProfileNoteCard } from "./NoteCard";
-import { FollowListModal } from "./FollowListModal";
 import { ArticleCard } from "../longform/ArticleCard";
 import { DraftsList } from "../longform/DraftsList";
 import { NoteComposer } from "./NoteComposer";
@@ -88,9 +86,7 @@ export function ProfilePage({ pubkey }: ProfilePageProps) {
   const [activeTab, setActiveTab] = useState<Tab>(
     () => readProfileView(pubkey)?.activeTab ?? "notes",
   );
-  const [followModal, setFollowModal] = useState<"following" | "followers" | null>(null);
   const feed = useProfileFeed(pubkey);
-  const { following, followers, followingLoading, followersLoading } = useFollowData(pubkey, followModal === "followers");
   const { iFollow } = useMutualFollow(pubkey);
   const myPubkey = useAppSelector((s) => s.identity.pubkey);
   const muteList = useAppSelector((s) => s.identity.muteList);
@@ -678,50 +674,6 @@ export function ProfilePage({ pubkey }: ProfilePageProps) {
         </button>
       </div>
 
-      {/* Stats bar — clickable Following/Followers */}
-      <div className="flex gap-8 border-b border-border px-8 pb-3 text-sm">
-        <span className="text-soft">
-          <span className="font-semibold text-heading">{feed.allItems.length}</span> Notes
-        </span>
-
-        {/* Following — respect hideFollowingCount / hideFollowingList (own profile always visible) */}
-        {(isMe || !profileDisplaySettings.hideFollowingCount) && (
-          <button
-            onClick={() => {
-              if (!isMe && profileDisplaySettings.hideFollowingList) return;
-              setFollowModal("following");
-            }}
-            className={`text-soft transition-colors ${
-              isMe || !profileDisplaySettings.hideFollowingList
-                ? "hover:text-primary cursor-pointer"
-                : "cursor-default"
-            }`}
-          >
-            <span className="font-semibold text-heading">
-              {followingLoading ? "\u2014" : following.length}
-            </span> Following
-          </button>
-        )}
-
-        {/* Followers — respect hideFollowerCount / hideFollowerList (own profile always visible) */}
-        {(isMe || !profileDisplaySettings.hideFollowerCount) && (
-          <button
-            onClick={() => {
-              if (!isMe && profileDisplaySettings.hideFollowerList) return;
-              setFollowModal("followers");
-            }}
-            className={`text-soft transition-colors ${
-              isMe || !profileDisplaySettings.hideFollowerList
-                ? "hover:text-primary cursor-pointer"
-                : "cursor-default"
-            }`}
-          >
-            <span className="font-semibold text-heading">
-              {followers.length > 0 ? followers.length : "\u2014"}
-            </span> Followers
-          </button>
-        )}
-      </div>
 
       {/* Tab bar */}
       <div className="flex border-b border-border">
@@ -852,26 +804,6 @@ export function ProfilePage({ pubkey }: ProfilePageProps) {
         {activeTab === "music" && <ProfileMusicTab pubkey={pubkey} />}
         {activeTab === "showcase" && <ProfileShowcaseTab pubkey={pubkey} />}
       </div>
-
-      {/* Follow list modals — guard with display settings */}
-      {followModal === "following" &&
-        (isMe || !profileDisplaySettings.hideFollowingList) && (
-        <FollowListModal
-          pubkeys={following}
-          loading={followingLoading}
-          mode="following"
-          onClose={() => setFollowModal(null)}
-        />
-      )}
-      {followModal === "followers" &&
-        (isMe || !profileDisplaySettings.hideFollowerList) && (
-        <FollowListModal
-          pubkeys={followers}
-          loading={followersLoading}
-          mode="followers"
-          onClose={() => setFollowModal(null)}
-        />
-      )}
     </div>
   );
 }

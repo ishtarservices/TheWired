@@ -9,6 +9,7 @@ import { FeaturedArtistsInput } from "./FeaturedArtistsInput";
 import { HashtagInput } from "./HashtagInput";
 import { GenrePicker } from "./GenrePicker";
 import { VisibilityPicker } from "./VisibilityPicker";
+import { ExportToggle } from "./ExportToggle";
 import { readAudioMetadata } from "./trackFileParser";
 import { parseFilename } from "./trackFileParser";
 import { useProfile } from "@/features/profile/useProfile";
@@ -62,6 +63,7 @@ export function UploadTrackModal({ open, onClose, defaultAlbumRef, defaultVisibi
   const [visibility, setVisibility] = useState<MusicVisibility>(defaultVisibility ?? "public");
   const [spaceId, setSpaceId] = useState(defaultSpaceId ?? "");
   const [channelId, setChannelId] = useState(defaultChannelId ?? "");
+  const [allowExport, setAllowExport] = useState(true);
   const [audioFile, setAudioFile] = useState<File | null>(null);
   const [coverFile, setCoverFile] = useState<File | null>(null);
   const [uploading, setUploading] = useState(false);
@@ -84,6 +86,7 @@ export function UploadTrackModal({ open, onClose, defaultAlbumRef, defaultVisibi
     setVisibility(defaultVisibility ?? "public");
     setSpaceId(defaultSpaceId ?? "");
     setChannelId(defaultChannelId ?? "");
+    setAllowExport(true);
     setAudioFile(null);
     setCoverFile(null);
     setError(null);
@@ -156,6 +159,7 @@ export function UploadTrackModal({ open, onClose, defaultAlbumRef, defaultVisibi
         visibility,
         spaceId: visibility === "space" ? spaceId : undefined,
         channelId: visibility === "space" && channelId ? channelId : undefined,
+        sharingDisabled: !allowExport,
       };
 
       const unsigned = visibility === "private"
@@ -371,6 +375,9 @@ export function UploadTrackModal({ open, onClose, defaultAlbumRef, defaultVisibi
               placeholder="Paste collaborator npub or hex pubkey..."
             />
           )}
+
+          {/* Export policy */}
+          <ExportToggle value={allowExport} onChange={setAllowExport} />
 
           {error && <p className="text-xs text-red-400">{error}</p>}
 

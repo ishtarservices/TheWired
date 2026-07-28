@@ -1,0 +1,153 @@
+import { describe, it, expect } from "vitest";
+import {
+  parseProfile,
+  profileDisplayName,
+  buildProfileEvent,
+} from "../profileParser";
+import type { NostrEvent } from "@thewired/shared-types";
+
+/** Minimal kind:0 event — parseProfile only reads kind/content/created_at. */
+function k0(content: string, created_at = 1000): NostrEvent {
+  return {
+    id: "0".repeat(64),
+    pubkey: "a".repeat(64),
+    kind: 0,
+    content,
+    created_at,
+    tags: [],
+    sig: "0".repeat(128),
+  } as NostrEvent;
+}
+
+describe("parseProfile", () => {
+  it("returns null for a non-kind:0 event", () => {
+    expect(parseProfile({ ...k0("{}"), kind: 1 } as NostrEvent)).toBeNull();
+  });
+
+  it("normalizes the modeled string fields", () => {
+    const p = parseProfile(
+      k0(JSON.stringify({ name: "Luna", display_name: "Luna V", nip05: "luna@x", lud16: "luna@x.com", website: "https://x" })),
+    );
+    expect(p?.name).toBe("Luna");
+    expect(p?.display_name).toBe("Luna V");
+    expect(p?.nip05).toBe("luna@x");
+    expect(p?.lud16).toBe("luna@x.com");
+  });
+
+  it("extracts lud06", () => {
+    const p = parseProfile(k0(JSON.stringify({ lud06: "lnurl1abc" })));
+    expect(p?.lud06).toBe("lnurl1abc");
+  });
+
+  it("coerces non-string modeled fields to undefined", () => {
+    const p = parseProfile(k0(JSON.stringify({ name: 42, about: { x: 1 }, nip05: ["a"] })));
+    expect(p?.name).toBeUndefined();
+    expect(p?.about).toBeUndefined();
+    expect(p?.nip05).toBeUndefined();
+  });
+
+  it("preserves unknown fields so a republish doesn't drop them", () => {
+    const p = parseProfile(k0(JSON.stringify({ name: "Luna", bot: true, customField: "keep" })));
+    expect((p as unknown as Record<string, unknown>).bot).toBe(true);
+    expect((p as unknown as Record<string, unknown>).customField).toBe("keep");
+  });
+
+  it("stamps created_at from the event, not the content", () => {
+    const p = parseProfile(k0(JSON.stringify({ name: "Luna", created_at: 5 }), 9999));
+    expect(p?.created_at).toBe(9999);
+  });
+
+  it("returns null on invalid JSON", () => {
+    expect(parseProfile(k0("not json"))).toBeNull();
+    expect(parseProfile(k0(""))).toBeNull();
+  });
+
+  it("returns null on non-object JSON (primitive / array)", () => {
+    expect(parseProfile(k0('"a string"'))).toBeNull();
+    expect(parseProfile(k0("42"))).toBeNull();
+    expect(parseProfile(k0("null"))).toBeNull();
+    expect(parseProfile(k0('["arr"]'))).toBeNull();
+  });
+
+  it("strips prototype-pollution keys and never pollutes Object.prototype", () => {
+    const p = parseProfile(
+      k0('{"name":"Luna","__proto__":{"polluted":true},"constructor":{"x":1},"prototype":{"y":2}}'),
+    );
+    const own = (o: unknown, k: string) => Object.prototype.hasOwnProperty.call(o, k);
+    expect(p?.name).toBe("Luna");
+    expect(own(p, "__proto__")).toBe(false);
+    expect(own(p, "constructor")).toBe(false);
+    expect(own(p, "prototype")).toBe(false);
+    // Nothing leaked onto the global prototype.
+    expect(({} as Record<string, unknown>).polluted).toBeUndefined();
+    expect((Object.prototype as Record<string, unknown>).polluted).toBeUndefined();
+  });
+});
+
+describe("buildProfileEvent", () => {
+  const PK = "a".repeat(64);
+
+  it("builds a kind:0 from the edited fields", () => {
+    const ev = buildProfileEvent(PK, { name: "Luna", about: "test" });
+    expect(ev.kind).toBe(0);
+    expect(ev.pubkey).toBe(PK);
+    expect(JSON.parse(ev.content)).toEqual({ name: "Luna", about: "test" });
+  });
+
+  it("drops empty-string and undefined values", () => {
+    const ev = buildProfileEvent(PK, {
+      name: "Luna",
+      about: "",
+      picture: undefined,
+    });
+    expect(JSON.parse(ev.content)).toEqual({ name: "Luna" });
+  });
+
+  it("throws on a fully empty profile (wipe guard)", () => {
+    expect(() => buildProfileEvent(PK, {})).toThrow("empty profile");
+    expect(() => buildProfileEvent(PK, { name: "", about: "" })).toThrow(
+      "empty profile",
+    );
+  });
+
+  it("merges edits over base, preserving unmodeled base keys", () => {
+    const base = { name: "Old", lud06: "lnurl1keep", customField: "x" };
+    const ev = buildProfileEvent(PK, { name: "New" }, base);
+    expect(JSON.parse(ev.content)).toEqual({
+      name: "New",
+      lud06: "lnurl1keep",
+      customField: "x",
+    });
+  });
+
+  it("an empty-string edit removes a key that exists in base (intentional clear)", () => {
+    const ev = buildProfileEvent(
+      PK,
+      { name: "Luna", about: "" },
+      { name: "Luna", about: "old bio" },
+    );
+    expect(JSON.parse(ev.content)).toEqual({ name: "Luna" });
+  });
+
+  it("never republishes prototype-pollution keys or created_at from base", () => {
+    const base = JSON.parse(
+      '{"name":"Luna","created_at":5,"__proto__":{"p":1}}',
+    );
+    const ev = buildProfileEvent(PK, { name: "Luna" }, base);
+    const content = JSON.parse(ev.content);
+    expect(content.created_at).toBeUndefined();
+    expect(
+      Object.prototype.hasOwnProperty.call(content, "__proto__"),
+    ).toBe(false);
+  });
+});
+
+describe("profileDisplayName", () => {
+  it("prefers display_name, then name, then shortened pubkey", () => {
+    const pk = "abcdef0123456789";
+    expect(profileDisplayName({ display_name: "A", name: "b" }, pk)).toBe("A");
+    expect(profileDisplayName({ name: "b" }, pk)).toBe("b");
+    expect(profileDisplayName(undefined, pk)).toBe("abcdef01…");
+    expect(profileDisplayName({ display_name: "  " }, pk)).toBe("abcdef01…");
+  });
+});

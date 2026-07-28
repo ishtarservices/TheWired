@@ -43,14 +43,6 @@ export function ProfileDisplaySection() {
   const current = draft ?? settings;
   const isDirty = draft !== null;
 
-  const update = useCallback(
-    (patch: Partial<ProfileSettings>) => {
-      setDraft((prev) => ({ ...(prev ?? settings), ...patch }));
-      setSuccess(false);
-    },
-    [settings],
-  );
-
   const toggleTab = useCallback(
     (tab: ProfileTab) => {
       const cur = current.visibleTabs;
@@ -60,9 +52,10 @@ export function ProfileDisplaySection() {
       // Must keep at least one tab visible
       if (next.length === 0) return;
       // Preserve canonical order
-      update({ visibleTabs: ALL_TABS.filter((t) => next.includes(t)) });
+      setDraft({ visibleTabs: ALL_TABS.filter((t) => next.includes(t)) });
+      setSuccess(false);
     },
-    [current.visibleTabs, update],
+    [current.visibleTabs],
   );
 
   const handleSave = useCallback(async () => {
@@ -101,45 +94,15 @@ export function ProfileDisplaySection() {
   return (
     <div className="mx-auto w-full max-w-lg rounded-xl border border-border bg-panel p-4">
       <h3 className="mb-1 text-sm font-semibold text-heading">
-        Profile Display
+        Profile Sections
       </h3>
       <p className="mb-4 text-xs text-muted">
-        Control what others see when they view your profile on The Wired.
+        Choose which sections are public when others view your profile on The
+        Wired. Your own profile always shows every section.
       </p>
 
-      {/* ── Follower / Following visibility ─────────────────────── */}
-      <div className="space-y-2.5">
-        <Toggle
-          label="Hide follower count"
-          description="Others won't see how many people follow you"
-          checked={current.hideFollowerCount}
-          onChange={(v) => update({ hideFollowerCount: v })}
-        />
-        <Toggle
-          label="Hide following count"
-          description="Others won't see how many people you follow"
-          checked={current.hideFollowingCount}
-          onChange={(v) => update({ hideFollowingCount: v })}
-        />
-        <Toggle
-          label="Hide follower list"
-          description="Others can't open your follower list"
-          checked={current.hideFollowerList}
-          onChange={(v) => update({ hideFollowerList: v })}
-        />
-        <Toggle
-          label="Hide following list"
-          description="Others can't open your following list"
-          checked={current.hideFollowingList}
-          onChange={(v) => update({ hideFollowingList: v })}
-        />
-      </div>
-
       {/* ── Visible tabs ────────────────────────────────────────── */}
-      <div className="mt-5">
-        <label className="mb-2 block text-xs font-medium text-soft">
-          Visible profile tabs
-        </label>
+      <div>
         <div className="flex flex-wrap gap-2">
           {TAB_META.map(({ id, label, icon: Icon }) => {
             const active = current.visibleTabs.includes(id);
@@ -165,7 +128,7 @@ export function ProfileDisplaySection() {
           })}
         </div>
         <p className="mt-1.5 text-[11px] text-muted">
-          At least one tab must remain visible.
+          At least one section must remain visible.
         </p>
       </div>
 
@@ -189,45 +152,5 @@ export function ProfileDisplaySection() {
         </div>
       )}
     </div>
-  );
-}
-
-// ── Toggle primitive ───────────────────────────────────────────────────
-
-function Toggle({
-  label,
-  description,
-  checked,
-  onChange,
-}: {
-  label: string;
-  description: string;
-  checked: boolean;
-  onChange: (next: boolean) => void;
-}) {
-  return (
-    <label className="flex items-center justify-between gap-3 rounded-lg px-2 py-1.5 hover:bg-surface-hover/50 transition-colors cursor-pointer">
-      <div className="min-w-0">
-        <span className="block text-xs font-medium text-heading">{label}</span>
-        <span className="block text-[11px] text-muted">{description}</span>
-      </div>
-      <button
-        role="switch"
-        aria-checked={checked}
-        onClick={(e) => {
-          e.preventDefault();
-          onChange(!checked);
-        }}
-        className={`relative inline-flex h-5 w-9 shrink-0 items-center rounded-full transition-colors ${
-          checked ? "bg-primary" : "bg-surface-hover"
-        }`}
-      >
-        <span
-          className={`inline-block h-3.5 w-3.5 rounded-full bg-white transition-transform ${
-            checked ? "translate-x-[18px]" : "translate-x-[3px]"
-          }`}
-        />
-      </button>
-    </label>
   );
 }

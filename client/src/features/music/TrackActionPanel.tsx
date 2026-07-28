@@ -10,7 +10,6 @@ import { buildMusicLink } from "./musicLinks";
 import { copyToClipboard } from "@/lib/clipboard";
 import { addToQueue, insertNextInQueue, setActiveDetailId } from "@/store/slices/musicSlice";
 import { selectAudioSource } from "./trackParser";
-import { buildTrackEvent } from "./musicEventBuilder";
 import { signAndPublish, publishExisting } from "@/lib/nostr/publish";
 import { relayManager } from "@/lib/nostr/relayManager";
 import { indexSpaceFeed } from "@/store/slices/eventsSlice";
@@ -275,28 +274,26 @@ export function TrackActionPanel({
   };
 
   const handleToggleSharing = async () => {
-    if (!pubkey || sharingToggling) return;
+    if (!pubkey || sharingToggling || !originalEvent) return;
     setSharingToggling(true);
     try {
-      const existingDTag = track.addressableId.split(":").slice(2).join(":");
-      const audioUrl = selectAudioSource(track.variants);
-      if (!audioUrl) return;
+      // Clone the original signed event and flip ONLY the export-policy tag.
+      // Rebuilding the event from scratch used to drop the imeta hash/size and
+      // the space `h` tag, and — for private tracks — republish the NIP-44
+      // content in cleartext. Cloning preserves all of that and only re-signs.
+      const nextTags = originalEvent.tags.filter((t) => t[0] !== "sharing");
+      if (!sharingDisabled) {
+        // Currently allowed → disable file export.
+        nextTags.push(["sharing", "disabled"]);
+      }
 
-      const unsigned = buildTrackEvent(pubkey, {
-        title: track.title,
-        artist: track.artist,
-        slug: existingDTag,
-        duration: track.duration,
-        genre: track.genre || undefined,
-        audioUrl,
-        imageUrl: track.imageUrl,
-        hashtags: track.hashtags.length > 0 ? track.hashtags : undefined,
-        albumRef: track.albumRef,
-        artistPubkeys: track.artistPubkeys.length > 0 ? track.artistPubkeys : undefined,
-        featuredArtists: track.featuredArtists.length > 0 ? track.featuredArtists : undefined,
-        visibility: track.visibility,
-        sharingDisabled: !sharingDisabled,
-      });
+      const unsigned: UnsignedEvent = {
+        pubkey,
+        kind: originalEvent.kind,
+        created_at: Math.floor(Date.now() / 1000),
+        tags: nextTags,
+        content: originalEvent.content,
+      };
 
       await signAndPublish(unsigned);
     } catch {

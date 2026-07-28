@@ -1,5 +1,5 @@
 import { createSlice, type PayloadAction } from "@reduxjs/toolkit";
-import type { MusicTrack, MusicAlbum, MusicPlaylist, MusicView, RepeatMode, MusicAnnotation, MusicRevision, TrackInsights, MusicProposal, SavedAlbumVersion, PlaybackError } from "../../types/music";
+import type { MusicTrack, MusicAlbum, MusicPlaylist, MusicView, RepeatMode, MusicAnnotation, MusicRevision, TrackInsights, MusicProposal, SavedAlbumVersion, TrackSortKey, AlbumSortKey, SortDir, PlaybackError } from "../../types/music";
 
 interface MusicState {
   tracks: Record<string, MusicTrack>;
@@ -79,6 +79,14 @@ interface MusicState {
   activeView: MusicView;
   activeDetailId: string | null;
   viewMode: "grid" | "list";
+
+  /** Persisted sort preferences for the library list views (track + album). */
+  librarySort: {
+    trackKey: TrackSortKey;
+    trackDir: SortDir;
+    albumKey: AlbumSortKey;
+    albumDir: SortDir;
+  };
 }
 
 const initialState: MusicState = {
@@ -159,6 +167,13 @@ const initialState: MusicState = {
   activeView: "home",
   activeDetailId: null,
   viewMode: "grid",
+
+  librarySort: {
+    trackKey: "added",
+    trackDir: "desc",
+    albumKey: "added",
+    albumDir: "desc",
+  },
 };
 
 function pushUnique(arr: string[], id: string) {
@@ -771,6 +786,14 @@ export const musicSlice = createSlice({
     setViewMode(state, action: PayloadAction<"grid" | "list">) {
       state.viewMode = action.payload;
     },
+    setLibraryTrackSort(state, action: PayloadAction<{ key: TrackSortKey; dir: SortDir }>) {
+      state.librarySort.trackKey = action.payload.key;
+      state.librarySort.trackDir = action.payload.dir;
+    },
+    setLibraryAlbumSort(state, action: PayloadAction<{ key: AlbumSortKey; dir: SortDir }>) {
+      state.librarySort.albumKey = action.payload.key;
+      state.librarySort.albumDir = action.payload.dir;
+    },
   },
 });
 
@@ -861,4 +884,6 @@ export const {
   setMiniBarCorner,
   toggleNowPlaying,
   setViewMode,
+  setLibraryTrackSort,
+  setLibraryAlbumSort,
 } = musicSlice.actions;

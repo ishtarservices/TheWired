@@ -1,58 +1,47 @@
-import { generateSecretKey, getPublicKey, finalizeEvent } from "nostr-tools/pure";
-import { getConversationKey, encrypt } from "nostr-tools/nip44";
+// NIP-17/NIP-59 gift-wrap crypto moved to @thewired/core (Phase 0). This shim
+// keeps the original module API (signer + pubkey resolved implicitly from the
+// login flow / Redux) so call sites don't churn; the core functions take an
+// explicit GiftWrapContext instead.
+//
+// Queueing contract preserved: seal signing goes through the signingQueue here,
+// and the nip44 dispatch shim (./nip44) enqueues its own signer calls.
+
+import {
+  buildRumor as coreBuildRumor,
+  createGiftWrappedDM as coreCreateGiftWrappedDM,
+  createSelfWrap as coreCreateSelfWrap,
+  unwrapGiftWrap as coreUnwrapGiftWrap,
+  type GiftWrapContext,
+  type Rumor,
+  type UnwrappedDM,
+  type GiftWrapResult,
+} from "@thewired/core";
 import { nip44Encrypt, nip44Decrypt } from "./nip44";
 import { getSigner } from "./loginFlow";
 import { signingQueue } from "./signingQueue";
 import { store } from "@/store";
-import { EVENT_KINDS } from "@/types/nostr";
 import type { NostrEvent, UnsignedEvent } from "@/types/nostr";
 
-const TWO_DAYS = 2 * 24 * 60 * 60;
+export type { UnwrappedDM, GiftWrapResult, Rumor };
 
-function randomTimestamp(): number {
-  return Math.round(Date.now() / 1000 - Math.random() * TWO_DAYS);
-}
+/** Resolve the active signer + pubkey into the core GiftWrapContext. */
+function giftWrapContext(): GiftWrapContext {
+  const signer = getSigner();
+  if (!signer) throw new Error("No signer available");
 
-/** Async event ID computation via Web Crypto SHA-256 */
-async function getEventId(event: {
-  pubkey: string;
-  created_at: number;
-  kind: number;
-  tags: string[][];
-  content: string;
-}): Promise<string> {
-  const serialized = JSON.stringify([
-    0,
-    event.pubkey,
-    event.created_at,
-    event.kind,
-    event.tags,
-    event.content,
-  ]);
-  const encoder = new TextEncoder();
-  const buf = await crypto.subtle.digest("SHA-256", encoder.encode(serialized));
-  const arr = new Uint8Array(buf);
-  return Array.from(arr)
-    .map((b) => b.toString(16).padStart(2, "0"))
-    .join("");
-}
+  const myPubkey = store.getState().identity.pubkey;
+  if (!myPubkey) throw new Error("Not logged in");
 
-export interface UnwrappedDM {
-  sender: string;
-  content: string;
-  tags: string[][];
-  createdAt: number;
-  wrapId: string;
-  /** The rumor's event ID — used to reference this message for edits/deletes */
-  rumorId?: string;
-}
-
-/** Result of creating a gift-wrapped DM pair */
-export interface GiftWrapResult {
-  /** The gift wrap event to publish */
-  wrap: NostrEvent;
-  /** The rumor ID (shared between recipient + self wraps) */
-  rumorId: string;
+  return {
+    myPubkey,
+    signer: {
+      getPublicKey: () => Promise.resolve(myPubkey),
+      signEvent: (unsigned: UnsignedEvent) =>
+        signingQueue.enqueue(() => signer.signEvent(unsigned)),
+      nip44Encrypt,
+      nip44Decrypt,
+    },
+  };
 }
 
 /**
@@ -64,215 +53,36 @@ export async function buildRumor(
   recipientPubkey: string,
   content: string,
   extraTags?: string[][],
-): Promise<{ id: string; pubkey: string; created_at: number; kind: number; tags: string[][]; content: string }> {
-  const rumorTags: string[][] = [["p", recipientPubkey]];
-  if (extraTags) rumorTags.push(...extraTags);
-
-  const rumor = {
-    pubkey: myPubkey,
-    created_at: Math.round(Date.now() / 1000),
-    kind: EVENT_KINDS.DM_MESSAGE,
-    tags: rumorTags,
-    content,
-  };
-  const rumorId = await getEventId(rumor);
-  return { ...rumor, id: rumorId };
+): Promise<Rumor> {
+  return coreBuildRumor(myPubkey, recipientPubkey, content, extraTags);
 }
 
-/**
- * Create a NIP-17 gift-wrapped DM.
- *
- * Flow:
- * 1. Build rumor (unsigned kind:14)
- * 2. Sign seal (kind:13) with user's signer, encrypting rumor via NIP-44
- * 3. Generate ephemeral keypair
- * 4. Encrypt seal with ephemeral key → recipient
- * 5. Sign gift wrap (kind:1059) with ephemeral key
- *
- * Returns the gift wrap event + the shared rumor ID.
- */
+/** Create a NIP-17 gift-wrapped DM (see @thewired/core for the full flow). */
 export async function createGiftWrappedDM(
   content: string,
   recipientPubkey: string,
   extraTags?: string[][],
   /** Pre-built rumor to reuse (for shared ID between recipient + self wrap) */
-  sharedRumor?: { id: string; pubkey: string; created_at: number; kind: number; tags: string[][]; content: string },
+  sharedRumor?: Rumor,
 ): Promise<GiftWrapResult> {
-  const signer = getSigner();
-  if (!signer) throw new Error("No signer available");
-
-  const myPubkey = store.getState().identity.pubkey;
-  if (!myPubkey) throw new Error("Not logged in");
-
-  // Step 1: Build rumor (or reuse shared one)
-  const rumorWithId = sharedRumor ?? await buildRumor(myPubkey, recipientPubkey, content, extraTags);
-
-  // Step 2: Encrypt rumor and create seal (kind:13)
-  const encryptedRumor = await nip44Encrypt(
-    recipientPubkey,
-    JSON.stringify(rumorWithId),
-  );
-
-  const sealUnsigned: UnsignedEvent = {
-    pubkey: myPubkey,
-    created_at: randomTimestamp(),
-    kind: EVENT_KINDS.SEAL,
-    tags: [],
-    content: encryptedRumor,
-  };
-
-  const seal = await signingQueue.enqueue(() => signer.signEvent(sealUnsigned));
-
-  // Step 3: Generate ephemeral keypair
-  const ephemeralSk = generateSecretKey();
-  const ephemeralPk = getPublicKey(ephemeralSk);
-
-  // Step 4: Encrypt seal with ephemeral key → recipient
-  const conversationKey = getConversationKey(ephemeralSk, recipientPubkey);
-  const encryptedSeal = encrypt(JSON.stringify(seal), conversationKey);
-
-  // Step 5: Build and sign gift wrap with ephemeral key
-  const wrapEvent = {
-    pubkey: ephemeralPk,
-    created_at: randomTimestamp(),
-    kind: EVENT_KINDS.GIFT_WRAP,
-    tags: [["p", recipientPubkey]],
-    content: encryptedSeal,
-  };
-
-  // Sign with ephemeral key using nostr-tools finalizeEvent
-  const signedWrap = finalizeEvent(wrapEvent, ephemeralSk);
-
-  return { wrap: signedWrap as unknown as NostrEvent, rumorId: rumorWithId.id };
+  return coreCreateGiftWrappedDM(giftWrapContext(), content, recipientPubkey, extraTags, sharedRumor);
 }
 
 /**
  * Create a gift-wrapped DM to self (so sender can see their own messages).
- * Same as createGiftWrappedDM but wraps to self instead of recipient.
- * Uses the same rumor for a shared ID.
+ * Uses the same rumor as the recipient wrap for a shared ID.
  */
 export async function createSelfWrap(
   content: string,
   recipientPubkey: string,
   extraTags?: string[][],
   /** Pre-built rumor to reuse (for shared ID between recipient + self wrap) */
-  sharedRumor?: { id: string; pubkey: string; created_at: number; kind: number; tags: string[][]; content: string },
+  sharedRumor?: Rumor,
 ): Promise<GiftWrapResult> {
-  const signer = getSigner();
-  if (!signer) throw new Error("No signer available");
-
-  const myPubkey = store.getState().identity.pubkey;
-  if (!myPubkey) throw new Error("Not logged in");
-
-  // Build rumor (or reuse shared one)
-  const rumorWithId = sharedRumor ?? await buildRumor(myPubkey, recipientPubkey, content, extraTags);
-
-  // Encrypt rumor to self
-  const encryptedRumor = await nip44Encrypt(
-    myPubkey,
-    JSON.stringify(rumorWithId),
-  );
-
-  const sealUnsigned: UnsignedEvent = {
-    pubkey: myPubkey,
-    created_at: randomTimestamp(),
-    kind: EVENT_KINDS.SEAL,
-    tags: [],
-    content: encryptedRumor,
-  };
-
-  const seal = await signingQueue.enqueue(() => signer.signEvent(sealUnsigned));
-
-  // Ephemeral key
-  const ephemeralSk = generateSecretKey();
-  const ephemeralPk = getPublicKey(ephemeralSk);
-
-  // Encrypt seal to self
-  const conversationKey = getConversationKey(ephemeralSk, myPubkey);
-  const encryptedSeal = encrypt(JSON.stringify(seal), conversationKey);
-
-  const wrapEvent = {
-    pubkey: ephemeralPk,
-    created_at: randomTimestamp(),
-    kind: EVENT_KINDS.GIFT_WRAP,
-    tags: [["p", myPubkey]],
-    content: encryptedSeal,
-  };
-
-  const signedWrap = finalizeEvent(wrapEvent, ephemeralSk);
-  return { wrap: signedWrap as unknown as NostrEvent, rumorId: rumorWithId.id };
+  return coreCreateSelfWrap(giftWrapContext(), content, recipientPubkey, extraTags, sharedRumor);
 }
 
-/**
- * Unwrap a received gift wrap event (kind:1059).
- *
- * Flow:
- * 1. Decrypt content with nip44Decrypt(giftWrap.pubkey, ...)
- * 2. Parse seal (kind:13)
- * 3. Decrypt seal content with nip44Decrypt(seal.pubkey, ...)
- * 4. Parse rumor (kind:14)
- * 5. Return unwrapped DM
- */
-export async function unwrapGiftWrap(
-  giftWrapEvent: NostrEvent,
-): Promise<UnwrappedDM> {
-  // Step 1: Decrypt the gift wrap content using ephemeral pubkey
-  const sealJson = await nip44Decrypt(
-    giftWrapEvent.pubkey,
-    giftWrapEvent.content,
-  );
-
-  // Step 2: Parse seal
-  const seal = JSON.parse(sealJson) as NostrEvent;
-  if (seal.kind !== EVENT_KINDS.SEAL) {
-    throw new Error(`Expected seal (kind:13), got kind:${seal.kind}`);
-  }
-
-  // Step 3: Decrypt seal content using seal's author pubkey
-  const rumorJson = await nip44Decrypt(seal.pubkey, seal.content);
-
-  // Step 4: Parse rumor
-  const rumor = JSON.parse(rumorJson) as {
-    id?: string;
-    pubkey: string;
-    created_at: number;
-    kind: number;
-    tags: string[][];
-    content: string;
-  };
-
-  // Validate rumor kind — must be kind:14 (DM). Some NIP-07 extensions
-  // return garbage on wrong-key decryption that can survive JSON.parse
-  // (e.g. returning the seal itself as the "decrypted" content). Checking
-  // the kind catches this: a seal (kind:13) mistakenly returned as a rumor
-  // would fail here, preventing its encrypted content from leaking through.
-  if (rumor.kind !== EVENT_KINDS.DM_MESSAGE) {
-    throw new Error(
-      `Expected rumor (kind:${EVENT_KINDS.DM_MESSAGE}), got kind:${rumor.kind}`,
-    );
-  }
-
-  // Verify sender consistency
-  if (rumor.pubkey !== seal.pubkey) {
-    throw new Error("Rumor pubkey does not match seal pubkey");
-  }
-
-  // Guard against content that is still encrypted (base64 ciphertext).
-  // If nip44Decrypt silently returned garbage that parsed as JSON with a
-  // base64-only content field, reject it.
-  if (
-    typeof rumor.content !== "string" ||
-    (rumor.content.length > 50 && /^[A-Za-z0-9+/=]+$/.test(rumor.content))
-  ) {
-    throw new Error("Rumor content appears to still be encrypted");
-  }
-
-  return {
-    sender: seal.pubkey,
-    content: rumor.content,
-    tags: rumor.tags,
-    createdAt: rumor.created_at,
-    wrapId: giftWrapEvent.id,
-    rumorId: rumor.id,
-  };
+/** Unwrap a received gift wrap event (kind:1059) with the active signer. */
+export async function unwrapGiftWrap(giftWrapEvent: NostrEvent): Promise<UnwrappedDM> {
+  return coreUnwrapGiftWrap({ nip44Decrypt }, giftWrapEvent);
 }
