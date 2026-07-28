@@ -144,6 +144,7 @@ export function MiniBar() {
   if (!currentTrack) return null;
 
   const imageUrl = getTrackImage(currentTrack, albums);
+  const errored = player.playbackError?.trackId === currentTrack.addressableId;
   const progress = player.duration > 0 ? player.position / player.duration : 0;
   const strokeOffset = RING_CIRCUMFERENCE * (1 - progress);
   const isLeftCorner = corner === "bottom-left" || corner === "top-left";
@@ -264,6 +265,15 @@ export function MiniBar() {
             <Play size={18} className="text-white ml-0.5" fill="currentColor" />
           )}
         </button>
+
+        {errored && (
+          <span
+            title="Couldn't play this track"
+            className="absolute -right-0.5 -top-0.5 flex h-3.5 w-3.5 items-center justify-center rounded-full bg-red-500 text-[8px] font-bold text-white"
+          >
+            !
+          </span>
+        )}
       </div>
     </motion.div>
   );

@@ -80,6 +80,7 @@ export function ExpandedBar() {
 
   const imageUrl = getTrackImage(currentTrack, albums);
   const isLocal = currentTrack.visibility === "local";
+  const errored = player.playbackError?.trackId === currentTrack.addressableId;
 
   const handleFavoriteToggle = () => {
     if (!currentTrack) return;
@@ -141,7 +142,13 @@ export function ExpandedBar() {
               <p className="truncate text-sm font-medium text-heading leading-tight">
                 {currentTrack.title}
               </p>
-              {(() => {
+              {errored ? (
+                <p className="truncate text-xs text-red-400 leading-tight">
+                  {player.playbackError?.kind === "private"
+                    ? "Private — you don't have access"
+                    : "Couldn't play this track"}
+                </p>
+              ) : (() => {
                 const target = resolveArtistDetailTarget(
                   currentTrack.artist,
                   currentTrack.artistPubkeys,

@@ -93,6 +93,13 @@ export type ArtistEntry =
 
 export type RepeatMode = "none" | "one" | "all";
 
+/** Why a track failed to play — surfaced by the player bar and track rows. */
+export interface PlaybackError {
+  trackId: string; // addressableId of the track that failed
+  kind: "unavailable" | "private" | "error";
+  message?: string;
+}
+
 /** A freeform annotation attached to a track or album (kind:31686) */
 export interface MusicAnnotation {
   /** Addressable ID of this annotation event: 31686:pubkey:dTag */

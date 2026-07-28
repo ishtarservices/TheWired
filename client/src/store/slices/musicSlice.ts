@@ -1,5 +1,5 @@
 import { createSlice, type PayloadAction } from "@reduxjs/toolkit";
-import type { MusicTrack, MusicAlbum, MusicPlaylist, MusicView, RepeatMode, MusicAnnotation, MusicRevision, TrackInsights, MusicProposal, SavedAlbumVersion } from "../../types/music";
+import type { MusicTrack, MusicAlbum, MusicPlaylist, MusicView, RepeatMode, MusicAnnotation, MusicRevision, TrackInsights, MusicProposal, SavedAlbumVersion, PlaybackError } from "../../types/music";
 
 interface MusicState {
   tracks: Record<string, MusicTrack>;
@@ -40,6 +40,7 @@ interface MusicState {
     barMode: "expanded" | "mini";
     miniBarCorner: "bottom-right" | "bottom-left" | "top-right" | "top-left";
     nowPlayingOpen: boolean;
+    playbackError: PlaybackError | null;
   };
 
   discovery: {
@@ -119,6 +120,7 @@ const initialState: MusicState = {
     barMode: "expanded",
     miniBarCorner: "bottom-right",
     nowPlayingOpen: false,
+    playbackError: null,
   },
 
   discovery: {
@@ -504,6 +506,7 @@ export const musicSlice = createSlice({
       }
       state.player.position = 0;
       state.player.isPlaying = true;
+      state.player.playbackError = null;
     },
     setQueue(state, action: PayloadAction<string[]>) {
       state.player.queue = action.payload;
@@ -511,6 +514,7 @@ export const musicSlice = createSlice({
     },
     nextTrack(state) {
       if (state.player.queue.length === 0) return;
+      state.player.playbackError = null;
       // Note: repeat-one is handled by the onEnded listener (restarts audio directly).
       // The reducer always advances so the Next button works as expected.
       const nextIndex = state.player.queueIndex + 1;
@@ -528,6 +532,7 @@ export const musicSlice = createSlice({
     },
     prevTrack(state) {
       if (state.player.queue.length === 0) return;
+      state.player.playbackError = null;
       // If past 3 seconds, restart current track
       if (state.player.position > 3) {
         state.player.position = 0;
@@ -552,6 +557,13 @@ export const musicSlice = createSlice({
     },
     setIsPlaying(state, action: PayloadAction<boolean>) {
       state.player.isPlaying = action.payload;
+    },
+    setPlaybackError(state, action: PayloadAction<PlaybackError | null>) {
+      state.player.playbackError = action.payload;
+      if (action.payload) state.player.isPlaying = false;
+    },
+    clearPlaybackError(state) {
+      state.player.playbackError = null;
     },
     updatePosition(state, action: PayloadAction<number>) {
       state.player.position = action.payload;
@@ -809,6 +821,8 @@ export const {
   prevTrack,
   togglePlay,
   setIsPlaying,
+  setPlaybackError,
+  clearPlaybackError,
   updatePosition,
   setDuration,
   setVolume,

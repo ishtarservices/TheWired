@@ -117,6 +117,57 @@ export async function getAudioVariants(sha256: string): Promise<AudioVariants | 
   }
 }
 
+/** A media access grant for a track (see GET /music/access). `gated:false` means the
+ *  track is public (or encrypted-direct) and plays from its plain URL; `gated:true`
+ *  carries short-lived tokened URLs for an authorized private track. */
+export type MusicAccess =
+  | { gated: false }
+  | {
+      gated: true;
+      exp: number;
+      token: string;
+      sha256: string;
+      blobUrl: string;
+      hlsMaster: string | null;
+    };
+
+const accessInFlight = new Map<string, Promise<MusicAccess | null>>();
+
+/**
+ * Fetch a capability-token grant for a track by its addressable id (`31683:pubkey:dTag`).
+ * Returns `{gated:false}` for public tracks, `{gated:true,…}` (tokened URLs) for an
+ * authorized private track, or `null` when access can't be obtained (unauthorized / not
+ * signed in / network error). Concurrent calls for the same id share one request.
+ */
+export async function getMusicAccess(addressableId: string): Promise<MusicAccess | null> {
+  const parts = addressableId.split(":");
+  if (parts.length < 3 || parts[0] !== "31683") return { gated: false };
+  const pubkey = parts[1];
+  const dTag = parts.slice(2).join(":");
+
+  const existing = accessInFlight.get(addressableId);
+  if (existing) return existing;
+
+  const p = (async (): Promise<MusicAccess | null> => {
+    const url = `${getApiBaseUrl()}/music/access/${pubkey}/${encodeURIComponent(dTag)}`;
+    try {
+      const headers: Record<string, string> = {};
+      headers["Authorization"] = await buildNip98Header(url, "GET");
+      const res = await fetch(url, { headers });
+      if (!res.ok) return null; // 404 (unauthorized / not found) → caller shows unavailable
+      const json = await res.json();
+      return json.data as MusicAccess;
+    } catch {
+      return null; // no signer (signed out) or network error
+    } finally {
+      accessInFlight.delete(addressableId);
+    }
+  })();
+
+  accessInFlight.set(addressableId, p);
+  return p;
+}
+
 /**
  * Report a play event for a track (fire-and-forget).
  */

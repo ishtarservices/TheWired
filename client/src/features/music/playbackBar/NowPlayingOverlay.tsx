@@ -225,6 +225,13 @@ export function NowPlayingOverlay() {
                 <p className="truncate text-sm text-soft">
                   {resolvedArtist}
                 </p>
+                {player.playbackError?.trackId === currentTrack.addressableId && (
+                  <p className="mt-0.5 truncate text-xs text-red-400">
+                    {player.playbackError?.kind === "private"
+                      ? "Private — you don't have access"
+                      : "Couldn't play this track"}
+                  </p>
+                )}
               </div>
               <ArtistZapButton
                 item={currentTrack}

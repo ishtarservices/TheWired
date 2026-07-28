@@ -6,6 +6,7 @@ import {
   setCurrentTrack,
   togglePlay,
   setIsPlaying,
+  setPlaybackError,
   updatePosition,
   setDuration,
   setVolume as setVolumeAction,
@@ -21,6 +22,7 @@ import {
 import { selectAudioSource } from "./trackParser";
 import { reportPlay, getAudioVariants } from "@/lib/api/music";
 import { getCachedAudio } from "@/lib/db/audioCache";
+import { resolveMusicAccess } from "@/lib/cache/tokenCache";
 import type { RepeatMode } from "@/types/music";
 
 // Module-level audio element singleton — persists across navigation
@@ -159,6 +161,10 @@ export function getAudio(): HTMLAudioElement {
 // Throttle position updates to ~4Hz
 let lastPositionUpdate = 0;
 
+// Consecutive media-load failures — used to stop auto-skipping through an
+// entirely unplayable queue. Reset once playback actually progresses.
+let consecutiveErrors = 0;
+
 // ── Module-level audio event listeners (registered once, not per-component) ──
 // This prevents the bug where multiple components calling useAudioPlayer()
 // each register their own onEnded handler, causing nextTrack() to fire N times.
@@ -171,6 +177,7 @@ function setupAudioListeners() {
   const el = getAudio();
 
   el.addEventListener("timeupdate", () => {
+    if (el.currentTime > 0.2) consecutiveErrors = 0;
     const now = Date.now();
     if (now - lastPositionUpdate > 250) {
       lastPositionUpdate = now;
@@ -205,6 +212,27 @@ function setupAudioListeners() {
     // the trigger to prefetch the *next* track so its first segment is warm
     // in the HTTP cache by the time the current track ends.
     prefetchNextTrack();
+  });
+
+  el.addEventListener("error", () => {
+    const trackId = loadedTrackId;
+    if (!trackId) return;
+    // Media load/decode failure (404 / gone-private / bad token / corrupt file):
+    // surface it, then skip forward in a queue — guarding against an all-unplayable
+    // queue that would otherwise loop forever.
+    store.dispatch(
+      setPlaybackError({
+        trackId,
+        kind: "unavailable",
+        message: "This track couldn't be played.",
+      }),
+    );
+    consecutiveErrors++;
+    const p = store.getState().music.player;
+    const cap = Math.max(1, Math.min(p.queue.length, 10));
+    if (p.queue.length > 1 && consecutiveErrors < cap) {
+      store.dispatch(nextTrack());
+    }
   });
 }
 
@@ -243,6 +271,16 @@ export function useAudioPlayer() {
     const targetId = currentTrack.addressableId;
     loadedTrackId = targetId;
 
+    const startPlayback = async () => {
+      el.currentTime = 0;
+      try {
+        await el.play();
+        if (loadedTrackId === targetId) reportPlay(currentTrack.addressableId);
+      } catch {
+        // Autoplay might be blocked
+      }
+    };
+
     const loadAndPlay = async () => {
       // Revoke previous object URL to prevent memory leak
       if (currentObjectUrl) {
@@ -257,32 +295,67 @@ export function useAudioPlayer() {
       // real load is about to start and will hit the warm HTTP cache.
       cancelPrefetch();
 
-      // Run offline cache and variants lookup in parallel. Variants are
-      // keyed by the raw blob sha256 from the event's imeta `x` tag; if a
-      // track has no hash we skip the lookup entirely.
-      const primaryHash = currentTrack.variants[0]?.hash ?? null;
-      const [cached, variants] = await Promise.all([
-        getCachedAudio(targetId).catch(() => null),
-        PREFER_HLS && primaryHash ? getAudioVariants(primaryHash) : Promise.resolve(null),
-      ]);
-
-      // Guard: if user switched tracks during the async gap, abort
+      // Offline cache wins unconditionally — a downloaded track plays locally even
+      // if it has since gone private, and needs no capability token.
+      const cached = await getCachedAudio(targetId).catch(() => null);
       if (loadedTrackId !== targetId) return;
-
-      const playFromOriginal = () => {
-        if (el.src !== remoteUrl) el.src = remoteUrl;
-      };
-
       if (cached) {
-        // Offline cache hit — instant playback from IndexedDB blob.
         const src = URL.createObjectURL(cached.blob);
         currentObjectUrl = src;
         el.src = src;
-      } else if (variants?.status === "ready" && variants.hlsMaster) {
-        const hlsUrl = variants.hlsMaster;
+        await startPlayback();
+        return;
+      }
+
+      // Resolve media URLs. Private tracks are server-gated: fetch a capability
+      // token (?tk=) so header-less <audio>/HLS can fetch the blob + segments.
+      let blobUrl = remoteUrl;
+      let hlsMasterUrl: string | null = null;
+
+      if (currentTrack.visibility === "private") {
+        const access = await resolveMusicAccess(targetId);
+        if (loadedTrackId !== targetId) return;
+        if (!access) {
+          // Not authorized / signed out / network error → show an unavailable state
+          // rather than firing a bare 404 that stalls silently.
+          dispatch(
+            setPlaybackError({
+              trackId: targetId,
+              kind: "private",
+              message: "This track is private.",
+            }),
+          );
+          return;
+        }
+        if (access.gated) {
+          blobUrl = access.blobUrl;
+          hlsMasterUrl = access.hlsMaster;
+        }
+        // access.gated === false → play the plain URL (encrypted-direct).
+      }
+
+      // Discover HLS via the variants endpoint for public tracks (or a gated track
+      // whose grant carried no HLS master) when we have the raw blob hash.
+      const primaryHash = currentTrack.variants[0]?.hash ?? null;
+      if (!hlsMasterUrl && PREFER_HLS && primaryHash) {
+        const variants = await getAudioVariants(primaryHash);
+        if (loadedTrackId !== targetId) return;
+        if (variants?.status === "ready" && variants.hlsMaster) {
+          hlsMasterUrl = variants.hlsMaster;
+        }
+      }
+
+      const playProgressive = () => {
+        if (el.src !== blobUrl) el.src = blobUrl;
+      };
+
+      if (hlsMasterUrl) {
+        const hlsUrl = hlsMasterUrl;
         const canNative = el.canPlayType("application/vnd.apple.mpegurl") !== "";
         if (canNative) {
-          // Native HLS (Safari, Tauri macOS) — cheaper than hls.js.
+          // Native HLS (Safari, Tauri macOS) — the tokened master's child/segment
+          // URIs are rewritten server-side to carry ?tk=, so relative resolution
+          // keeps auth. Cheaper than hls.js.
           if (el.src !== hlsUrl) el.src = hlsUrl;
         } else {
           try {
@@ -294,39 +367,28 @@ export function useAudioPlayer() {
               instance.loadSource(hlsUrl);
               hlsInstance = instance;
               instance.on(Hls.Events.ERROR, (_evt, data) => {
-                // On fatal errors, silently degrade to the original URL so
-                // the listener never hears a stall. Ignore errors from a
-                // teardown that happened because the user skipped tracks.
+                // Fatal HLS error → degrade to the (tokened) progressive URL. If that
+                // also fails, the element's "error" listener surfaces a playbackError.
                 if (data.fatal && loadedTrackId === targetId) {
                   console.warn("[hls] fatal error, falling back:", data.type, data.details);
                   teardownHls();
-                  playFromOriginal();
+                  playProgressive();
                   el.play().catch(() => {});
                 }
               });
             } else {
-              playFromOriginal();
+              playProgressive();
             }
           } catch (err) {
             console.warn("[hls] module load failed, falling back:", err);
-            playFromOriginal();
+            playProgressive();
           }
         }
       } else {
-        // No cache, no ready HLS — original imeta URL.
-        playFromOriginal();
+        playProgressive();
       }
 
-      el.currentTime = 0;
-      try {
-        await el.play();
-        // Final guard before reporting play
-        if (loadedTrackId === targetId) {
-          reportPlay(currentTrack.addressableId);
-        }
-      } catch {
-        // Autoplay might be blocked
-      }
+      await startPlayback();
     };
 
     loadAndPlay();

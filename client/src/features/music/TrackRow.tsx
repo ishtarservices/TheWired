@@ -1,5 +1,5 @@
 import { memo, useState, useRef } from "react";
-import { Play, MoreHorizontal, HardDriveDownload } from "lucide-react";
+import { Play, MoreHorizontal, HardDriveDownload, Lock } from "lucide-react";
 import type { MusicTrack } from "@/types/music";
 import { useAppSelector, useAppDispatch } from "@/store/hooks";
 import { setActiveDetailId } from "@/store/slices/musicSlice";
@@ -47,6 +47,15 @@ export const TrackRow = memo(function TrackRow({
   const resolvedArtist = useResolvedArtist(track.artist, track.artistPubkeys);
   const isOwner = pubkey === track.pubkey;
   const isLocal = track.visibility === "local";
+  // A private track the viewer isn't the owner/collaborator/artist for — its media is
+  // server-gated, so mark the row and gate play rather than firing a silent 404.
+  const locked =
+    track.visibility === "private" &&
+    !isOwner &&
+    !track.collaborators.includes(pubkey ?? "") &&
+    !track.artistPubkeys.includes(pubkey ?? "") &&
+    !track.featuredArtists.includes(pubkey ?? "");
+  const hasError = player.playbackError?.trackId === track.addressableId;
   const isCurrent = player.currentTrackId === track.addressableId;
   const isPlaying = isCurrent && player.isPlaying;
   const [menuOpen, setMenuOpen] = useState(false);
@@ -55,6 +64,8 @@ export const TrackRow = memo(function TrackRow({
   const menuBtnRef = useRef<HTMLButtonElement>(null);
 
   const handlePlay = () => {
+    // Private track the viewer can't access — don't attempt playback (would 404).
+    if (locked) return;
     // If this track is already current, toggle play/pause instead of restarting
     if (isCurrent) {
       togglePlay();
@@ -91,7 +102,9 @@ export const TrackRow = memo(function TrackRow({
       >
         {/* Index / play icon */}
         <div className="flex items-center justify-center">
-          {isPlaying ? (
+          {locked ? (
+            <Lock size={12} className="text-muted" />
+          ) : isPlaying ? (
             <div className="flex items-center gap-0.5">
               <span className="block h-2.5 w-0.5 animate-pulse bg-primary" />
               <span className="block h-2.5 w-0.5 animate-pulse bg-primary delay-75" />
@@ -120,6 +133,19 @@ export const TrackRow = memo(function TrackRow({
             {isDownloaded && (
               <span title="Available offline" className="ml-1.5 inline-block align-middle">
                 <HardDriveDownload size={12} className="text-primary/70" />
+              </span>
+            )}
+            {locked && (
+              <span
+                title="Private — you don't have access"
+                className="ml-1.5 inline-block rounded bg-card px-1 py-0.5 align-middle text-[10px] text-muted"
+              >
+                Private
+              </span>
+            )}
+            {hasError && !locked && (
+              <span className="ml-1.5 inline-block rounded bg-card px-1 py-0.5 align-middle text-[10px] text-red-400">
+                Unavailable
               </span>
             )}
           </p>
