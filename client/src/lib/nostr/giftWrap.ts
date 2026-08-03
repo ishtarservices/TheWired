@@ -1,4 +1,4 @@
-// NIP-17/NIP-59 gift-wrap crypto moved to @thewired/core (Phase 0). This shim
+// NIP-17/NIP-59 gift-wrap crypto moved to @ishtarservices/core (Phase 0). This shim
 // keeps the original module API (signer + pubkey resolved implicitly from the
 // login flow / Redux) so call sites don't churn; the core functions take an
 // explicit GiftWrapContext instead.
@@ -15,7 +15,7 @@ import {
   type Rumor,
   type UnwrappedDM,
   type GiftWrapResult,
-} from "@thewired/core";
+} from "@ishtarservices/core";
 import { nip44Encrypt, nip44Decrypt } from "./nip44";
 import { getSigner } from "./loginFlow";
 import { signingQueue } from "./signingQueue";
@@ -57,7 +57,7 @@ export async function buildRumor(
   return coreBuildRumor(myPubkey, recipientPubkey, content, extraTags);
 }
 
-/** Create a NIP-17 gift-wrapped DM (see @thewired/core for the full flow). */
+/** Create a NIP-17 gift-wrapped DM (see @ishtarservices/core for the full flow). */
 export async function createGiftWrappedDM(
   content: string,
   recipientPubkey: string,

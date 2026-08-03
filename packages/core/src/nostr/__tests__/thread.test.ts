@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import type { NostrEvent } from "@thewired/shared-types";
+import type { NostrEvent } from "@ishtarservices/shared-types";
 import {
   ANCESTORS_EXPANDED_KEY,
   buildThreadTree,

@@ -1,4 +1,4 @@
-import type { UnsignedEvent } from "@thewired/shared-types";
+import type { UnsignedEvent } from "@ishtarservices/shared-types";
 
 /** Build an unsigned kind:3 follow list event (NIP-02).
  *

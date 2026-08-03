@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { EVENT_KINDS } from "@thewired/shared-types";
+import { EVENT_KINDS } from "@ishtarservices/shared-types";
 import {
   ALL_TABS,
   DEFAULT_PROFILE_SETTINGS,

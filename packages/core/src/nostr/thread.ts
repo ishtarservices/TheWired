@@ -8,7 +8,7 @@
 // `mention`-marked tags: a quote-post whose only e-tag is a mention is NOT a
 // reply (it previously inflated reply counts and thread lists).
 
-import type { NostrEvent } from "@thewired/shared-types";
+import type { NostrEvent } from "@ishtarservices/shared-types";
 
 export interface ThreadRef {
   rootId: string | null;

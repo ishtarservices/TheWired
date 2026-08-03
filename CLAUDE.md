@@ -81,7 +81,7 @@ cd client/src-tauri && cargo build   # Build Rust binary
 │   ├── tsconfig.json          # Extends ../tsconfig.base.json
 │   └── vite.config.ts
 ├── packages/
-│   └── shared-types/          # @thewired/shared-types (type-only package)
+│   └── shared-types/          # @ishtarservices/shared-types (type-only package)
 │       └── src/               # nostr.ts, space.ts, profile.ts, api.ts, permissions.ts, music.ts
 ├── services/
 │   ├── backend/               # @thewired/backend (Fastify + Drizzle + PostgreSQL)
@@ -218,7 +218,7 @@ Registered in `client/src-tauri/src/lib.rs`. Grouped by module:
 - **Components** -- Named exports, function components, hooks prefixed with `use`
 - **Feature modules** -- Each feature in `client/src/features/<name>/` is self-contained with components, hooks, selectors, and parsers
 - **No default exports** except `App.tsx` (required by React Router)
-- **Nostr types** -- `NostrEvent`, `UnsignedEvent`, `NostrFilter` from `client/src/types/nostr.ts` (or `@thewired/shared-types`)
+- **Nostr types** -- `NostrEvent`, `UnsignedEvent`, `NostrFilter` from `client/src/types/nostr.ts` (or `@ishtarservices/shared-types`)
 - **Redux hooks** -- Always use `useAppDispatch` and `useAppSelector` from `client/src/store/hooks.ts`
 
 ## Nostr Protocol Notes

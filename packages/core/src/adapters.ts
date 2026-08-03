@@ -1,11 +1,11 @@
 // ─── Platform adapter interfaces ─────────────────────────────────────
-// The dependency-injection surface between @thewired/core and each app
+// The dependency-injection surface between @ishtarservices/core and each app
 // (mobile-guide/01-architecture.md §3). TYPES ONLY — the concrete
 // implementations live in each app (client/src for desktop, apps/mobile
 // /src/platform for mobile). Keep this file dependency-free apart from
-// @thewired/shared-types.
+// @ishtarservices/shared-types.
 
-import type { NostrEvent, UnsignedEvent } from "@thewired/shared-types";
+import type { NostrEvent, UnsignedEvent } from "@ishtarservices/shared-types";
 
 // ─── WebSocket ───────────────────────────────────────────────────────
 

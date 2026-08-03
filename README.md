@@ -306,7 +306,7 @@ TheWiredV1/
 │   ├── vite.config.ts
 │   └── package.json
 ├── packages/
-│   └── shared-types/              # @thewired/shared-types
+│   └── shared-types/              # @ishtarservices/shared-types
 │       └── src/                   # nostr, space, profile, api, permissions, music
 ├── services/
 │   ├── backend/                   # Node.js/Fastify backend (@thewired/backend)
@@ -464,7 +464,7 @@ Custom relay, backend API, gateway, infrastructure.
 - Redis for rate limiting (gateway) and caching/trending (backend)
 - Meilisearch for full-text search with auto-initialized `events` and `profiles` indexes
 - Docker Compose for local development stack
-- `@thewired/shared-types` workspace package for shared TypeScript types
+- `@ishtarservices/shared-types` workspace package for shared TypeScript types
 - RBAC permission system with enforcement on write routes (invites, content, push)
 - Space directory with pagination, invite system, push notification infrastructure
 - `relayIngester` worker: full event indexing pipeline (profiles, chat, reactions, zaps, memberships, group metadata) into PostgreSQL + Redis + Meilisearch
