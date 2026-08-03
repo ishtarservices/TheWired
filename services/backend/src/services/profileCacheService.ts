@@ -38,6 +38,33 @@ export function parseProfileContent(content: string): ParsedProfileContent | nul
   };
 }
 
+/** Member listings only inline profiles for the first N rows (facepile use case). */
+export const PROFILE_JOIN_CAP = 200;
+
+/** Profile fields inlined on member listing responses. */
+export interface MemberProfile {
+  name: string | null;
+  displayName: string | null;
+  picture: string | null;
+  nip05: string | null;
+  /** kind:0 created_at version clock from the cache row (null if pre-versioning). */
+  createdAt: number | null;
+}
+
+type CachedProfileRow = typeof cachedProfiles.$inferSelect;
+
+/** Pick the member-listing profile fields from a cached_profiles row (null when uncached). */
+export function toMemberProfile(row: CachedProfileRow | undefined): MemberProfile | null {
+  if (!row) return null;
+  return {
+    name: row.name,
+    displayName: row.displayName,
+    picture: row.picture,
+    nip05: row.nip05,
+    createdAt: row.createdAt,
+  };
+}
+
 export const profileCacheService = {
   async getProfile(pubkey: string) {
     const [profile] = await db
