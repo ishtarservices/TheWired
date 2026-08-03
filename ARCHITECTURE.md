@@ -1075,7 +1075,7 @@ Meilisearch v1.6 provides full-text search for the API layer:
 
 ### 7.7 Shared Types Package (`packages/shared-types/`)
 
-`@thewired/shared-types` provides TypeScript types shared between the backend and any TypeScript consumers:
+`@ishtarservices/shared-types` provides TypeScript types shared between the backend and any TypeScript consumers:
 
 - `nostr.ts` -- Nostr event types, unsigned events, filters, event kind constants
 - `space.ts` -- Space, channel, member types
@@ -1384,7 +1384,7 @@ SAT balance: NIP-47 `get_balance` every 60 seconds.
 - Redis for caching and rate limiting
 - Meilisearch for full-text search with auto-initialized `events` and `profiles` indexes
 - Docker Compose for local development (postgres, redis, meilisearch, relay, backend, gateway)
-- `@thewired/shared-types` package for shared TypeScript types
+- `@ishtarservices/shared-types` package for shared TypeScript types
 - RBAC enforcement on write routes (CREATE_INVITES, PIN_MESSAGES, MANAGE_MESSAGES)
 - `relayIngester` worker: full indexing pipeline for kind:0/1/7/9/22/30023/34236/9735/9021/9022/39000/31683/33123/30119 into PostgreSQL + Redis counters + Meilisearch
 - `trendingComputer` worker: engagement scoring with time decay across 4 periods (1h/6h/24h/7d), Redis sorted sets

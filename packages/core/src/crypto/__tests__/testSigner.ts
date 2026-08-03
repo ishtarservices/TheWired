@@ -4,7 +4,7 @@
 import { finalizeEvent, generateSecretKey, getPublicKey } from "nostr-tools/pure";
 import { getConversationKey, encrypt, decrypt } from "nostr-tools/nip44";
 import type { SignerAdapter } from "../../adapters";
-import type { NostrEvent, UnsignedEvent } from "@thewired/shared-types";
+import type { NostrEvent, UnsignedEvent } from "@ishtarservices/shared-types";
 
 export interface TestIdentity {
   sk: Uint8Array;

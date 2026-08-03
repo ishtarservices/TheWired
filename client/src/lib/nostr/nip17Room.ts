@@ -1,4 +1,4 @@
-// NIP-17 group rooms moved to @thewired/core (Phase 0). The pure helpers
+// NIP-17 group rooms moved to @ishtarservices/core (Phase 0). The pure helpers
 // re-export directly; createGroupMessageWraps keeps its original desktop
 // signature (explicit myPubkey, implicit signer) on top of the core context
 // API. See the core module for the full design notes.
@@ -7,7 +7,7 @@ import {
   createGroupMessageWraps as coreCreateGroupMessageWraps,
   type GroupMessageResult,
   type GroupWrap,
-} from "@thewired/core";
+} from "@ishtarservices/core";
 import { nip44Encrypt, nip44Decrypt } from "./nip44";
 import { getSigner } from "./loginFlow";
 import { signingQueue } from "./signingQueue";
@@ -20,7 +20,7 @@ export {
   isGroupDM,
   roomIdOf,
   subjectOf,
-} from "@thewired/core";
+} from "@ishtarservices/core";
 export type { GroupMessageResult, GroupWrap };
 
 /**

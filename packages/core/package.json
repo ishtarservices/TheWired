@@ -1,5 +1,5 @@
 {
-  "name": "@thewired/core",
+  "name": "@ishtarservices/core",
   "version": "0.1.0",
   "type": "module",
   "main": "./src/index.ts",
@@ -28,7 +28,7 @@
   "dependencies": {
     "@noble/curves": "^1.9.7",
     "@noble/hashes": "^1.8.0",
-    "@thewired/shared-types": "workspace:*",
+    "@ishtarservices/shared-types": "workspace:*",
     "lru-cache": "^11.2.6",
     "nostr-tools": "^2.23.1"
   },

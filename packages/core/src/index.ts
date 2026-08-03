@@ -1,4 +1,4 @@
-// @thewired/core — the shared protocol/crypto layer consumed by the desktop
+// @ishtarservices/core — the shared protocol/crypto layer consumed by the desktop
 // client (Vite) and the mobile app (Metro). Pure TS: no DOM, no Tauri, no RN,
 // no Web Crypto — platform capabilities arrive through the adapter interfaces.
 

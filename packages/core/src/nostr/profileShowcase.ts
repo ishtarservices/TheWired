@@ -1,4 +1,4 @@
-import type { UnsignedEvent } from "@thewired/shared-types";
+import type { UnsignedEvent } from "@ishtarservices/shared-types";
 import { APP_DATA_KIND } from "./profileSettings";
 
 // Profile "Library" showcase — a curated list of the user's own tracks/albums

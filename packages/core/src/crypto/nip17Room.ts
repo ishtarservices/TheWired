@@ -6,7 +6,7 @@ import {
   type Rumor,
   type UnwrappedDM,
 } from "./giftWrap";
-import type { NostrEvent } from "@thewired/shared-types";
+import type { NostrEvent } from "@ishtarservices/shared-types";
 
 /**
  * NIP-17 group rooms (Decentralized Spaces, M8) — end-to-end-encrypted group

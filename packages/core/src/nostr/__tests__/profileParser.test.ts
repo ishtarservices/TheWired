@@ -4,7 +4,7 @@ import {
   profileDisplayName,
   buildProfileEvent,
 } from "../profileParser";
-import type { NostrEvent } from "@thewired/shared-types";
+import type { NostrEvent } from "@ishtarservices/shared-types";
 
 /** Minimal kind:0 event — parseProfile only reads kind/content/created_at. */
 function k0(content: string, created_at = 1000): NostrEvent {

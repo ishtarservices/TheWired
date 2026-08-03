@@ -1,4 +1,4 @@
-import { parseThreadRef as coreParseThreadRef } from "@thewired/core";
+import { parseThreadRef as coreParseThreadRef } from "@ishtarservices/core";
 
 import type { NostrEvent } from "../../types/nostr";
 
@@ -16,7 +16,7 @@ export interface QuoteRef {
 
 /**
  * Parse NIP-10 thread references from "e" tags. rootId/replyId are
- * single-sourced from @thewired/core (mobile parity — includes the fix
+ * single-sourced from @ishtarservices/core (mobile parity — includes the fix
  * where a lone mention-marked e-tag no longer classifies as a reply, so
  * quote posts stop inflating reply counts/lists); mentionedPubkeys stays
  * a desktop concern (ThreadView reply indicator).

@@ -1,7 +1,7 @@
-import type { UnsignedEvent } from "@thewired/shared-types";
+import type { UnsignedEvent } from "@ishtarservices/shared-types";
 
 /** NIP-78 addressable app-data kind (30078). Kept as a local literal so runtime
- *  code never *value*-imports @thewired/shared-types — the mobile app's jest
+ *  code never *value*-imports @ishtarservices/shared-types — the mobile app's jest
  *  can't resolve that package's ESM `.js` specifiers, and dmEngine hardcodes
  *  the same number for the same reason. */
 export const APP_DATA_KIND = 30078;

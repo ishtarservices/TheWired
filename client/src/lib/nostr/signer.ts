@@ -1,4 +1,4 @@
-import type { EventSigner } from "@thewired/core";
+import type { EventSigner } from "@ishtarservices/core";
 
 /**
  * Abstract signer interface — now the core `EventSigner` (one signer contract

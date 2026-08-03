@@ -1,4 +1,4 @@
-import type { NostrEvent, UnsignedEvent } from "@thewired/shared-types";
+import type { NostrEvent, UnsignedEvent } from "@ishtarservices/shared-types";
 
 /**
  * Parsed kind:0 profile content — the single hardened parser shared by

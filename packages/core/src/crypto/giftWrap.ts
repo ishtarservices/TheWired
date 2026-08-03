@@ -16,7 +16,7 @@ import { bytesToHex, utf8ToBytes } from "@noble/hashes/utils";
 import { nip44EncryptWithKey } from "./nip44";
 import { KIND_SEAL, KIND_DM_MESSAGE, KIND_GIFT_WRAP } from "../kinds";
 import type { SignerAdapter } from "../adapters";
-import type { NostrEvent, UnsignedEvent } from "@thewired/shared-types";
+import type { NostrEvent, UnsignedEvent } from "@ishtarservices/shared-types";
 
 const TWO_DAYS = 2 * 24 * 60 * 60;
 

@@ -1,10 +1,10 @@
 import type { UnsignedEvent } from "../../types/nostr";
 import type { RelayListEntry } from "../../types/relay";
 
-// buildProfileEvent lives in @thewired/core (shared with mobile). Re-exported
+// buildProfileEvent lives in @ishtarservices/core (shared with mobile). Re-exported
 // below alongside buildFollowListEvent so existing desktop import sites are
 // unchanged.
-export { buildProfileEvent, buildFollowListEvent } from "@thewired/core";
+export { buildProfileEvent, buildFollowListEvent } from "@ishtarservices/core";
 
 /** File metadata for imeta tags (NIP-94 inline) */
 export interface AttachmentMeta {
