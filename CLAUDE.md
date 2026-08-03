@@ -102,6 +102,34 @@ cd client/src-tauri && cargo build   # Build Rust binary
 └── ARCHITECTURE.md
 ```
 
+## Shared Packages (`@ishtarservices/core`, `@ishtarservices/shared-types`)
+
+`packages/core` + `packages/shared-types` are the **single source of truth** for shared
+protocol/crypto/types. They are consumed by **two** apps with *different linkage*:
+
+- **Desktop client** (in this monorepo) → `workspace:*` (live local source). Edits apply instantly; no publish.
+- **Mobile app** (extracted to its **own repo**, private name `@thewired/mobile`) → the **published npm
+  version** (`@ishtarservices/*@^0.1.0`). It only sees a shared change after you publish.
+
+Because of that split, **desktop and mobile can diverge** — desktop runs the newest source, mobile runs
+whatever published version it pins. To propagate a shared-package change to mobile:
+
+1. Edit `packages/core` / `packages/shared-types` **here** (never in the mobile repo — it has no copy).
+2. Bump `"version"` in **both** package.json files (treat them as one release unit).
+3. Publish shared-types **first**, then core — on publish, pnpm rewrites core's `workspace:*` dep to
+   shared-types' *exact* version, so publishing both together avoids a duplicate installed copy:
+   ```bash
+   pnpm --filter @ishtarservices/shared-types publish --access public --no-git-checks
+   pnpm --filter @ishtarservices/core        publish --access public --no-git-checks
+   ```
+4. In the mobile repo: `pnpm update @ishtarservices/core @ishtarservices/shared-types`.
+
+Build tooling: `pnpm --filter <pkg> build` (tsc → `dist/`). `publishConfig` swaps
+`main`/`types`/`exports` to `dist/` **only at publish time**; the in-repo `main` stays `./src/index.ts`
+so workspace consumers use raw source. **Failure mode:** editing shared code but forgetting to publish →
+mobile silently runs stale logic. Only these two packages publish to npm; other `@thewired/*` workspace
+names (client, backend, landing) stay internal.
+
 ## Client Structure (`client/src/`)
 
 - `app/` -- App root, layout, routing
