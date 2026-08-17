@@ -92,3 +92,9 @@ scripts/
 !services/backend/src/scripts/
 # Local audit reports (generated snapshots, not shipped)
 docs/AUDIT_*.md
+# Local-only design sketches / plans (not shipped)
+docs/ANTI_SPAM_PLAN.md
+docs/BOOKMARKS_NIP51_SKETCH.md
+
+# Mobile app lives in its own repo; only stale native build output remains here
+apps/
