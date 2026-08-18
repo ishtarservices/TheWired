@@ -6,6 +6,7 @@ import { spaceActivityDaily, memberEngagement } from "../db/schema/analytics.js"
 import { getRedis } from "../lib/redis.js";
 import { getMeilisearchClient } from "../lib/meilisearch.js";
 import { verifyEvent } from "../lib/nostr/eventVerifier.js";
+import { parseZapSats } from "../lib/nostr/zapAmount.js";
 import { enqueueNotification } from "../services/notificationEnqueue.js";
 import { revisionService } from "../services/revisionService.js";
 import { proposalService } from "../services/proposalService.js";
@@ -217,7 +218,10 @@ async function indexProfile(event: NostrEvent) {
 
   const { profile } = result;
   const ms = getMeilisearchClient();
-  await ms.index("profiles").addDocuments([
+  // updateDocuments (partial merge), NOT addDocuments (full replace): note_count
+  // is owned by profileStatsComputer, and a replace would wipe it on every
+  // kind:0 edit, silently collapsing the people ranking to zero.
+  await ms.index("profiles").updateDocuments([
     {
       pubkey: event.pubkey,
       name: profile.name,
@@ -225,6 +229,7 @@ async function indexProfile(event: NostrEvent) {
       about: profile.about,
       nip05: profile.nip05,
       picture: profile.picture,
+      has_nip05: !!profile.nip05,
     },
   ]);
 }
@@ -305,20 +310,7 @@ async function indexZapReceipt(event: NostrEvent) {
   const targetEventId = getTagValue(event, "e");
   if (!targetEventId) return;
 
-  let sats = 0;
-  const bolt11Tag = event.tags.find((t) => t[0] === "bolt11");
-  if (bolt11Tag?.[1]) {
-    const descTag = event.tags.find((t) => t[0] === "description");
-    if (descTag?.[1]) {
-      try {
-        const desc = JSON.parse(descTag[1]);
-        const amountTag = desc.tags?.find((t: string[]) => t[0] === "amount");
-        if (amountTag?.[1]) sats = Math.floor(parseInt(amountTag[1], 10) / 1000);
-      } catch {
-        // ignore
-      }
-    }
-  }
+  const sats = parseZapSats(event.tags);
 
   await redis.incrby(`zap_total:${targetEventId}`, sats);
   await redis.incr(`zap_count:${targetEventId}`);

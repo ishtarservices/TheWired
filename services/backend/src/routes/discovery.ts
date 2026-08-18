@@ -6,11 +6,17 @@ import { requirePubkey, requireSpaceCreator } from "../lib/authz.js";
 
 const spacesQuerySchema = z.object({
   category: z.string().optional(),
-  tag: z.string().optional(),
+  /** One tag or a comma-separated OR-list (`tag=club,techno,rave`) — a scene spans several. */
+  tag: z.string().max(500).optional(),
   sort: z.enum(["trending", "newest", "popular"]).optional(),
   search: z.string().optional(),
   limit: limitParam(20, 100),
   offset: offsetParam,
+});
+
+const spaceMusicQuerySchema = z.object({
+  sort: z.enum(["recent", "trending"]).optional(),
+  limit: limitParam(20, 100),
 });
 
 const listingRequestBodySchema = z.object({
@@ -68,11 +74,46 @@ export const discoveryRoutes: FastifyPluginAsync = async (server) => {
     return { data: results };
   });
 
-  // ── Categories ──────────────────────────────────────────────────
+  // GET /discovery/spaces/music — music arriving through listed spaces.
+  // Guest-readable (no NIP-98): mobile browses explore signed out.
+  server.get<{
+    Querystring: { sort?: "recent" | "trending"; limit?: string };
+  }>("/spaces/music", async (request, reply) => {
+    const query = validate(spaceMusicQuerySchema, request.query, reply);
+    if (!query) return;
+
+    const results = await discoveryService.getListedSpaceMusic({
+      sort: query.sort ?? "recent",
+      limit: query.limit,
+    });
+
+    // Defensive filter, mirroring /music/browse: the service already restricts
+    // to h_tag/visibility NULL in SQL, but a public discovery rail is exactly
+    // where a missed gate becomes a leak, so re-check the tags themselves.
+    const isPublicEvent = (r: { tags?: string[][] }) => {
+      const tags: string[][] = r?.tags ?? [];
+      return !tags.some((t) => t[0] === "visibility" || t[0] === "h");
+    };
+
+    return {
+      data: {
+        tracks: results.tracks.filter(isPublicEvent),
+        albums: results.albums.filter(isPublicEvent),
+      },
+    };
+  });
+
+  // ── Categories & scenes ─────────────────────────────────────────
 
   server.get("/categories", async () => {
     const categories = await discoveryService.getCategories();
     return { data: categories };
+  });
+
+  // GET /discovery/scenes — the music-first browse vocabulary. Guest-readable.
+  server.get("/scenes", async () => {
+    const scenes = await discoveryService.getScenes();
+    return { data: scenes };
   });
 
   // ── Listing requests ────────────────────────────────────────────
