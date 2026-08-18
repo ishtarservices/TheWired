@@ -5,6 +5,14 @@ const INTERVAL_MS = 15 * 60 * 1000; // 15 minutes
 export function startDiscoveryScoreComputer(): { stop: () => void } {
   async function compute() {
     try {
+      // Zap rollup FIRST — computeDiscoveryScores reads zap_count_24h /
+      // zap_sats_24h, so running it after would score against a stale window.
+      const rollup = await discoveryService.rollupSpaceZaps();
+      if (rollup.receipts > 0) {
+        console.log(
+          `[discoveryScoreComputer] Zap rollup: ${rollup.receipts} receipts → ${rollup.spaces} spaces`,
+        );
+      }
       await discoveryService.computeDiscoveryScores();
       await discoveryService.autoDelistInactive();
     } catch (err) {

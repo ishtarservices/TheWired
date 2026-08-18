@@ -24,6 +24,22 @@ export const spaceCategories = appSchema.table("space_categories", {
   createdAt: timestamp("created_at").defaultNow(),
 });
 
+/**
+ * Music-first browse vocabulary. Unlike `spaceCategories` (one flat directory
+ * slug per space), a scene spans several space tags AND several music genres —
+ * clients resolve one scene into a `tag=a,b,c` space query plus a genre filter.
+ */
+export const scenes = appSchema.table("scenes", {
+  slug: text("slug").primaryKey(),
+  label: text("label").notNull(),
+  description: text("description"),
+  genres: text("genres").array().notNull().default([]),
+  tags: text("tags").array().notNull().default([]),
+  position: integer("position").notNull().default(0),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+
 export const relayDirectory = appSchema.table("relay_directory", {
   url: text("url").primaryKey(),
   name: text("name"),

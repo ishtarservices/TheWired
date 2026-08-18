@@ -59,10 +59,14 @@ vi.mock("../src/lib/meilisearch.js", () => {
   const noop = () => Promise.resolve({});
   const mockIndex = {
     addDocuments: vi.fn().mockResolvedValue({ taskUid: 0 }),
+    updateDocuments: vi.fn().mockResolvedValue({ taskUid: 0 }),
     deleteDocument: vi.fn().mockResolvedValue({ taskUid: 0 }),
     deleteDocuments: vi.fn().mockResolvedValue({ taskUid: 0 }),
     search: vi.fn().mockResolvedValue({ hits: [], estimatedTotalHits: 0 }),
     updateSettings: vi.fn().mockResolvedValue({ taskUid: 0 }),
+    updateSearchableAttributes: vi.fn().mockResolvedValue({ taskUid: 0 }),
+    updateFilterableAttributes: vi.fn().mockResolvedValue({ taskUid: 0 }),
+    updateSortableAttributes: vi.fn().mockResolvedValue({ taskUid: 0 }),
   };
   return {
     getMeilisearchClient: () => ({
