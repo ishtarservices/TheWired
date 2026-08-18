@@ -35,7 +35,11 @@ export async function initIndexes(): Promise<void> {
   }
   const profilesIndex = ms.index("profiles");
   await profilesIndex.updateSearchableAttributes(["name", "display_name", "nip05", "about"]);
-  await profilesIndex.updateFilterableAttributes(["pubkey"]);
+  // `has_nip05` is filterable so a browse list can require a verified handle;
+  // `note_count` is sortable so "people worth following" has an ordering at all
+  // (it is maintained by workers/profileStatsComputer.ts, not by kind:0 ingest).
+  await profilesIndex.updateFilterableAttributes(["pubkey", "has_nip05"]);
+  await profilesIndex.updateSortableAttributes(["note_count"]);
 
   // Tracks index (music)
   try {
