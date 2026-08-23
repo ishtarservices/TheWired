@@ -140,8 +140,8 @@ cd client/src-tauri && cargo build   # Build Rust binary
 
 ## Backend Structure (`services/backend/src/`)
 
-- `routes/` -- Fastify route handlers (spaces, channels, roles, members, moderation, permissions, invites, search, feeds, discovery, push, notifications, analytics, insights, content, profiles, music, proposals, revisions, onboarding, nip05, blossom, gif, voice, **spaceRelays, relayTunnels**, hls, health)
-- `services/` -- Business logic (spaceDirectory, channel, role, moderation, permission, invite, search, feed, discovery, push, notificationEnqueue, analytics, spam, content, music, revision, proposal, onboarding, livekit, gif, profileCache, **relayRegistration, cloudflareTunnel**)
+- `routes/` -- Fastify route handlers (spaces, channels, roles, members, moderation, permissions, invites, search, feeds, discovery, push, notifications, analytics, insights, content, profiles, music, proposals, revisions, onboarding, nip05, blossom, gif, voice, **spaceRelays, relayTunnels**, hls, **wellKnown** (mobile universal-links AASA/assetlinks), **linkPreview** (OG share pages for thewired.app/music/* + /profile/*), health)
+- `services/` -- Business logic (spaceDirectory, channel, role, moderation, permission, invite, search, feed, discovery, push, notificationEnqueue, analytics, spam, content, music, **musicVisibility + blobAccess** (music access-control policy — see `docs/MUSIC_VISIBILITY.md`), revision, proposal, onboarding, livekit, gif, profileCache, **relayRegistration, cloudflareTunnel**)
 - `workers/` -- Background jobs. **`relayConnectionManager` + `ingestHandlers` replaced the old `relayIngester`** (multi-relay ingestion: platform relay + every registered decentralized-space relay). Plus `trendingComputer`, `profileRefresher`, `notificationDispatcher`, `analyticsAggregator`, `discoveryScoreComputer`, `transcodeWorker`.
 - `db/schema/` -- Drizzle ORM table definitions (in `app` PostgreSQL schema)
 - `db/migrations/` -- SQL migrations (currently through `0025`)
