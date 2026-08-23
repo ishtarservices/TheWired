@@ -24,6 +24,10 @@ export const spaces = appSchema.table("spaces", {
   mirroredMemberCount: integer("mirrored_member_count").notNull().default(0),
   activeMembers24h: integer("active_members_24h").notNull().default(0),
   messagesLast24h: integer("messages_last_24h").notNull().default(0),
+  // Trailing-24h zap rollup over events h-tagged to this space. Recomputed
+  // wholesale by discoveryService.rollupSpaceZaps(); never incremented in-line.
+  zapCount24h: integer("zap_count_24h").notNull().default(0),
+  zapSats24h: bigint("zap_sats_24h", { mode: "number" }).notNull().default(0),
   featured: boolean("featured").notNull().default(false),
   listed: boolean("listed").notNull().default(false),
   listedAt: timestamp("listed_at"),

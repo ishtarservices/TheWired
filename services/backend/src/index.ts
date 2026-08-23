@@ -5,6 +5,7 @@ import { initIndexes } from "./lib/meilisearch.js";
 import { startRelayIngester } from "./workers/relayConnectionManager.js";
 import { startTrendingComputer } from "./workers/trendingComputer.js";
 import { startProfileRefresher } from "./workers/profileRefresher.js";
+import { startProfileStatsComputer } from "./workers/profileStatsComputer.js";
 import { startNotificationDispatcher } from "./workers/notificationDispatcher.js";
 import { startAnalyticsAggregator } from "./workers/analyticsAggregator.js";
 import { startDiscoveryScoreComputer } from "./workers/discoveryScoreComputer.js";
@@ -39,6 +40,7 @@ async function main() {
     startRelayIngester(),
     startTrendingComputer(),
     startProfileRefresher(),
+    startProfileStatsComputer(),
     startNotificationDispatcher(),
     startAnalyticsAggregator(),
     startDiscoveryScoreComputer(),
