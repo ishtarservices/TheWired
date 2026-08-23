@@ -4,10 +4,20 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 // Mock child_process BEFORE importing the module under test so promisify()
-// captures the mocked execFile in its closure.
-vi.mock("node:child_process", () => ({
-  execFile: vi.fn(),
-}));
+// captures the mocked execFile in its closure. The real execFile carries a
+// util.promisify.custom implementation resolving { stdout, stderr } — mirror it,
+// otherwise generic promisify resolves the bare stdout string.
+vi.mock("node:child_process", async () => {
+  const { promisify } = await import("node:util");
+  const fn = vi.fn();
+  (fn as unknown as Record<symbol, unknown>)[promisify.custom] = (...args: unknown[]) =>
+    new Promise((resolve, reject) => {
+      fn(...args, (err: Error | null, stdout?: string, stderr?: string) =>
+        err ? reject(err) : resolve({ stdout, stderr }),
+      );
+    });
+  return { execFile: fn };
+});
 
 import { execFile } from "node:child_process";
 import { transcodeAudio } from "../transcode.js";
@@ -18,18 +28,21 @@ const execFileMock = execFile as unknown as ReturnType<typeof vi.fn>;
  * `promisify(execFile)` expects the wrapped function to use Node's standard
  * execFile callback signature `(error, stdout, stderr)` — it unwraps that
  * into a Promise that resolves with `{ stdout, stderr }` or rejects with
- * the error. For a successful ffmpeg run transcode.ts ignores the result,
- * so calling `cb(null)` is sufficient.
+ * the error. The callback is always the last argument; ffmpeg is invoked with
+ * an options object and ffprobe without, so find it positionally.
  */
-function mockSuccess() {
-  execFileMock.mockImplementation((_cmd, _args, _opts, cb) => {
-    (cb as (e: Error | null) => void)(null);
+function mockSuccess(stdout = "") {
+  execFileMock.mockImplementation((...callArgs: unknown[]) => {
+    const cb = callArgs[callArgs.length - 1] as
+      (e: Error | null, stdout?: string, stderr?: string) => void;
+    cb(null, stdout, "");
   });
 }
 
 function mockFailure(msg = "ffmpeg died") {
-  execFileMock.mockImplementation((_cmd, _args, _opts, cb) => {
-    (cb as (e: Error | null) => void)(new Error(msg));
+  execFileMock.mockImplementation((...callArgs: unknown[]) => {
+    const cb = callArgs[callArgs.length - 1] as (e: Error | null) => void;
+    cb(new Error(msg));
   });
 }
 
@@ -50,11 +63,14 @@ describe("transcodeAudio", () => {
   });
 
   it("invokes ffmpeg with loudnorm, asplit, and two HLS outputs", async () => {
-    mockSuccess();
+    mockSuccess("123.45\n");
     const result = await transcodeAudio({ inputPath, sha256: sha, blobDir });
     expect(result.hlsRelPath).toBe(`hls/${sha}/master.m3u8`);
+    // Second invocation is the ffprobe duration probe.
+    expect(result.durationSec).toBeCloseTo(123.45);
 
-    expect(execFileMock).toHaveBeenCalledTimes(1);
+    expect(execFileMock).toHaveBeenCalledTimes(2);
+    expect(execFileMock.mock.calls[1][0]).toBe("ffprobe");
     const call = execFileMock.mock.calls[0];
     const cmd = call[0] as string;
     const args = call[1] as string[];

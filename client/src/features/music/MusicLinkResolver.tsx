@@ -8,8 +8,10 @@ import { resolveMusic } from "@/lib/api/music";
 import { Spinner } from "@/components/ui/Spinner";
 
 interface MusicLinkResolverProps {
-  type: "album" | "track";
+  type: "album" | "track" | "playlist";
 }
+
+const KIND_BY_TYPE = { album: 33123, track: 31683, playlist: 30119 } as const;
 
 export function MusicLinkResolver({ type }: MusicLinkResolverProps) {
   const { pubkey, slug } = useParams<{ pubkey: string; slug: string }>();
@@ -17,7 +19,7 @@ export function MusicLinkResolver({ type }: MusicLinkResolverProps) {
   const dispatch = useAppDispatch();
   const [error, setError] = useState<string | null>(null);
 
-  const kind = type === "album" ? 33123 : 31683;
+  const kind = KIND_BY_TYPE[type];
   const addressableId = pubkey && slug ? `${kind}:${pubkey}:${slug}` : null;
 
   const existingAlbum = useAppSelector((s) =>
@@ -25,6 +27,9 @@ export function MusicLinkResolver({ type }: MusicLinkResolverProps) {
   );
   const existingTrack = useAppSelector((s) =>
     addressableId && type === "track" ? s.music.tracks[addressableId] : undefined,
+  );
+  const existingPlaylist = useAppSelector((s) =>
+    addressableId && type === "playlist" ? s.music.playlists[addressableId] : undefined,
   );
 
   useEffect(() => {
@@ -37,6 +42,12 @@ export function MusicLinkResolver({ type }: MusicLinkResolverProps) {
     if (type === "album" && existingAlbum) {
       dispatch(setSidebarMode("music"));
       dispatch(setActiveDetailId({ view: "album-detail", id: addressableId }));
+      navigate("/", { replace: true });
+      return;
+    }
+    if (type === "playlist" && existingPlaylist) {
+      dispatch(setSidebarMode("music"));
+      dispatch(setActiveDetailId({ view: "playlist-detail", id: addressableId }));
       navigate("/", { replace: true });
       return;
     }
@@ -65,9 +76,14 @@ export function MusicLinkResolver({ type }: MusicLinkResolverProps) {
         }
 
         // Navigate to the appropriate view
-        if (type === "album") {
+        if (type === "album" || type === "playlist") {
           dispatch(setSidebarMode("music"));
-          dispatch(setActiveDetailId({ view: "album-detail", id: addressableId! }));
+          dispatch(
+            setActiveDetailId({
+              view: type === "album" ? "album-detail" : "playlist-detail",
+              id: addressableId!,
+            }),
+          );
           navigate("/", { replace: true });
         } else {
           // For tracks: check if it has an albumRef from the event tags

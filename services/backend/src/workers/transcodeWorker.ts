@@ -37,6 +37,9 @@ export function startTranscodeWorker(): { stop: () => Promise<void> } {
             loudnessTp: result.loudnessTp,
             transcodedAt: new Date(),
             transcodeError: null,
+            // ffprobe ground truth beats the client-claimed duration; keep the
+            // existing value only when probing failed.
+            ...(result.durationSec != null ? { duration: Math.round(result.durationSec) } : {}),
           })
           .where(eq(musicUploads.sha256, sha256));
       } catch (err) {

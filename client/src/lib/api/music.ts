@@ -20,13 +20,18 @@ interface UploadCoverResponse {
  */
 export async function uploadAudio(
   file: File,
-  metadata?: { title?: string; artist?: string },
+  metadata?: { title?: string; artist?: string; duration?: number },
 ): Promise<UploadAudioResponse> {
   const url = `${getApiBaseUrl()}/music/upload`;
   const form = new FormData();
-  form.append("file", file);
+  // Fields MUST precede the file part: the backend reads the multipart stream
+  // up to the file and only sees fields appended before it.
   if (metadata?.title) form.append("title", metadata.title);
   if (metadata?.artist) form.append("artist", metadata.artist);
+  if (metadata?.duration && Number.isFinite(metadata.duration)) {
+    form.append("duration", String(metadata.duration));
+  }
+  form.append("file", file);
 
   const headers: Record<string, string> = {};
   headers["Authorization"] = await buildNip98Header(url, "POST");
@@ -230,7 +235,7 @@ interface ResolveTrackResponse {
  * Resolve a music item by type/pubkey/slug. Public endpoint, no auth required.
  */
 export async function resolveMusic(
-  type: "album" | "track",
+  type: "album" | "track" | "playlist",
   pubkey: string,
   slug: string,
 ): Promise<{ data: ResolveAlbumResponse | ResolveTrackResponse }> {
