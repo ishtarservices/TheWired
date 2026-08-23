@@ -90,6 +90,8 @@ spaces.json
 scripts/
 # ...but committed ops scripts under src/ ship with the backend (e.g. transcode backfill CLI)
 !services/backend/src/scripts/
+# ...and their tests
+!services/backend/test/scripts/
 # Local audit reports (generated snapshots, not shipped)
 docs/AUDIT_*.md
 # Local-only design sketches / plans (not shipped)
