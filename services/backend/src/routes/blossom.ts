@@ -9,7 +9,7 @@ import { blobs, blobOwners } from "../db/schema/blobs.js";
 import { config } from "../config.js";
 import { nanoid } from "../lib/id.js";
 import { verifyBlossomAuth } from "../middleware/blossomAuth.js";
-import { getProtectedRefForBlob, authorizeProtectedRef } from "../services/blobAccess.js";
+import { getProtectedRefsForBlob, authorizeProtectedRefs } from "../services/blobAccess.js";
 import { verifyMediaToken } from "../lib/mediaToken.js";
 
 const BLOB_DIR = resolve(process.cwd(), config.blobDir);
@@ -69,12 +69,12 @@ export async function blossomRoutes(server: FastifyInstance) {
     // Access control: a blob referenced by a protected (private/unlisted/space) music
     // event requires either a valid capability token (?tk=, for header-less <audio>/HLS)
     // or an authorized viewer (NIP-98 → X-Auth-Pubkey). 404 on denial to hide existence.
-    const protectedRef = await getProtectedRefForBlob(sha256);
-    if (protectedRef) {
+    const protectedRefs = await getProtectedRefsForBlob(sha256);
+    if (protectedRefs.length > 0) {
       const tk = (request.query as { tk?: string }).tk;
       if (!verifyMediaToken(sha256, tk)) {
         const authPubkey = (request as any).pubkey as string | undefined;
-        const allowed = await authorizeProtectedRef(protectedRef, authPubkey);
+        const allowed = await authorizeProtectedRefs(protectedRefs, authPubkey);
         if (!allowed) return reply.status(404).send();
       }
     }
@@ -89,7 +89,7 @@ export async function blossomRoutes(server: FastifyInstance) {
 
     const contentType = blob.type ?? "application/octet-stream";
     // Protected content must never be cached by a shared cache; public blobs are immutable.
-    const cacheControl = protectedRef
+    const cacheControl = protectedRefs.length > 0
       ? "private, no-store"
       : "public, max-age=31536000, immutable";
 

@@ -6,7 +6,7 @@ import { eq } from "drizzle-orm";
 import { db } from "../db/connection.js";
 import { musicUploads } from "../db/schema/music.js";
 import { config } from "../config.js";
-import { getProtectedRefForBlob } from "../services/blobAccess.js";
+import { getProtectedRefsForBlob } from "../services/blobAccess.js";
 import { verifyMediaToken } from "../lib/mediaToken.js";
 
 const BLOB_DIR = resolve(process.cwd(), config.blobDir);
@@ -33,14 +33,15 @@ async function checkHlsAccess(
 ): Promise<{ ok: boolean; tokened: boolean; token?: string }> {
   const tk = (request.query as { tk?: string }).tk;
   if (tk && verifyMediaToken(sha, tk)) return { ok: true, tokened: true, token: tk };
-  const protectedRef = await getProtectedRefForBlob(sha);
-  if (protectedRef) return { ok: false, tokened: false }; // protected, no valid token → deny
+  const protectedRefs = await getProtectedRefsForBlob(sha);
+  if (protectedRefs.length > 0) return { ok: false, tokened: false }; // protected, no valid token → deny
   return { ok: true, tokened: false }; // public
 }
 
 /** Append `?tk=<token>` to every child/segment URI in a playlist so relative-URL
- *  resolution (which drops the query) doesn't strip the token. Handles bare URI lines
- *  and the quoted `#EXT-X-MAP:URI="init.mp4"` attribute; leaves comments/tags alone. */
+ *  resolution (which drops the query) doesn't strip the token. Handles bare URI
+ *  lines and quoted `URI="…"` attributes on ANY tag line (EXT-X-MAP today;
+ *  EXT-X-MEDIA / EXT-X-I-FRAME-STREAM-INF if the ladder ever grows them). */
 function tokenizePlaylist(body: string, token: string): string {
   const q = `?tk=${token}`;
   return body
@@ -48,10 +49,9 @@ function tokenizePlaylist(body: string, token: string): string {
     .map((line) => {
       const trimmed = line.trim();
       if (trimmed === "") return line;
-      if (trimmed.startsWith("#EXT-X-MAP:")) {
-        return line.replace(/URI="([^"]+)"/, (_m, uri: string) => `URI="${uri}${q}"`);
+      if (trimmed.startsWith("#")) {
+        return line.replace(/URI="([^"]+)"/g, (_m, uri: string) => `URI="${uri}${q}"`);
       }
-      if (trimmed.startsWith("#")) return line;
       return line + q;
     })
     .join("\n");

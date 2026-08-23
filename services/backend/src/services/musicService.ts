@@ -10,6 +10,7 @@ import { blobs, blobOwners } from "../db/schema/blobs.js";
 import { nanoid } from "../lib/id.js";
 import { config } from "../config.js";
 import { getTranscodeQueue } from "../lib/queue.js";
+import { buildMusicSearchDoc } from "../lib/musicSearchDoc.js";
 
 const BLOB_DIR = resolve(process.cwd(), config.blobDir);
 const MAX_AUDIO_SIZE = config.maxBlobSize;
@@ -227,25 +228,20 @@ export const musicService = {
       const msDocs = [];
       for (const row of rows) {
         const tags = row.tags;
-        const dTag = tags.find((t) => t[0] === "d")?.[1] ?? "";
-        const title = tags.find((t) => t[0] === "title")?.[1] ?? "";
-        const artist = tags.find((t) => t[0] === "artist")?.[1] ?? "";
         const genre = tags.find((t) => t[0] === "genre")?.[1] ?? "";
-        const imageUrl = tags.find((t) => t[0] === "image")?.[1] ?? tags.find((t) => t[0] === "thumb")?.[1] ?? "";
         const visibility = tags.find((t) => t[0] === "visibility")?.[1];
         const hTag = tags.find((t) => t[0] === "h")?.[1];
         const hashtags = tags.filter((t) => t[0] === "t").map((t) => t[1]);
-        const isPublic = !visibility || (visibility !== "unlisted" && visibility !== "private" && !hTag);
+        const isPublic = !visibility && !hTag;
 
         // Only index and count public tracks
         if (isPublic) {
-          msDocs.push({
-            id: row.id,
-            addressable_id: `31683:${row.pubkey}:${dTag}`,
-            title, artist, genre, image_url: imageUrl, hashtags,
-            pubkey: row.pubkey,
-            created_at: Number(row.created_at), // PG bigint → JS number
-          });
+          msDocs.push(
+            buildMusicSearchDoc(
+              { id: row.id, pubkey: row.pubkey, created_at: Number(row.created_at), tags },
+              31683,
+            ),
+          );
 
           eventIds.push(row.id);
           if (genre) genreCounts.set(genre, (genreCounts.get(genre) ?? 0) + 1);
@@ -279,25 +275,20 @@ export const musicService = {
       const msDocs = [];
       for (const row of rows) {
         const tags = row.tags;
-        const dTag = tags.find((t) => t[0] === "d")?.[1] ?? "";
-        const title = tags.find((t) => t[0] === "title")?.[1] ?? "";
-        const artist = tags.find((t) => t[0] === "artist")?.[1] ?? "";
         const genre = tags.find((t) => t[0] === "genre")?.[1] ?? "";
-        const imageUrl = tags.find((t) => t[0] === "image")?.[1] ?? tags.find((t) => t[0] === "thumb")?.[1] ?? "";
         const visibility = tags.find((t) => t[0] === "visibility")?.[1];
         const hTag = tags.find((t) => t[0] === "h")?.[1];
         const hashtags = tags.filter((t) => t[0] === "t").map((t) => t[1]);
-        const isPublic = !visibility || (visibility !== "unlisted" && visibility !== "private" && !hTag);
+        const isPublic = !visibility && !hTag;
 
         // Only index and count public albums
         if (isPublic) {
-          msDocs.push({
-            id: row.id,
-            addressable_id: `33123:${row.pubkey}:${dTag}`,
-            title, artist, genre, image_url: imageUrl, hashtags,
-            pubkey: row.pubkey,
-            created_at: Number(row.created_at), // PG bigint → JS number
-          });
+          msDocs.push(
+            buildMusicSearchDoc(
+              { id: row.id, pubkey: row.pubkey, created_at: Number(row.created_at), tags },
+              33123,
+            ),
+          );
 
           eventIds.push(row.id);
           if (genre) genreCounts.set(genre, (genreCounts.get(genre) ?? 0) + 1);

@@ -2,11 +2,17 @@ import type { FastifyPluginAsync } from "fastify";
 import { z } from "zod";
 import { validate, nonEmptyString } from "../lib/validation.js";
 import { musicService } from "../services/musicService.js";
+import {
+  fetchLatestByAddressableId,
+  checkEventVisibility,
+} from "../services/musicVisibility.js";
 
 const wildcardParams = z.object({ "*": nonEmptyString });
 
 export const insightsRoutes: FastifyPluginAsync = async (server) => {
-  // GET /music/insights/* -- insights for a track/album by addressable ID
+  // GET /music/insights/* -- insights for a track/album by addressable ID.
+  // Public events serve openly; private/space events require the same viewer
+  // authorization as /music/resolve (play counts are metadata too).
   server.get<{ Params: { "*": string } }>(
     "/insights/*",
     async (request, reply) => {
@@ -14,6 +20,14 @@ export const insightsRoutes: FastifyPluginAsync = async (server) => {
       if (!params) return;
 
       const addressableId = params["*"];
+
+      const event = await fetchLatestByAddressableId(addressableId);
+      if (event) {
+        const authPubkey = (request.headers["x-auth-pubkey"] as string) ?? null;
+        const allowed = await checkEventVisibility(event, event.pubkey, authPubkey, reply);
+        if (!allowed) return;
+      }
+
       const insights = await musicService.getInsights(addressableId);
       return { data: insights };
     },
