@@ -31,6 +31,8 @@ import { gifRoutes } from "./routes/gif.js";
 import { discoveryRoutes } from "./routes/discovery.js";
 import { onboardingRoutes } from "./routes/onboarding.js";
 import { nip05Routes, nip05ApiRoutes } from "./routes/nip05.js";
+import { wellKnownRoutes } from "./routes/wellKnown.js";
+import { linkPreviewRoutes } from "./routes/linkPreview.js";
 import { authContext } from "./middleware/authContext.js";
 import { errorHandler } from "./middleware/errorHandler.js";
 
@@ -109,6 +111,10 @@ export async function createServer() {
   await server.register(onboardingRoutes, { prefix: "/spaces" });
   await server.register(nip05Routes);
   await server.register(nip05ApiRoutes, { prefix: "/nip05" });
+  // thewired.app web-root paths (proxied by Caddy): universal-links association
+  // files + server-rendered OG share pages for /music/* and /profile/* links.
+  await server.register(wellKnownRoutes);
+  await server.register(linkPreviewRoutes);
 
   // HLS routes (must register before blossomRoutes so /hls/:sha/… doesn't get
   // swallowed by the blob /:filename wildcard)
