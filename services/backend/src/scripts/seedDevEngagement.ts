@@ -13,11 +13,15 @@
  * Writes Redis counters (zap/play), the music tag/genre zsets, and — so the
  * per-space zap rollup has anything to roll up — synthetic kind:9735 receipts in
  * relay.events. Every synthetic row's id starts with {@link SEED_PREFIX}, so
- * `--clean` removes exactly what this script added and nothing else.
+ * `--clean` removes exactly what this script added and nothing else. Receipt ids
+ * are deterministic, so a re-run refreshes the existing rows' created_at instead
+ * of inserting duplicates — the rollup only counts receipts younger than 24h, and
+ * receipts written by yesterday's run must not silently age out of it.
  *
  *   pnpm --filter @thewired/backend exec tsx --env-file=.env src/scripts/seedDevEngagement.ts
  *   pnpm --filter @thewired/backend exec tsx --env-file=.env src/scripts/seedDevEngagement.ts --clean
  */
+import { pathToFileURL } from "node:url";
 import { db } from "../db/connection.js";
 import { sql } from "drizzle-orm";
 import { getRedis } from "../lib/redis.js";
@@ -26,7 +30,7 @@ import { computeTrendingPeriod } from "../workers/trendingComputer.js";
 import { computeProfileStats } from "../workers/profileStatsComputer.js";
 
 /** Every synthetic relay.events row this script writes carries this id prefix. */
-const SEED_PREFIX = "deadseed";
+export const SEED_PREFIX = "deadseed";
 /** Events whose Redis counters this script has already bumped. */
 const SEED_APPLIED_KEY = "seed:engagement_applied";
 
@@ -43,7 +47,7 @@ async function memberSet(
   return new Set(ids.filter((_, i) => results?.[i]?.[1]));
 }
 
-interface EventRow {
+export interface EventRow {
   id: string;
   pubkey: string;
   kind: number;
@@ -59,6 +63,52 @@ function hashUnit(seed: string): number {
     h = Math.imul(h, 16777619);
   }
   return ((h >>> 0) % 10000) / 10000;
+}
+
+/**
+ * Upsert one synthetic kind:9735 receipt per (deterministically) zapped space
+ * event. The receipt id is derived from the target event id, so a re-run hits
+ * the same rows — and must refresh created_at rather than DO NOTHING, because
+ * rollupSpaceZaps only counts receipts younger than 24h: rows written by a
+ * previous day's run would otherwise age out and a re-run would silently
+ * leave the rollup empty while claiming it seeded receipts.
+ */
+export async function seedSpaceZapReceipts(
+  spaceEvents: EventRow[],
+  nowSec: number,
+): Promise<{ inserted: number; refreshed: number }> {
+  let inserted = 0;
+  let refreshed = 0;
+
+  for (const event of spaceEvents) {
+    const roll = hashUnit(`zap:${event.id}`);
+    if (roll >= 0.7) continue;
+    const sats = 21 + Math.floor(roll * 2000);
+    const request = JSON.stringify({ kind: 9734, tags: [["amount", String(sats * 1000)]] });
+    const id = (SEED_PREFIX + event.id).slice(0, 64).padEnd(64, "0");
+
+    // xmax = 0 iff the row was freshly inserted (a conflict-update stamps the
+    // old version's xmax) — this is what lets us count writes, not attempts.
+    const result = (await db.execute(sql`
+      INSERT INTO relay.events (id, pubkey, created_at, kind, tags, content, sig, e_tags)
+      VALUES (
+        ${id}, ${event.pubkey}, ${nowSec - Math.floor(roll * 6 * 3600)}, 9735,
+        ${JSON.stringify([
+          ["e", event.id],
+          ["bolt11", "lnbc-dev-seed"],
+          ["description", request],
+        ])}::jsonb,
+        '', ${"0".repeat(128)}, ARRAY[${event.id}]::text[]
+      )
+      ON CONFLICT (id) DO UPDATE SET created_at = EXCLUDED.created_at
+      RETURNING (xmax = 0) AS inserted
+    `)) as unknown as Array<{ inserted: boolean }>;
+
+    if (result[0]?.inserted) inserted++;
+    else if (result.length > 0) refreshed++;
+  }
+
+  return { inserted, refreshed };
 }
 
 async function main() {
@@ -160,32 +210,12 @@ async function main() {
   // counters above (which can't answer "in the last 24 hours").
   const spaceEvents = events.filter((e) => e.h_tag);
   const nowSec = Math.floor(Date.now() / 1000);
-  let receipts = 0;
+  const { inserted, refreshed } = await seedSpaceZapReceipts(spaceEvents, nowSec);
 
-  for (const event of spaceEvents) {
-    const roll = hashUnit(`zap:${event.id}`);
-    if (roll >= 0.7) continue;
-    const sats = 21 + Math.floor(roll * 2000);
-    const request = JSON.stringify({ kind: 9734, tags: [["amount", String(sats * 1000)]] });
-    const id = (SEED_PREFIX + event.id).slice(0, 64).padEnd(64, "0");
-
-    await db.execute(sql`
-      INSERT INTO relay.events (id, pubkey, created_at, kind, tags, content, sig, e_tags)
-      VALUES (
-        ${id}, ${event.pubkey}, ${nowSec - Math.floor(roll * 6 * 3600)}, 9735,
-        ${JSON.stringify([
-          ["e", event.id],
-          ["bolt11", "lnbc-dev-seed"],
-          ["description", request],
-        ])}::jsonb,
-        '', ${"0".repeat(128)}, ARRAY[${event.id}]::text[]
-      )
-      ON CONFLICT (id) DO NOTHING
-    `);
-    receipts++;
-  }
-
-  console.log(`[seed] ${receipts} synthetic zap receipts over ${spaceEvents.length} space events`);
+  console.log(
+    `[seed] ${inserted + refreshed} synthetic zap receipts over ${spaceEvents.length} space events ` +
+      `(${inserted} new, ${refreshed} refreshed)`,
+  );
 
   // Recompute the derived layers so the effect is visible immediately rather
   // than up to 30 minutes later.
@@ -223,11 +253,43 @@ async function main() {
 
   const stats = await computeProfileStats();
   console.log(`[seed] profile note_count: ${stats.profiles} profiles`);
+
+  if (stats.profiles > 0) {
+    // note_count backs /search/people ordering and is a 30-day window over
+    // public kind:1 notes — same trap as the trending window above: seeded
+    // engagement can't put anything in a window no content falls into.
+    const noteWindowStart = nowSec - 30 * 24 * 3600;
+    const [newestNote] = (await db.execute(sql`
+      SELECT MAX(created_at)::bigint AS created_at
+      FROM relay.events
+      WHERE kind = 1 AND h_tag IS NULL AND visibility IS NULL
+    `)) as unknown as Array<{ created_at: string | null }>;
+
+    if (!newestNote?.created_at) {
+      console.log(
+        "[seed] No public kind:1 notes exist, so every profile reads note_count 0 — " +
+          "publish a note to see /search/people ranking work.",
+      );
+    } else if (Number(newestNote.created_at) < noteWindowStart) {
+      const ageDays = Math.floor((nowSec - Number(newestNote.created_at)) / 86400);
+      console.log(
+        `[seed] note_count's 30-day window is empty: the newest public note is ${ageDays} day(s) ` +
+          `old, so every profile reads note_count 0 and /search/people ordering is flat. ` +
+          `That is an empty window, not a broken ranking — publish something recent to see it rank.`,
+      );
+    }
+  }
 }
 
-main()
-  .then(() => process.exit(0))
-  .catch((err) => {
-    console.error("[seed] Failed:", err);
-    process.exit(1);
-  });
+// Guard so tests can import seedSpaceZapReceipts without running the script.
+const isMain =
+  process.argv[1] != null && import.meta.url === pathToFileURL(process.argv[1]).href;
+
+if (isMain) {
+  main()
+    .then(() => process.exit(0))
+    .catch((err) => {
+      console.error("[seed] Failed:", err);
+      process.exit(1);
+    });
+}
