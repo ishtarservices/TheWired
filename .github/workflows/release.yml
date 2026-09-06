@@ -128,6 +128,63 @@ jobs:
         working-directory: client
         run: pnpm tauri build ${{ matrix.args }}
 
+      # linuxdeploy-plugin-gtk bundles libwayland-client.so.0 (+ egl/cursor/server)
+      # into the AppImage. The Wayland client library is tightly coupled to the
+      # host compositor and Mesa; a bundled copy shadows the system one and makes
+      # Mesa's eglGetPlatformDisplay() fail with EGL_BAD_PARAMETER. That aborts
+      # WebKitGTK's web process ("Could not create default EGL display. Aborting...")
+      # so the window never renders — see #1. Drop them so the host's libs load,
+      # then repack and (if signing is configured) re-sign for the updater.
+      - name: Unbundle host-coupled libs from AppImage
+        if: runner.os == 'Linux'
+        working-directory: client
+        env:
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+          APPIMAGE_EXTRACT_AND_RUN: "1"
+        run: |
+          set -euo pipefail
+          APPIMG_DIR="src-tauri/target/release/bundle/appimage"
+          APPIMAGE="$(find "$APPIMG_DIR" -maxdepth 1 -name '*.AppImage' -print -quit)"
+          if [ -z "$APPIMAGE" ]; then
+            echo "::error::no .AppImage found under $APPIMG_DIR"
+            exit 1
+          fi
+          echo "Repacking $APPIMAGE"
+
+          work="$(mktemp -d)"
+          cp "$APPIMAGE" "$work/orig.AppImage"
+          ( cd "$work" && ./orig.AppImage --appimage-extract >/dev/null )
+
+          mapfile -t libs < <(find "$work/squashfs-root" -type f -name 'libwayland-*.so*')
+          if [ "${#libs[@]}" -eq 0 ]; then
+            echo "::warning::no bundled libwayland-* found — packaging may have changed; leaving AppImage as-is"
+            rm -rf "$work"
+            exit 0
+          fi
+          for lib in "${libs[@]}"; do
+            echo "  removing ${lib#"$work"/squashfs-root/}"
+            rm -f "$lib"
+          done
+
+          curl -fsSL -o "$work/appimagetool" \
+            https://github.com/AppImage/appimagetool/releases/download/continuous/appimagetool-x86_64.AppImage
+          chmod +x "$work/appimagetool"
+          ( cd "$work" && ARCH=x86_64 ./appimagetool --no-appstream squashfs-root fixed.AppImage )
+          mv "$work/fixed.AppImage" "$APPIMAGE"
+          chmod +x "$APPIMAGE"
+
+          if [ -n "${TAURI_SIGNING_PRIVATE_KEY:-}" ]; then
+            rm -f "$APPIMAGE.sig"
+            pnpm tauri signer sign \
+              --private-key "$TAURI_SIGNING_PRIVATE_KEY" \
+              --password "${TAURI_SIGNING_PRIVATE_KEY_PASSWORD:-}" \
+              "$APPIMAGE"
+          else
+            echo "::warning::TAURI_SIGNING_PRIVATE_KEY not set — AppImage repacked but not re-signed"
+          fi
+          rm -rf "$work"
+
       - name: Upload macOS artifacts
         if: runner.os == 'macOS'
         env:
