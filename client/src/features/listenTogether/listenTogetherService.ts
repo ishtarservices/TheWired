@@ -45,7 +45,6 @@ import {
   type TrackMeta,
 } from "./syncProtocol";
 import { getAudio } from "@/features/music/useAudioPlayer";
-import { upgradeToSfuForListenTogether } from "@/features/calling/callService";
 import type { MusicTrack } from "@/types/music";
 
 // ── Guard flag: prevents middleware from re-broadcasting actions
@@ -81,11 +80,6 @@ export async function startListenTogetherSession(
 ): Promise<void> {
   const myPubkey = store.getState().identity.pubkey;
   if (!myPubkey) return;
-
-  // DM calls: ensure SFU mode for DataChannel
-  if (context === "dm") {
-    await upgradeToSfuForListenTogether();
-  }
 
   const musicPlayer = store.getState().music.player;
   const tracks = store.getState().music.tracks;

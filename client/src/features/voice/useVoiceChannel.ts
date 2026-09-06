@@ -5,7 +5,10 @@ import {
   toggleDeafen,
   toggleVideo,
   setScreenSharing,
+  setScreenSharePending,
+  setMediaError,
 } from "@/store/slices/voiceSlice";
+import { describeMediaError } from "@/lib/webrtc/mediaDevices";
 import {
   selectIsInVoice,
   selectConnectedRoom,
@@ -82,14 +85,31 @@ export function useVoiceChannel() {
   }, [dispatch]);
 
   const handleToggleScreenShare = useCallback(async () => {
-    const newState = !localState.screenSharing;
-    dispatch(setScreenSharing(newState));
-    try {
-      await toggleScreenShareService();
-    } catch {
-      dispatch(setScreenSharing(!newState));
+    if (localState.screenSharing) {
+      // Stopping is immediate — flip first so the tile disappears at once.
+      dispatch(setScreenSharing(false));
+      try {
+        await toggleScreenShareService(false);
+      } catch {
+        dispatch(setScreenSharing(true));
+      }
+      return;
     }
-  }, [dispatch, localState.screenSharing]);
+    if (localState.screenSharePending) return;
+    // Starting: the OS picker is open until this resolves. Only then is
+    // anything actually being shared.
+    dispatch(setScreenSharePending(true));
+    try {
+      await toggleScreenShareService(true);
+      dispatch(setScreenSharing(true));
+    } catch (err) {
+      dispatch(setScreenSharePending(false));
+      // NotAllowedError = the user closed the picker; anything else is real.
+      if ((err as { name?: string } | null)?.name !== "NotAllowedError") {
+        dispatch(setMediaError(describeMediaError(err, "screen")));
+      }
+    }
+  }, [dispatch, localState.screenSharing, localState.screenSharePending]);
 
   return {
     isConnected,

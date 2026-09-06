@@ -145,6 +145,38 @@ the broader event-storm work (`project_app_freeze_investigation`). Re-measure wi
 `wiredDebug` to attribute the stall (IDB hydration vs render vs sub setup) before
 optimizing.
 
+### 10. In-app screen-share window picker (Meet/Zoom style)
+
+**Why deferred:** `getDisplayMedia` never exposes the window list — the WebView
+owns the chooser (macOS 14 WebKit: the "Share This Window / Share This Screen"
+overlay where you must click the actual window; macOS 15+: Apple's system
+picker; Windows WebView2: Edge's picker dialog). The Chromium-only hints we set
+(`selfBrowserSurface: "exclude"`, `surfaceSwitching`, `systemAudio`) are ignored
+by WebKit. Meet gets Chrome's picker; Zoom/Discord are Electron and use
+`desktopCapturer`, which Tauri has no equivalent for. So a thumbnail grid in
+our UI is not a UI change — it needs a native capture pipeline.
+
+**Design (when picked up):**
+1. Rust enumerates windows + monitors with thumbnails (`xcap` crate; macOS
+   Screen Recording permission is already declared in `Info.plist`).
+2. Meet-style picker grid in `features/voice/` refreshing thumbnails every ~1–2s.
+3. On pick, Rust captures that source continuously (~15 fps, ≤1080p), JPEG-encodes
+   frames and streams them over a local WebSocket to the WebView.
+4. The WebView paints frames to a canvas and publishes `canvas.captureStream()`
+   as the LiveKit screen-share track — tiles, encoding presets and focus mode
+   are unchanged downstream.
+
+**Trade-offs:** ~1 core of CPU on the sharer (capture + JPEG + H.264), 100–200ms
+added latency, text slightly softer than the native path (JPEG hop), Windows
+occluded-window capture quirks (`PrintWindow`), and no system audio through
+this path. Ship behind a "Custom window picker" toggle with the OS picker as the
+fallback. Estimate: 3–5 days for both platforms including permission prompts.
+
+**Where:** `client/src-tauri/src/` (new `screencap.rs` + IPC commands),
+`client/src/features/voice/devices/` (picker UI), `lib/webrtc/livekitClient.ts`
+(`setScreenShareEnabled` gains a `source` option that publishes a canvas track
+via `localParticipant.publishTrack`).
+
 ---
 
 ## Deferred — Architecture

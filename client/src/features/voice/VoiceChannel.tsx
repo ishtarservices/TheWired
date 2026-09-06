@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useAppSelector } from "@/store/hooks";
 import { useProfile } from "@/features/profile/useProfile";
 import { Avatar } from "@/components/ui/Avatar";
@@ -6,10 +6,10 @@ import { useVoiceChannel } from "./useVoiceChannel";
 import { useVoiceParticipants } from "./useVoiceParticipants";
 import { selectChannelPresence } from "./voiceSelectors";
 import { VoiceControls } from "./VoiceControls";
-import { VideoGrid } from "./VideoGrid";
-import { ScreenShareView } from "./ScreenShareView";
-import { EnableAudioBanner } from "./EnableAudioBanner";
-import { Headphones, Video, Users, Wifi, WifiOff, Lock } from "lucide-react";
+import { VoiceStage } from "./VoiceStage";
+import { VoiceBanners } from "./VoiceBanners";
+import { Headphones, Video, Users, Wifi, WifiOff, Lock, Maximize2, Minimize2, Expand } from "lucide-react";
+import { toggleWindowFullscreen } from "@/lib/tauriWindow";
 import { parseChannelIdPart } from "@/features/spaces/spaceSelectors";
 import { usePermissions } from "@/features/spaces/usePermissions";
 import { usePlaybackBarSpacing } from "@/hooks/usePlaybackBarSpacing";
@@ -22,23 +22,22 @@ import { ListenTogetherInvite } from "@/features/listenTogether/ListenTogetherIn
  * Main voice/video channel view.
  *
  * - Pre-join: shows channel info, participant preview, join button
- * - Connected (voice): avatar grid for audio-only, video grid when anyone has camera on
- * - Connected (video): video grid always, with local camera tile
- * - Screen share: full-width screen with participant sidebar
+ * - Connected: MediaStage (fitted grid, focus/pin, screen-share tiles)
  */
 const EMPTY_CHANNELS: never[] = [];
 
 export function VoiceChannel() {
   const activeSpaceId = useAppSelector((s) => s.spaces.activeSpaceId);
   const activeChannelId = useAppSelector((s) => s.spaces.activeChannelId);
-  const myPubkey = useAppSelector((s) => s.identity.pubkey);
-  const localScreenSharing = useAppSelector((s) => s.voice.localState.screenSharing);
   const channels = useAppSelector(
     (s) => (activeSpaceId ? s.spaces.channels[activeSpaceId] : undefined) ?? EMPTY_CHANNELS,
   );
   const ltActive = useAppSelector((s) => s.listenTogether.active);
   const ltPickerOpen = useAppSelector((s) => s.listenTogether.pickerOpen);
   const [nowPlayingExpanded, setNowPlayingExpanded] = useState(false);
+  const [stageExpanded, setStageExpanded] = useState(false);
+  const layoutMode = useAppSelector((s) => s.voice.layout.mode);
+  const joinError = useAppSelector((s) => (s.voice.connectedRoom ? null : s.voice.mediaError));
   const { scrollPaddingClass } = usePlaybackBarSpacing();
 
   const channelIdPart = parseChannelIdPart(activeChannelId);
@@ -54,7 +53,20 @@ export function VoiceChannel() {
     join,
   } = useVoiceChannel();
 
-  const { sortedParticipants, count } = useVoiceParticipants();
+  const { count } = useVoiceParticipants();
+
+  // Escape leaves the expanded stage (after the stage's own focus-exit).
+  useEffect(() => {
+    if (!stageExpanded) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== "Escape" || layoutMode === "focus") return;
+      const t = e.target as HTMLElement | null;
+      if (t && (t.tagName === "INPUT" || t.tagName === "TEXTAREA" || t.isContentEditable)) return;
+      setStageExpanded(false);
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [stageExpanded, layoutMode]);
 
   const isConnectedToThis =
     connectedRoom &&
@@ -64,14 +76,6 @@ export function VoiceChannel() {
   // API presence data for pre-join view (visible without connecting)
   const channelPresence = useAppSelector(selectChannelPresence(channelIdPart ?? ""));
   const presenceCount = channelPresence?.participantCount ?? 0;
-
-  // Redux participants are remote-only — include the local share or the
-  // sharer never sees their own screen view.
-  const screenSharerPubkey =
-    localScreenSharing && myPubkey
-      ? myPubkey
-      : sortedParticipants.find((p) => p.isScreenSharing)?.pubkey;
-  const hasVideoParticipants = sortedParticipants.some((p) => p.hasVideo);
 
   if (!activeSpaceId || !channelIdPart) return null;
 
@@ -106,7 +110,7 @@ export function VoiceChannel() {
 
         {canConnect ? (
           <button
-            onClick={() => join(activeSpaceId, channelIdPart)}
+            onClick={() => void join(activeSpaceId, channelIdPart).catch(() => {})}
             disabled={isConnecting}
             className="rounded-xl bg-green-600/15 px-8 py-3 text-sm font-semibold text-green-600 hover:bg-green-600/25 transition-colors disabled:opacity-50"
           >
@@ -117,6 +121,12 @@ export function VoiceChannel() {
             <Lock size={14} />
             <span>You don't have permission to join this channel</span>
           </div>
+        )}
+
+        {joinError && (
+          <p className="max-w-md rounded-xl bg-red-500/10 px-4 py-2 text-center text-xs text-red-400">
+            {joinError}
+          </p>
         )}
 
         {connectedRoom && !isConnectedToThis && (
@@ -131,7 +141,13 @@ export function VoiceChannel() {
 
   // ─── Connected view ─────────────────────────────────────────
   return (
-    <div className={`relative flex flex-1 flex-col overflow-hidden bg-card ${scrollPaddingClass}`}>
+    <div
+      className={
+        stageExpanded
+          ? "fixed inset-0 z-50 flex flex-col overflow-hidden bg-background"
+          : `relative flex flex-1 flex-col overflow-hidden bg-card ${scrollPaddingClass}`
+      }
+    >
       {/* Header bar */}
       <div className="flex items-center gap-3 border-b border-border px-4 py-2 bg-panel/80 backdrop-blur-sm">
         <ChannelIcon size={16} className="text-green-400" />
@@ -150,10 +166,26 @@ export function VoiceChannel() {
           )}
           <span className="text-muted capitalize">{connectionQuality}</span>
         </span>
+        <button
+          onClick={() => setStageExpanded((v) => !v)}
+          className="rounded-full p-1 text-muted transition-colors hover:bg-surface-hover hover:text-heading"
+          title={stageExpanded ? "Exit expanded view (Esc)" : "Expand video area"}
+          aria-label={stageExpanded ? "Exit expanded view" : "Expand video area"}
+        >
+          {stageExpanded ? <Minimize2 size={14} /> : <Maximize2 size={14} />}
+        </button>
+        <button
+          onClick={() => void toggleWindowFullscreen()}
+          className="rounded-full p-1 text-muted transition-colors hover:bg-surface-hover hover:text-heading"
+          title="Toggle window fullscreen"
+          aria-label="Toggle window fullscreen"
+        >
+          <Expand size={14} />
+        </button>
       </div>
 
       {/* Autoplay-policy recovery (WebView2/WKWebView block silent starts) */}
-      <EnableAudioBanner />
+      <VoiceBanners />
 
       {/* Listen Together: invite banner (when not yet joined) */}
       {!ltActive && <ListenTogetherInvite />}
@@ -168,21 +200,9 @@ export function VoiceChannel() {
         <NowPlayingPanel onClose={() => setNowPlayingExpanded(false)} />
       )}
 
-      {/* Main content area */}
+      {/* Stage: grid / focus / screen share, one layout engine */}
       <div className="flex-1 overflow-hidden p-2">
-        {screenSharerPubkey ? (
-          // Screen share mode: full-width screen + sidebar tiles
-          <ScreenShareView
-            screenSharerPubkey={screenSharerPubkey}
-            participants={sortedParticipants}
-          />
-        ) : (isVideoChannel || hasVideoParticipants) ? (
-          // Video grid: all participants in adaptive grid with video
-          <VideoGrid participants={sortedParticipants} showLocal />
-        ) : (
-          // Voice-only: avatar tiles in a grid
-          <VideoGrid participants={sortedParticipants} showLocal />
-        )}
+        <VoiceStage />
       </div>
 
       {/* Controls bar */}

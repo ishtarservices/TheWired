@@ -113,7 +113,7 @@ cd client/src-tauri && cargo build   # Build Rust binary
   - `dm/` -- NIP-17 encrypted DMs, contacts, friend requests
   - `spaces/` -- NIP-29 spaces, channels, members, moderation; **three space modes** (see below)
   - `music/` -- Music library, player, upload (kinds 31683/33123/30119)
-  - `voice/` + `calling/` -- LiveKit voice/video channels + 1:1 DM WebRTC calls
+  - `voice/` + `calling/` + `media/` -- LiveKit voice/video channels + 1:1 DM calls (SFU-first, room `dm:<roomId>`), shared `MediaStage` layout engine
   - `ai/` -- Toggleable AI assistant: engine, providers, gated tools, artifacts (see below)
   - `wallet/` -- NIP-47 NWC wallet + NIP-57 zaps
   - `longform/`, `media/`, `profile/`, `relay/`, `discover/`, `notifications/`, `settings/`, `onboarding/`
@@ -235,7 +235,7 @@ Registered in `client/src-tauri/src/lib.rs`. Grouped by module:
 - `hls.js` -- check `Hls.isSupported()` before use; Safari has native HLS
 - `idb` -- typed IndexedDB wrapper; schema in `client/src/lib/db/database.ts`
 - `nostr-tools` -- protocol utils + NIP-46 `BunkerSigner`. NOTE: `./nip04`/`./nip47` are not exported subpaths; import `nip04`/`nip47` from the package root.
-- `livekit-client` -- voice/video SFU client (`features/voice/`)
+- `livekit-client` -- voice/video SFU client; value imports ONLY in `lib/webrtc/livekitClient.ts` (type-only elsewhere) so the SDK stays lazy-loadable
 - `marked` + `highlight.js` -- AI chat markdown + code highlighting; `recharts` -- AI artifact charts (lazy-loaded, code-split — keep it out of the main bundle)
 - Tailwind v4 -- uses `@import "tailwindcss"` in CSS, NOT `@tailwind` directives
 - Vite Web Workers -- use `new Worker(new URL("...", import.meta.url), { type: "module" })`

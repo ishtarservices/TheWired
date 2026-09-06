@@ -10,12 +10,15 @@ import { NotificationToastStack } from "../features/notifications/NotificationTo
 import { WalletProvider } from "../features/wallet/WalletProvider";
 import { AIProvider } from "../features/ai/AIProvider";
 import { CallController } from "../features/calling/CallController";
-import { IncomingCallModal } from "../features/calling/IncomingCallModal";
+import { IncomingCallBanner } from "../features/calling/IncomingCallBanner";
 import { useAppSelector } from "../store/hooks";
 import { useExternalLinkHandler } from "../hooks/useExternalLinkHandler";
+import { useCallShortcuts } from "../hooks/useCallShortcuts";
+import { ScreenSharePill } from "../features/voice/ScreenSharePill";
 
 export function Layout() {
   useExternalLinkHandler();
+  useCallShortcuts();
   const [sidebarExpanded, setSidebarExpanded] = useState(true);
   const hasTrack = useAppSelector((s) => !!s.music?.player.currentTrackId);
   const hasActiveCall = useAppSelector((s) => !!s.call.activeCall);
@@ -38,7 +41,8 @@ export function Layout() {
         </div>
         {hasTrack && <FloatingPlaybackBar />}
         {hasActiveCall && <CallController />}
-        {hasIncomingCall && <IncomingCallModal />}
+        {hasIncomingCall && <IncomingCallBanner />}
+        <ScreenSharePill />
         <NotificationToastStack />
       </div>
       </UserPopoverProvider>

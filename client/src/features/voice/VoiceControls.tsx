@@ -8,15 +8,16 @@ import {
   Video,
   VideoOff,
   PhoneOff,
-  Settings,
   Music,
+  Loader2,
 } from "lucide-react";
 import { useVoiceChannel } from "./useVoiceChannel";
 import { useListenTogether } from "@/features/listenTogether/useListenTogether";
+import { DeviceMenuButton } from "./devices/DeviceMenuButton";
+import { SHORTCUT } from "@/hooks/useCallShortcuts";
 
 interface VoiceControlsProps {
   showVideo?: boolean;
-  onSettingsClick?: () => void;
   /** Permission flags — when false, the button is hidden */
   canSpeak?: boolean;
   canVideo?: boolean;
@@ -29,7 +30,6 @@ interface VoiceControlsProps {
  */
 export function VoiceControls({
   showVideo = false,
-  onSettingsClick,
   canSpeak = true,
   canVideo = true,
   canScreenShare = true,
@@ -62,7 +62,7 @@ export function VoiceControls({
           onClick={toggleVideo}
           active={localState.videoEnabled}
           icon={localState.videoEnabled ? <Video size={18} /> : <VideoOff size={18} />}
-          label={localState.videoEnabled ? "Turn off camera" : "Turn on camera"}
+          label={`${localState.videoEnabled ? "Turn off camera" : "Turn on camera"} (${SHORTCUT.camera})`}
           danger={!localState.videoEnabled}
         />
       )}
@@ -72,9 +72,21 @@ export function VoiceControls({
         <ControlButton
           onClick={toggleScreenShare}
           active={localState.screenSharing}
-          icon={<Monitor size={18} />}
-          label={localState.screenSharing ? "Stop sharing" : "Share screen"}
-          accent={localState.screenSharing}
+          icon={
+            localState.screenSharePending ? (
+              <Loader2 size={18} className="animate-spin" />
+            ) : (
+              <Monitor size={18} />
+            )
+          }
+          label={
+            localState.screenSharePending
+              ? "Choose a window or screen in the system picker…"
+              : localState.screenSharing
+                ? "Stop sharing"
+                : "Share screen"
+          }
+          accent={localState.screenSharing || !!localState.screenSharePending}
         />
       )}
 
@@ -83,7 +95,7 @@ export function VoiceControls({
         onClick={toggleMute}
         active={!localState.muted}
         icon={localState.muted ? <MicOff size={18} /> : <Mic size={18} />}
-        label={localState.muted ? (canSpeak ? "Unmute" : "No speak permission") : "Mute"}
+        label={`${localState.muted ? (canSpeak ? "Unmute" : "No speak permission") : "Mute"} (${SHORTCUT.mute})`}
         danger={localState.muted}
       />
 
@@ -92,20 +104,12 @@ export function VoiceControls({
         onClick={toggleDeafen}
         active={!localState.deafened}
         icon={localState.deafened ? <HeadphoneOff size={18} /> : <Headphones size={18} />}
-        label={localState.deafened ? "Undeafen" : "Deafen"}
+        label={`${localState.deafened ? "Undeafen" : "Deafen"} (${SHORTCUT.deafen})`}
         danger={localState.deafened}
       />
 
-      {/* Settings */}
-      {onSettingsClick && (
-        <button
-          onClick={onSettingsClick}
-          className="rounded-full p-2.5 text-soft hover:bg-card-hover hover:text-heading transition-colors"
-          title="Voice settings"
-        >
-          <Settings size={18} />
-        </button>
-      )}
+      {/* Devices (mic / speaker / camera) */}
+      <DeviceMenuButton className="p-2.5" hideCamera={!showVideo} />
 
       {/* Disconnect — always red */}
       <button

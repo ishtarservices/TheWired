@@ -16,7 +16,9 @@ import {
   isRemoteAudioOutputMuted,
   clearRemoteAudio,
   attachedRemoteAudioCount,
+  attachedElementsFor,
 } from "../remoteAudio";
+import { setParticipantAudio, __resetMediaPrefsForTests } from "../mediaPrefs";
 
 interface FakeTrack {
   kind: string;
@@ -104,5 +106,52 @@ describe("remoteAudio registry", () => {
     expect(attachedRemoteAudioCount()).toBe(0);
     // Next room starts clean — mirrors voiceSlice.disconnectRoom
     expect(isRemoteAudioOutputMuted()).toBe(false);
+  });
+});
+
+describe("per-participant volume / local mute", () => {
+  const PK = "a".repeat(64);
+
+  beforeEach(() => {
+    __resetMediaPrefsForTests();
+    clearRemoteAudio();
+  });
+
+  it("applies a stored volume + mute to a late-attached track", () => {
+    setParticipantAudio(PK, { volume: 0.4, muted: true });
+    const t = fakeTrack("audio");
+    attachRemoteAudio(asTrack(t), PK);
+    expect(t.el.volume).toBeCloseTo(0.4);
+    expect(t.el.muted).toBe(true);
+  });
+
+  it("live changes reach already-attached elements of that participant only", () => {
+    const a = fakeTrack("audio");
+    const b = fakeTrack("audio");
+    attachRemoteAudio(asTrack(a), PK);
+    attachRemoteAudio(asTrack(b), "b".repeat(64));
+    setParticipantAudio(PK, { volume: 0.25 });
+    expect(a.el.volume).toBeCloseTo(0.25);
+    expect(b.el.volume).toBe(1);
+  });
+
+  it("deafen wins over a participant unmute; undeafen restores the local mute", () => {
+    const t = fakeTrack("audio");
+    attachRemoteAudio(asTrack(t), PK);
+    setRemoteAudioOutputMuted(true);
+    setParticipantAudio(PK, { muted: false });
+    expect(t.el.muted).toBe(true);
+    setParticipantAudio(PK, { muted: true });
+    setRemoteAudioOutputMuted(false);
+    expect(t.el.muted).toBe(true);
+    setParticipantAudio(PK, { muted: false });
+    expect(t.el.muted).toBe(false);
+  });
+
+  it("attachedElementsFor lists a participant's elements", () => {
+    const t = fakeTrack("audio");
+    attachRemoteAudio(asTrack(t), PK);
+    expect(attachedElementsFor(PK)).toEqual([t.el]);
+    expect(attachedElementsFor("c".repeat(64))).toEqual([]);
   });
 });

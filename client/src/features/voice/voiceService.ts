@@ -1,5 +1,11 @@
 import { store } from "@/store";
-import { setConnecting, setConnectedRoom, disconnectRoom } from "@/store/slices/voiceSlice";
+import {
+  setConnecting,
+  setConnectedRoom,
+  disconnectRoom,
+  setMuted,
+  setMediaError,
+} from "@/store/slices/voiceSlice";
 import { fetchVoiceToken } from "@/lib/api/voice";
 import { api } from "@/lib/api/client";
 import {
@@ -10,7 +16,35 @@ import {
   setScreenShareEnabled,
 } from "@/lib/webrtc/livekitClient";
 import { setRemoteAudioOutputMuted } from "@/lib/webrtc/remoteAudio";
+import { describeMediaError } from "@/lib/webrtc/mediaDevices";
 import { publishRoomPresence, clearRoomPresence } from "@/lib/nostr/roomPresence";
+
+/**
+ * Enable the mic, surfacing failure instead of swallowing it. Before this
+ * a denied/busy microphone (Windows: permission prompt dismissed, or another
+ * app holding the device) left the user in the room, shown as unmuted, and
+ * silent — they only found out from the other side.
+ */
+async function enableMicrophoneOrExplain(): Promise<boolean> {
+  try {
+    await setMicrophoneEnabled(true);
+    store.dispatch(setMediaError(null));
+    return true;
+  } catch (err) {
+    const msg = describeMediaError(err, "microphone");
+    console.warn("[voice] Could not enable mic:", msg);
+    store.dispatch(setMuted(true));
+    store.dispatch(setMediaError(msg));
+    return false;
+  }
+}
+
+/** "Retry mic" action for the media-error banner. */
+export async function retryMicrophone(): Promise<void> {
+  if (await enableMicrophoneOrExplain()) {
+    store.dispatch(setMuted(false));
+  }
+}
 
 /**
  * Join a voice channel in a space.
@@ -37,10 +71,10 @@ export async function joinVoiceChannel(
     // Connect to LiveKit room
     await connectToRoom(url, token);
 
-    // Enable microphone after connecting (non-blocking — may fail on insecure contexts)
-    setMicrophoneEnabled(true).catch((err) => {
-      console.warn("[voice] Could not enable mic:", err.message);
-    });
+    // Enable microphone after connecting. Awaited so the OS permission
+    // prompt happens under the "Connecting…" state; failure is surfaced
+    // (banner + muted) rather than swallowed.
+    await enableMicrophoneOrExplain();
 
     // Update Redux state
     store.dispatch(
@@ -58,8 +92,24 @@ export async function joinVoiceChannel(
     });
   } catch (err) {
     store.dispatch(disconnectRoom());
+    // disconnectRoom resets mediaError — set it AFTER so the pre-join view
+    // can show why the join failed instead of an unhandled rejection.
+    store.dispatch(setMediaError(describeJoinError(err)));
     throw err;
   }
+}
+
+/** Readable reason for a failed join (LiveKit unreachable is the common one). */
+function describeJoinError(err: unknown): string {
+  const name = (err as { name?: string } | null)?.name ?? "";
+  const message = (err as { message?: string } | null)?.message ?? String(err);
+  if (name === "ConnectionError" || /pc connection|connect to|websocket/i.test(message)) {
+    return "Could not connect to the voice server. Check that LiveKit is running and reachable (media ports 7881/7882), then try again.";
+  }
+  if (/403|forbidden|permission/i.test(message)) {
+    return "You don't have permission to join this channel.";
+  }
+  return `Could not join: ${message}`;
 }
 
 /**
@@ -105,10 +155,13 @@ export async function toggleCamera(): Promise<void> {
 }
 
 /**
- * Toggle screen sharing on/off.
- * Note: Redux state is toggled *before* this is called.
+ * Start/stop screen sharing. Starting opens the OS picker and resolves only
+ * once the user picked something (or rejects with NotAllowedError on
+ * cancel) — callers should mark the share live AFTER this resolves, not
+ * before, or the UI claims "you're sharing" while the picker is still up.
+ * With no argument, applies the current Redux flag (used by the stop pill).
  */
-export async function toggleScreenShare(): Promise<void> {
-  const { screenSharing } = store.getState().voice.localState;
-  await setScreenShareEnabled(screenSharing);
+export async function toggleScreenShare(enabled?: boolean): Promise<void> {
+  const target = enabled ?? store.getState().voice.localState.screenSharing;
+  await setScreenShareEnabled(target);
 }
