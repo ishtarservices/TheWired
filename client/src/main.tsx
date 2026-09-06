@@ -6,12 +6,17 @@ import App from "./app/App";
 import { initZoom } from "./lib/zoom";
 import { installWiredDebug } from "./lib/debug/logger";
 import { startPerfMonitor } from "./lib/debug/perfMonitor";
+import { installAudioUnlock } from "./lib/audio/unlockAudio";
 // Side-effect import: registers wiredDebug.calls() (lazy-loads the call stack on use)
 import "./lib/debug/callTracker";
 import "./index.css";
 
 // Apply persisted zoom synchronously before render to avoid layout flash.
 initZoom();
+
+// Resume the shared AudioContext on the first gesture so call sounds
+// (incoming ring in particular) are audible under WebView2's autoplay policy.
+installAudioUnlock();
 
 // Diagnostic logging is OFF by default (warn/error still print). Install the
 // console API and, in dev, drop a single discovery hint. Turn it on when needed

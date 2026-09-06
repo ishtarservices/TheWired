@@ -2,10 +2,11 @@ import { describe, it, expect, beforeAll, beforeEach } from "vitest";
 import { sql, eq } from "drizzle-orm";
 import { db } from "../../src/db/connection.js";
 import { spaces } from "../../src/db/schema/spaces.js";
-import { spaceActivityDaily } from "../../src/db/schema/analytics.js";
+import { spaceActivityDaily, memberEngagement } from "../../src/db/schema/analytics.js";
 import {
   refreshRollingStats,
   runDailyAggregation,
+  mergeMemberEngagement,
 } from "../../src/workers/analyticsAggregator.js";
 import { LUNA, MARCUS } from "../helpers/testUsers.js";
 
@@ -50,12 +51,14 @@ async function insertRelayEvent(opts: {
   pubkey: string;
   hTag: string;
   createdAt: number;
+  tags?: string[][];
 }) {
   eventSeq += 1;
   const id = `analytics-test-event-${eventSeq}`.padEnd(64, "0");
   await db.execute(
     sql`INSERT INTO relay.events (id, pubkey, kind, tags, content, created_at, sig, h_tag)
-        VALUES (${id}, ${opts.pubkey}, ${opts.kind}, '[]'::jsonb, '', ${opts.createdAt}, ${"0".repeat(128)}, ${opts.hTag})`,
+        VALUES (${id}, ${opts.pubkey}, ${opts.kind}, ${JSON.stringify(opts.tags ?? [])}::jsonb, '',
+                ${opts.createdAt}, ${"0".repeat(128)}, ${opts.hTag})`,
   );
 }
 
@@ -155,6 +158,187 @@ describe("runDailyAggregation", () => {
     expect(await getSpaceStats("analytics-daily")).toEqual({
       messagesLast24h: 7,
       activeMembers24h: 7,
+    });
+  });
+});
+
+/**
+ * `reactions_received` used to have two writers that disagreed: the ingest path
+ * incremented it per kind:7, while this rollup rewrote the row's other columns
+ * around it — so nothing owned the value and a replayed reaction inflated it
+ * permanently. The daily rollup is now the authority for all three columns.
+ */
+describe("mergeMemberEngagement", () => {
+  const activity = (spaceId: string, pubkey: string, messages: number, given: number) => ({
+    h_tag: spaceId,
+    pubkey,
+    message_count: messages,
+    reaction_count: given,
+  });
+  const received = (spaceId: string, pubkey: string, count: number) => ({
+    h_tag: spaceId,
+    pubkey,
+    reactions_received: count,
+  });
+
+  it("merges both aggregates onto one row per space/pubkey", () => {
+    const rows = mergeMemberEngagement(
+      [activity("s1", "luna", 4, 2)],
+      [received("s1", "luna", 7)],
+    );
+
+    expect(rows).toEqual([
+      { spaceId: "s1", pubkey: "luna", messageCount: 4, reactionsGiven: 2, reactionsReceived: 7 },
+    ]);
+  });
+
+  it("includes members who only RECEIVED reactions and authored nothing", () => {
+    // The case an inner join would silently drop.
+    const rows = mergeMemberEngagement([activity("s1", "luna", 1, 1)], [received("s1", "sage", 3)]);
+
+    expect(rows).toHaveLength(2);
+    expect(rows.find((r) => r.pubkey === "sage")).toEqual({
+      spaceId: "s1",
+      pubkey: "sage",
+      messageCount: 0,
+      reactionsGiven: 0,
+      reactionsReceived: 3,
+    });
+  });
+
+  it("zeroes reactions_received for a member who received none", () => {
+    const [row] = mergeMemberEngagement([activity("s1", "luna", 2, 0)], []);
+    expect(row.reactionsReceived).toBe(0);
+  });
+
+  it("keeps the same pubkey in two spaces apart", () => {
+    const rows = mergeMemberEngagement(
+      [activity("s1", "luna", 1, 0), activity("s2", "luna", 5, 0)],
+      [received("s2", "luna", 9)],
+    );
+
+    expect(rows.find((r) => r.spaceId === "s1")!.reactionsReceived).toBe(0);
+    expect(rows.find((r) => r.spaceId === "s2")!.reactionsReceived).toBe(9);
+  });
+
+  it("drops rows with no space or no pubkey", () => {
+    expect(
+      mergeMemberEngagement(
+        [activity("", "luna", 1, 1), activity("s1", "", 1, 1)],
+        [received("", "luna", 1)],
+      ),
+    ).toEqual([]);
+  });
+
+  it("returns nothing for empty input", () => {
+    expect(mergeMemberEngagement([], [])).toEqual([]);
+  });
+});
+
+describe("runDailyAggregation — member_engagement", () => {
+  function yesterday() {
+    const todayUtcMidnight = new Date();
+    todayUtcMidnight.setUTCHours(0, 0, 0, 0);
+    const dayEnd = Math.floor(todayUtcMidnight.getTime() / 1000);
+    return { dayStart: dayEnd - 86_400, dayEnd };
+  }
+
+  async function engagementFor(spaceId: string) {
+    return db
+      .select()
+      .from(memberEngagement)
+      .where(eq(memberEngagement.spaceId, spaceId));
+  }
+
+  it("recomputes reactions_received from relay.events", async () => {
+    const { dayStart } = yesterday();
+    await seedSpace("engagement-recompute");
+
+    // MARCUS reacts twice to LUNA; the `p` tag names the recipient, matching
+    // what ingestHandlers.indexReaction reads.
+    for (const offset of [10, 20]) {
+      await insertRelayEvent({
+        kind: 7,
+        pubkey: MARCUS.pubkey,
+        hTag: "engagement-recompute",
+        createdAt: dayStart + offset,
+        tags: [["e", "some-note"], ["p", LUNA.pubkey]],
+      });
+    }
+
+    await runDailyAggregation();
+
+    const rows = await engagementFor("engagement-recompute");
+    const luna = rows.find((r) => r.pubkey === LUNA.pubkey);
+    const marcus = rows.find((r) => r.pubkey === MARCUS.pubkey);
+
+    // LUNA authored nothing that day but still gets a row for what she received.
+    expect(luna).toMatchObject({ messageCount: 0, reactionsGiven: 0, reactionsReceived: 2 });
+    expect(marcus).toMatchObject({ reactionsGiven: 2, reactionsReceived: 0 });
+  });
+
+  it("corrects an inflated value left behind by the incremental ingest path", async () => {
+    const { dayStart } = yesterday();
+    const dateStr = new Date(dayStart * 1000).toISOString().split("T")[0];
+    await seedSpace("engagement-correct");
+
+    await insertRelayEvent({
+      kind: 7,
+      pubkey: MARCUS.pubkey,
+      hTag: "engagement-correct",
+      createdAt: dayStart + 10,
+      tags: [["e", "some-note"], ["p", LUNA.pubkey]],
+    });
+
+    // Stand in for a replayed reaction the live path counted several times.
+    await db.insert(memberEngagement).values({
+      spaceId: "engagement-correct",
+      pubkey: LUNA.pubkey,
+      date: dateStr,
+      messageCount: 0,
+      reactionsGiven: 0,
+      reactionsReceived: 99,
+    });
+
+    await runDailyAggregation();
+
+    const [luna] = (await engagementFor("engagement-correct")).filter(
+      (r) => r.pubkey === LUNA.pubkey,
+    );
+    expect(luna.reactionsReceived).toBe(1);
+  });
+
+  it("is idempotent across repeated runs", async () => {
+    const { dayStart } = yesterday();
+    await seedSpace("engagement-idempotent");
+
+    await insertRelayEvent({
+      kind: 9,
+      pubkey: LUNA.pubkey,
+      hTag: "engagement-idempotent",
+      createdAt: dayStart + 10,
+    });
+    await insertRelayEvent({
+      kind: 7,
+      pubkey: MARCUS.pubkey,
+      hTag: "engagement-idempotent",
+      createdAt: dayStart + 20,
+      tags: [["e", "some-note"], ["p", LUNA.pubkey]],
+    });
+
+    await runDailyAggregation();
+    await runDailyAggregation();
+
+    const rows = await engagementFor("engagement-idempotent");
+    expect(rows.find((r) => r.pubkey === LUNA.pubkey)).toMatchObject({
+      messageCount: 1,
+      reactionsGiven: 0,
+      reactionsReceived: 1,
+    });
+    expect(rows.find((r) => r.pubkey === MARCUS.pubkey)).toMatchObject({
+      messageCount: 0,
+      reactionsGiven: 1,
+      reactionsReceived: 0,
     });
   });
 });

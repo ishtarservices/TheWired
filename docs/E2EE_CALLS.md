@@ -9,9 +9,12 @@ LiveKit stack have encryption to the SFU on? What about E2EE?"*
 |---|---|---|
 | Client ↔ SFU media (voice channels, 1:1 "Relayed") | ✅ always — WebRTC mandates DTLS-SRTP | ❌ the SFU decrypts SRTP and re-encrypts per subscriber; it sees plaintext frames |
 | LiveKit signaling WS | ✅ wss in prod (Caddy) | n/a |
-| 1:1 P2P calls | ✅ DTLS-SRTP peer-to-peer | ✅ **already E2E** — no middlebox; TURN (if used) sees only ciphertext |
-| Call signaling (kind:25050 SDP/ICE) | ✅ NIP-44 to the partner | ✅ |
+| 1:1 calls (SFU-first since the call overhaul; the P2P path was removed) | ✅ DTLS-SRTP to the SFU | ❌ same as channels — **Phase 1 below closes this** |
 | Call invites (room secret) | ✅ NIP-17 gift wrap | ✅ |
+
+> Update: 1:1 calls now always run through LiveKit (`dm:<roomId>`); the
+> invite still carries `roomSecretKey`, so Phase 1 applies unchanged and is
+> now the path to E2EE for every call, not just the fallback.
 
 So "encryption to the SFU" is already on by protocol. The gap is that the SFU
 itself (and whoever operates it) can read media frames. LiveKit's frame-level

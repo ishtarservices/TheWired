@@ -295,7 +295,7 @@ TheWiredV1/
 │   │   │   ├── lightning/         # NIP-57 zaps, LNURL, NIP-47 NWC client
 │   │   │   ├── relay/             # Embedded relay control (in-process Tauri relay)
 │   │   │   └── nostr/             # Protocol: relay, subscription, event pipeline, signers (NIP-07 / Tauri / NIP-46),
-│   │   │                          #   NIP-44, gift wrap, follow list, signing queue, callSignaling, NIP-17 rooms
+│   │   │                          #   NIP-44, gift wrap, follow list, signing queue, NIP-17 rooms
 │   │   ├── store/                 # Redux store + 20 slices
 │   │   ├── styles/                # Theme engine presets, color tokens
 │   │   ├── types/                 # TypeScript types
@@ -596,16 +596,19 @@ Real-time voice and video via LiveKit SFU, plus 1:1 DM WebRTC calls.
 
 **Client -- Voice/Video Channels (spaces):**
 - `voice` and `video` channel types added to `SpaceChannelType`
-- `VoiceChannel.tsx`, `VideoGrid.tsx`, `VoiceControls.tsx`, `ParticipantTile.tsx`, `ScreenShareView.tsx`
-- `useVoiceChannel`, `useMediaDevices`, `useScreenShare`, `useVoiceRoomPresence` hooks
-- `PreJoinModal` for device selection before joining
+- `VoiceChannel.tsx`, `VoiceStage.tsx`, `VoiceControls.tsx` on the shared `features/media/` stage
+  (`MediaStage`, fitted `computeGridLayout`, focus/pin, screen-share tiles, stable tile order)
+- `useVoiceChannel`, `useVoiceTiles`, `useVoiceRoomPresence` hooks; `devices/` (mic/camera/speaker
+  picker, persisted in `lib/webrtc/mediaPrefs.ts`, Settings › Voice & Video)
+- Per-user volume / local mute, moderator kick + server mute from the tile toolbar
 - Keep-alive pattern: voice session persists across channel navigation
-- Voice status bar and voice channel preview
+- Voice status bar, voice channel preview, "You're sharing your screen" pill
 
-**Client -- DM Calls (1:1 WebRTC):**
-- `usePeerConnection`, `useCallSignaling` (gift-wrapped call offers over NIP-17)
-- `CallController`, `CallControls`, `IncomingCallModal`, `callRingtone`
-- Offer/answer handshake with ICE buffering, video capture capped at 640x360
+**Client -- DM Calls (1:1, SFU-first):**
+- Invite over NIP-17 gift wrap (`call_invite` with `transport: "sfu"`); both parties join the
+  private LiveKit room `dm:<roomId>` — no P2P/ICE negotiation over relays
+- `callService` (invite/answer/hangup on the shared room), `CallController` (floating / expanded /
+  minimized panel, draggable PiP), `CallControls`, `IncomingCallBanner`, `callRingtone` (ring + ringback)
 
 ### Phase 6: Blossom Blob Storage -- COMPLETE
 

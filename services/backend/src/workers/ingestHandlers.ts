@@ -12,6 +12,7 @@ import { revisionService } from "../services/revisionService.js";
 import { proposalService } from "../services/proposalService.js";
 import { eq, and, sql } from "drizzle-orm";
 import { buildMusicSearchDoc } from "../lib/musicSearchDoc.js";
+import { escapeMsFilter } from "../lib/meiliFilter.js";
 
 /**
  * Per-event ingestion context (Decentralized Spaces, M3). The multi-relay
@@ -38,11 +39,6 @@ export interface NostrEvent {
 }
 
 const redis = getRedis();
-
-/** Escape a string for use in Meilisearch filter expressions */
-function escapeMsFilter(value: string): string {
-  return value.replace(/[\\"]/g, "");
-}
 
 function getTagValue(event: NostrEvent, name: string): string | undefined {
   const tag = event.tags.find((t) => t[0] === name);
@@ -278,6 +274,15 @@ async function indexChatMessage(event: NostrEvent) {
   }
 }
 
+/**
+ * Live per-member reaction counters.
+ *
+ * Both columns written here are *provisional*: the daily rollup
+ * (analyticsAggregator.runDailyAggregation) recomputes messageCount,
+ * reactionsGiven and reactionsReceived wholesale from relay.events and is the
+ * authority for the day. These increments only keep the current day's row
+ * roughly live between rollups.
+ */
 async function indexReaction(event: NostrEvent) {
   const targetEventId = getTagValue(event, "e");
   if (!targetEventId) return;
@@ -307,14 +312,47 @@ async function indexReaction(event: NostrEvent) {
   }
 }
 
+/**
+ * Record one zap receipt against its target, exactly once.
+ *
+ * `zap_total:` / `zap_count:` are all-time counters read by the trending
+ * computer, and this handler runs on every kind:9735 the ingester sees — which
+ * is not once per receipt. Relays replay on reconnect, a receipt can arrive
+ * from more than one connection, and a backfill re-walks history, so a bare
+ * INCR permanently inflates the trending score of whatever the receipt paid
+ * for. (The space-level path avoids this by recomputing wholesale instead —
+ * see `discoveryService.rollupSpaceZaps`.)
+ *
+ * The guard is a per-target set of receipt ids: SADD reports whether the id was
+ * new, and only a genuinely new receipt moves the counters. The set carries no
+ * TTL on purpose: it has to live at least as long as the counters it guards,
+ * and those are permanent.
+ *
+ * Marking before counting means a crash between the two undercounts by one
+ * receipt. That is the correct way to fail here: an undercount is bounded and
+ * self-limiting, whereas the double-count it replaces compounds without limit.
+ *
+ * Exported for tests: replaying a receipt must leave both counters untouched.
+ */
+export async function recordZapReceipt(
+  client: ReturnType<typeof getRedis>,
+  receiptId: string,
+  targetEventId: string,
+  sats: number,
+): Promise<boolean> {
+  const isNew = await client.sadd(`zap_receipts:${targetEventId}`, receiptId);
+  if (isNew === 0) return false;
+
+  await client.incrby(`zap_total:${targetEventId}`, sats);
+  await client.incr(`zap_count:${targetEventId}`);
+  return true;
+}
+
 async function indexZapReceipt(event: NostrEvent) {
   const targetEventId = getTagValue(event, "e");
   if (!targetEventId) return;
 
-  const sats = parseZapSats(event.tags);
-
-  await redis.incrby(`zap_total:${targetEventId}`, sats);
-  await redis.incr(`zap_count:${targetEventId}`);
+  await recordZapReceipt(redis, event.id, targetEventId, parseZapSats(event.tags));
 }
 
 async function indexJoin(event: NostrEvent) {

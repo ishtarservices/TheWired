@@ -104,7 +104,6 @@ export const EVENT_KINDS = {
   /** NIP-53: Room Presence (who's in a room, hand raise, mute state) */
   ROOM_PRESENCE: 10312,
   /** NIP-RTC: WebRTC signaling (offer/answer/ICE) — ephemeral */
-  WEBRTC_SIGNAL: 25050,
   /** NIP-53: Conference Event (scheduled meeting) */
   CONFERENCE: 30313,
   /** NIP-A0: Voice Message (async voice notes, up to 60s) */

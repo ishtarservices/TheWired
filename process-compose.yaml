@@ -18,7 +18,10 @@ processes:
   # Because it's `-d`, the containers are NOT process-compose's children and survive teardown.
   # LiveKit is deliberately omitted here -- it runs natively (see the `livekit` process below).
   infra:
-    command: "docker compose up postgres redis meilisearch -d --wait"
+    # Also stop a stale Docker LiveKit: on macOS it advertises an unreachable
+    # container IP AND squats 7880/7882 so the native one below can't bind
+    # ("could not establish pc connection" on every join).
+    command: "docker compose stop livekit >/dev/null 2>&1 || true; docker compose up postgres redis meilisearch -d --wait"
     working_dir: "."
     availability:
       restart: "no"

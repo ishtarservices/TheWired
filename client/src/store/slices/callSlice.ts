@@ -1,5 +1,12 @@
 import { createSlice, type PayloadAction } from "@reduxjs/toolkit";
-import type { ActiveCall, CallInvite, CallState, CallType } from "../../types/calling";
+import type {
+  ActiveCall,
+  CallInvite,
+  CallState,
+  CallType,
+  CallPanelMode,
+  PipCorner,
+} from "../../types/calling";
 
 interface CallSliceState {
   /** Currently active call (outgoing or accepted incoming) */
@@ -19,6 +26,12 @@ interface CallSliceState {
   /** Gift-wrap IDs already processed as call events — prevents stale wraps
    *  from re-triggering rings on app restart or user switch. Persisted to IDB. */
   processedWrapIds: string[];
+  /** Call panel presentation (floating corner panel / full overlay / chip). */
+  panelMode: CallPanelMode;
+  /** Corner the local PiP sits in (floating mode). Remembered across calls. */
+  pipCorner: PipCorner;
+  /** Local and remote tiles swapped (local on the big stage). */
+  swapped: boolean;
 }
 
 const initialState: CallSliceState = {
@@ -26,6 +39,9 @@ const initialState: CallSliceState = {
   incomingCall: null,
   callHistory: [],
   processedWrapIds: [],
+  panelMode: "floating",
+  pipCorner: "br",
+  swapped: false,
 };
 
 export const callSlice = createSlice({
@@ -53,8 +69,9 @@ export const callSlice = createSlice({
         isMuted: false,
         isVideoEnabled: action.payload.callType === "video",
         isScreenSharing: false,
-        isSfuFallback: false,
       };
+      state.panelMode = "floating";
+      state.swapped = false;
     },
 
     acceptCall(state) {
@@ -63,16 +80,17 @@ export const callSlice = createSlice({
           partnerPubkey: state.incomingCall.callerPubkey,
           callType: state.incomingCall.callType,
           direction: "incoming",
-          roomId: "", // Will be derived from roomSecretKey
+          roomId: "", // Derived from roomSecretKey by the service
           roomSecretKey: state.incomingCall.roomSecretKey,
           state: "connecting",
           startedAt: Date.now(),
           isMuted: false,
           isVideoEnabled: state.incomingCall.callType === "video",
           isScreenSharing: false,
-          isSfuFallback: false,
         };
         state.incomingCall = null;
+        state.panelMode = "floating";
+        state.swapped = false;
       }
     },
 
@@ -94,6 +112,12 @@ export const callSlice = createSlice({
     setCallState(state, action: PayloadAction<CallState>) {
       if (state.activeCall) {
         state.activeCall.state = action.payload;
+        // The timer and history duration count from the moment media is
+        // up, not from when the invite went out (ringing was being billed
+        // as call time).
+        if (action.payload === "active" && state.activeCall.connectedAt === undefined) {
+          state.activeCall.connectedAt = Date.now();
+        }
       }
     },
 
@@ -112,14 +136,16 @@ export const callSlice = createSlice({
           direction: state.activeCall.direction,
           startedAt: state.activeCall.startedAt,
           endedAt: Date.now(),
-          duration: state.activeCall.state === "active"
-            ? Date.now() - state.activeCall.startedAt
+          duration: state.activeCall.connectedAt !== undefined
+            ? Date.now() - state.activeCall.connectedAt
             : 0,
           outcome,
         });
         state.activeCall = null;
       }
       state.incomingCall = null;
+      state.panelMode = "floating";
+      state.swapped = false;
     },
 
     toggleCallMute(state) {
@@ -140,10 +166,29 @@ export const callSlice = createSlice({
       }
     },
 
-    setSfuFallback(state, action: PayloadAction<boolean>) {
+    setCallScreenSharing(state, action: PayloadAction<boolean>) {
       if (state.activeCall) {
-        state.activeCall.isSfuFallback = action.payload;
+        state.activeCall.isScreenSharing = action.payload;
+        state.activeCall.isScreenSharePending = false;
       }
+    },
+
+    setCallScreenSharePending(state, action: PayloadAction<boolean>) {
+      if (state.activeCall) {
+        state.activeCall.isScreenSharePending = action.payload;
+      }
+    },
+
+    setPanelMode(state, action: PayloadAction<CallPanelMode>) {
+      state.panelMode = action.payload;
+    },
+
+    setPipCorner(state, action: PayloadAction<PipCorner>) {
+      state.pipCorner = action.payload;
+    },
+
+    swapCallTiles(state) {
+      state.swapped = !state.swapped;
     },
 
     clearCallHistory(state) {
@@ -186,7 +231,11 @@ export const {
   toggleCallMute,
   toggleCallVideo,
   toggleCallScreenShare,
-  setSfuFallback,
+  setCallScreenSharing,
+  setCallScreenSharePending,
+  setPanelMode,
+  setPipCorner,
+  swapCallTiles,
   clearCallHistory,
   missedCall,
   addProcessedCallWrapId,

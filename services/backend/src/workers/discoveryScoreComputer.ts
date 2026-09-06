@@ -1,4 +1,5 @@
 import { discoveryService } from "../services/discoveryService.js";
+import { startLockedInterval } from "../lib/workerLock.js";
 
 const INTERVAL_MS = 15 * 60 * 1000; // 15 minutes
 
@@ -21,14 +22,17 @@ export function startDiscoveryScoreComputer(): { stop: () => void } {
   }
 
   // Run once at startup, then on interval
-  compute();
-  const interval = setInterval(compute, INTERVAL_MS);
+  const job = startLockedInterval({
+    name: "discoveryScoreComputer",
+    intervalMs: INTERVAL_MS,
+    task: compute,
+  });
 
   console.log("[discoveryScoreComputer] Started (every 15 min)");
 
   return {
     stop: () => {
-      clearInterval(interval);
+      job.stop();
       console.log("[discoveryScoreComputer] Stopped");
     },
   };

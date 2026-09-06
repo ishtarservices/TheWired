@@ -3,6 +3,7 @@ import { trendingSnapshots } from "../db/schema/feeds.js";
 import { getRedis } from "../lib/redis.js";
 import { eq, sql } from "drizzle-orm";
 import { nanoid } from "../lib/id.js";
+import { startLockedInterval } from "../lib/workerLock.js";
 
 interface EventRow {
   id: string;
@@ -77,12 +78,15 @@ export function startTrendingComputer(): { stop: () => void } {
   }
 
   // Run every 30 minutes (was 5 min — increase when content volume grows)
-  const interval = setInterval(compute, 30 * 60 * 1000);
-  compute();
+  const job = startLockedInterval({
+    name: "trendingComputer",
+    intervalMs: 30 * 60 * 1000,
+    task: compute,
+  });
 
   return {
     stop: () => {
-      clearInterval(interval);
+      job.stop();
       console.log("[trending] Stopped");
     },
   };

@@ -11,6 +11,7 @@ import { nanoid } from "../lib/id.js";
 import { config } from "../config.js";
 import { getTranscodeQueue } from "../lib/queue.js";
 import { buildMusicSearchDoc } from "../lib/musicSearchDoc.js";
+import { escapeMsFilter } from "../lib/meiliFilter.js";
 
 const BLOB_DIR = resolve(process.cwd(), config.blobDir);
 const MAX_AUDIO_SIZE = config.maxBlobSize;
@@ -36,12 +37,6 @@ const ALLOWED_IMAGE_TYPES = new Set([
   "image/webp",
   "image/gif",
 ]);
-
-/** Escape a string for use in Meilisearch filter expressions to prevent injection */
-function escapeMsFilter(value: string): string {
-  // Remove double quotes and backslashes which could break out of filter expressions
-  return value.replace(/[\\"]/g, "");
-}
 
 async function ensureDir(dir: string) {
   await mkdir(dir, { recursive: true });

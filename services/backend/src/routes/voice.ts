@@ -276,7 +276,11 @@ export const voiceRoutes: FastifyPluginAsync = async (server) => {
     const body = validate(dmTokenBody, request.body, reply);
     if (!body) return;
 
-    const { roomId } = body;
+    const { roomId, partnerPubkey } = body;
+
+    if (partnerPubkey === pubkey) {
+      return reply.status(400).send({ error: "Cannot call yourself", code: "BAD_REQUEST" });
+    }
 
     const roomName = `dm:${roomId}`;
 

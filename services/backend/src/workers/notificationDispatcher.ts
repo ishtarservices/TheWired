@@ -3,6 +3,7 @@ import { notificationQueue, pushSubscriptions } from "../db/schema/notifications
 import { eq, and } from "drizzle-orm";
 import { config } from "../config.js";
 import * as webPush from "web-push";
+import { startLockedInterval } from "../lib/workerLock.js";
 
 let vapidConfigured = false;
 
@@ -97,15 +98,19 @@ export function startNotificationDispatcher(): { stop: () => void } {
     }
   }
 
-  // Run every 30 seconds
-  const interval = setInterval(dispatch, 30 * 1000);
-  // Delay first run by 5s
-  const initialTimeout = setTimeout(dispatch, 5000);
+  // Run every 30 seconds, first run 5s after boot. Locked because the pending
+  // query and the `sent = true` mark are separate statements: two replicas
+  // ticking together would both claim the same rows and push twice.
+  const job = startLockedInterval({
+    name: "notificationDispatcher",
+    intervalMs: 30 * 1000,
+    initialDelayMs: 5000,
+    task: dispatch,
+  });
 
   return {
     stop: () => {
-      clearInterval(interval);
-      clearTimeout(initialTimeout);
+      job.stop();
       console.log("[notifications] Stopped");
     },
   };

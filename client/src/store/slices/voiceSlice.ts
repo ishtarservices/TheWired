@@ -3,7 +3,18 @@ import type {
   VoiceParticipant,
   ConnectedRoom,
   VoiceLocalState,
+  VoiceLayoutState,
+  LayoutMode,
+  TileFit,
 } from "../../types/calling";
+
+const initialLayout = (): VoiceLayoutState => ({
+  mode: "grid",
+  focusedTileId: null,
+  pinnedTileId: null,
+  autoFocusSpeaker: false,
+  fitOverrides: {},
+});
 
 /** Presence info for a voice room (from API polling, visible to all space members) */
 export interface RoomPresenceInfo {
@@ -33,6 +44,16 @@ interface VoiceState {
   serverUrl: string | null;
   /** Room presence data from API (keyed by channelId, visible to all members) */
   roomPresence: Record<string, RoomPresenceInfo>;
+  /** LiveKit transport state. "reconnecting" while the SDK re-establishes the
+   *  signal/media connection after a network blip — the UI shows a banner
+   *  instead of silently freezing. */
+  connectionState: "connected" | "reconnecting";
+  /** Last local media (mic/camera) failure, human-readable. Set when the
+   *  microphone could not be enabled on join so the user knows they are
+   *  silent instead of discovering it from the other side. */
+  mediaError: string | null;
+  /** Stage layout (grid / focus, pin, fit) for the connected room. */
+  layout: VoiceLayoutState;
 }
 
 const initialState: VoiceState = {
@@ -51,7 +72,19 @@ const initialState: VoiceState = {
   token: null,
   serverUrl: null,
   roomPresence: {},
+  connectionState: "connected",
+  mediaError: null,
+  layout: initialLayout(),
 };
+
+/** Drop layout references to tiles that no longer exist. */
+function clearLayoutRefs(layout: VoiceLayoutState, isGone: (id: string) => boolean): void {
+  if (layout.focusedTileId && isGone(layout.focusedTileId)) layout.focusedTileId = null;
+  if (layout.pinnedTileId && isGone(layout.pinnedTileId)) layout.pinnedTileId = null;
+  for (const id of Object.keys(layout.fitOverrides)) {
+    if (isGone(id)) delete layout.fitOverrides[id];
+  }
+}
 
 export const voiceSlice = createSlice({
   name: "voice",
@@ -81,6 +114,10 @@ export const voiceSlice = createSlice({
       state.audioPlaybackBlocked = false;
       state.token = null;
       state.serverUrl = null;
+      state.connectionState = "connected";
+      state.mediaError = null;
+      // Keep the auto-focus preference across rooms; everything else is per-room.
+      state.layout = { ...initialLayout(), autoFocusSpeaker: state.layout.autoFocusSpeaker };
       state.localState = {
         muted: false,
         deafened: false,
@@ -98,6 +135,8 @@ export const voiceSlice = createSlice({
       state.activeSpeakers = state.activeSpeakers.filter(
         (pk) => pk !== action.payload,
       );
+      const prefix = `${action.payload}:`;
+      clearLayoutRefs(state.layout, (id) => id.startsWith(prefix));
     },
 
     updateParticipant(
@@ -147,6 +186,11 @@ export const voiceSlice = createSlice({
 
     setScreenSharing(state, action: PayloadAction<boolean>) {
       state.localState.screenSharing = action.payload;
+      state.localState.screenSharePending = false;
+    },
+
+    setScreenSharePending(state, action: PayloadAction<boolean>) {
+      state.localState.screenSharePending = action.payload;
     },
 
     toggleVideo(state) {
@@ -174,6 +218,51 @@ export const voiceSlice = createSlice({
     setAudioPlaybackBlocked(state, action: PayloadAction<boolean>) {
       state.audioPlaybackBlocked = action.payload;
     },
+
+    setVoiceConnectionState(
+      state,
+      action: PayloadAction<"connected" | "reconnecting">,
+    ) {
+      state.connectionState = action.payload;
+    },
+
+    setMediaError(state, action: PayloadAction<string | null>) {
+      state.mediaError = action.payload;
+    },
+
+    // ─── Stage layout ───────────────────────────────────────────
+    setLayoutMode(state, action: PayloadAction<LayoutMode>) {
+      state.layout.mode = action.payload;
+      if (action.payload === "grid") state.layout.focusedTileId = null;
+    },
+
+    /** Enlarge a tile (null = back to grid). */
+    focusTile(state, action: PayloadAction<string | null>) {
+      state.layout.focusedTileId = action.payload;
+      state.layout.mode = action.payload ? "focus" : "grid";
+    },
+
+    /** Pin a tile to the stage (null = unpin). Pinning enters focus mode. */
+    pinTile(state, action: PayloadAction<string | null>) {
+      state.layout.pinnedTileId = action.payload;
+      if (action.payload) state.layout.mode = "focus";
+    },
+
+    toggleAutoFocusSpeaker(state) {
+      state.layout.autoFocusSpeaker = !state.layout.autoFocusSpeaker;
+      if (state.layout.autoFocusSpeaker) state.layout.mode = "focus";
+    },
+
+    setTileFit(state, action: PayloadAction<{ id: string; fit: TileFit }>) {
+      if (action.payload.fit === "cover") delete state.layout.fitOverrides[action.payload.id];
+      else state.layout.fitOverrides[action.payload.id] = action.payload.fit;
+    },
+
+    /** Called by the stage when tiles vanish (e.g. a screen share ends). */
+    clearTileRefs(state, action: PayloadAction<string[]>) {
+      const gone = new Set(action.payload);
+      clearLayoutRefs(state.layout, (id) => gone.has(id));
+    },
   },
 });
 
@@ -190,9 +279,18 @@ export const {
   toggleDeafen,
   toggleScreenShare,
   setScreenSharing,
+  setScreenSharePending,
   toggleVideo,
   setVideoEnabled,
   setConnectionQuality,
   setRoomPresence,
   setAudioPlaybackBlocked,
+  setVoiceConnectionState,
+  setMediaError,
+  setLayoutMode,
+  focusTile,
+  pinTile,
+  toggleAutoFocusSpeaker,
+  setTileFit,
+  clearTileRefs,
 } = voiceSlice.actions;

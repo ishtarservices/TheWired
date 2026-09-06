@@ -1116,16 +1116,26 @@ Two independent real-time paths:
 - `SpaceChannelType` extended with `"voice" | "video"`
 - `services/backend/src/services/livekitService.ts` issues JWT tokens scoped to a room (space/channel ID) and pubkey
 - `POST /voice/token` returns a token; client connects `livekit-client` to `ws://livekit:7880`
-- `VoiceChannel.tsx` manages LiveKit Room, `ParticipantTile` renders tracks, `ScreenShareView` handles screen share
+- `VoiceChannel.tsx` hosts `VoiceStage` → `features/media/MediaStage` (pure `computeGridLayout` /
+  `computeFocusLayout`, `MediaTile` + `VideoSurface` as the single attach point, stable tile order,
+  screen shares as tiles, sharer sees a placeholder card instead of their own capture)
+- Devices: `lib/webrtc/mediaPrefs.ts` (persisted mic/camera/speaker + AEC/NS/AGC) is applied on
+  connect and live via `room.switchActiveDevice`; per-participant volume/local mute lives in
+  `lib/webrtc/remoteAudio.ts`
 - `useVoiceRoomPresence` publishes kind:30311-style presence for UI badges
 - Keep-alive pattern in `ChannelPanel` keeps the session alive while browsing other channels
 - `config/livekit.yaml` configures the LiveKit SFU (dev key/secret; prod uses real credentials)
 
-**1:1 DM WebRTC calls:**
-- `client/src/lib/nostr/callSignaling.ts` wraps offer/answer/ICE exchange in NIP-17 gift wraps
-- `usePeerConnection` owns the `RTCPeerConnection`; `useCallSignaling` handles signaling with ICE buffering until the remote description is set
-- `CallController` orchestrates the call state machine; `IncomingCallModal` + `callRingtone` handle ringing
-- Video capture capped at 640x360 by default to reduce bandwidth (see `callService.ts`)
+**1:1 DM calls (SFU-first):**
+- The invite (`call_invite` gift wrap, `transport: "sfu"`) carries a fresh room secret; its pubkey
+  names the private LiveKit room `dm:<roomId>` (backend `POST /voice/dm-token`, `maxParticipants: 2`)
+- The caller joins the room immediately (ringing); the callee joins on accept; `ParticipantConnected`
+  of the partner = active; leaving the room = hangup (peer sees `ParticipantDisconnected`).
+  `call_decline` / `call_missed` gift wraps cover the pre-join cases
+- `callService.ts` owns the flow via `livekitClient.addRoomListener`; `CallController` renders the
+  floating / expanded / minimized panel on the same `MediaStage`; `IncomingCallBanner` is non-blocking
+- P2P (kind:25050) was removed: no TURN, no renegotiation, and 15–30s of "Connecting…" before fallback.
+  The room secret is retained for frame-level E2EE (docs/E2EE_CALLS.md)
 
 ## 7.10 Discover Subsystem
 
@@ -1677,8 +1687,8 @@ aiConversationStore.ts (IndexedDB v2: aiConversations + aiMessages, per-account)
 | `client/src/lib/nostr/subscriptionManager.ts` | REQ/CLOSE/EOSE lifecycle, filter construction, dedup integration. |
 | `client/src/lib/nostr/eventPipeline.ts` | Dedup → validate → verify → dispatch + feature routing (DMs, friends, music, notifications). |
 | `client/src/lib/nostr/signer.ts` + `nip07Signer.ts` + `tauriSigner.ts` | Signer abstraction; NIP-07 browser + Tauri keystore backends. |
-| `client/src/lib/nostr/giftWrap.ts` + `nip44.ts` | NIP-17 gift wrap crypto (used by DMs, friend requests, call signaling). |
-| `client/src/lib/nostr/callSignaling.ts` | WebRTC offer/answer/ICE over NIP-17 for DM calls. |
+| `client/src/lib/nostr/giftWrap.ts` + `nip44.ts` | NIP-17 gift wrap crypto (used by DMs, friend requests, call invites). |
+| `client/src/lib/webrtc/livekitClient.ts` | The only `livekit-client` value-import site: room lifecycle, device switching, track lookups, room listeners. |
 | `client/src/lib/nostr/nip46Signer.ts` | NIP-46 bunker signer over nostr-tools `BunkerSigner`. |
 | `client/src/lib/lightning/{nwcClient,zap,lnurl}.ts` | NIP-47 NWC client + NIP-57 zap/LNURL helpers. |
 | `client/src/lib/relay/embeddedRelay.ts` | Control surface for the in-process Tauri relay. |

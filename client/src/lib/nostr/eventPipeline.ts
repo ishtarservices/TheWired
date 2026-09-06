@@ -37,8 +37,7 @@ import { followUser } from "./follow";
 import { setIncomingCall, missedCall, endCall, addProcessedCallWrapId } from "../../store/slices/callSlice";
 import { addEmojiSet, setUserEmojis, setSpaceEmojiSets } from "../../store/slices/emojiSlice";
 import { parseEmojiSetEvent, parseUserEmojiListEvent } from "../../features/emoji/emojiSetParser";
-import { parseRTCSignal } from "./callSignaling";
-import type { CallType } from "../../types/calling";
+import type { CallType, CallTransport } from "../../types/calling";
 import { scheduleMemberSync } from "../../store/thunks/spaceMembers";
 import {
   applyNativeGroupEvent,
@@ -421,13 +420,6 @@ async function processIncomingEvent(
     if (!deps.decryptQueue.submit(event)) {
       dedup.unmarkSeen(event.id);
     }
-    return;
-  }
-
-  // Handle WebRTC signaling events (kind:25050) — ephemeral, don't store
-  if (event.kind === EVENT_KINDS.WEBRTC_SIGNAL) {
-    dispatch(incrementEventCount(relayUrl));
-    handleWebRTCSignal(event);
     return;
   }
 
@@ -1470,9 +1462,18 @@ function handleCallInviteWrap(
       roomSecretKey: string;
       callType: CallType;
       callerName: string;
+      transport?: CallTransport;
     };
 
-    callLog.info(`incoming invite from=${shortKey(dm.sender)} type=${payload.callType}`);
+    callLog.info(
+      `incoming invite from=${shortKey(dm.sender)} type=${payload.callType} transport=${payload.transport ?? "legacy"}`,
+    );
+    if (payload.transport !== "sfu") {
+      // Older clients expected P2P (kind:25050) signaling, which this build
+      // no longer speaks. Ring anyway — the caller may also have updated —
+      // but say so in the log so a "connecting forever" report is explainable.
+      callLog.warn(`invite from ${shortKey(dm.sender)} has no sfu transport — legacy caller?`);
+    }
 
     dispatch(
       setIncomingCall({
@@ -1481,6 +1482,7 @@ function handleCallInviteWrap(
         callType: payload.callType,
         callerName: payload.callerName,
         timestamp: Date.now(),
+        transport: payload.transport,
       }),
     );
   } catch {
@@ -1570,44 +1572,6 @@ function handleDMDeleteWrap(
       wrapId: dm.wrapId,
     }),
   );
-}
-
-/** Handle an incoming WebRTC signaling event (kind:25050) */
-async function handleWebRTCSignal(event: NostrEvent): Promise<void> {
-  const myPubkey = getState().identity.pubkey;
-  if (!myPubkey || event.pubkey === myPubkey) return;
-
-  // Only process signals addressed to us
-  const recipientTag = event.tags.find((t) => t[0] === "p")?.[1];
-  if (recipientTag && recipientTag !== myPubkey) return;
-
-  // #6 defense-in-depth: gate on the active call BEFORE decrypting.
-  // parseRTCSignal runs a NIP-44 decrypt through the signer — on NIP-46
-  // that's a bunker round-trip per event, so forged ciphertexts would be
-  // a cheap way to spam the user with approval prompts/latency.
-  const activeCall = getState().call.activeCall;
-  if (!activeCall || event.pubkey !== activeCall.partnerPubkey) {
-    callLog.debug(
-      `kind:25050 dropped pre-decrypt (${!activeCall ? "no active call" : "non-partner sender"}) from=${shortKey(event.pubkey)}`,
-    );
-    return;
-  }
-  const roomTag = event.tags.find((t) => t[0] === "r")?.[1];
-  if (roomTag !== activeCall.roomId) {
-    callLog.debug(`kind:25050 dropped pre-decrypt (wrong room) from=${shortKey(event.pubkey)}`);
-    return;
-  }
-
-  try {
-    const signal = await parseRTCSignal(event);
-    if (!signal) return;
-
-    // Dynamically import to avoid circular dependencies
-    const { handleRTCSignal } = await import("../../features/calling/callService");
-    handleRTCSignal(signal);
-  } catch (err) {
-    console.debug("[webrtc] Signal processing failed:", (err as Error)?.message ?? err);
-  }
 }
 
   return {

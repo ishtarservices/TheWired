@@ -1,4 +1,5 @@
 import { getMeilisearchClient } from "../lib/meilisearch.js";
+import { escapeMsFilter } from "../lib/meiliFilter.js";
 
 /** Sort fields a people query may order by. Allowlisted — never pass user input through. */
 const PEOPLE_SORT_FIELDS = new Set(["note_count"]);
@@ -89,8 +90,8 @@ export const searchService = {
     const client = getMeilisearchClient();
     const limit = opts?.limit ?? 20;
     const filters: string[] = [];
-    if (opts?.genre) filters.push(`genre = "${opts.genre}"`);
-    if (opts?.hashtag) filters.push(`hashtags = "${opts.hashtag}"`);
+    if (opts?.genre) filters.push(`genre = "${escapeMsFilter(opts.genre)}"`);
+    if (opts?.hashtag) filters.push(`hashtags = "${escapeMsFilter(opts.hashtag)}"`);
     const filterStr = filters.length > 0 ? filters.join(" AND ") : undefined;
 
     if (opts?.type === "track") {

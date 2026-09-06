@@ -1,18 +1,35 @@
+# LiveKit SFU — reference configuration.
+#
+# Local dev uses `livekit-server --dev` (or the docker-compose.yml service
+# with --dev), which needs no file. Production passes this same shape
+# INLINE via the LIVEKIT_CONFIG environment variable in
+# docker-compose.prod.yml, because docker-compose only interpolates
+# `${VARS}` inside `environment:` — a mounted file is used verbatim.
+#
+# Networking (the part that breaks silently):
+#  - rtc.node_ip must be the host's PUBLIC IP (use_external_ip alone is not
+#    enough behind NAT/containers). Wrong value → ICE never connects.
+#  - rtc.udp_port (single muxed port) is what gets published in compose;
+#    a port_range would need every port published.
+#  - rtc.tcp_port is the ICE/TCP fallback for UDP-blocked networks.
+#  - turn.udp_port relays media for symmetric-NAT clients. TLS TURN on 443
+#    (turn.tls_port + cert_file/key_file) additionally needs its own IP or
+#    a TLS passthrough in front of it — not wired yet.
 port: 7880
 rtc:
-  port_range_start: 50000
-  port_range_end: 60000
+  udp_port: 7882
   tcp_port: 7881
   use_external_ip: true
-redis:
-  address: redis:6379
+  # node_ip: 203.0.113.10
 turn:
   enabled: true
   domain: turn.thewired.app
-  tls_port: 443
   udp_port: 3478
+  # tls_port: 5349
+  # cert_file: /certs/turn.crt
+  # key_file: /certs/turn.key
 keys:
-  devkey: ${LIVEKIT_API_SECRET:-secret}
+  devkey: secret
 logging:
   level: info
 room:

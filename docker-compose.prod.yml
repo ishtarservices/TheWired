@@ -170,13 +170,40 @@ services:
 
   livekit:
     image: livekit/livekit-server:latest
+    # The whole config is passed inline so compose interpolates the secrets
+    # (a mounted config/livekit.yaml would NOT be interpolated). See
+    # docs/PRODUCTION.md §8.4 for the networking rationale.
     environment:
-      LIVEKIT_KEYS: "devkey: ${LIVEKIT_API_SECRET:-secret}"
       LIVEKIT_LOG_LEVEL: info
-    command: --bind 0.0.0.0 --node-ip=${LIVEKIT_NODE_IP:-127.0.0.1}
+      LIVEKIT_CONFIG: |
+        port: 7880
+        rtc:
+          # One muxed UDP port + ICE over TCP for networks that block UDP.
+          udp_port: 7882
+          tcp_port: 7881
+          use_external_ip: true
+          # Publicly reachable IP of this host — REQUIRED. With 127.0.0.1
+          # every client fails ICE ("connecting forever", silent calls).
+          node_ip: ${LIVEKIT_NODE_IP:?Set LIVEKIT_NODE_IP to this host's public IP}
+        turn:
+          # Embedded TURN for symmetric-NAT clients (hotel/corporate Wi-Fi).
+          # UDP relay only; TLS TURN on 443 needs a dedicated IP + cert
+          # (see PRODUCTION.md §8.4) and is a follow-up.
+          enabled: true
+          domain: ${LIVEKIT_TURN_DOMAIN:-turn.thewired.app}
+          udp_port: 3478
+        keys:
+          ${LIVEKIT_API_KEY:-devkey}: ${LIVEKIT_API_SECRET:-secret}
+        room:
+          max_participants: 100
+          empty_timeout: 300
+        logging:
+          level: info
+    command: --bind 0.0.0.0
     ports:
-      # UDP port must be exposed to host for WebRTC
-      - "7882:7882/udp"
+      - "7881:7881/tcp"   # ICE/TCP fallback
+      - "7882:7882/udp"   # WebRTC media (muxed)
+      - "3478:3478/udp"   # TURN relay
     restart: unless-stopped
     networks:
       - backend

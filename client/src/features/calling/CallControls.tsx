@@ -7,9 +7,17 @@ import {
   MonitorOff,
   PhoneOff,
   Music,
+  Loader2,
 } from "lucide-react";
 import { useAppSelector, useAppDispatch } from "@/store/hooks";
-import { toggleCallMute, toggleCallVideo, toggleCallScreenShare } from "@/store/slices/callSlice";
+import {
+  toggleCallMute,
+  toggleCallVideo,
+  setCallScreenSharing,
+  setCallScreenSharePending,
+} from "@/store/slices/callSlice";
+import { setMediaError } from "@/store/slices/voiceSlice";
+import { describeMediaError } from "@/lib/webrtc/mediaDevices";
 import {
   hangupCall,
   setCallMuted,
@@ -18,6 +26,8 @@ import {
 } from "./callService";
 import { cn } from "@/lib/utils";
 import { useListenTogether } from "@/features/listenTogether/useListenTogether";
+import { DeviceMenuButton } from "@/features/voice/devices/DeviceMenuButton";
+import { SHORTCUT } from "@/hooks/useCallShortcuts";
 
 export function CallControls() {
   const dispatch = useAppDispatch();
@@ -49,12 +59,26 @@ export function CallControls() {
   };
 
   const handleScreenShare = async () => {
-    const next = !activeCall.isScreenSharing;
-    dispatch(toggleCallScreenShare());
+    if (activeCall.isScreenSharing) {
+      dispatch(setCallScreenSharing(false));
+      try {
+        await setCallScreenShare(false);
+      } catch {
+        dispatch(setCallScreenSharing(true));
+      }
+      return;
+    }
+    if (activeCall.isScreenSharePending) return;
+    // The OS picker is open until this resolves — only then is it live.
+    dispatch(setCallScreenSharePending(true));
     try {
-      await setCallScreenShare(next);
-    } catch {
-      dispatch(toggleCallScreenShare());
+      await setCallScreenShare(true);
+      dispatch(setCallScreenSharing(true));
+    } catch (err) {
+      dispatch(setCallScreenSharePending(false));
+      if ((err as { name?: string } | null)?.name !== "NotAllowedError") {
+        dispatch(setMediaError(describeMediaError(err, "screen")));
+      }
     }
   };
 
@@ -85,7 +109,7 @@ export function CallControls() {
             ? "bg-red-500/20 text-red-400"
             : "bg-surface-hover text-heading",
         )}
-        title={activeCall.isMuted ? "Unmute" : "Mute"}
+        title={`${activeCall.isMuted ? "Unmute" : "Mute"} (${SHORTCUT.mute})`}
       >
         {activeCall.isMuted ? <MicOff size={20} /> : <Mic size={20} />}
       </button>
@@ -100,15 +124,14 @@ export function CallControls() {
               ? "bg-red-500/20 text-red-400"
               : "bg-surface-hover text-heading",
           )}
-          title={activeCall.isVideoEnabled ? "Turn off camera" : "Turn on camera"}
+          title={`${activeCall.isVideoEnabled ? "Turn off camera" : "Turn on camera"} (${SHORTCUT.camera})`}
         >
           {activeCall.isVideoEnabled ? <Video size={20} /> : <VideoOff size={20} />}
         </button>
       )}
 
-      {/* Screen Share — SFU mode only; P2P has no renegotiation path, so a
-          button there would silently do nothing */}
-      {activeCall.isSfuFallback && (
+      {/* Screen Share */}
+      {(
         <button
           onClick={handleScreenShare}
           className={cn(
@@ -117,11 +140,26 @@ export function CallControls() {
               ? "bg-blue-500/20 text-blue-400"
               : "bg-surface-hover text-heading",
           )}
-          title={activeCall.isScreenSharing ? "Stop sharing" : "Share screen"}
+          title={
+            activeCall.isScreenSharePending
+              ? "Choose a window or screen in the system picker…"
+              : activeCall.isScreenSharing
+                ? "Stop sharing"
+                : "Share screen"
+          }
         >
-          {activeCall.isScreenSharing ? <Monitor size={20} /> : <MonitorOff size={20} />}
+          {activeCall.isScreenSharePending ? (
+            <Loader2 size={20} className="animate-spin" />
+          ) : activeCall.isScreenSharing ? (
+            <Monitor size={20} />
+          ) : (
+            <MonitorOff size={20} />
+          )}
         </button>
       )}
+
+      {/* Devices (mic / speaker / camera) */}
+      <DeviceMenuButton className="p-3" size={20} hideCamera={activeCall.callType !== "video"} />
 
       {/* Hangup */}
       <button
