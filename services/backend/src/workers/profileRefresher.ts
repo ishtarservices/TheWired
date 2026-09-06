@@ -4,6 +4,7 @@ import { getMeilisearchClient } from "../lib/meilisearch.js";
 import { profileCacheService } from "../services/profileCacheService.js";
 import { config } from "../config.js";
 import { lte } from "drizzle-orm";
+import { startLockedInterval } from "../lib/workerLock.js";
 
 /** Refresh stale cached profiles periodically */
 export function startProfileRefresher(): { stop: () => void } {
@@ -104,15 +105,17 @@ export function startProfileRefresher(): { stop: () => void } {
     ]);
   }
 
-  // Run every hour
-  const interval = setInterval(refresh, 60 * 60 * 1000);
-  // Delay first run by 30s to let relay connection establish
-  const initialTimeout = setTimeout(refresh, 30_000);
+  // Run every hour, first run 30s after boot to let the relay connection establish
+  const job = startLockedInterval({
+    name: "profileRefresher",
+    intervalMs: 60 * 60 * 1000,
+    initialDelayMs: 30_000,
+    task: refresh,
+  });
 
   return {
     stop: () => {
-      clearInterval(interval);
-      clearTimeout(initialTimeout);
+      job.stop();
       console.log("[profiles] Stopped");
     },
   };

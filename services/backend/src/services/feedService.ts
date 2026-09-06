@@ -1,6 +1,6 @@
 import { db } from "../db/connection.js";
 import { trendingSnapshots } from "../db/schema/feeds.js";
-import { eq, desc, sql } from "drizzle-orm";
+import { eq, and, desc, sql } from "drizzle-orm";
 import { getRedis } from "../lib/redis.js";
 
 export const feedService = {
@@ -17,13 +17,20 @@ export const feedService = {
       return results;
     }
 
-    const query = db
+    // Honour `kind` — the route accepts it, and snapshots are stored per kind,
+    // so an unfiltered read hands a caller asking for one kind a feed of all of
+    // them. (The genre branch above already narrows to 31683 on its own.)
+    const conditions = [eq(trendingSnapshots.period, params.period)];
+    if (params.kind !== undefined) {
+      conditions.push(eq(trendingSnapshots.kind, params.kind));
+    }
+
+    return await db
       .select()
       .from(trendingSnapshots)
-      .where(eq(trendingSnapshots.period, params.period))
+      .where(and(...conditions))
       .orderBy(desc(trendingSnapshots.score))
       .limit(params.limit);
-    return await query;
   },
 
   async getPersonalized(pubkey: string, params: { page: number; pageSize: number }) {

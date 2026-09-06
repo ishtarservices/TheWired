@@ -1,6 +1,7 @@
 import { db } from "../db/connection.js";
 import { sql } from "drizzle-orm";
 import { getMeilisearchClient } from "../lib/meilisearch.js";
+import { startLockedInterval } from "../lib/workerLock.js";
 
 const INTERVAL_MS = 30 * 60 * 1000; // 30 minutes
 /** Meilisearch document batch size — keeps a single HTTP body reasonable. */
@@ -82,14 +83,17 @@ export function startProfileStatsComputer(): { stop: () => void } {
     }
   }
 
-  compute();
-  const interval = setInterval(compute, INTERVAL_MS);
+  const job = startLockedInterval({
+    name: "profileStatsComputer",
+    intervalMs: INTERVAL_MS,
+    task: compute,
+  });
 
   console.log("[profileStats] Started (every 30 min)");
 
   return {
     stop: () => {
-      clearInterval(interval);
+      job.stop();
       console.log("[profileStats] Stopped");
     },
   };
