@@ -21,6 +21,25 @@ export interface TranscodeResult {
   loudnessI: number | null;
   /** True peak in dBTP, if measurement is enabled (currently null; deferred). */
   loudnessTp: number | null;
+  /** Source duration in seconds from ffprobe, or null if probing failed. */
+  durationSec: number | null;
+}
+
+/** Probe a source file's duration in seconds via ffprobe. Null on any failure —
+ *  duration is metadata, never worth failing a transcode over. */
+export async function probeDurationSec(inputPath: string): Promise<number | null> {
+  try {
+    const { stdout } = await execFileAsync("ffprobe", [
+      "-v", "error",
+      "-show_entries", "format=duration",
+      "-of", "default=noprint_wrappers=1:nokey=1",
+      inputPath,
+    ]);
+    const dur = parseFloat(stdout.trim());
+    return Number.isFinite(dur) && dur > 0 ? dur : null;
+  } catch {
+    return null;
+  }
 }
 
 // Minimal, deterministic audio-only HLS master playlist. Two variants at
@@ -87,5 +106,6 @@ export async function transcodeAudio(input: TranscodeInput): Promise<TranscodeRe
     hlsRelPath: `hls/${sha256}/master.m3u8`,
     loudnessI: null,
     loudnessTp: null,
+    durationSec: await probeDurationSec(inputPath),
   };
 }

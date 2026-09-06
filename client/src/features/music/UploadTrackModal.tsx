@@ -5,6 +5,7 @@ import { useAppSelector } from "@/store/hooks";
 import { uploadAudio, uploadCoverArt } from "@/lib/api/music";
 import { buildTrackEvent, buildPrivateTrackEvent } from "./musicEventBuilder";
 import { signAndPublish, signAndSaveLocally } from "@/lib/nostr/publish";
+import { spacePublishRelays } from "./spacePublish";
 import { FeaturedArtistsInput } from "./FeaturedArtistsInput";
 import { HashtagInput } from "./HashtagInput";
 import { GenrePicker } from "./GenrePicker";
@@ -65,6 +66,7 @@ export function UploadTrackModal({ open, onClose, defaultAlbumRef, defaultVisibi
   const [channelId, setChannelId] = useState(defaultChannelId ?? "");
   const [allowExport, setAllowExport] = useState(true);
   const [audioFile, setAudioFile] = useState<File | null>(null);
+  const [fileDuration, setFileDuration] = useState<number | null>(null);
   const [coverFile, setCoverFile] = useState<File | null>(null);
   const [uploading, setUploading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -88,6 +90,7 @@ export function UploadTrackModal({ open, onClose, defaultAlbumRef, defaultVisibi
     setChannelId(defaultChannelId ?? "");
     setAllowExport(true);
     setAudioFile(null);
+    setFileDuration(null);
     setCoverFile(null);
     setError(null);
     setCollaborators([]);
@@ -114,6 +117,7 @@ export function UploadTrackModal({ open, onClose, defaultAlbumRef, defaultVisibi
       if (!title) setTitle(meta.title || fromFilename.title);
       if (!artist) setArtist(meta.artist || fromFilename.artist);
       if (!genre && meta.genre) setGenre(meta.genre);
+      setFileDuration(meta.duration ?? null);
 
       // Extract embedded cover art
       if (meta.coverArt && !coverFile) {
@@ -130,7 +134,7 @@ export function UploadTrackModal({ open, onClose, defaultAlbumRef, defaultVisibi
 
     try {
       const [audioResult, coverResult] = await Promise.all([
-        uploadAudio(audioFile, { title, artist }),
+        uploadAudio(audioFile, { title, artist, duration: fileDuration ?? undefined }),
         coverFile ? uploadCoverArt(coverFile) : Promise.resolve(undefined),
       ]);
       const imageUrl = coverResult?.url;
@@ -145,7 +149,7 @@ export function UploadTrackModal({ open, onClose, defaultAlbumRef, defaultVisibi
         title,
         artist: resolvedArtist,
         slug,
-        duration: audioResult.duration,
+        duration: audioResult.duration ?? fileDuration ?? undefined,
         genre: genre || undefined,
         audioUrl: audioResult.url,
         audioHash: audioResult.sha256,
@@ -169,7 +173,11 @@ export function UploadTrackModal({ open, onClose, defaultAlbumRef, defaultVisibi
       if (visibility === "local") {
         await signAndSaveLocally(unsigned);
       } else {
-        await signAndPublish(unsigned);
+        // Space uploads must reach the space's host relay, not just the user's
+        // write relays — members subscribe there.
+        const targetRelays =
+          visibility === "space" ? await spacePublishRelays(spaceId) : undefined;
+        await signAndPublish(unsigned, targetRelays);
       }
       resetForm();
       onClose();

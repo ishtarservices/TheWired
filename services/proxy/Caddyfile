@@ -16,6 +16,24 @@ thewired.app {
 		reverse_proxy backend:3002
 	}
 
+	# Universal links (iOS) / App Links (Android) for the soot mobile app.
+	# Apple fetches the AASA with no redirect allowed; both are JSON from backend.
+	handle /.well-known/apple-app-site-association {
+		reverse_proxy backend:3002
+	}
+	handle /.well-known/assetlinks.json {
+		reverse_proxy backend:3002
+	}
+
+	# Server-rendered OG share pages for music + profile web links. On devices
+	# with the app installed these paths open in-app via universal links.
+	handle /music/* {
+		reverse_proxy backend:3002
+	}
+	handle /profile/* {
+		reverse_proxy backend:3002
+	}
+
 	# Landing page
 	handle {
 		reverse_proxy landing:8080

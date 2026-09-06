@@ -4,6 +4,7 @@ import { Modal } from "@/components/ui/Modal";
 import { useAppSelector } from "@/store/hooks";
 import { buildTrackEvent, buildAlbumEvent } from "./musicEventBuilder";
 import { signAndPublish } from "@/lib/nostr/publish";
+import { spacePublishRelays } from "./spacePublish";
 import { selectAudioSource } from "./trackParser";
 import { useResolvedArtist } from "./useResolvedArtist";
 import type { MusicTrack } from "@/types/music";
@@ -48,8 +49,15 @@ export function MoveTrackModal({ track, onClose, onBack }: MoveTrackModalProps) 
     try {
       const audioUrl = selectAudioSource(track.variants);
       if (!audioUrl) throw new Error("Could not resolve audio URL");
+      // Preserve imeta hash/size/mime — the `x` hash keeps blob/HLS gating
+      // working after the republish.
+      const srcVariant = track.variants.find((v) => v.url === audioUrl) ?? track.variants[0];
 
       const existingDTag = track.addressableId.split(":").slice(2).join(":");
+
+      // Space tracks must keep their h-tag and reach the space's host relay.
+      const targetRelays =
+        track.visibility === "space" ? await spacePublishRelays(track.spaceId) : undefined;
 
       // 1. Republish track with new album ref
       const trackUnsigned = buildTrackEvent(pubkey, {
@@ -59,15 +67,20 @@ export function MoveTrackModal({ track, onClose, onBack }: MoveTrackModalProps) 
         duration: track.duration,
         genre: track.genre || undefined,
         audioUrl,
+        audioHash: srcVariant?.hash,
+        audioSize: srcVariant?.size,
+        audioMime: srcVariant?.mimeType,
         imageUrl: track.imageUrl,
         hashtags: track.hashtags.length > 0 ? track.hashtags : undefined,
         albumRef: targetAlbumId || undefined,
         artistPubkeys: track.artistPubkeys.length > 0 ? track.artistPubkeys : undefined,
         featuredArtists: track.featuredArtists.length > 0 ? track.featuredArtists : undefined,
         visibility: track.visibility,
+        spaceId: track.visibility === "space" ? track.spaceId : undefined,
+        channelId: track.visibility === "space" ? track.channelId : undefined,
         revisionSummary: revisionSummary || undefined,
       });
-      await signAndPublish(trackUnsigned);
+      await signAndPublish(trackUnsigned, targetRelays);
 
       // 2. Remove from source album (if it had one)
       if (track.albumRef) {
@@ -87,9 +100,16 @@ export function MoveTrackModal({ track, onClose, onBack }: MoveTrackModalProps) 
             hashtags: sourceAlbum.hashtags.length > 0 ? sourceAlbum.hashtags : undefined,
             projectType: sourceAlbum.projectType,
             visibility: sourceAlbum.visibility,
+            spaceId: sourceAlbum.visibility === "space" ? sourceAlbum.spaceId : undefined,
+            channelId: sourceAlbum.visibility === "space" ? sourceAlbum.channelId : undefined,
             sharingDisabled: sourceAlbum.sharingDisabled,
           });
-          await signAndPublish(sourceUnsigned);
+          await signAndPublish(
+            sourceUnsigned,
+            sourceAlbum.visibility === "space"
+              ? await spacePublishRelays(sourceAlbum.spaceId)
+              : undefined,
+          );
         }
       }
 
@@ -111,9 +131,16 @@ export function MoveTrackModal({ track, onClose, onBack }: MoveTrackModalProps) 
             hashtags: targetAlbum.hashtags.length > 0 ? targetAlbum.hashtags : undefined,
             projectType: targetAlbum.projectType,
             visibility: targetAlbum.visibility,
+            spaceId: targetAlbum.visibility === "space" ? targetAlbum.spaceId : undefined,
+            channelId: targetAlbum.visibility === "space" ? targetAlbum.channelId : undefined,
             sharingDisabled: targetAlbum.sharingDisabled,
           });
-          await signAndPublish(targetUnsigned);
+          await signAndPublish(
+            targetUnsigned,
+            targetAlbum.visibility === "space"
+              ? await spacePublishRelays(targetAlbum.spaceId)
+              : undefined,
+          );
         }
       }
 

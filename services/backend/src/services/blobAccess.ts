@@ -1,15 +1,30 @@
 /**
  * Shared access control for protected (private/unlisted/space) music blobs.
  *
- * A blob is "protected" when it is referenced by a kind 31683/33123 event that
- * carries a `visibility` (private/unlisted) or `h` (space) tag. Both the raw-blob
- * route (routes/blossom.ts) and the HLS route (routes/hls.ts) consult this module
- * to decide whether an untokened request may be served. Results are cached briefly
- * so the HLS hot path doesn't re-query on every segment.
+ * A blob is "protected" when a kind 31683/33123 event AUTHORED BY ONE OF ITS
+ * UPLOADERS references it and carries a `visibility` (private/unlisted) or `h`
+ * (space) tag. Both the raw-blob route (routes/blossom.ts) and the HLS route
+ * (routes/hls.ts) consult this module to decide whether an untokened request may
+ * be served. Results are cached briefly so the HLS hot path doesn't re-query on
+ * every segment.
+ *
+ * Semantics (deterministic — see docs/MUSIC_VISIBILITY.md):
+ * - Only events authored by an uploader of the blob (app.blob_owners /
+ *   app.music_uploads) count. A third party publishing an event that references
+ *   someone else's sha can neither protect nor expose the blob (no griefing
+ *   kill-switch on public tracks, no unlock of private ones).
+ * - If ANY owner-authored referencing event is public, the blob is public: that
+ *   owner has published the content openly, so gating the bytes is moot.
+ * - Otherwise, if owner-authored protected events reference it, the blob is
+ *   protected and a viewer must be authorized against AT LEAST ONE of them.
+ * - A blob with no owner-authored referencing events (just uploaded, not yet
+ *   published, or referenced only via NIP-44-encrypted tags) is public by URL —
+ *   the sha itself is the capability in that window.
  */
-import { and, eq, sql } from "drizzle-orm";
+import { sql } from "drizzle-orm";
 import { db } from "../db/connection.js";
 import { spaceMembers } from "../db/schema/members.js";
+import { and, eq } from "drizzle-orm";
 
 export interface ProtectedEventRef {
   pubkey: string;
@@ -17,7 +32,7 @@ export interface ProtectedEventRef {
 }
 
 interface CacheEntry {
-  ref: ProtectedEventRef | null;
+  refs: ProtectedEventRef[];
   at: number;
 }
 
@@ -43,36 +58,66 @@ function blobShaInTags(tags: string[][], sha256: string): boolean {
 }
 
 /**
- * Return the protected-event reference for a blob sha, or null if the blob is public
- * (unreferenced by any private/unlisted/space music event). Cached for CACHE_TTL_MS.
+ * Does a `p` tag grant protected-content access to `pubkey`? Role-aware: the
+ * 4th element ("artist" | "featured" | "collaborator") distinguishes credits
+ * from access grants. `featured` (and any unknown role) is a credit only; a
+ * bare role-less p-tag keeps granting for legacy events that predate roles.
  */
-export async function getProtectedRefForBlob(sha256: string): Promise<ProtectedEventRef | null> {
-  const cached = cache.get(sha256);
-  if (cached && Date.now() - cached.at < CACHE_TTL_MS) return cached.ref;
-
-  const rows = await db.execute(
-    sql`SELECT pubkey, tags FROM relay.events
-        WHERE kind IN (31683, 33123)
-        AND visibility IS NOT NULL
-        AND tags::text LIKE ${"%" + sha256 + "%"}
-        LIMIT 1`,
-  );
-  const row = (rows as unknown as Array<{ pubkey: string; tags: unknown }>)[0];
-
-  let ref: ProtectedEventRef | null = null;
-  if (row) {
-    const tags = (typeof row.tags === "string" ? JSON.parse(row.tags) : row.tags) as string[][];
-    if (blobShaInTags(tags, sha256)) ref = { pubkey: row.pubkey, tags };
-  }
-
-  if (cache.size >= CACHE_MAX) cache.clear();
-  cache.set(sha256, { ref, at: Date.now() });
-  return ref;
+export function pTagGrantsAccess(tag: string[], pubkey: string): boolean {
+  if (tag[0] !== "p" || tag[1] !== pubkey) return false;
+  const role = tag[3];
+  return !role || role === "collaborator" || role === "artist";
 }
 
 /**
- * Authorize a viewer against a protected event: the author, a `p`-tag collaborator,
- * or (for `h`-tagged space content) a member of that space. Returns false if unauth.
+ * Return every protected owner-authored event reference for a blob sha. An empty
+ * array means the blob is public (see module docs for the exact semantics).
+ * Cached for CACHE_TTL_MS.
+ */
+export async function getProtectedRefsForBlob(sha256: string): Promise<ProtectedEventRef[]> {
+  const cached = cache.get(sha256);
+  if (cached && Date.now() - cached.at < CACHE_TTL_MS) return cached.refs;
+
+  // Owner-authored music events that mention the sha anywhere in their tags.
+  // `visibility` and `h_tag` are populated by the relay at insert time
+  // (services/relay/src/db/event_store.rs) and backfilled by its migrations.
+  const rows = (await db.execute(
+    sql`SELECT e.pubkey, e.tags,
+               (e.visibility IS NOT NULL OR e.h_tag IS NOT NULL) AS is_protected
+        FROM relay.events e
+        JOIN (
+          SELECT pubkey FROM app.blob_owners WHERE sha256 = ${sha256}
+          UNION
+          SELECT pubkey FROM app.music_uploads WHERE sha256 = ${sha256}
+        ) owners ON owners.pubkey = e.pubkey
+        WHERE e.kind IN (31683, 33123)
+        AND e.tags::text LIKE ${"%" + sha256 + "%"}`,
+  )) as unknown as Array<{ pubkey: string; tags: unknown; is_protected: boolean }>;
+
+  let anyPublicRef = false;
+  const protectedRefs: ProtectedEventRef[] = [];
+  for (const row of rows) {
+    const tags = (typeof row.tags === "string" ? JSON.parse(row.tags) : row.tags) as string[][];
+    if (!blobShaInTags(tags, sha256)) continue;
+    if (row.is_protected) {
+      protectedRefs.push({ pubkey: row.pubkey, tags });
+    } else {
+      anyPublicRef = true;
+    }
+  }
+
+  // An owner publishing the content publicly overrides any protected reference.
+  const refs = anyPublicRef ? [] : protectedRefs;
+
+  if (cache.size >= CACHE_MAX) cache.clear();
+  cache.set(sha256, { refs, at: Date.now() });
+  return refs;
+}
+
+/**
+ * Authorize a viewer against ONE protected event: the author, an access-granting
+ * `p`-tag (see {@link pTagGrantsAccess}), or (for `h`-tagged space content) a
+ * member of that space. Returns false if unauthenticated.
  */
 export async function authorizeProtectedRef(
   ref: ProtectedEventRef,
@@ -80,7 +125,7 @@ export async function authorizeProtectedRef(
 ): Promise<boolean> {
   if (!authPubkey) return false;
   if (authPubkey === ref.pubkey) return true;
-  if (ref.tags.some((t) => t[0] === "p" && t[1] === authPubkey)) return true;
+  if (ref.tags.some((t) => pTagGrantsAccess(t, authPubkey))) return true;
 
   const hTag = ref.tags.find((t) => t[0] === "h")?.[1];
   if (hTag) {
@@ -90,6 +135,17 @@ export async function authorizeProtectedRef(
       .where(and(eq(spaceMembers.spaceId, hTag), eq(spaceMembers.pubkey, authPubkey)))
       .limit(1);
     return membership.length > 0;
+  }
+  return false;
+}
+
+/** Authorize a viewer against a set of protected refs: any one grants access. */
+export async function authorizeProtectedRefs(
+  refs: ProtectedEventRef[],
+  authPubkey: string | null | undefined,
+): Promise<boolean> {
+  for (const ref of refs) {
+    if (await authorizeProtectedRef(ref, authPubkey)) return true;
   }
   return false;
 }

@@ -8,6 +8,7 @@ import { useAppSelector } from "@/store/hooks";
 import { uploadAudio, uploadCoverArt } from "@/lib/api/music";
 import { buildAlbumEvent, buildTrackEvent, buildPrivateAlbumEvent, buildPrivateTrackEvent } from "./musicEventBuilder";
 import { signAndPublish, signAndSaveLocally } from "@/lib/nostr/publish";
+import { spacePublishRelays } from "./spacePublish";
 import { runWithConcurrency } from "@/lib/concurrencyPool";
 import { FeaturedArtistsInput } from "./FeaturedArtistsInput";
 import { HashtagInput } from "./HashtagInput";
@@ -297,6 +298,10 @@ export function CreateAlbumModal({ open, onClose, album }: CreateAlbumModalProps
       const resolvedArtistPubkeys = iAmArtist ? [pubkey] : artistPubkeys;
       const resolvedArtist = artist || myProfile?.display_name || myProfile?.name || pubkey;
 
+      // Space projects must reach the space's host relay — members subscribe there.
+      const targetRelays =
+        visibility === "space" ? await spacePublishRelays(spaceId) : undefined;
+
       // Upload new tracks with bounded concurrency. Order is preserved via
       // a pre-allocated indexed buffer so album `a` tags match the user's
       // on-screen track order regardless of completion order.
@@ -319,6 +324,7 @@ export function CreateAlbumModal({ open, onClose, album }: CreateAlbumModalProps
               uploadAudio(track.file, {
                 title: track.title,
                 artist: track.artist || resolvedArtist,
+                duration: track.duration ?? undefined,
               }),
               track.embeddedCover
                 ? uploadCoverArt(track.embeddedCover.file).catch(() => null)
@@ -360,7 +366,7 @@ export function CreateAlbumModal({ open, onClose, album }: CreateAlbumModalProps
             if (visibility === "local") {
               await signAndSaveLocally(trackUnsigned);
             } else {
-              await signAndPublish(trackUnsigned);
+              await signAndPublish(trackUnsigned, targetRelays);
             }
 
             indexedResults[i] = `31683:${pubkey}:${trackSlug}`;
@@ -410,7 +416,7 @@ export function CreateAlbumModal({ open, onClose, album }: CreateAlbumModalProps
       if (visibility === "local") {
         await signAndSaveLocally(unsigned);
       } else {
-        await signAndPublish(unsigned);
+        await signAndPublish(unsigned, targetRelays);
       }
       onClose();
     } catch (err) {

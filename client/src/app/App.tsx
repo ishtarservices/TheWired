@@ -225,6 +225,7 @@ function AppRoutes() {
           <Route path="dm/:pubkey" element={<DMView />} />
           <Route path="music/album/:pubkey/:slug" element={<MusicLinkResolver type="album" />} />
           <Route path="music/track/:pubkey/:slug" element={<MusicLinkResolver type="track" />} />
+          <Route path="music/playlist/:pubkey/:slug" element={<MusicLinkResolver type="playlist" />} />
           <Route path="write" element={<ArticleEditorPage />} />
           <Route path="write/:naddr" element={<ArticleEditorPage />} />
           <Route path="article/:id" element={<ArticlePage />} />

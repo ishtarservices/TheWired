@@ -50,6 +50,8 @@ export interface MusicAlbum {
   totalDuration?: number;
   createdAt: number;
   visibility: MusicVisibility;
+  spaceId?: string;
+  channelId?: string;
   sharingDisabled?: boolean;
   revisionSummary?: string;
 }

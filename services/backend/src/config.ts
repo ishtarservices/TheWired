@@ -51,6 +51,20 @@ export const config = {
   blobDir: process.env.BLOB_DIR ?? "blobs",
   /** Max blob upload size in bytes (default 100MB) */
   maxBlobSize: parseInt(process.env.MAX_BLOB_SIZE ?? String(100 * 1024 * 1024), 10),
+  /** Public web origin used in share links and OG canonical URLs. */
+  webBaseUrl: process.env.WEB_BASE_URL ?? "https://thewired.app",
+  /** Apple appIDs (TEAMID.bundleid, comma-separated) for the universal-links
+   *  apple-app-site-association served at thewired.app/.well-known/. The default
+   *  is the soot mobile app's release identity. */
+  appleAppIds: (process.env.APPLE_APP_IDS ?? "53RG2QV7HT.app.soot.mobile")
+    .split(",")
+    .filter(Boolean),
+  /** Android package name for /.well-known/assetlinks.json. */
+  androidPackageName: process.env.ANDROID_PACKAGE_NAME ?? "app.soot.mobile",
+  /** Android release-cert SHA-256 fingerprints (colon-hex, comma-separated) for
+   *  assetlinks.json. Empty (e.g. before EAS credentials are pulled) serves an
+   *  empty statement list — app links stay off until this is set. */
+  androidCertSha256: (process.env.ANDROID_CERT_SHA256 ?? "").split(",").filter(Boolean),
   /** When true, uploaded audio blobs are enqueued for transcoding. */
   transcodeEnqueue: process.env.TRANSCODE_ENQUEUE === "true",
   /** When true, this process runs the BullMQ transcoding consumer. */

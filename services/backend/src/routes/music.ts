@@ -4,12 +4,17 @@ import { musicService } from "../services/musicService.js";
 import { db } from "../db/connection.js";
 import { eq, and, sql } from "drizzle-orm";
 import { savedAlbumVersions } from "../db/schema/savedVersions.js";
-import { spaceMembers } from "../db/schema/members.js";
 import { musicUploads } from "../db/schema/music.js";
 import { config } from "../config.js";
 import { getTranscodeQueue } from "../lib/queue.js";
 import { validate, hexId, nonEmptyString, limitParam, offsetParam } from "../lib/validation.js";
 import { mintMediaToken } from "../lib/mediaToken.js";
+import {
+  type RelayEvent,
+  normalizeEvent,
+  checkEventVisibility,
+  resolveVisibleChildTracks,
+} from "../services/musicVisibility.js";
 
 const pubkeySlugParams = z.object({
   pubkey: hexId,
@@ -56,69 +61,6 @@ const acknowledgeUpdateBody = z.object({
   eventId: hexId,
   createdAt: z.number().int().min(1),
 });
-
-interface RelayEvent {
-  id: string;
-  pubkey: string;
-  created_at: number | string;
-  kind: number;
-  tags: string[][];
-  content: string;
-  sig: string;
-}
-
-/** Normalize PG bigint fields to JS numbers for JSON serialization */
-function normalizeEvent(row: RelayEvent): RelayEvent {
-  return { ...row, created_at: Number(row.created_at) };
-}
-
-/** Check visibility tags and enforce access control. Returns error reply if denied, undefined if allowed. */
-async function checkEventVisibility(
-  event: RelayEvent,
-  ownerPubkey: string,
-  authPubkey: string | null,
-  reply: import("fastify").FastifyReply,
-): Promise<boolean> {
-  const eventTags = event.tags;
-  const vis = eventTags.find((t: string[]) => t[0] === "visibility")?.[1];
-  const hTag = eventTags.find((t: string[]) => t[0] === "h")?.[1];
-
-  // Space-scoped: require membership or ownership
-  if (hTag) {
-    if (!authPubkey) {
-      reply.status(404).send({ error: "Not found", code: "NOT_FOUND" });
-      return false;
-    }
-    if (authPubkey !== ownerPubkey) {
-      const membership = await db
-        .select()
-        .from(spaceMembers)
-        .where(and(eq(spaceMembers.spaceId, hTag), eq(spaceMembers.pubkey, authPubkey)))
-        .limit(1);
-      if (membership.length === 0) {
-        reply.status(404).send({ error: "Not found", code: "NOT_FOUND" });
-        return false;
-      }
-    }
-  }
-
-  // Private/unlisted: require ownership or collaborator status
-  if (vis === "unlisted" || vis === "private") {
-    if (!authPubkey) {
-      reply.status(404).send({ error: "Not found", code: "NOT_FOUND" });
-      return false;
-    }
-    const isCollaborator = eventTags.some(
-      (t: string[]) => t[0] === "p" && t[1] === authPubkey,
-    );
-    if (authPubkey !== ownerPubkey && !isCollaborator) {
-      reply.status(404).send({ error: "Not found", code: "NOT_FOUND" });
-      return false;
-    }
-  }
-
-  return true;
-}
 
 /** Extract the primary audio blob sha256 from an event's imeta tags. Prefers an
  *  explicit `x <sha>` sub-tag; falls back to a 64-hex match in the `url`. Returns
@@ -174,28 +116,55 @@ export const musicRoutes: FastifyPluginAsync = async (server) => {
 
       const albumEvent = normalizeEvent(rows[0]);
 
-      // Batch-fetch associated track events from album's a-tags
+      // Batch-fetch associated track events from album's a-tags, dropping any
+      // the viewer may not see (a public album may reference private/space
+      // tracks — those must not leak through the album resolve).
       const trackRefs = albumEvent.tags
         .filter((t) => t[0] === "a" && t[1]?.startsWith("31683:"))
         .map((t) => t[1]);
-
-      const trackEvents: RelayEvent[] = [];
-      for (const ref of trackRefs) {
-        const [, tPubkey, dTag] = ref.split(":");
-        if (!tPubkey || !dTag) continue;
-        const tRows = (await db.execute(
-          sql`SELECT id, pubkey, created_at, kind, tags, content, sig
-              FROM relay.events
-              WHERE kind = 31683
-                AND pubkey = ${tPubkey}
-                AND tags @> ${JSON.stringify([["d", dTag]])}::jsonb
-              ORDER BY created_at DESC
-              LIMIT 1`,
-        )) as unknown as RelayEvent[];
-        if (tRows.length > 0) trackEvents.push(normalizeEvent(tRows[0]));
-      }
+      const trackEvents = await resolveVisibleChildTracks(trackRefs, authPubkey);
 
       return { data: { event: albumEvent, tracks: trackEvents } };
+    },
+  );
+
+  // GET /music/resolve/playlist/:pubkey/:slug -- Resolve playlist (kind 30119)
+  // by addressable ID. Child tracks are ordered by the playlist's a-tags and
+  // visibility-filtered per viewer, mirroring the album resolver.
+  server.get<{ Params: { pubkey: string; slug: string } }>(
+    "/resolve/playlist/:pubkey/:slug",
+    async (request, reply) => {
+      const params = validate(pubkeySlugParams, request.params, reply);
+      if (!params) return;
+
+      const { pubkey, slug } = params;
+
+      const rows = (await db.execute(
+        sql`SELECT id, pubkey, created_at, kind, tags, content, sig
+            FROM relay.events
+            WHERE kind = 30119
+              AND pubkey = ${pubkey}
+              AND tags @> ${JSON.stringify([["d", slug]])}::jsonb
+            ORDER BY created_at DESC
+            LIMIT 1`,
+      )) as unknown as RelayEvent[];
+
+      if (rows.length === 0) {
+        return reply.status(404).send({ error: "Playlist not found", code: "NOT_FOUND" });
+      }
+
+      const authPubkey = (request.headers["x-auth-pubkey"] as string) ?? null;
+      const allowed = await checkEventVisibility(rows[0], pubkey, authPubkey, reply);
+      if (!allowed) return;
+
+      const playlistEvent = normalizeEvent(rows[0]);
+
+      const trackRefs = playlistEvent.tags
+        .filter((t) => t[0] === "a" && t[1]?.startsWith("31683:"))
+        .map((t) => t[1]);
+      const trackEvents = await resolveVisibleChildTracks(trackRefs, authPubkey);
+
+      return { data: { event: playlistEvent, tracks: trackEvents } };
     },
   );
 
@@ -242,7 +211,16 @@ export const musicRoutes: FastifyPluginAsync = async (server) => {
       return reply.status(400).send({ error: "No file uploaded", code: "NO_FILE" });
     }
 
-    const result = await musicService.uploadAudio(data, pubkey);
+    // Optional `duration` multipart field (seconds). Multipart fields are only
+    // visible if the client appended them BEFORE the file part.
+    const durationField = data.fields?.duration as { value?: unknown } | undefined;
+    const parsedDuration = Number(durationField?.value);
+    const clientDuration =
+      Number.isFinite(parsedDuration) && parsedDuration > 0 && parsedDuration < 86_400
+        ? parsedDuration
+        : undefined;
+
+    const result = await musicService.uploadAudio(data, pubkey, clientDuration);
     return { data: result };
   });
 
@@ -261,11 +239,12 @@ export const musicRoutes: FastifyPluginAsync = async (server) => {
   });
 
   // POST /music/rebuild-counts -- Rebuild genre/tag counts from scratch.
-  // Requires authentication to prevent abuse (expensive operation).
+  // Admin-gated: this drops and rebuilds the Meilisearch indexes and Redis
+  // counts — an any-user trigger is a denial-of-service lever.
   server.post("/rebuild-counts", async (request, reply) => {
     const pubkey = (request.headers["x-auth-pubkey"] as string) ?? null;
-    if (!pubkey) {
-      return reply.status(401).send({ error: "Authentication required", code: "UNAUTHORIZED" });
+    if (!pubkey || !config.adminPubkeys.includes(pubkey)) {
+      return reply.status(403).send({ error: "Admin only", code: "FORBIDDEN" });
     }
     const result = await musicService.rebuildCounts();
     return { data: result };

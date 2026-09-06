@@ -11,6 +11,7 @@ import { enqueueNotification } from "../services/notificationEnqueue.js";
 import { revisionService } from "../services/revisionService.js";
 import { proposalService } from "../services/proposalService.js";
 import { eq, and, sql } from "drizzle-orm";
+import { buildMusicSearchDoc } from "../lib/musicSearchDoc.js";
 
 /**
  * Per-event ingestion context (Decentralized Spaces, M3). The multi-relay
@@ -369,39 +370,56 @@ async function indexGroupMembers(event: NostrEvent) {
   await db.update(spaces).set({ mirroredMemberCount: count }).where(eq(spaces.id, groupId));
 }
 
+/**
+ * When an addressable music event goes non-public (publish-then-privatize, or
+ * a space-scoped republish), any Meilisearch doc from its earlier PUBLIC
+ * version is now stale: the relay row was replaced, so browse pages fetch a
+ * dead event id and silently shrink. Remove those docs + their counts.
+ */
+async function removeStaleMusicDocs(event: NostrEvent, kind: 31683 | 33123) {
+  const ms = getMeilisearchClient();
+  const index = kind === 31683 ? "tracks" : "albums";
+  const dTag = getTagValue(event, "d") ?? "";
+  const addr = `${kind}:${event.pubkey}:${dTag}`;
+
+  try {
+    const results = await ms.index(index).search("", {
+      filter: `pubkey = "${escapeMsFilter(event.pubkey)}"`,
+      limit: 100,
+    });
+    const matching = results.hits.filter(
+      (h: Record<string, unknown>) =>
+        h.addressable_id === addr && (h.created_at as number) <= event.created_at,
+    );
+    if (matching.length === 0) return;
+
+    await ms.index(index).deleteDocuments(matching.map((h: Record<string, unknown>) => h.id as string));
+    for (const h of matching) {
+      const hGenre = h.genre as string;
+      const hTags = (h.hashtags as string[]) ?? [];
+      if (hGenre) await redis.zincrby("music:genre_counts", -1, hGenre);
+      for (const t of hTags) await redis.zincrby("music:tag_counts", -1, t);
+      await redis.srem("music:counted_events", h.id as string);
+    }
+    await redis.zremrangebyscore("music:genre_counts", "-inf", "0");
+    await redis.zremrangebyscore("music:tag_counts", "-inf", "0");
+  } catch (err) {
+    console.error(`[ingester] Failed to remove stale ${index} docs:`, (err as Error).message);
+  }
+}
+
 async function indexMusicTrack(event: NostrEvent) {
-  if (isNonPublicEvent(event)) return;
+  if (isNonPublicEvent(event)) {
+    await removeStaleMusicDocs(event, 31683);
+    return;
+  }
 
   const ms = getMeilisearchClient();
-  const title = getTagValue(event, "title");
-  const artist = getTagValue(event, "artist");
   const genre = getTagValue(event, "genre");
   const dTag = getTagValue(event, "d") ?? "";
-  const imageUrl = getTagValue(event, "image") ?? getTagValue(event, "thumb") ?? "";
   const hashtags = event.tags.filter((t) => t[0] === "t").map((t) => t[1]);
 
-  const pTags = event.tags.filter((t) => t[0] === "p" && t[1]);
-  const hasRoles = pTags.some((t) => t[3]);
-  const artistPubkeys = hasRoles ? pTags.filter((t) => t[3] === "artist").map((t) => t[1]) : [];
-  const featuredPubkeys = hasRoles
-    ? pTags.filter((t) => t[3] === "featured").map((t) => t[1])
-    : pTags.filter((t) => t[1] !== event.pubkey).map((t) => t[1]);
-
-  await ms.index("tracks").addDocuments([
-    {
-      id: event.id,
-      addressable_id: `31683:${event.pubkey}:${dTag}`,
-      title: title ?? "",
-      artist: artist ?? "",
-      genre: genre ?? "",
-      image_url: imageUrl,
-      hashtags,
-      pubkey: event.pubkey,
-      artist_pubkeys: artistPubkeys,
-      featured_pubkeys: featuredPubkeys,
-      created_at: event.created_at,
-    },
-  ]);
+  await ms.index("tracks").addDocuments([buildMusicSearchDoc(event, 31683)]);
 
   const wasNew = await redis.sadd("music:counted_events", event.id);
   if (wasNew) {
@@ -419,38 +437,17 @@ async function indexMusicTrack(event: NostrEvent) {
 }
 
 async function indexMusicAlbum(event: NostrEvent) {
-  if (isNonPublicEvent(event)) return;
+  if (isNonPublicEvent(event)) {
+    await removeStaleMusicDocs(event, 33123);
+    return;
+  }
 
   const ms = getMeilisearchClient();
-  const title = getTagValue(event, "title");
-  const artist = getTagValue(event, "artist");
   const genre = getTagValue(event, "genre");
   const dTag = getTagValue(event, "d") ?? "";
-  const imageUrl = getTagValue(event, "image") ?? getTagValue(event, "thumb") ?? "";
   const hashtags = event.tags.filter((t) => t[0] === "t").map((t) => t[1]);
 
-  const pTags = event.tags.filter((t) => t[0] === "p" && t[1]);
-  const hasRoles = pTags.some((t) => t[3]);
-  const artistPubkeys = hasRoles ? pTags.filter((t) => t[3] === "artist").map((t) => t[1]) : [];
-  const featuredPubkeys = hasRoles
-    ? pTags.filter((t) => t[3] === "featured").map((t) => t[1])
-    : pTags.filter((t) => t[1] !== event.pubkey).map((t) => t[1]);
-
-  await ms.index("albums").addDocuments([
-    {
-      id: event.id,
-      addressable_id: `33123:${event.pubkey}:${dTag}`,
-      title: title ?? "",
-      artist: artist ?? "",
-      genre: genre ?? "",
-      image_url: imageUrl,
-      hashtags,
-      pubkey: event.pubkey,
-      artist_pubkeys: artistPubkeys,
-      featured_pubkeys: featuredPubkeys,
-      created_at: event.created_at,
-    },
-  ]);
+  await ms.index("albums").addDocuments([buildMusicSearchDoc(event, 33123)]);
 
   const wasNew = await redis.sadd("music:counted_events", event.id);
   if (wasNew) {

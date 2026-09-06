@@ -5,6 +5,7 @@ import { useAppSelector } from "@/store/hooks";
 import { uploadCoverArt } from "@/lib/api/music";
 import { buildTrackEvent, buildPrivateTrackEvent } from "./musicEventBuilder";
 import { signAndPublish, signAndSaveLocally } from "@/lib/nostr/publish";
+import { spacePublishRelays } from "./spacePublish";
 import { selectAudioSource } from "./trackParser";
 import { FeaturedArtistsInput } from "./FeaturedArtistsInput";
 import { HashtagInput } from "./HashtagInput";
@@ -62,13 +63,15 @@ export function EditTrackModal({ track, onClose }: EditTrackModalProps) {
     setSubmitting(true);
 
     try {
-      // Preserve existing audio URL
+      // Preserve existing audio URL + imeta fields (hash/size/mime): the `x`
+      // hash is what keeps blob/HLS gating working after a republish.
       const audioUrl = selectAudioSource(track.variants);
       if (!audioUrl) {
         setError("Could not resolve audio URL from track");
         setSubmitting(false);
         return;
       }
+      const srcVariant = track.variants.find((v) => v.url === audioUrl) ?? track.variants[0];
 
       // Upload new cover if provided, otherwise keep existing
       let imageUrl = track.imageUrl;
@@ -91,6 +94,9 @@ export function EditTrackModal({ track, onClose }: EditTrackModalProps) {
         genre: genre || undefined,
         hashtags: hashtags.length > 0 ? hashtags : undefined,
         audioUrl,
+        audioHash: srcVariant?.hash,
+        audioSize: srcVariant?.size,
+        audioMime: srcVariant?.mimeType,
         imageUrl,
         albumRef: albumRef || undefined,
         artistPubkeys: resolvedArtistPubkeys.length > 0 ? resolvedArtistPubkeys : undefined,
@@ -109,7 +115,9 @@ export function EditTrackModal({ track, onClose }: EditTrackModalProps) {
       if (visibility === "local") {
         await signAndSaveLocally(unsigned);
       } else {
-        await signAndPublish(unsigned);
+        const targetRelays =
+          visibility === "space" ? await spacePublishRelays(spaceId) : undefined;
+        await signAndPublish(unsigned, targetRelays);
       }
       onClose();
     } catch (err) {
