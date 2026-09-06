@@ -139,9 +139,9 @@ jobs:
         if: runner.os == 'Linux'
         working-directory: client
         env:
-          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
-          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
           APPIMAGE_EXTRACT_AND_RUN: "1"
+          APPIMAGETOOL_VERSION: "1.9.1"
+          APPIMAGETOOL_SHA256: "ed4ce84f0d9caff66f50bcca6ff6f35aae54ce8135408b3fa33abfc3cb384eb0"
         run: |
           set -euo pipefail
           APPIMG_DIR="src-tauri/target/release/bundle/appimage"
@@ -168,22 +168,34 @@ jobs:
           done
 
           curl -fsSL -o "$work/appimagetool" \
-            https://github.com/AppImage/appimagetool/releases/download/continuous/appimagetool-x86_64.AppImage
+            "https://github.com/AppImage/appimagetool/releases/download/${APPIMAGETOOL_VERSION}/appimagetool-x86_64.AppImage"
+          echo "${APPIMAGETOOL_SHA256}  ${work}/appimagetool" | sha256sum -c -
           chmod +x "$work/appimagetool"
           ( cd "$work" && ARCH=x86_64 ./appimagetool --no-appstream squashfs-root fixed.AppImage )
           mv "$work/fixed.AppImage" "$APPIMAGE"
           chmod +x "$APPIMAGE"
-
-          if [ -n "${TAURI_SIGNING_PRIVATE_KEY:-}" ]; then
-            rm -f "$APPIMAGE.sig"
-            pnpm tauri signer sign \
-              --private-key "$TAURI_SIGNING_PRIVATE_KEY" \
-              --password "${TAURI_SIGNING_PRIVATE_KEY_PASSWORD:-}" \
-              "$APPIMAGE"
-          else
-            echo "::warning::TAURI_SIGNING_PRIVATE_KEY not set — AppImage repacked but not re-signed"
-          fi
           rm -rf "$work"
+
+      # Separate step so the signing key is never in the env of the step that
+      # downloads and executes appimagetool. `tauri signer sign` reads the key
+      # and password from TAURI_SIGNING_PRIVATE_KEY(_PASSWORD), keeping them
+      # off the command line.
+      - name: Re-sign AppImage for updater
+        if: runner.os == 'Linux'
+        working-directory: client
+        env:
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+        run: |
+          set -euo pipefail
+          if [ -z "${TAURI_SIGNING_PRIVATE_KEY:-}" ]; then
+            echo "::warning::TAURI_SIGNING_PRIVATE_KEY not set — AppImage repacked but not re-signed"
+            exit 0
+          fi
+          APPIMG_DIR="src-tauri/target/release/bundle/appimage"
+          APPIMAGE="$(find "$APPIMG_DIR" -maxdepth 1 -name '*.AppImage' -print -quit)"
+          rm -f "$APPIMAGE.sig"
+          pnpm tauri signer sign "$APPIMAGE"
 
       - name: Upload macOS artifacts
         if: runner.os == 'macOS'
