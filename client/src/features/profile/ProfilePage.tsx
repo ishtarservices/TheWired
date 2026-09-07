@@ -1,5 +1,5 @@
 import { useState, useCallback, useMemo, useRef, useEffect } from "react";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, useSearchParams } from "react-router-dom";
 import { usePlaybackBarSpacing } from "@/hooks/usePlaybackBarSpacing";
 import {
   useAnchoredScrollRestore,
@@ -39,6 +39,7 @@ import { npubEncode } from "nostr-tools/nip19";
 import { Avatar } from "../../components/ui/Avatar";
 import { Spinner } from "../../components/ui/Spinner";
 import { useProfile } from "./useProfile";
+import { initialProfileTab } from "./profileSection";
 import { useZap } from "../wallet/WalletProvider";
 import { useProfileFeed } from "./useProfileNotes";
 import { useMutualFollow } from "./useMutualFollow";
@@ -83,8 +84,11 @@ interface ProfilePageProps {
 export function ProfilePage({ pubkey }: ProfilePageProps) {
   const { profile } = useProfile(pubkey);
   const { openZap } = useZap();
-  const [activeTab, setActiveTab] = useState<Tab>(
-    () => readProfileView(pubkey)?.activeTab ?? "notes",
+  // `?section=music` is the mobile app's shared-catalog link — it beats the
+  // remembered view for this first render (profileSection.ts).
+  const [searchParams] = useSearchParams();
+  const [activeTab, setActiveTab] = useState<Tab>(() =>
+    initialProfileTab(searchParams.get("section"), readProfileView(pubkey)?.activeTab as ProfileTab | undefined),
   );
   const feed = useProfileFeed(pubkey);
   const { iFollow } = useMutualFollow(pubkey);

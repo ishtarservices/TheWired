@@ -53,6 +53,12 @@ export const config = {
   maxBlobSize: parseInt(process.env.MAX_BLOB_SIZE ?? String(100 * 1024 * 1024), 10),
   /** Public web origin used in share links and OG canonical URLs. */
   webBaseUrl: process.env.WEB_BASE_URL ?? "https://thewired.app",
+  /** Where the share pages send people who don't have the app yet. The
+   *  store links are empty until the soot listings exist — the landing
+   *  page's download section is the fallback for every platform. */
+  iosAppUrl: process.env.IOS_APP_URL ?? "",
+  androidAppUrl: process.env.ANDROID_APP_URL ?? "",
+  desktopAppUrl: process.env.DESKTOP_APP_URL ?? "",
   /** Apple appIDs (TEAMID.bundleid, comma-separated) for the universal-links
    *  apple-app-site-association served at thewired.app/.well-known/. The default
    *  is the soot mobile app's release identity. */

@@ -1,7 +1,10 @@
 import type { FastifyPluginAsync } from "fastify";
 import { config } from "../config.js";
 import { profileCacheService } from "../services/profileCacheService.js";
-import { fetchLatestByAddressableId } from "../services/musicVisibility.js";
+import {
+  fetchLatestByAddressableId,
+  fetchPublicCatalogByPubkey,
+} from "../services/musicVisibility.js";
 
 /**
  * Server-rendered share pages with OpenGraph metadata for web share links
@@ -41,15 +44,68 @@ function safeImageUrl(url: string | undefined | null): string | null {
   }
 }
 
+interface CatalogEntry {
+  type: "track" | "album";
+  title: string;
+  path: string;
+}
+
 interface PreviewMeta {
   title: string;
   description: string;
   imageUrl: string | null;
   ogType: string;
   canonicalPath: string;
+  /** Public releases listed under the header (profile music section only). */
+  catalog?: CatalogEntry[];
 }
 
-function renderPreviewPage(meta: PreviewMeta): string {
+/** Which app the visitor can open the link in. Sniffed server-side from the
+ *  User-Agent so the page works without JS and crawlers get a stable body;
+ *  the response carries `Vary: User-Agent` for caches. */
+export type SharePlatform = "ios" | "android" | "desktop";
+
+export function platformFromUserAgent(ua: string | undefined): SharePlatform {
+  const s = (ua ?? "").toLowerCase();
+  if (/iphone|ipad|ipod/.test(s)) return "ios";
+  if (/android/.test(s)) return "android";
+  return "desktop";
+}
+
+/** The call-to-action block per platform. On a phone the universal link
+ *  already opened soot when it's installed, so whoever sees this page most
+ *  likely doesn't have it: "get soot" leads, "open in soot" (the soot://
+ *  scheme) stays for the installed-but-not-associated case. On desktop the
+ *  Wired app has no URL scheme yet, so the only honest action is download. */
+function renderActions(platform: SharePlatform, deepLink: string): string {
+  const landingDownload = `${config.webBaseUrl}/#download`;
+  if (platform === "desktop") {
+    const href = escapeHtml(config.desktopAppUrl || landingDownload);
+    return `<a class="open" href="${href}">Download The Wired for desktop</a>
+<p class="hint">Open this link on your phone to listen in soot.</p>`;
+  }
+  const store = platform === "ios" ? config.iosAppUrl : config.androidAppUrl;
+  const storeHref = escapeHtml(store || landingDownload);
+  return `<a class="open" href="${storeHref}">Get soot${platform === "ios" ? " for iPhone" : " for Android"}</a>
+<a class="secondary" href="${deepLink}">Already have it? Open in soot</a>`;
+}
+
+/** The artist's public releases as a plain list of links to their share
+ *  pages — what a recipient without the app actually gets to browse. */
+function renderCatalog(entries: CatalogEntry[]): string {
+  if (entries.length === 0) {
+    return `<p class="empty">Nothing public here yet.</p>`;
+  }
+  const items = entries
+    .map(
+      (e) =>
+        `<li><a href="${escapeHtml(e.path)}"><span class="kind">${e.type}</span>${escapeHtml(e.title)}</a></li>`,
+    )
+    .join("\n");
+  return `<ul class="catalog">\n${items}\n</ul>`;
+}
+
+function renderPreviewPage(meta: PreviewMeta, platform: SharePlatform): string {
   const title = escapeHtml(meta.title);
   const description = escapeHtml(meta.description);
   const canonicalUrl = escapeHtml(`${config.webBaseUrl}${meta.canonicalPath}`);
@@ -81,6 +137,14 @@ ${image ? `<meta name="twitter:image" content="${image}">` : ""}
   p { color: #9ca3af; margin: 0 0 1.5rem; }
   a.open { display: inline-block; background: #7c3aed; color: #fff; text-decoration: none;
            padding: 0.6rem 1.6rem; border-radius: 9999px; font-weight: 600; }
+  a.secondary { display: block; margin-top: 0.9rem; color: #9ca3af; font-size: 0.85rem; }
+  p.hint { margin-top: 0.9rem; font-size: 0.85rem; }
+  ul.catalog { list-style: none; padding: 0; margin: 0 0 1.5rem; text-align: left; }
+  ul.catalog li a { display: flex; gap: 0.75rem; align-items: baseline; padding: 0.55rem 0;
+                    color: #e5e5ec; text-decoration: none; border-top: 1px solid #1f1f2a; }
+  ul.catalog .kind { color: #6b7280; font-size: 0.7rem; text-transform: uppercase;
+                     letter-spacing: 0.08em; min-width: 3rem; }
+  p.empty { color: #6b7280; }
 </style>
 </head>
 <body>
@@ -88,18 +152,24 @@ ${image ? `<meta name="twitter:image" content="${image}">` : ""}
 ${image ? `<img src="${image}" alt="">` : ""}
 <h1>${title}</h1>
 <p>${description}</p>
-<a class="open" href="${deepLink}">Open in the app</a>
+${meta.catalog ? renderCatalog(meta.catalog) : ""}
+${renderActions(platform, deepLink)}
 </main>
 </body>
 </html>
 `;
 }
 
-function sendPreview(reply: import("fastify").FastifyReply, meta: PreviewMeta) {
+function sendPreview(
+  request: import("fastify").FastifyRequest,
+  reply: import("fastify").FastifyReply,
+  meta: PreviewMeta,
+) {
   return reply
     .header("Content-Type", "text/html; charset=utf-8")
     .header("Cache-Control", "public, max-age=300")
-    .send(renderPreviewPage(meta));
+    .header("Vary", "User-Agent")
+    .send(renderPreviewPage(meta, platformFromUserAgent(request.headers["user-agent"])));
 }
 
 function genericMeta(canonicalPath: string): PreviewMeta {
@@ -125,7 +195,7 @@ export const linkPreviewRoutes: FastifyPluginAsync = async (server) => {
       const kind = KIND_BY_TYPE[type];
       const canonicalPath = `/music/${type}/${pubkey}/${encodeURIComponent(slug)}`;
       if (!kind || !/^[0-9a-f]{64}$/.test(pubkey)) {
-        return sendPreview(reply, genericMeta(canonicalPath));
+        return sendPreview(request, reply, genericMeta(canonicalPath));
       }
 
       const event = await fetchLatestByAddressableId(`${kind}:${pubkey}:${slug}`);
@@ -135,12 +205,12 @@ export const linkPreviewRoutes: FastifyPluginAsync = async (server) => {
         !tagValue(event.tags, "h");
 
       if (!isPublic) {
-        return sendPreview(reply, genericMeta(canonicalPath));
+        return sendPreview(request, reply, genericMeta(canonicalPath));
       }
 
       const title = tagValue(event.tags, "title") ?? "Untitled";
       const artist = tagValue(event.tags, "artist");
-      return sendPreview(reply, {
+      return sendPreview(request, reply, {
         title: artist ? `${title} — ${artist}` : title,
         description: "Listen on The Wired",
         imageUrl: safeImageUrl(tagValue(event.tags, "image") ?? tagValue(event.tags, "thumb")),
@@ -158,20 +228,51 @@ export const linkPreviewRoutes: FastifyPluginAsync = async (server) => {
       const section = (request.query as { section?: string }).section;
       const canonicalPath = `/profile/${pubkey}${section === "music" ? "?section=music" : ""}`;
       if (!/^[0-9a-f]{64}$/.test(pubkey)) {
-        return sendPreview(reply, genericMeta(canonicalPath));
+        return sendPreview(request, reply, genericMeta(canonicalPath));
       }
 
       const profile = await profileCacheService.getProfile(pubkey);
       const name =
         profile?.displayName || profile?.name || `${pubkey.slice(0, 8)}…${pubkey.slice(-4)}`;
 
-      return sendPreview(reply, {
+      if (section !== "music") {
+        return sendPreview(request, reply, {
+          title: name,
+          description: `${name} on The Wired`,
+          imageUrl: safeImageUrl(profile?.picture),
+          ogType: "profile",
+          canonicalPath,
+        });
+      }
+
+      // The catalog share page: the artist's public releases, each linking to
+      // its own share page. Public-only by construction (musicVisibility).
+      const releases = await fetchPublicCatalogByPubkey(pubkey);
+      const catalog: CatalogEntry[] = releases.map((event) => {
+        const type = event.kind === 33123 ? "album" : "track";
+        const slug = tagValue(event.tags, "d") ?? "";
+        return {
+          type,
+          title: tagValue(event.tags, "title") ?? "Untitled",
+          path: `/music/${type}/${pubkey}/${encodeURIComponent(slug)}`,
+        };
+      });
+      const tracks = catalog.filter((e) => e.type === "track").length;
+      const albums = catalog.length - tracks;
+      const counts = [
+        tracks > 0 ? `${tracks} ${tracks === 1 ? "track" : "tracks"}` : null,
+        albums > 0 ? `${albums} ${albums === 1 ? "album" : "albums"}` : null,
+      ]
+        .filter(Boolean)
+        .join(" · ");
+
+      return sendPreview(request, reply, {
         title: name,
-        description:
-          section === "music" ? `Music by ${name} on The Wired` : `${name} on The Wired`,
+        description: counts ? `Music by ${name} on The Wired · ${counts}` : `Music by ${name} on The Wired`,
         imageUrl: safeImageUrl(profile?.picture),
         ogType: "profile",
         canonicalPath,
+        catalog,
       });
     },
   );
