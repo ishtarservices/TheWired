@@ -29,8 +29,9 @@ export function normalizeEvent(row: RelayEvent): RelayEvent {
  * Pure visibility policy: may `authPubkey` see this event? Space-scoped (`h`)
  * requires ownership or membership of ANY listed space (a multi-space event
  * carries one `h` tag per space); private/unlisted requires ownership or an
- * access-granting p-tag (role "artist"/"collaborator" or role-less — a
- * "featured" credit is NOT an access grant; see blobAccess.pTagGrantsAccess).
+ * access-granting p-tag: role "artist", a member role ("collaborator",
+ * "contributor", "editor"), or role-less — a "featured" credit is NOT an
+ * access grant; see blobAccess.pTagGrantsAccess for the single source of truth.
  * `membershipCache` dedupes space-membership queries across a batch of events,
  * keyed `${spaceId}:${pubkey}`.
  */

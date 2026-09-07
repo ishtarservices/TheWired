@@ -59,16 +59,27 @@ function blobShaInTags(tags: string[][], sha256: string): boolean {
   return false;
 }
 
+/** p-tag roles that unlock protected content (see {@link pTagGrantsAccess}). */
+const ACCESS_ROLES: ReadonlySet<string> = new Set(["artist", "collaborator", "contributor", "editor"]);
+
 /**
  * Does a `p` tag grant protected-content access to `pubkey`? Role-aware: the
- * 4th element ("artist" | "featured" | "collaborator") distinguishes credits
- * from access grants. `featured` (and any unknown role) is a credit only; a
- * bare role-less p-tag keeps granting for legacy events that predate roles.
+ * 4th element distinguishes credits from access grants.
+ *
+ * Grants: `artist` (co-author identity) and the three project MEMBER roles the
+ * mobile app writes — `collaborator` (viewer), `contributor` (may add their own
+ * tracks via kind-31685 proposals), `editor` (may propose any change). Every
+ * member must be able to play the media they are a member of, so all three
+ * unlock private/space content identically; what they may *propose* is decided
+ * by the owner's app when it applies a proposal, not here.
+ *
+ * `featured` (and any unknown role) is a credit only. A bare role-less p-tag
+ * keeps granting for legacy events that predate roles.
  */
 export function pTagGrantsAccess(tag: string[], pubkey: string): boolean {
   if (tag[0] !== "p" || tag[1] !== pubkey) return false;
   const role = tag[3];
-  return !role || role === "collaborator" || role === "artist";
+  return !role || ACCESS_ROLES.has(role);
 }
 
 /**

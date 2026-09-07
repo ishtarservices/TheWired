@@ -60,7 +60,9 @@ Music p-tags carry a role in the 4th element: `["p", <pubkey>, <relay>, <role>]`
 
 | Role | Grants access to private content? |
 |---|---|
-| `collaborator` | yes |
+| `collaborator` | yes (project member: viewer) |
+| `contributor` | yes (project member: may add their own tracks via kind-31685 proposals) |
+| `editor` | yes (project member: may propose any change) |
 | `artist` | yes (co-author identity) |
 | `featured` | **no** — it is a credit, not a grant |
 | any other role | no |
@@ -78,6 +80,7 @@ Music p-tags carry a role in the 4th element: `["p", <pubkey>, <relay>, <role>]`
 | HLS `/hls/<sha>/…` (master, playlists, segments) | 200 | 404 without valid `?tk=` | same |
 | `GET /music/access` | `{gated:false}` | token minted for authorized viewers only | same |
 | `GET /music/insights/*` | 200 | 404 unless member/author | 404 unless author/grantee |
+| `GET /music/proposals/:pubkey/:slug` (kind-31685 list) | 200 | 404 unless member/author (same gate as the project itself; a missing project also 404s) | 404 unless author/grantee |
 | OG share pages (`thewired.app/music/*`) | full metadata | generic branded page — **no metadata, indistinguishable from a missing slug** | same |
 
 ## Blob protection: deterministic per-sha semantics

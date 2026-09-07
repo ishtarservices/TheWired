@@ -24,7 +24,7 @@ import {
   insertMusicEvent,
   deleteRelayEventsBySlugPrefix,
 } from "../helpers/relayEvents.js";
-import { LUNA, MARCUS, SAGE, ZARA } from "../helpers/testUsers.js";
+import { LUNA, MARCUS, SAGE, ZARA, DECKARD, JAYDEE } from "../helpers/testUsers.js";
 
 let server: FastifyInstance;
 const BLOB_DIR = resolve(process.cwd(), config.blobDir);
@@ -38,6 +38,7 @@ const SHA_GRIEF = "4".repeat(64); // public track; a NON-owner publishes a priva
 const SHA_MIXED = "5".repeat(64); // one owner references it publicly AND privately
 const SHA_ROLES = "6".repeat(64); // private track with role-annotated p-tags
 const SHA_MULTI = "7".repeat(64); // track shared into SPACE_ID and SPACE_B
+const SHA_MEMBERS = "8".repeat(64); // private track with contributor/editor member roles (+HLS)
 
 async function seedBlob(sha: string, ownerPubkey: string, withHls = false) {
   await writeFile(join(BLOB_DIR, sha), Buffer.alloc(1024, 1));
@@ -59,10 +60,10 @@ beforeAll(async () => {
   server = await buildTestServer();
   await ensureRelayEventsTable();
 
-  for (const sha of [SHA_SPACE, SHA_GRIEF, SHA_MIXED, SHA_ROLES, SHA_MULTI]) {
+  for (const sha of [SHA_SPACE, SHA_GRIEF, SHA_MIXED, SHA_ROLES, SHA_MULTI, SHA_MEMBERS]) {
     await writeFile(join(BLOB_DIR, sha), Buffer.alloc(1024, 1));
   }
-  for (const sha of [SHA_SPACE, SHA_MULTI]) {
+  for (const sha of [SHA_SPACE, SHA_MULTI, SHA_MEMBERS]) {
     await mkdir(join(BLOB_DIR, "hls", sha, "128k"), { recursive: true });
     await writeFile(
       join(BLOB_DIR, "hls", sha, "master.m3u8"),
@@ -102,6 +103,7 @@ beforeEach(async () => {
   await seedBlob(SHA_MIXED, LUNA.pubkey);
   await seedBlob(SHA_ROLES, LUNA.pubkey);
   await seedBlob(SHA_MULTI, LUNA.pubkey, true);
+  await seedBlob(SHA_MEMBERS, LUNA.pubkey, true);
 
   // h-only space track (mobile's shape: no visibility tag, just ["h", spaceId])
   await insertMusicEvent({
@@ -143,14 +145,26 @@ beforeEach(async () => {
       ["p", SAGE.pubkey, "", "featured"],
     ],
   });
+
+  // Private track carrying the project MEMBER roles mobile writes: contributor
+  // and editor must unlock media exactly like collaborator; featured stays a credit.
+  await insertMusicEvent({
+    kind: 31683, pubkey: LUNA.pubkey, slug: `${SLUG}-members`,
+    visibility: "private", imetaSha: SHA_MEMBERS,
+    pTags: [
+      ["p", DECKARD.pubkey, "", "contributor"],
+      ["p", JAYDEE.pubkey, "", "editor"],
+      ["p", SAGE.pubkey, "", "featured"],
+    ],
+  });
 });
 
 afterAll(async () => {
   await deleteRelayEventsBySlugPrefix(SLUG);
-  for (const sha of [SHA_SPACE, SHA_GRIEF, SHA_MIXED, SHA_ROLES, SHA_MULTI]) {
+  for (const sha of [SHA_SPACE, SHA_GRIEF, SHA_MIXED, SHA_ROLES, SHA_MULTI, SHA_MEMBERS]) {
     await rm(join(BLOB_DIR, sha), { force: true }).catch(() => {});
   }
-  for (const sha of [SHA_SPACE, SHA_MULTI]) {
+  for (const sha of [SHA_SPACE, SHA_MULTI, SHA_MEMBERS]) {
     await rm(join(BLOB_DIR, "hls", sha), { recursive: true, force: true }).catch(() => {});
   }
   await closeTestServer();
@@ -264,6 +278,76 @@ describe("p-tag role semantics on private tracks", () => {
         method: "GET", url: `/${SHA_ROLES}`, headers: { "x-auth-pubkey": SAGE.pubkey },
       })).statusCode,
     ).toBe(404);
+  });
+
+  // Member roles: every layer (resolve, /music/access mint, raw blob via
+  // NIP-98, HLS master via the minted token) must treat contributor and editor
+  // exactly like collaborator.
+  async function expectMemberAccess(viewer: string) {
+    expect(
+      (await server.inject({
+        method: "GET",
+        url: `/music/resolve/track/${LUNA.pubkey}/${SLUG}-members`,
+        headers: { "x-auth-pubkey": viewer },
+      })).statusCode,
+    ).toBe(200);
+
+    const access = await server.inject({
+      method: "GET",
+      url: `/music/access/${LUNA.pubkey}/${SLUG}-members`,
+      headers: { "x-auth-pubkey": viewer },
+    });
+    expect(access.statusCode).toBe(200);
+    const d = access.json().data;
+    expect(d.gated).toBe(true);
+
+    expect(
+      (await server.inject({
+        method: "GET", url: `/${SHA_MEMBERS}`, headers: { "x-auth-pubkey": viewer },
+      })).statusCode,
+    ).toBe(200);
+    expect(
+      (await server.inject({ method: "GET", url: `/${SHA_MEMBERS}?tk=${d.token}` })).statusCode,
+    ).toBe(200);
+    expect(
+      (await server.inject({ method: "GET", url: `/hls/${SHA_MEMBERS}/master.m3u8?tk=${d.token}` }))
+        .statusCode,
+    ).toBe(200);
+  }
+
+  async function expectNoAccess(viewer: string | null) {
+    const headers = viewer ? { "x-auth-pubkey": viewer } : {};
+    expect(
+      (await server.inject({
+        method: "GET", url: `/music/resolve/track/${LUNA.pubkey}/${SLUG}-members`, headers,
+      })).statusCode,
+    ).toBe(404);
+    expect(
+      (await server.inject({
+        method: "GET", url: `/music/access/${LUNA.pubkey}/${SLUG}-members`, headers,
+      })).statusCode,
+    ).toBe(404);
+    expect(
+      (await server.inject({ method: "GET", url: `/${SHA_MEMBERS}`, headers })).statusCode,
+    ).toBe(404);
+    expect(
+      (await server.inject({ method: "GET", url: `/hls/${SHA_MEMBERS}/master.m3u8`, headers }))
+        .statusCode,
+    ).toBe(404);
+  }
+
+  it("grants a contributor on every layer", async () => {
+    await expectMemberAccess(DECKARD.pubkey);
+  });
+
+  it("grants an editor on every layer", async () => {
+    await expectMemberAccess(JAYDEE.pubkey);
+  });
+
+  it("still denies a featured-only credit, an untagged viewer, and anon", async () => {
+    await expectNoAccess(SAGE.pubkey);
+    await expectNoAccess(ZARA.pubkey);
+    await expectNoAccess(null);
   });
 
   it("keeps granting for legacy role-less p-tags", async () => {

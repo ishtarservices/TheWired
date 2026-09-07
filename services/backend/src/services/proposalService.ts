@@ -2,6 +2,7 @@ import { eq, and, desc } from "drizzle-orm";
 import { db } from "../db/connection.js";
 import { musicProposals } from "../db/schema/proposals.js";
 import { nanoid } from "../lib/id.js";
+import { fetchLatestByAddressableId } from "./musicVisibility.js";
 
 interface ProposalChange {
   type: "add_track" | "remove_track" | "reorder" | "update_metadata";
@@ -31,6 +32,12 @@ export const proposalService = {
     const status = event.tags.find((t) => t[0] === "status")?.[1] ?? "open";
 
     if (!targetAlbum || !ownerPubkey) return;
+
+    // The `p` tag names who may resolve the proposal, so it must be the target
+    // project's author. Drop a proposal that points elsewhere; a project we have
+    // not seen yet is still indexed (relay delivery order is not guaranteed).
+    const project = await fetchLatestByAddressableId(targetAlbum);
+    if (project && project.pubkey !== ownerPubkey) return;
 
     let parsed: { title: string; description?: string; changes: ProposalChange[] };
     try {
