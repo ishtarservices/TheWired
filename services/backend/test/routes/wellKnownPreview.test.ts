@@ -158,6 +158,63 @@ describe("GET /profile/:pubkey — OG share page", () => {
     expect(res.payload).toContain('https://cdn.example.com/luna.jpg');
   });
 
+  it("?section=music lists only the public releases, each linking to its share page", async () => {
+    const res = await server.inject({
+      method: "GET", url: `/profile/${LUNA.pubkey}?section=music`,
+    });
+    expect(res.statusCode).toBe(200);
+    // Public track + album, linked to their own OG pages.
+    expect(res.payload).toContain(`href="/music/track/${LUNA.pubkey}/${SLUG}-pub"`);
+    expect(res.payload).toContain("Neon Rain");
+    expect(res.payload).toContain(`href="/music/album/${LUNA.pubkey}/${SLUG}-album"`);
+    expect(res.payload).toContain("First Light");
+    // Private and space-scoped releases never appear — not even as links.
+    expect(res.payload).not.toContain("Secret Demo");
+    expect(res.payload).not.toContain(`${SLUG}-priv`);
+    expect(res.payload).not.toContain("Space Only");
+    expect(res.payload).not.toContain(`${SLUG}-space`);
+    // Event-controlled titles are escaped in the list too.
+    expect(res.payload).not.toContain("<script>alert(1)</script>");
+    expect(res.payload).toContain("&lt;script&gt;");
+    // Counts ride the description so the unfurl says what's there.
+    expect(res.payload).toMatch(/Music by .* on The Wired · \d+ tracks · 1 album/);
+  });
+
+  it("?section=music for an artist with nothing public says so, leaks nothing", async () => {
+    const res = await server.inject({
+      method: "GET", url: `/profile/${"b".repeat(64)}?section=music`,
+    });
+    expect(res.statusCode).toBe(200);
+    expect(res.payload).toContain("Nothing public here yet.");
+    expect(res.payload).not.toContain("wkprev-");
+  });
+
+  it("tells a phone to get soot (or open it), and a desktop browser to download The Wired", async () => {
+    const path = `/profile/${LUNA.pubkey}?section=music`;
+    const iphone = await server.inject({
+      method: "GET", url: path,
+      headers: { "user-agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 26_0 like Mac OS X) Safari/605.1.15" },
+    });
+    expect(iphone.headers["vary"]).toContain("User-Agent");
+    expect(iphone.payload).toContain("Get soot for iPhone");
+    expect(iphone.payload).toContain(`href="soot://profile/${LUNA.pubkey}?section=music"`);
+    expect(iphone.payload).not.toContain("Download The Wired");
+
+    const android = await server.inject({
+      method: "GET", url: path,
+      headers: { "user-agent": "Mozilla/5.0 (Linux; Android 15; Pixel 9) Chrome/128 Mobile" },
+    });
+    expect(android.payload).toContain("Get soot for Android");
+
+    const mac = await server.inject({
+      method: "GET", url: path,
+      headers: { "user-agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 15_0) Chrome/128" },
+    });
+    expect(mac.payload).toContain("Download The Wired for desktop");
+    expect(mac.payload).toContain("https://thewired.app/#download");
+    expect(mac.payload).not.toContain("soot://");
+  });
+
   it("falls back to a truncated pubkey for unknown profiles", async () => {
     const res = await server.inject({ method: "GET", url: `/profile/${"a".repeat(64)}` });
     expect(res.statusCode).toBe(200);

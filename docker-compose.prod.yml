@@ -102,6 +102,17 @@ services:
       ALLOWED_ORIGINS: ${ALLOWED_ORIGINS:-https://thewired.app,tauri://localhost,http://localhost}
       PUBLIC_URL: ${PUBLIC_URL:-https://api.thewired.app}
       ADMIN_PUBKEYS: ${ADMIN_PUBKEYS:-}
+      # Share pages (thewired.app/music/*, /profile/*) + mobile universal links
+      # (/.well-known/apple-app-site-association, assetlinks.json). Compose only
+      # forwards variables listed here — an .env entry alone never reaches the
+      # container. Store URLs empty → the landing page's #download section.
+      WEB_BASE_URL: ${WEB_BASE_URL:-https://thewired.app}
+      APPLE_APP_IDS: ${APPLE_APP_IDS:-53RG2QV7HT.app.soot.mobile}
+      ANDROID_PACKAGE_NAME: ${ANDROID_PACKAGE_NAME:-app.soot.mobile}
+      ANDROID_CERT_SHA256: ${ANDROID_CERT_SHA256:-}
+      IOS_APP_URL: ${IOS_APP_URL:-}
+      ANDROID_APP_URL: ${ANDROID_APP_URL:-}
+      DESKTOP_APP_URL: ${DESKTOP_APP_URL:-}
       LIVEKIT_URL: ${LIVEKIT_URL:-ws://livekit:7880}
       LIVEKIT_API_KEY: ${LIVEKIT_API_KEY:-devkey}
       LIVEKIT_API_SECRET: ${LIVEKIT_API_SECRET:-secret}
@@ -110,6 +121,10 @@ services:
       GIF_API_KEY: ${GIF_API_KEY:-}
       BLOB_DIR: /app/blobs
       MAX_BLOB_SIZE: ${MAX_BLOB_SIZE:-104857600}
+      # Signs the ?tk= tokens for protected music (blob + HLS). The backend
+      # refuses to mint with an empty secret under NODE_ENV=production, so a
+      # missing value = every private/space track fails to play. Required.
+      MEDIA_TOKEN_SECRET: ${MEDIA_TOKEN_SECRET:?Set MEDIA_TOKEN_SECRET (openssl rand -hex 32)}
       # Transcoding pipeline — both flags on by default. Roll back by setting
       # either to "false" in .env and redeploying; the client falls back to the
       # original blob URL when HLS variants are missing.

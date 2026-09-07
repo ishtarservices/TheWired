@@ -172,3 +172,38 @@ export async function resolveVisibleChildTracks(
   }
   return visible;
 }
+
+/**
+ * An artist's PUBLIC catalog — latest event per (kind, d-tag) for tracks
+ * (31683) and albums (33123), newest first. Private/unlisted and space-scoped
+ * rows are excluded at the SQL layer (the indexed columns) and re-checked on
+ * the tags, so the share page can never leak a title it shouldn't. Feeds the
+ * server-rendered /profile/:pubkey?section=music share page.
+ */
+export async function fetchPublicCatalogByPubkey(
+  pubkey: string,
+  limit = 100,
+): Promise<RelayEvent[]> {
+  if (!/^[0-9a-f]{64}$/.test(pubkey)) return [];
+  const rows = (await db.execute(
+    sql`SELECT id, pubkey, created_at, kind, tags, content, sig
+        FROM (
+          SELECT DISTINCT ON (kind, d_tag)
+            id, pubkey, created_at, kind, tags, content, sig
+          FROM relay.events
+          WHERE pubkey = ${pubkey}
+            AND kind IN (31683, 33123)
+            AND visibility IS NULL
+            AND h_tag IS NULL
+          ORDER BY kind, d_tag, created_at DESC
+        ) latest
+        ORDER BY created_at DESC
+        LIMIT ${limit}`,
+  )) as unknown as RelayEvent[];
+  return rows
+    .filter(
+      (row) =>
+        !row.tags.some((t) => t[0] === "visibility") && !row.tags.some((t) => t[0] === "h"),
+    )
+    .map(normalizeEvent);
+}
