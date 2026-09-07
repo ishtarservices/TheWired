@@ -57,13 +57,17 @@ async function seedSpace(id: string, opts: { listed?: boolean; members?: number 
   });
 }
 
-/** A space-scoped content event that a zap can target. */
-async function seedSpaceContent(hTag: string): Promise<string> {
+/** A space-scoped content event that a zap can target. Several ids = an event
+ *  shared into several spaces. Mirrors the relay's columns: h_tag = first,
+ *  h_tags = all. */
+async function seedSpaceContent(hTag: string | string[]): Promise<string> {
   const id = nextId("content");
+  const hTags = Array.isArray(hTag) ? hTag : [hTag];
+  const hTagsArray = sql`ARRAY[${sql.join(hTags.map((h) => sql`${h}`), sql`, `)}]::text[]`;
   await db.execute(sql`
-    INSERT INTO relay.events (id, pubkey, created_at, kind, tags, content, sig, h_tag, e_tags)
+    INSERT INTO relay.events (id, pubkey, created_at, kind, tags, content, sig, h_tag, h_tags, e_tags)
     VALUES (${id}, ${LUNA.pubkey}, ${Math.floor(Date.now() / 1000)}, 1, '[]'::jsonb, 'hi',
-            ${"0".repeat(128)}, ${hTag}, '{}')
+            ${"0".repeat(128)}, ${hTags[0]}, ${hTagsArray}, '{}')
   `);
   return id;
 }
@@ -157,6 +161,27 @@ describe("discoveryService.rollupSpaceZaps", () => {
     const a = await readSpace("space-a");
     expect(a.zapCount24h).toBe(1);
     expect(Number(a.zapSats24h)).toBe(100);
+  });
+
+  it("counts a zap on a multi-space event toward every listed space", async () => {
+    await seedSpace("space-a");
+    await seedSpace("space-b");
+    await seedSpace("space-c");
+
+    const shared = await seedSpaceContent(["space-a", "space-b"]);
+    await seedZapReceipt(shared, 100);
+    await seedZapReceipt(shared, 50);
+
+    const result = await discoveryService.rollupSpaceZaps();
+    expect(result.spaces).toBe(2);
+
+    for (const id of ["space-a", "space-b"]) {
+      const row = await readSpace(id);
+      expect(row.zapCount24h, id).toBe(2);
+      expect(Number(row.zapSats24h), id).toBe(150);
+    }
+    // A space the event is not shared into gets nothing.
+    expect((await readSpace("space-c")).zapCount24h).toBe(0);
   });
 
   it("ignores zaps on events that belong to no space", async () => {
