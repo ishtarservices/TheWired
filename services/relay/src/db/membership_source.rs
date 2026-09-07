@@ -18,6 +18,8 @@
 use sqlx::PgPool;
 use std::collections::HashSet;
 
+use crate::nostr::membership_gate::SpaceMembership;
+
 /// Member if the pubkey is in `app.space_members` (backend) OR
 /// `relay.group_members` (relay-native) for this group id.
 pub async fn is_member(pool: &PgPool, group_id: &str, pubkey: &str) -> anyhow::Result<bool> {
@@ -47,4 +49,33 @@ pub async fn members_of(pool: &PgPool, pubkey: &str) -> anyhow::Result<HashSet<S
     .fetch_all(pool)
     .await?;
     Ok(rows.into_iter().map(|r| r.0).collect())
+}
+
+/// Three-way membership for the multi-space publish gate: does the relay
+/// know this id at all (`app.spaces` ∪ `relay.groups`), and if so is the
+/// pubkey a member (`app.space_members` ∪ `relay.group_members`)?
+///
+/// An id that exists in neither world is [`SpaceMembership::Unknown`] and is
+/// ignored by the all-of gate (the space may be hosted on another relay).
+pub async fn space_membership(
+    pool: &PgPool,
+    group_id: &str,
+    pubkey: &str,
+) -> anyhow::Result<SpaceMembership> {
+    let row: (bool, bool) = sqlx::query_as(
+        "SELECT \
+            (EXISTS (SELECT 1 FROM app.spaces WHERE id = $1) \
+             OR EXISTS (SELECT 1 FROM relay.groups WHERE group_id = $1)), \
+            (EXISTS (SELECT 1 FROM app.space_members WHERE space_id = $1 AND pubkey = $2) \
+             OR EXISTS (SELECT 1 FROM relay.group_members WHERE group_id = $1 AND pubkey = $2))",
+    )
+    .bind(group_id)
+    .bind(pubkey)
+    .fetch_one(pool)
+    .await?;
+    Ok(match row {
+        (false, _) => SpaceMembership::Unknown,
+        (true, false) => SpaceMembership::NonMember,
+        (true, true) => SpaceMembership::Member,
+    })
 }

@@ -24,6 +24,9 @@ interface TrackEventParams {
   revisionSummary?: string;
   sharingDisabled?: boolean;
   spaceId?: string;
+  /** Every space the track is shared into (one `h` tag each). When given it
+   *  takes precedence over `spaceId`, so an edit does not collapse the set. */
+  spaceIds?: string[];
   channelId?: string;
 }
 
@@ -43,6 +46,8 @@ interface AlbumEventParams {
   revisionSummary?: string;
   sharingDisabled?: boolean;
   spaceId?: string;
+  /** Every space the album is shared into (one `h` tag each); see TrackEventParams. */
+  spaceIds?: string[];
   channelId?: string;
 }
 
@@ -57,12 +62,19 @@ interface PlaylistEventParams {
   channelId?: string;
 }
 
-/** Append visibility-related tags */
-function addVisibilityTags(tags: string[][], visibility?: MusicVisibility, spaceId?: string, channelId?: string) {
+/** Append visibility-related tags. A space-scoped event gets one `["h", id]`
+ *  per space in `spaceIds` (deduped, order kept), falling back to `spaceId`. */
+function addVisibilityTags(
+  tags: string[][],
+  opts: { visibility?: MusicVisibility; spaceId?: string; spaceIds?: string[]; channelId?: string },
+) {
+  const { visibility, spaceId, spaceIds, channelId } = opts;
   if (visibility === "private") {
     tags.push(["visibility", "private"]);
-  } else if (visibility === "space" && spaceId) {
-    tags.push(["h", spaceId]);
+  } else if (visibility === "space") {
+    const ids = [...new Set((spaceIds ?? (spaceId ? [spaceId] : [])).filter(Boolean))];
+    if (ids.length === 0) return;
+    for (const id of ids) tags.push(["h", id]);
     if (channelId) {
       tags.push(["channel", channelId]);
     }
@@ -123,7 +135,7 @@ export function buildTrackEvent(
     tags.push(["sharing", "disabled"]);
   }
 
-  addVisibilityTags(tags, params.visibility, params.spaceId, params.channelId);
+  addVisibilityTags(tags, params);
 
   return {
     pubkey,
@@ -183,7 +195,7 @@ export function buildAlbumEvent(
     tags.push(["sharing", "disabled"]);
   }
 
-  addVisibilityTags(tags, params.visibility, params.spaceId, params.channelId);
+  addVisibilityTags(tags, params);
 
   return {
     pubkey,
@@ -344,7 +356,7 @@ export function buildPlaylistEvent(
     }
   }
 
-  addVisibilityTags(tags, params.visibility, params.spaceId, params.channelId);
+  addVisibilityTags(tags, params);
 
   return {
     pubkey,

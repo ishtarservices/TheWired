@@ -573,9 +573,11 @@ export const discoveryService = {
    * Recompute each listed space's trailing-24h zap totals.
    *
    * Zaps are per-event on Nostr; a space's funding signal is the sum over
-   * events whose `h` tag is that space. Redis holds all-time per-event totals
-   * (`zap_total:<id>`), which can't answer "last 24 hours", so this reads the
-   * receipts themselves out of relay.events and re-derives the window.
+   * events h-tagged to that space. An event shared into several spaces (one
+   * `h` tag each, mirrored in the relay's `h_tags` column) counts toward every
+   * listed space. Redis holds all-time per-event totals (`zap_total:<id>`),
+   * which can't answer "last 24 hours", so this reads the receipts themselves
+   * out of relay.events and re-derives the window.
    *
    * Wholesale recompute (every space reset to 0 first) rather than an
    * incremental counter: a replayed or re-ingested receipt then can't inflate a
@@ -584,13 +586,17 @@ export const discoveryService = {
   async rollupSpaceZaps(windowHours = 24, maxReceipts = 20_000) {
     const since = Math.floor(Date.now() / 1000) - windowHours * 3600;
 
-    // Zap receipts in-window, joined to the event they paid for. `e_tags` is the
-    // indexed array column the relay extracts at insert time (GIN), so this
-    // avoids unnesting the tags JSONB.
+    // Zap receipts in-window, joined to the event they paid for and fanned out
+    // over that event's spaces. `e_tags` / `h_tags` are the indexed array
+    // columns the relay extracts at insert time (GIN), so this avoids unnesting
+    // the tags JSONB. One row per (receipt, space) — `receipts` in the result
+    // counts those pairs. `h_tag IS NULL` (⇔ `h_tags = '{}'`) is the cheap
+    // "not space-scoped" pre-filter.
     const rows = (await db.execute(sql`
-      SELECT target.h_tag AS space_id, zap.tags AS tags
+      SELECT h.space_id AS space_id, zap.tags AS tags
       FROM relay.events zap
       JOIN relay.events target ON target.id = ANY(zap.e_tags)
+      CROSS JOIN LATERAL unnest(target.h_tags) AS h(space_id)
       WHERE zap.kind = 9735
         AND zap.created_at >= ${since}
         AND target.h_tag IS NOT NULL

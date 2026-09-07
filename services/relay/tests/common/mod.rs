@@ -264,6 +264,41 @@ pub fn sign_h_tagged(
     )
 }
 
+/// An event tagged into SEVERAL spaces (one `["h", id]` per id), signed by
+/// `identity`. For multi-space music tests.
+pub fn sign_multi_h(
+    identity: &TestIdentity,
+    kind: i32,
+    space_ids: &[&str],
+    content: &str,
+) -> Event {
+    sign_event(
+        identity,
+        kind,
+        space_ids
+            .iter()
+            .map(|id| vec!["h".to_string(), id.to_string()])
+            .collect(),
+        content,
+        1_700_000_000,
+    )
+}
+
+/// A kind:31683 track shared into `space_ids`. Music kinds must carry `title`
+/// and `d` tags to pass `validate_music_event`; `slug` is the `d` value.
+pub fn sign_music_track(identity: &TestIdentity, space_ids: &[&str], slug: &str) -> Event {
+    let mut tags: Vec<Vec<String>> = vec![
+        vec!["d".to_string(), slug.to_string()],
+        vec!["title".to_string(), format!("Track {slug}")],
+    ];
+    tags.extend(
+        space_ids
+            .iter()
+            .map(|id| vec!["h".to_string(), id.to_string()]),
+    );
+    sign_event(identity, 31683, tags, "", 1_700_000_000)
+}
+
 // ── AppState scaffolding ────────────────────────────────────────────────
 
 /// Build an AppState wired to the given pool. `relay_url` matches what

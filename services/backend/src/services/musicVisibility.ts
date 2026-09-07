@@ -5,7 +5,7 @@
  * enforces the same model via services/blobAccess.ts. Full matrix:
  * docs/MUSIC_VISIBILITY.md.
  */
-import { and, eq, sql } from "drizzle-orm";
+import { and, eq, inArray, sql } from "drizzle-orm";
 import { db } from "../db/connection.js";
 import { spaceMembers } from "../db/schema/members.js";
 import { pTagGrantsAccess } from "./blobAccess.js";
@@ -27,10 +27,13 @@ export function normalizeEvent(row: RelayEvent): RelayEvent {
 
 /**
  * Pure visibility policy: may `authPubkey` see this event? Space-scoped (`h`)
- * requires ownership or space membership; private/unlisted requires ownership or
- * an access-granting p-tag (role "artist"/"collaborator" or role-less — a
- * "featured" credit is NOT an access grant; see blobAccess.pTagGrantsAccess).
- * `membershipCache` dedupes space-membership queries across a batch of events.
+ * requires ownership or membership of ANY listed space (a multi-space event
+ * carries one `h` tag per space); private/unlisted requires ownership or an
+ * access-granting p-tag: role "artist", a member role ("collaborator",
+ * "contributor", "editor"), or role-less — a "featured" credit is NOT an
+ * access grant; see blobAccess.pTagGrantsAccess for the single source of truth.
+ * `membershipCache` dedupes space-membership queries across a batch of events,
+ * keyed `${spaceId}:${pubkey}`.
  */
 export async function isEventVisibleTo(
   event: RelayEvent,
@@ -40,24 +43,13 @@ export async function isEventVisibleTo(
 ): Promise<boolean> {
   const eventTags = event.tags;
   const vis = eventTags.find((t: string[]) => t[0] === "visibility")?.[1];
-  const hTag = eventTags.find((t: string[]) => t[0] === "h")?.[1];
+  const hTags = [...new Set(eventTags.filter((t) => t[0] === "h" && t[1]).map((t) => t[1]))];
 
-  // Space-scoped: require membership or ownership
-  if (hTag) {
+  // Space-scoped: require ownership or membership of ANY listed space
+  if (hTags.length > 0) {
     if (!authPubkey) return false;
     if (authPubkey !== ownerPubkey) {
-      const cacheKey = `${hTag}:${authPubkey}`;
-      let isMember = membershipCache?.get(cacheKey);
-      if (isMember === undefined) {
-        const membership = await db
-          .select()
-          .from(spaceMembers)
-          .where(and(eq(spaceMembers.spaceId, hTag), eq(spaceMembers.pubkey, authPubkey)))
-          .limit(1);
-        isMember = membership.length > 0;
-        membershipCache?.set(cacheKey, isMember);
-      }
-      if (!isMember) return false;
+      if (!(await isMemberOfAny(hTags, authPubkey, membershipCache))) return false;
     }
   }
 
@@ -70,6 +62,36 @@ export async function isEventVisibleTo(
   }
 
   return true;
+}
+
+/**
+ * Is `authPubkey` a member of at least one of `spaceIds`? Consults the cache
+ * per space, queries every uncached id in one `IN (...)` select, and fills the
+ * cache for each id (true for the hits, false for the rest) so a batch of
+ * events sharing spaces costs one round trip.
+ */
+async function isMemberOfAny(
+  spaceIds: string[],
+  authPubkey: string,
+  membershipCache?: Map<string, boolean>,
+): Promise<boolean> {
+  const uncached: string[] = [];
+  for (const spaceId of spaceIds) {
+    const cached = membershipCache?.get(`${spaceId}:${authPubkey}`);
+    if (cached === true) return true;
+    if (cached === undefined) uncached.push(spaceId);
+  }
+  if (uncached.length === 0) return false;
+
+  const rows = await db
+    .select({ spaceId: spaceMembers.spaceId })
+    .from(spaceMembers)
+    .where(and(inArray(spaceMembers.spaceId, uncached), eq(spaceMembers.pubkey, authPubkey)));
+  const memberOf = new Set(rows.map((r) => r.spaceId));
+  for (const spaceId of uncached) {
+    membershipCache?.set(`${spaceId}:${authPubkey}`, memberOf.has(spaceId));
+  }
+  return memberOf.size > 0;
 }
 
 /** Enforce visibility on a top-level resolve target. Writes a 404 to `reply` and

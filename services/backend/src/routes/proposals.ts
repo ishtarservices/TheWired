@@ -1,6 +1,10 @@
 import type { FastifyPluginAsync } from "fastify";
 import { z } from "zod";
 import { proposalService } from "../services/proposalService.js";
+import {
+  checkEventVisibility,
+  fetchLatestByAddressableId,
+} from "../services/musicVisibility.js";
 import { validate, hexId, nonEmptyString } from "../lib/validation.js";
 
 const listParams = z.object({
@@ -17,7 +21,10 @@ const resolveBody = z.object({
 });
 
 export const proposalRoutes: FastifyPluginAsync = async (server) => {
-  // GET /music/proposals/:pubkey/:slug -- list proposals for a project
+  // GET /music/proposals/:pubkey/:slug -- list proposals for a project.
+  // Gated by the target project's visibility exactly like GET /music/resolve/album:
+  // a missing project and a project the viewer may not see both 404, so
+  // proposal titles / track refs never leak past the project's own audience.
   server.get<{ Params: { pubkey: string; slug: string } }>(
     "/proposals/:pubkey/:slug",
     async (request, reply) => {
@@ -25,6 +32,14 @@ export const proposalRoutes: FastifyPluginAsync = async (server) => {
       if (!params) return;
 
       const targetAlbum = `33123:${params.pubkey}:${params.slug}`;
+      const project = await fetchLatestByAddressableId(targetAlbum);
+      if (!project) {
+        return reply.status(404).send({ error: "Album not found", code: "NOT_FOUND" });
+      }
+      const authPubkey = (request.headers["x-auth-pubkey"] as string) ?? null;
+      const allowed = await checkEventVisibility(project, params.pubkey, authPubkey, reply);
+      if (!allowed) return;
+
       const proposals = await proposalService.getProposalsForAlbum(targetAlbum);
       return { data: proposals };
     },

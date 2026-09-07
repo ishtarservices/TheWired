@@ -23,7 +23,10 @@ export interface MusicTrack {
   blurhash?: string;
   createdAt: number;
   license?: string;
+  /** First `h` tag (the primary space). Kept for single-select UI; see spaceIds. */
   spaceId?: string;
+  /** Every `h` tag on the event — a track may be shared into several spaces. */
+  spaceIds: string[];
   channelId?: string;
   visibility: MusicVisibility;
   sharingDisabled?: boolean;
@@ -50,7 +53,10 @@ export interface MusicAlbum {
   totalDuration?: number;
   createdAt: number;
   visibility: MusicVisibility;
+  /** First `h` tag (the primary space). Kept for single-select UI; see spaceIds. */
   spaceId?: string;
+  /** Every `h` tag on the event — an album may be shared into several spaces. */
+  spaceIds: string[];
   channelId?: string;
   sharingDisabled?: boolean;
   revisionSummary?: string;

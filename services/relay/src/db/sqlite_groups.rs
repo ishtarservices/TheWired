@@ -17,6 +17,8 @@
 use sqlx::{QueryBuilder, Sqlite, SqlitePool};
 use std::collections::HashSet;
 
+use crate::nostr::membership_gate::SpaceMembership;
+
 /// Create a new NIP-29 group; the creator becomes a member + admin.
 pub async fn create_group(
     pool: &SqlitePool,
@@ -139,6 +141,24 @@ pub async fn is_member(pool: &SqlitePool, group_id: &str, pubkey: &str) -> anyho
             .fetch_optional(pool)
             .await?;
     Ok(row.is_some())
+}
+
+/// Three-way membership for the multi-space publish gate (relay-native arm
+/// of `membership_source::space_membership`): unknown group → `Unknown`;
+/// otherwise `Member` / `NonMember` per `group_members`.
+pub async fn space_membership(
+    pool: &SqlitePool,
+    group_id: &str,
+    pubkey: &str,
+) -> anyhow::Result<SpaceMembership> {
+    if !group_exists(pool, group_id).await? {
+        return Ok(SpaceMembership::Unknown);
+    }
+    Ok(if is_member(pool, group_id, pubkey).await? {
+        SpaceMembership::Member
+    } else {
+        SpaceMembership::NonMember
+    })
 }
 
 /// Add a member to a group.
@@ -309,6 +329,15 @@ mod tests {
         assert_eq!(alice, HashSet::from(["g1".to_string(), "g2".to_string()]));
         let bob = members_of(&p, "bob").await.unwrap();
         assert_eq!(bob, HashSet::from(["g2".to_string()]));
+    }
+
+    #[tokio::test]
+    async fn space_membership_three_way() {
+        let p = pool().await;
+        create_group(&p, "g1", "G1", "alice").await.unwrap();
+        assert_eq!(space_membership(&p, "g1", "alice").await.unwrap(), SpaceMembership::Member);
+        assert_eq!(space_membership(&p, "g1", "bob").await.unwrap(), SpaceMembership::NonMember);
+        assert_eq!(space_membership(&p, "nope", "alice").await.unwrap(), SpaceMembership::Unknown);
     }
 
     #[tokio::test]

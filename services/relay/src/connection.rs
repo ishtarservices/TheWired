@@ -72,7 +72,7 @@ const RATE_MAX_MSGS: u32 = 300;
 ///   3. Author always sees own events.
 ///   4. Explicit p-tagged collaborators always see the event.
 ///   5. h-tagged (space-scoped) events: visible if the authed pubkey is a
-///      member of that space, per the cached set populated on AUTH from
+///      member of ANY listed space, per the cached set populated on AUTH from
 ///      `app.space_members`. Without this, members of a space never receive
 ///      live broadcasts of kind:9 from other members — only history via
 ///      REQ — so chat appears frozen until you switch and re-enter.
@@ -82,10 +82,10 @@ fn is_event_visible_to(
     space_memberships: &HashSet<String>,
 ) -> bool {
     let visibility = event.get_tag_value("visibility");
-    let h_tag = event.get_tag_value("h");
+    let h_tags = event.get_tag_values("h");
 
     // Public events: always visible
-    if visibility.is_none() && h_tag.is_none() {
+    if visibility.is_none() && h_tags.is_empty() {
         return true;
     }
 
@@ -108,14 +108,8 @@ fn is_event_visible_to(
         return true;
     }
 
-    // h-tag: space membership
-    if let Some(h) = h_tag {
-        if space_memberships.contains(&h) {
-            return true;
-        }
-    }
-
-    false
+    // h-tag: membership of any listed space
+    h_tags.iter().any(|h| space_memberships.contains(h))
 }
 
 /// Per-client WebSocket connection handler
@@ -380,6 +374,51 @@ mod tests {
             &Some("bob".into()),
             &empty_set()
         ));
+    }
+
+    /// Multi-space events: a member of ANY listed space receives the broadcast,
+    /// including when their space is the second h tag.
+    #[test]
+    fn multi_h_member_of_second_space_sees_broadcast() {
+        let evt = event_with(
+            31683,
+            "alice",
+            vec![
+                vec!["h".into(), "space_x".into()],
+                vec!["h".into(), "space_y".into()],
+            ],
+        );
+        assert!(is_event_visible_to(&evt, &Some("bob".into()), &set_with(&["space_y"])));
+        assert!(is_event_visible_to(&evt, &Some("bob".into()), &set_with(&["space_x"])));
+    }
+
+    /// Multi-space events stay hidden from a member of none of the listed spaces.
+    #[test]
+    fn multi_h_non_member_of_all_blocked() {
+        let evt = event_with(
+            31683,
+            "alice",
+            vec![
+                vec!["h".into(), "space_x".into()],
+                vec!["h".into(), "space_y".into()],
+            ],
+        );
+        assert!(!is_event_visible_to(&evt, &Some("bob".into()), &set_with(&["space_z"])));
+        assert!(!is_event_visible_to(&evt, &Some("bob".into()), &empty_set()));
+    }
+
+    /// Multi-space events are never public: anonymous clients are blocked.
+    #[test]
+    fn multi_h_anonymous_blocked() {
+        let evt = event_with(
+            31683,
+            "alice",
+            vec![
+                vec!["h".into(), "space_x".into()],
+                vec!["h".into(), "space_y".into()],
+            ],
+        );
+        assert!(!is_event_visible_to(&evt, &None, &set_with(&["space_x", "space_y"])));
     }
 
     /// TTL guard: the lazy refresh should only fire when the cache exceeds

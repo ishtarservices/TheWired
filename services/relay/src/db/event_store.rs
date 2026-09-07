@@ -8,17 +8,6 @@ use crate::nostr::filter::Filter;
 /// §1). A client cannot tie up a DB connection with `limit: 5000`.
 const MAX_QUERY_LIMIT: i64 = 500;
 
-/// Collect the values (`tag[1]`) of every tag whose name (`tag[0]`) matches.
-/// Used to populate the indexed `p_tags` / `e_tags` columns on insert.
-fn extract_tag_values(event: &Event, name: &str) -> Vec<String> {
-    event
-        .tags
-        .iter()
-        .filter(|t| t.first().map(String::as_str) == Some(name))
-        .filter_map(|t| t.get(1).cloned())
-        .collect()
-}
-
 /// Replaceable event kinds: only one event per pubkey+kind (NIP-01)
 fn is_replaceable(kind: i32) -> bool {
     kind == 0 || kind == 3 || (kind >= 10000 && kind < 20000)
@@ -34,14 +23,18 @@ fn is_addressable(kind: i32) -> bool {
 /// events by replacing older versions for the same pubkey+kind (or pubkey+kind+d_tag).
 pub async fn store_event(pool: &PgPool, event: &Event) -> anyhow::Result<bool> {
     let d_tag = event.get_tag_value("d");
-    let h_tag = event.get_tag_value("h");
+    // Every h tag goes into the indexed `h_tags` array (multi-space events);
+    // the scalar `h_tag` column is kept as h_tags[1] so `h_tag IS NULL` still
+    // means "public" for the backend queries that read it.
+    let h_tags = event.get_tag_values("h");
+    let h_tag = h_tags.first().cloned();
     let visibility = event.get_tag_value("visibility");
     let tags_json: Value = serde_json::to_value(&event.tags)?;
 
     // Extract p/e tag values into dedicated array columns for fast filtering
     // (RELAY_OPTIMIZATIONS §2). Mirrors the query-side `p_tags && $N` path.
-    let p_tags = extract_tag_values(event, "p");
-    let e_tags = extract_tag_values(event, "e");
+    let p_tags = event.get_tag_values("p");
+    let e_tags = event.get_tag_values("e");
 
     // For replaceable/addressable events, delete the older version first.
     // Only deletes if the new event is strictly newer (created_at >).
@@ -81,8 +74,8 @@ pub async fn store_event(pool: &PgPool, event: &Event) -> anyhow::Result<bool> {
 
     let result = sqlx::query(
         r#"
-        INSERT INTO relay.events (id, pubkey, created_at, kind, tags, content, sig, d_tag, h_tag, visibility, p_tags, e_tags)
-        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
+        INSERT INTO relay.events (id, pubkey, created_at, kind, tags, content, sig, d_tag, h_tag, visibility, p_tags, e_tags, h_tags)
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
         ON CONFLICT (id) DO NOTHING
         "#,
     )
@@ -98,6 +91,7 @@ pub async fn store_event(pool: &PgPool, event: &Event) -> anyhow::Result<bool> {
     .bind(&visibility)
     .bind(&p_tags)
     .bind(&e_tags)
+    .bind(&h_tags)
     .execute(pool)
     .await;
 
@@ -192,10 +186,11 @@ pub async fn query_events(pool: &PgPool, filter: &Filter, authed_pubkey: Option<
         binds.push(BindValue::Int64(until));
     }
 
-    // h_tags: WHERE h_tag = ANY($N)
+    // h_tags: array overlap against the indexed `h_tags` column, so a `#h`
+    // filter matches an event whose SECOND (or later) h tag is the filtered id.
     if !filter.h_tags.is_empty() {
         param_counter += 1;
-        conditions.push(format!("h_tag = ANY(${param_counter})"));
+        conditions.push(format!("h_tags && ${param_counter}"));
         binds.push(BindValue::StringVec(filter.h_tags.clone()));
     }
 
@@ -257,14 +252,17 @@ pub async fn query_events(pool: &PgPool, filter: &Filter, authed_pubkey: Option<
                 "(visibility IS NULL OR pubkey = ${auth_param}[1] OR ${auth_param}[1] = ANY(p_tags))"
             ));
 
-            // Space-scoped: author or member of EITHER the backend space
-            // (app.space_members) OR the relay-native group (relay.group_members).
-            // The native-group UNION was missing, so NIP-29-native members couldn't
-            // read their own group's history (#18 verifier).
+            // Space-scoped: author or member of ANY listed space, in EITHER the
+            // backend world (app.space_members) OR the relay-native one
+            // (relay.group_members). `h_tags && ARRAY(...)` is the any-of leg
+            // for multi-space events; for a single-h event it reduces to the
+            // old per-space EXISTS. The native-group UNION was missing, so
+            // NIP-29-native members couldn't read their own group's history
+            // (#18 verifier).
             conditions.push(format!(
                 "(h_tag IS NULL OR pubkey = ${auth_param}[1] \
-                 OR EXISTS (SELECT 1 FROM app.space_members WHERE space_id = h_tag AND pubkey = ${auth_param}[1]) \
-                 OR EXISTS (SELECT 1 FROM relay.group_members WHERE group_id = h_tag AND pubkey = ${auth_param}[1]))"
+                 OR h_tags && ARRAY(SELECT space_id FROM app.space_members WHERE pubkey = ${auth_param}[1]) \
+                 OR h_tags && ARRAY(SELECT group_id FROM relay.group_members WHERE pubkey = ${auth_param}[1]))"
             ));
         }
         None => {

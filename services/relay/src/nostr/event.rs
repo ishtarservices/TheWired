@@ -20,6 +20,17 @@ impl Event {
             .and_then(|t| t.get(1).cloned())
     }
 
+    /// Every value (`tag[1]`) of the tags named `name`, in event order. An
+    /// event may carry several `h` tags (multi-space music); this returns all
+    /// of them where `get_tag_value` returns only the first.
+    pub fn get_tag_values(&self, name: &str) -> Vec<String> {
+        self.tags
+            .iter()
+            .filter(|t| t.first().map(String::as_str) == Some(name))
+            .filter_map(|t| t.get(1).cloned())
+            .collect()
+    }
+
     /// Compute the canonical serialization for hashing (NIP-01)
     pub fn serialize_for_id(&self) -> String {
         let tags_value = serde_json::to_value(&self.tags).unwrap_or_default();
@@ -75,6 +86,33 @@ mod tests {
             ..make_event()
         };
         assert_eq!(event.get_tag_value("h"), None);
+    }
+
+    #[test]
+    fn test_get_tag_values_multiple_in_order() {
+        let event = Event {
+            tags: vec![
+                vec!["h".to_string(), "space_a".to_string()],
+                vec!["p".to_string(), "pk".to_string()],
+                vec!["h".to_string(), "space_b".to_string()],
+                vec!["h".to_string()], // malformed: no value, skipped
+            ],
+            ..make_event()
+        };
+        assert_eq!(
+            event.get_tag_values("h"),
+            vec!["space_a".to_string(), "space_b".to_string()]
+        );
+        // First value agrees with get_tag_value.
+        assert_eq!(event.get_tag_values("h").first().cloned(), event.get_tag_value("h"));
+    }
+
+    #[test]
+    fn test_get_tag_values_missing_is_empty() {
+        let event = make_event();
+        assert!(event.get_tag_values("e").is_empty());
+        let empty = Event { tags: vec![], ..make_event() };
+        assert!(empty.get_tag_values("h").is_empty());
     }
 
     #[test]

@@ -189,6 +189,29 @@ mod tests {
         assert!(!filter.matches(&make_event(None)));
     }
 
+    /// `#h` must match an event whose SECOND h tag is the filtered id
+    /// (multi-space music events carry several).
+    #[test]
+    fn test_h_filter_matches_second_h_tag() {
+        let filter = Filter {
+            h_tags: vec!["group2".to_string()],
+            ..Default::default()
+        };
+        let event = make_event(Some(Event {
+            tags: vec![
+                vec!["h".to_string(), "group1".to_string()],
+                vec!["h".to_string(), "group2".to_string()],
+            ],
+            ..make_event(None)
+        }));
+        assert!(filter.matches(&event));
+        let miss = Filter {
+            h_tags: vec!["group3".to_string()],
+            ..Default::default()
+        };
+        assert!(!miss.matches(&event));
+    }
+
     #[test]
     fn test_authors_filter_match() {
         let filter = Filter {

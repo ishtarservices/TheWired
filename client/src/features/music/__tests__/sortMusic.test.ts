@@ -25,6 +25,7 @@ function track(over: Partial<MusicTrack> = {}): MusicTrack {
     variants: [],
     createdAt: 1000,
     visibility: "public",
+    spaceIds: [],
     ...over,
   };
 }
@@ -45,6 +46,7 @@ function album(over: Partial<MusicAlbum> = {}): MusicAlbum {
     trackCount: 0,
     createdAt: 1000,
     visibility: "public",
+    spaceIds: [],
     ...over,
   };
 }

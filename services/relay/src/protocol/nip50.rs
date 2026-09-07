@@ -17,8 +17,8 @@ pub async fn search_events(
         Some(_) =>
             " AND (visibility IS NULL OR pubkey = $3 OR $3 = ANY(p_tags)) \
              AND (h_tag IS NULL OR pubkey = $3 \
-                   OR EXISTS (SELECT 1 FROM app.space_members WHERE space_id = h_tag AND pubkey = $3) \
-                   OR EXISTS (SELECT 1 FROM relay.group_members WHERE group_id = h_tag AND pubkey = $3))",
+                   OR h_tags && ARRAY(SELECT space_id FROM app.space_members WHERE pubkey = $3) \
+                   OR h_tags && ARRAY(SELECT group_id FROM relay.group_members WHERE pubkey = $3))",
         None => " AND visibility IS NULL AND h_tag IS NULL",
     };
     let sql = format!(

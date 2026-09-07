@@ -161,6 +161,7 @@ cd client/src-tauri && cargo build   # Build Rust binary
 - `nostr/` -- Event types, filter matching, schnorr verification, NIP-29 handlers
 - `protocol/` -- WebSocket message routing (REQ/EVENT/CLOSE/AUTH), subscription management, NIP-42, NIP-50
 - `db/` -- **Two backends behind a `Db` enum**: PostgreSQL (`event_store.rs`, `group_store.rs`) and embedded SQLite (`sqlite.rs`, `sqlite_groups.rs`, `embedded` Cargo feature). `membership_source.rs` abstracts membership authority (relay-native vs backend). Parity-tested in `tests/db_parity.rs`.
+  - `relay.events` mirrors every `["h", id]` tag into `h_tags TEXT[]` (GIN) and keeps the scalar `h_tag = h_tags[1]`; invariant `h_tag IS NULL ⇔ h_tags = '{}'`. Backend "is it public?" checks read `h_tag IS NULL`; any-of membership reads `h_tags && …`. Multi-h events: read = member of ANY listed space, publish = member of EVERY resolved space (`nostr/membership_gate.rs`, max 16). See `docs/MUSIC_VISIBILITY.md`.
 - `music/` -- Custom music event kind handling
 
 ## Key Architecture Patterns

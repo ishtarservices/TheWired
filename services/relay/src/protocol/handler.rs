@@ -5,7 +5,9 @@ use tokio::sync::Mutex;
 
 use crate::nostr::event::Event;
 use crate::nostr::filter::Filter;
-use crate::nostr::membership_gate::{evaluate_publish_gate, PublishVerdict};
+use crate::nostr::membership_gate::{
+    distinct_h_tags, evaluate_publish_gate, PublishVerdict, SpaceMembership,
+};
 use crate::nostr::verify::verify_event;
 use crate::protocol::subscription::SubscriptionManager;
 use crate::server::AppState;
@@ -249,16 +251,40 @@ async fn handle_event(
         _ => {}
     }
 
+    // Distinct h tags, in tag order. Multi-space events (music) may list
+    // several; each is resolved once below.
+    let h_tags = distinct_h_tags(&event);
+
+    // Cap BEFORE any per-tag DB work: both the hosted-only check below and the
+    // membership gate do one lookup per distinct h tag, so an event carrying
+    // hundreds of them would otherwise fan out that many queries before being
+    // rejected. The pure gate applies the same cap for its unit tests.
+    if h_tags.len() > crate::nostr::membership_gate::MAX_H_TAGS {
+        tracing::info!(
+            pubkey = log_prefix(&event.pubkey),
+            h_tags = h_tags.len(),
+            kind = event.kind,
+            "Rejected publish: too many h tags",
+        );
+        return vec![format!(
+            r#"["OK","{}",false,"invalid: too many h tags"]"#,
+            event.id
+        )];
+    }
+
     // SECURITY: a restricted relay (embedded/personal, possibly publicly
     // tunneled) is NOT a general-purpose relay — it only stores content for the
     // NIP-29 groups it hosts. Reject any regular event that isn't h-tagged to an
-    // existing group, so a stranger can't fill the host's disk with arbitrary
-    // events (open-relay abuse).
+    // existing group (any of its h tags will do), so a stranger can't fill the
+    // host's disk with arbitrary events (open-relay abuse).
     if state.hosted_only {
-        let hosts_group = match event.get_tag_value("h") {
-            Some(h) => state.pool.group_exists(&h).await.unwrap_or(false),
-            None => false,
-        };
+        let mut hosts_group = false;
+        for h in &h_tags {
+            if state.pool.group_exists(h).await.unwrap_or(false) {
+                hosts_group = true;
+                break;
+            }
+        }
         if !hosts_group {
             return vec![format!(
                 r#"["OK","{}",false,"restricted: this relay only accepts events for groups it hosts"]"#,
@@ -270,14 +296,18 @@ async fn handle_event(
     // Publish-side membership gate. NIP-29 management kinds matched above and
     // returned early; everything reaching here is regular content. If it's
     // h-tagged (space-scoped) and the kind is subject to the gate, we must
-    // verify the author is a current member of `app.space_members` — otherwise
-    // a kicked user keeps posting via the same WebSocket (the per-connection
-    // membership cache is read-side only and stale post-kick).
-    if let Some(h) = event.get_tag_value("h") {
-        if crate::nostr::membership_gate::requires_h_membership_check(event.kind) {
-            // Union check: members of EITHER the backend space (app.space_members)
-            // OR the relay-native group (relay.group_members) may publish.
-            let is_member = state.pool.is_member(&h, &event.pubkey)
+    // verify the author is a current member of EVERY listed space the relay
+    // resolves (`app.space_members` ∪ `relay.group_members`) — otherwise a
+    // kicked user keeps posting via the same WebSocket (the per-connection
+    // membership cache is read-side only and stale post-kick), or shares a
+    // track into a space they are not in.
+    if !h_tags.is_empty()
+        && crate::nostr::membership_gate::requires_h_membership_check(event.kind)
+    {
+        // Resolve each distinct id once (at most MAX_H_TAGS — enforced above).
+        let mut statuses: Vec<SpaceMembership> = Vec::with_capacity(h_tags.len());
+        for h in &h_tags {
+            let status = state.pool.space_membership(h, &event.pubkey)
                 .await
                 .unwrap_or_else(|e| {
                     // Fail closed: a DB error during the gate check rejects
@@ -288,20 +318,32 @@ async fn handle_event(
                         pubkey = log_prefix(&event.pubkey),
                         "Membership lookup failed; rejecting publish",
                     );
-                    false
+                    SpaceMembership::NonMember
                 });
-            if let PublishVerdict::Reject(reason) = evaluate_publish_gate(&event, is_member) {
-                tracing::info!(
-                    pubkey = log_prefix(&event.pubkey),
-                    space_id = %h,
-                    kind = event.kind,
-                    "Rejected publish: not a member of group",
-                );
-                return vec![format!(
-                    r#"["OK","{}",false,"{}"]"#,
-                    event.id, reason
-                )];
-            }
+            statuses.push(status);
+        }
+        if let PublishVerdict::Reject(reason) = evaluate_publish_gate(&event, &statuses) {
+            // Name the space that failed the check (first NonMember, else the
+            // first id) so the log says which membership was missing.
+            let offending = statuses
+                .iter()
+                .position(|s| *s == SpaceMembership::NonMember)
+                .and_then(|i| h_tags.get(i))
+                .or_else(|| h_tags.first())
+                .map(String::as_str)
+                .unwrap_or("");
+            tracing::info!(
+                pubkey = log_prefix(&event.pubkey),
+                space_id = %offending,
+                h_tags = h_tags.len(),
+                kind = event.kind,
+                reason,
+                "Rejected publish: membership gate",
+            );
+            return vec![format!(
+                r#"["OK","{}",false,"{}"]"#,
+                event.id, reason
+            )];
         }
     }
 

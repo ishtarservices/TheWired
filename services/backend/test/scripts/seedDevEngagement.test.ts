@@ -39,7 +39,9 @@ beforeAll(async () => {
       e_tags TEXT[]
     )
   `);
-  for (const col of ["h_tag TEXT", "d_tag TEXT", "visibility TEXT", "e_tags TEXT[]", "p_tags TEXT[]"]) {
+  for (const col of [
+    "h_tag TEXT", "h_tags TEXT[]", "d_tag TEXT", "visibility TEXT", "e_tags TEXT[]", "p_tags TEXT[]",
+  ]) {
     await db.execute(sql.raw(`ALTER TABLE relay.events ADD COLUMN IF NOT EXISTS ${col}`));
   }
 });
@@ -49,16 +51,18 @@ beforeEach(async () => {
   await db.execute(sql`DELETE FROM relay.events`);
 });
 
-/** Insert a space-scoped content event a synthetic receipt can target. */
+/** Insert a space-scoped content event a synthetic receipt can target. Keeps
+ *  the relay's invariant `h_tag = h_tags[1]` (test/helpers/relayEvents.ts) —
+ *  the zap rollup fans out over `h_tags`. */
 async function seedSpaceContent(n: number, hTag = "space-seed"): Promise<EventRow[]> {
   const rows: EventRow[] = [];
   for (let i = 0; i < n; i++) {
     // The "x" terminator keeps zero-padding from making "…1" and "…10" collide.
     const id = `${hTag.replace(/-/g, "")}content${i}x`.padEnd(64, "0").slice(0, 64);
     await db.execute(sql`
-      INSERT INTO relay.events (id, pubkey, created_at, kind, tags, content, sig, h_tag, e_tags)
+      INSERT INTO relay.events (id, pubkey, created_at, kind, tags, content, sig, h_tag, h_tags, e_tags)
       VALUES (${id}, ${LUNA.pubkey}, ${Math.floor(Date.now() / 1000)}, 1, '[]'::jsonb, 'hi',
-              ${"0".repeat(128)}, ${hTag}, '{}')
+              ${"0".repeat(128)}, ${hTag}, ARRAY[${hTag}]::text[], '{}')
     `);
     rows.push({ id, pubkey: LUNA.pubkey, kind: 1, tags: [], h_tag: hTag });
   }

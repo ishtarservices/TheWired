@@ -1109,11 +1109,12 @@ function indexEventIntoSpaceFeeds(event: NostrEvent): void {
     );
     if (!authorSet.has(event.pubkey)) continue;
 
-    // Space-scoped events (h-tag) should only index into their target space.
+    // Space-scoped events (h-tag) should only index into their target spaces.
     // Without this check, a track with ["h", "space-A"] would leak into space-B
-    // if the author is a member of both spaces.
-    const eventHTag = event.tags.find((t) => t[0] === "h")?.[1];
-    if (eventHTag && eventHTag !== space.id) continue;
+    // if the author is a member of both spaces. A multi-space event carries one
+    // h tag per space and indexes into each of them.
+    const hTags = event.tags.filter((t) => t[0] === "h" && t[1]).map((t) => t[1]);
+    if (hTags.length > 0 && !hTags.includes(space.id)) continue;
 
     // Check which space channel this event kind belongs to
     for (const [channelType, route] of Object.entries(SPACE_CHANNEL_ROUTES)) {

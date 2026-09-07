@@ -23,6 +23,7 @@
 
 use crate::nostr::event::Event;
 use crate::nostr::filter::Filter;
+use crate::nostr::membership_gate::SpaceMembership;
 use sqlx::PgPool;
 use std::collections::HashSet;
 
@@ -306,6 +307,21 @@ impl Db {
             Db::Pg(p) => membership_source::is_member(p, group_id, pubkey).await,
             #[cfg(feature = "embedded")]
             Db::Sqlite(p) => sqlite_groups::is_member(p, group_id, pubkey).await,
+        }
+    }
+
+    /// Three-way membership for the multi-space publish gate: `Unknown` when
+    /// the relay hosts no space/group with this id, else `Member`/`NonMember`.
+    /// Same UNION-vs-native split as `is_member`.
+    pub async fn space_membership(
+        &self,
+        group_id: &str,
+        pubkey: &str,
+    ) -> anyhow::Result<SpaceMembership> {
+        match self {
+            Db::Pg(p) => membership_source::space_membership(p, group_id, pubkey).await,
+            #[cfg(feature = "embedded")]
+            Db::Sqlite(p) => sqlite_groups::space_membership(p, group_id, pubkey).await,
         }
     }
 
