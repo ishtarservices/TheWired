@@ -187,7 +187,7 @@ services:
     image: livekit/livekit-server:latest
     # The whole config is passed inline so compose interpolates the secrets
     # (a mounted config/livekit.yaml would NOT be interpolated). See
-    # docs/PRODUCTION.md §8.4 for the networking rationale.
+    # the ops runbook (not in the repo) for the networking rationale.
     environment:
       LIVEKIT_LOG_LEVEL: info
       LIVEKIT_CONFIG: |
@@ -203,7 +203,7 @@ services:
         turn:
           # Embedded TURN for symmetric-NAT clients (hotel/corporate Wi-Fi).
           # UDP relay only; TLS TURN on 443 needs a dedicated IP + cert
-          # (see PRODUCTION.md §8.4) and is a follow-up.
+          # (see the ops runbook) and is a follow-up.
           enabled: true
           domain: ${LIVEKIT_TURN_DOMAIN:-turn.thewired.app}
           udp_port: 3478
