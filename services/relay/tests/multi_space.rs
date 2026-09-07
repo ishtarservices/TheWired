@@ -207,3 +207,33 @@ async fn multi_space_event_visible_to_member_of_second_space_only() {
     );
     assert!(req_ids(&state, searched, None).await.is_empty(), "anon search hides");
 }
+
+/// More than MAX_H_TAGS distinct h tags is rejected up front — before any
+/// per-tag membership / group lookup — and nothing is stored, even though the
+/// author is a member of the spaces that do exist.
+#[tokio::test]
+async fn too_many_h_tags_rejected_before_lookups() {
+    let pool = pool_or_skip!();
+    let artist = TestIdentity::from_seed(0x65);
+    insert_space(&pool, S1).await.unwrap();
+    add_member(&pool, S1, &artist.pubkey).await.unwrap();
+
+    let ids: Vec<String> = std::iter::once(S1.to_string())
+        .chain((0..thewired_relay::nostr::membership_gate::MAX_H_TAGS).map(|i| format!("space-many-{i}")))
+        .collect();
+    let refs: Vec<&str> = ids.iter().map(String::as_str).collect();
+    assert_eq!(refs.len(), thewired_relay::nostr::membership_gate::MAX_H_TAGS + 1);
+
+    let (state, tx) = make_app_state(pool.clone());
+    let track = sign_music_track(&artist, &refs, "too-many");
+    let (ok, msg) = parse_ok(&send_event(&state, &tx, &track).await);
+    assert!(!ok, "over-cap event must be rejected");
+    assert_eq!(msg, "invalid: too many h tags");
+
+    let row: Option<(String,)> = sqlx::query_as("SELECT id FROM relay.events WHERE id = $1")
+        .bind(&track.id)
+        .fetch_optional(&pool)
+        .await
+        .unwrap();
+    assert!(row.is_none(), "rejected event must not be stored");
+}

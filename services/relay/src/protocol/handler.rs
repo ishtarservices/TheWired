@@ -255,6 +255,23 @@ async fn handle_event(
     // several; each is resolved once below.
     let h_tags = distinct_h_tags(&event);
 
+    // Cap BEFORE any per-tag DB work: both the hosted-only check below and the
+    // membership gate do one lookup per distinct h tag, so an event carrying
+    // hundreds of them would otherwise fan out that many queries before being
+    // rejected. The pure gate applies the same cap for its unit tests.
+    if h_tags.len() > crate::nostr::membership_gate::MAX_H_TAGS {
+        tracing::info!(
+            pubkey = log_prefix(&event.pubkey),
+            h_tags = h_tags.len(),
+            kind = event.kind,
+            "Rejected publish: too many h tags",
+        );
+        return vec![format!(
+            r#"["OK","{}",false,"invalid: too many h tags"]"#,
+            event.id
+        )];
+    }
+
     // SECURITY: a restricted relay (embedded/personal, possibly publicly
     // tunneled) is NOT a general-purpose relay — it only stores content for the
     // NIP-29 groups it hosts. Reject any regular event that isn't h-tagged to an
@@ -287,27 +304,23 @@ async fn handle_event(
     if !h_tags.is_empty()
         && crate::nostr::membership_gate::requires_h_membership_check(event.kind)
     {
-        // Resolve each distinct id once. Bounded by MAX_H_TAGS so the gate
-        // can't be used to fan out lookups; over the cap the gate rejects
-        // before we look anything up.
+        // Resolve each distinct id once (at most MAX_H_TAGS — enforced above).
         let mut statuses: Vec<SpaceMembership> = Vec::with_capacity(h_tags.len());
-        if h_tags.len() <= crate::nostr::membership_gate::MAX_H_TAGS {
-            for h in &h_tags {
-                let status = state.pool.space_membership(h, &event.pubkey)
-                    .await
-                    .unwrap_or_else(|e| {
-                        // Fail closed: a DB error during the gate check rejects
-                        // the publish rather than leaking it past the kick.
-                        tracing::error!(
-                            error = %e,
-                            space_id = %h,
-                            pubkey = log_prefix(&event.pubkey),
-                            "Membership lookup failed; rejecting publish",
-                        );
-                        SpaceMembership::NonMember
-                    });
-                statuses.push(status);
-            }
+        for h in &h_tags {
+            let status = state.pool.space_membership(h, &event.pubkey)
+                .await
+                .unwrap_or_else(|e| {
+                    // Fail closed: a DB error during the gate check rejects
+                    // the publish rather than leaking it past the kick.
+                    tracing::error!(
+                        error = %e,
+                        space_id = %h,
+                        pubkey = log_prefix(&event.pubkey),
+                        "Membership lookup failed; rejecting publish",
+                    );
+                    SpaceMembership::NonMember
+                });
+            statuses.push(status);
         }
         if let PublishVerdict::Reject(reason) = evaluate_publish_gate(&event, &statuses) {
             // Name the space that failed the check (first NonMember, else the
