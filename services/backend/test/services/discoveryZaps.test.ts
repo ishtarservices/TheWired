@@ -24,12 +24,13 @@ beforeAll(async () => {
       sig TEXT NOT NULL,
       d_tag TEXT,
       h_tag TEXT,
+      h_tags TEXT[],
       visibility TEXT,
       p_tags TEXT[],
       e_tags TEXT[]
     )
   `);
-  for (const col of ["h_tag TEXT", "d_tag TEXT", "visibility TEXT", "e_tags TEXT[]", "p_tags TEXT[]"]) {
+  for (const col of ["h_tag TEXT", "h_tags TEXT[]", "d_tag TEXT", "visibility TEXT", "e_tags TEXT[]", "p_tags TEXT[]"]) {
     await db.execute(sql.raw(`ALTER TABLE relay.events ADD COLUMN IF NOT EXISTS ${col}`));
   }
 });

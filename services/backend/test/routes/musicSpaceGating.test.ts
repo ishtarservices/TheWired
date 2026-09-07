@@ -30,12 +30,14 @@ let server: FastifyInstance;
 const BLOB_DIR = resolve(process.cwd(), config.blobDir);
 
 const SPACE_ID = "sg-test-space";
+const SPACE_B = "sg-test-space-b"; // second space for the multi-h track
 const SLUG = "sgate"; // file-unique slug prefix (cleaned up in afterAll)
 
 const SHA_SPACE = "3".repeat(64); // referenced only by an h-tagged event
 const SHA_GRIEF = "4".repeat(64); // public track; a NON-owner publishes a private ref
 const SHA_MIXED = "5".repeat(64); // one owner references it publicly AND privately
 const SHA_ROLES = "6".repeat(64); // private track with role-annotated p-tags
+const SHA_MULTI = "7".repeat(64); // track shared into SPACE_ID and SPACE_B
 
 async function seedBlob(sha: string, ownerPubkey: string, withHls = false) {
   await writeFile(join(BLOB_DIR, sha), Buffer.alloc(1024, 1));
@@ -57,16 +59,18 @@ beforeAll(async () => {
   server = await buildTestServer();
   await ensureRelayEventsTable();
 
-  for (const sha of [SHA_SPACE, SHA_GRIEF, SHA_MIXED, SHA_ROLES]) {
+  for (const sha of [SHA_SPACE, SHA_GRIEF, SHA_MIXED, SHA_ROLES, SHA_MULTI]) {
     await writeFile(join(BLOB_DIR, sha), Buffer.alloc(1024, 1));
   }
-  await mkdir(join(BLOB_DIR, "hls", SHA_SPACE, "128k"), { recursive: true });
-  await writeFile(
-    join(BLOB_DIR, "hls", SHA_SPACE, "master.m3u8"),
-    "#EXTM3U\n#EXT-X-VERSION:7\n#EXT-X-STREAM-INF:BANDWIDTH=160000\n128k/index.m3u8\n",
-  );
-  await writeFile(join(BLOB_DIR, "hls", SHA_SPACE, "128k", "index.m3u8"), "#EXTM3U\n");
-  await writeFile(join(BLOB_DIR, "hls", SHA_SPACE, "128k", "seg_00000.m4s"), Buffer.alloc(8));
+  for (const sha of [SHA_SPACE, SHA_MULTI]) {
+    await mkdir(join(BLOB_DIR, "hls", sha, "128k"), { recursive: true });
+    await writeFile(
+      join(BLOB_DIR, "hls", sha, "master.m3u8"),
+      "#EXTM3U\n#EXT-X-VERSION:7\n#EXT-X-STREAM-INF:BANDWIDTH=160000\n128k/index.m3u8\n",
+    );
+    await writeFile(join(BLOB_DIR, "hls", sha, "128k", "index.m3u8"), "#EXTM3U\n");
+    await writeFile(join(BLOB_DIR, "hls", sha, "128k", "seg_00000.m4s"), Buffer.alloc(8));
+  }
 });
 
 beforeEach(async () => {
@@ -78,15 +82,26 @@ beforeEach(async () => {
     name: "Space Gating Test",
     createdAt: Math.floor(Date.now() / 1000),
   });
+  await db.insert(spaces).values({
+    id: SPACE_B,
+    hostRelay: "wss://relay.test.com",
+    name: "Space Gating Test B",
+    createdAt: Math.floor(Date.now() / 1000),
+  });
+  // SAGE is in SPACE_B only (and stays a non-member of SPACE_ID for the
+  // single-h tests above); ZARA is in neither.
   await db.insert(spaceMembers).values([
     { spaceId: SPACE_ID, pubkey: LUNA.pubkey },
     { spaceId: SPACE_ID, pubkey: MARCUS.pubkey },
+    { spaceId: SPACE_B, pubkey: LUNA.pubkey },
+    { spaceId: SPACE_B, pubkey: SAGE.pubkey },
   ]);
 
   await seedBlob(SHA_SPACE, LUNA.pubkey, true);
   await seedBlob(SHA_GRIEF, LUNA.pubkey);
   await seedBlob(SHA_MIXED, LUNA.pubkey);
   await seedBlob(SHA_ROLES, LUNA.pubkey);
+  await seedBlob(SHA_MULTI, LUNA.pubkey, true);
 
   // h-only space track (mobile's shape: no visibility tag, just ["h", spaceId])
   await insertMusicEvent({
@@ -113,6 +128,12 @@ beforeEach(async () => {
     kind: 31683, pubkey: LUNA.pubkey, slug: `${SLUG}-mixed-pub`, imetaSha: SHA_MIXED,
   });
 
+  // Track shared into TWO spaces: ["h", SPACE_ID], ["h", SPACE_B].
+  await insertMusicEvent({
+    kind: 31683, pubkey: LUNA.pubkey, slug: `${SLUG}-multi`,
+    hTags: [SPACE_ID, SPACE_B], imetaSha: SHA_MULTI,
+  });
+
   // Private track with role-annotated p-tags: collaborator, artist, featured.
   await insertMusicEvent({
     kind: 31683, pubkey: LUNA.pubkey, slug: `${SLUG}-roles`,
@@ -126,10 +147,12 @@ beforeEach(async () => {
 
 afterAll(async () => {
   await deleteRelayEventsBySlugPrefix(SLUG);
-  for (const sha of [SHA_SPACE, SHA_GRIEF, SHA_MIXED, SHA_ROLES]) {
+  for (const sha of [SHA_SPACE, SHA_GRIEF, SHA_MIXED, SHA_ROLES, SHA_MULTI]) {
     await rm(join(BLOB_DIR, sha), { force: true }).catch(() => {});
   }
-  await rm(join(BLOB_DIR, "hls", SHA_SPACE), { recursive: true, force: true }).catch(() => {});
+  for (const sha of [SHA_SPACE, SHA_MULTI]) {
+    await rm(join(BLOB_DIR, "hls", sha), { recursive: true, force: true }).catch(() => {});
+  }
   await closeTestServer();
 });
 
@@ -256,5 +279,90 @@ describe("p-tag role semantics on private tracks", () => {
         headers: { "x-auth-pubkey": SAGE.pubkey },
       })).statusCode,
     ).toBe(200);
+  });
+});
+
+describe("multi-space h tags", () => {
+  // The track lists SPACE_ID first and SPACE_B second. SAGE is a member of
+  // SPACE_B only — any-of semantics must let them through on every layer.
+  it("resolves, mints, and serves blob + HLS for a member of the second space only", async () => {
+    const resolved = await server.inject({
+      method: "GET",
+      url: `/music/resolve/track/${LUNA.pubkey}/${SLUG}-multi`,
+      headers: { "x-auth-pubkey": SAGE.pubkey },
+    });
+    expect(resolved.statusCode).toBe(200);
+
+    const access = await server.inject({
+      method: "GET",
+      url: `/music/access/${LUNA.pubkey}/${SLUG}-multi`,
+      headers: { "x-auth-pubkey": SAGE.pubkey },
+    });
+    expect(access.statusCode).toBe(200);
+    const d = access.json().data;
+    expect(d.gated).toBe(true);
+
+    expect(
+      (await server.inject({ method: "GET", url: `/${SHA_MULTI}?tk=${d.token}` })).statusCode,
+    ).toBe(200);
+    expect(
+      (await server.inject({ method: "GET", url: `/hls/${SHA_MULTI}/master.m3u8?tk=${d.token}` }))
+        .statusCode,
+    ).toBe(200);
+
+    // The blob layer's own membership check (NIP-98 pubkey, no token).
+    expect(
+      (await server.inject({
+        method: "GET", url: `/${SHA_MULTI}`, headers: { "x-auth-pubkey": SAGE.pubkey },
+      })).statusCode,
+    ).toBe(200);
+  });
+
+  it("still serves a member of the first space", async () => {
+    expect(
+      (await server.inject({
+        method: "GET",
+        url: `/music/resolve/track/${LUNA.pubkey}/${SLUG}-multi`,
+        headers: { "x-auth-pubkey": MARCUS.pubkey },
+      })).statusCode,
+    ).toBe(200);
+    expect(
+      (await server.inject({
+        method: "GET", url: `/${SHA_MULTI}`, headers: { "x-auth-pubkey": MARCUS.pubkey },
+      })).statusCode,
+    ).toBe(200);
+  });
+
+  it("denies a viewer who is in neither space", async () => {
+    expect(
+      (await server.inject({
+        method: "GET",
+        url: `/music/resolve/track/${LUNA.pubkey}/${SLUG}-multi`,
+        headers: { "x-auth-pubkey": ZARA.pubkey },
+      })).statusCode,
+    ).toBe(404);
+    expect(
+      (await server.inject({
+        method: "GET",
+        url: `/music/access/${LUNA.pubkey}/${SLUG}-multi`,
+        headers: { "x-auth-pubkey": ZARA.pubkey },
+      })).statusCode,
+    ).toBe(404);
+    expect(
+      (await server.inject({
+        method: "GET", url: `/${SHA_MULTI}`, headers: { "x-auth-pubkey": ZARA.pubkey },
+      })).statusCode,
+    ).toBe(404);
+  });
+
+  it("denies anonymous access to the blob and HLS ladder", async () => {
+    expect((await server.inject({ method: "GET", url: `/${SHA_MULTI}` })).statusCode).toBe(404);
+    expect(
+      (await server.inject({ method: "GET", url: `/hls/${SHA_MULTI}/master.m3u8` })).statusCode,
+    ).toBe(404);
+    expect(
+      (await server.inject({ method: "GET", url: `/hls/${SHA_MULTI}/128k/seg_00000.m4s` }))
+        .statusCode,
+    ).toBe(404);
   });
 });

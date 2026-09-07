@@ -17,6 +17,8 @@
  *   owner has published the content openly, so gating the bytes is moot.
  * - Otherwise, if owner-authored protected events reference it, the blob is
  *   protected and a viewer must be authorized against AT LEAST ONE of them.
+ *   For `h`-tagged content that means membership of ANY of the event's listed
+ *   spaces (a multi-space track carries one `h` tag per space).
  * - A blob with no owner-authored referencing events (just uploaded, not yet
  *   published, or referenced only via NIP-44-encrypted tags) is public by URL —
  *   the sha itself is the capability in that window.
@@ -24,7 +26,7 @@
 import { sql } from "drizzle-orm";
 import { db } from "../db/connection.js";
 import { spaceMembers } from "../db/schema/members.js";
-import { and, eq } from "drizzle-orm";
+import { and, eq, inArray } from "drizzle-orm";
 
 export interface ProtectedEventRef {
   pubkey: string;
@@ -117,7 +119,7 @@ export async function getProtectedRefsForBlob(sha256: string): Promise<Protected
 /**
  * Authorize a viewer against ONE protected event: the author, an access-granting
  * `p`-tag (see {@link pTagGrantsAccess}), or (for `h`-tagged space content) a
- * member of that space. Returns false if unauthenticated.
+ * member of ANY of its listed spaces. Returns false if unauthenticated.
  */
 export async function authorizeProtectedRef(
   ref: ProtectedEventRef,
@@ -127,12 +129,12 @@ export async function authorizeProtectedRef(
   if (authPubkey === ref.pubkey) return true;
   if (ref.tags.some((t) => pTagGrantsAccess(t, authPubkey))) return true;
 
-  const hTag = ref.tags.find((t) => t[0] === "h")?.[1];
-  if (hTag) {
+  const hTags = ref.tags.filter((t) => t[0] === "h" && t[1]).map((t) => t[1]);
+  if (hTags.length > 0) {
     const membership = await db
-      .select()
+      .select({ spaceId: spaceMembers.spaceId })
       .from(spaceMembers)
-      .where(and(eq(spaceMembers.spaceId, hTag), eq(spaceMembers.pubkey, authPubkey)))
+      .where(and(inArray(spaceMembers.spaceId, hTags), eq(spaceMembers.pubkey, authPubkey)))
       .limit(1);
     return membership.length > 0;
   }
