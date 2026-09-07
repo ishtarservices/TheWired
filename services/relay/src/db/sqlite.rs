@@ -260,7 +260,9 @@ pub async fn query_events(
     push_in(&mut qb, "id", &filter.ids);
     push_in(&mut qb, "pubkey", &filter.authors);
     push_in_i32(&mut qb, "kind", &filter.kinds);
-    push_in(&mut qb, "h_tag", &filter.h_tags);
+    // `#h` matches ANY h tag on the event (multi-space events), via the
+    // event_tags child table rather than the first-h-only `h_tag` column.
+    push_tag_subquery(&mut qb, "h", &filter.h_tags);
     push_in(&mut qb, "d_tag", &filter.d_tags);
     push_tag_subquery(&mut qb, "p", &filter.p_tags);
     push_tag_subquery(&mut qb, "e", &filter.e_tags);
@@ -296,10 +298,11 @@ fn push_visibility_gate(qb: &mut QueryBuilder<Sqlite>, authed_pubkey: Option<&st
                 .push(" OR id IN (SELECT event_id FROM event_tags WHERE tag_name = 'p' AND tag_value = ")
                 .push_bind(pk.to_string())
                 .push("))");
-            // h-tagged: author or relay-native group member
+            // h-tagged: author or relay-native member of ANY listed group
             qb.push(" AND (h_tag IS NULL OR pubkey = ")
                 .push_bind(pk.to_string())
-                .push(" OR EXISTS (SELECT 1 FROM group_members WHERE group_id = events.h_tag AND pubkey = ")
+                .push(" OR EXISTS (SELECT 1 FROM event_tags t JOIN group_members gm ON gm.group_id = t.tag_value \
+                        WHERE t.event_id = events.id AND t.tag_name = 'h' AND gm.pubkey = ")
                 .push_bind(pk.to_string())
                 .push("))");
         }
@@ -333,7 +336,7 @@ fn push_in_i32(qb: &mut QueryBuilder<Sqlite>, col: &str, values: &[i32]) {
     qb.push(")");
 }
 
-/// `#p` / `#e` → membership in the event_tags child table.
+/// `#h` / `#p` / `#e` (and generic `#x`) → membership in the event_tags child table.
 fn push_tag_subquery(qb: &mut QueryBuilder<Sqlite>, name: &str, values: &[String]) {
     if values.is_empty() {
         return;
@@ -369,7 +372,8 @@ pub async fn search_events(
                 .push("))");
             qb.push(" AND (e.h_tag IS NULL OR e.pubkey = ")
                 .push_bind(pk.to_string())
-                .push(" OR EXISTS (SELECT 1 FROM group_members WHERE group_id = e.h_tag AND pubkey = ")
+                .push(" OR EXISTS (SELECT 1 FROM event_tags t JOIN group_members gm ON gm.group_id = t.tag_value \
+                        WHERE t.event_id = e.id AND t.tag_name = 'h' AND gm.pubkey = ")
                 .push_bind(pk.to_string())
                 .push("))");
         }
@@ -589,6 +593,49 @@ mod tests {
         assert_eq!(query_events(&p, &f(), Some("carol")).await.unwrap().len(), 0, "stranger must not read");
         assert_eq!(query_events(&p, &f(), Some("bob")).await.unwrap().len(), 1, "member reads");
         assert_eq!(query_events(&p, &f(), Some("alice")).await.unwrap().len(), 1, "author reads");
+    }
+
+    #[tokio::test]
+    async fn multi_h_visibility_any_of() {
+        // A multi-space event ([h g1],[h g2]) is readable by a member of ANY
+        // listed group: bob is only in g2 and must still see it.
+        let p = pool().await;
+        sqlx::query("INSERT INTO groups (group_id, name) VALUES ('g1', 'G1'), ('g2', 'G2')").execute(&p).await.unwrap();
+        sqlx::query("INSERT INTO group_members (group_id, pubkey) VALUES ('g2', 'bob')").execute(&p).await.unwrap();
+        store_event(&p, &ev("mh", "alice", 31683, 100, vec![vec!["h", "g1"], vec!["h", "g2"], vec!["title", "t"], vec!["d", "s"]], "multi")).await.unwrap();
+
+        let f = || filter(serde_json::json!({"kinds": [31683]}));
+        assert_eq!(query_events(&p, &f(), None).await.unwrap().len(), 0, "anon hidden");
+        assert_eq!(query_events(&p, &f(), Some("carol")).await.unwrap().len(), 0, "member of neither hidden");
+        assert_eq!(query_events(&p, &f(), Some("bob")).await.unwrap().len(), 1, "member of the second space reads");
+        assert_eq!(query_events(&p, &f(), Some("alice")).await.unwrap().len(), 1, "author reads");
+    }
+
+    #[tokio::test]
+    async fn h_filter_matches_second_h() {
+        // `#h` must hit an event whose SECOND h tag is the filtered id — the
+        // scalar h_tag column only holds the first.
+        let p = pool().await;
+        store_event(&p, &ev("mh", "alice", 9, 100, vec![vec!["h", "g1"], vec!["h", "g2"]], "multi")).await.unwrap();
+        store_event(&p, &ev("s1", "alice", 9, 101, vec![vec!["h", "g1"]], "single")).await.unwrap();
+
+        let by_g2 = query_events(&p, &filter(serde_json::json!({"#h": ["g2"]})), Some("alice")).await.unwrap();
+        assert_eq!(by_g2.iter().map(|e| e.id.clone()).collect::<Vec<_>>(), vec!["mh"]);
+        let by_g1 = query_events(&p, &filter(serde_json::json!({"#h": ["g1"]})), Some("alice")).await.unwrap();
+        assert_eq!(by_g1.iter().map(|e| e.id.clone()).collect::<Vec<_>>(), vec!["s1", "mh"]);
+    }
+
+    #[tokio::test]
+    async fn multi_h_search_any_of() {
+        // NIP-50 search applies the same any-of membership gate.
+        let p = pool().await;
+        sqlx::query("INSERT INTO groups (group_id, name) VALUES ('g1', 'G1'), ('g2', 'G2')").execute(&p).await.unwrap();
+        sqlx::query("INSERT INTO group_members (group_id, pubkey) VALUES ('g2', 'bob')").execute(&p).await.unwrap();
+        store_event(&p, &ev("mh", "alice", 9, 100, vec![vec!["h", "g1"], vec!["h", "g2"]], "quick brown fox")).await.unwrap();
+
+        assert_eq!(search_events(&p, "fox", 50, None).await.unwrap().len(), 0, "anon search hides multi-h");
+        assert_eq!(search_events(&p, "fox", 50, Some("carol")).await.unwrap().len(), 0, "non-member search hides");
+        assert_eq!(search_events(&p, "fox", 50, Some("bob")).await.unwrap().len(), 1, "member of second space finds");
     }
 
     #[tokio::test]

@@ -186,10 +186,11 @@ pub async fn query_events(pool: &PgPool, filter: &Filter, authed_pubkey: Option<
         binds.push(BindValue::Int64(until));
     }
 
-    // h_tags: WHERE h_tag = ANY($N)
+    // h_tags: array overlap against the indexed `h_tags` column, so a `#h`
+    // filter matches an event whose SECOND (or later) h tag is the filtered id.
     if !filter.h_tags.is_empty() {
         param_counter += 1;
-        conditions.push(format!("h_tag = ANY(${param_counter})"));
+        conditions.push(format!("h_tags && ${param_counter}"));
         binds.push(BindValue::StringVec(filter.h_tags.clone()));
     }
 
@@ -251,14 +252,17 @@ pub async fn query_events(pool: &PgPool, filter: &Filter, authed_pubkey: Option<
                 "(visibility IS NULL OR pubkey = ${auth_param}[1] OR ${auth_param}[1] = ANY(p_tags))"
             ));
 
-            // Space-scoped: author or member of EITHER the backend space
-            // (app.space_members) OR the relay-native group (relay.group_members).
-            // The native-group UNION was missing, so NIP-29-native members couldn't
-            // read their own group's history (#18 verifier).
+            // Space-scoped: author or member of ANY listed space, in EITHER the
+            // backend world (app.space_members) OR the relay-native one
+            // (relay.group_members). `h_tags && ARRAY(...)` is the any-of leg
+            // for multi-space events; for a single-h event it reduces to the
+            // old per-space EXISTS. The native-group UNION was missing, so
+            // NIP-29-native members couldn't read their own group's history
+            // (#18 verifier).
             conditions.push(format!(
                 "(h_tag IS NULL OR pubkey = ${auth_param}[1] \
-                 OR EXISTS (SELECT 1 FROM app.space_members WHERE space_id = h_tag AND pubkey = ${auth_param}[1]) \
-                 OR EXISTS (SELECT 1 FROM relay.group_members WHERE group_id = h_tag AND pubkey = ${auth_param}[1]))"
+                 OR h_tags && ARRAY(SELECT space_id FROM app.space_members WHERE pubkey = ${auth_param}[1]) \
+                 OR h_tags && ARRAY(SELECT group_id FROM relay.group_members WHERE pubkey = ${auth_param}[1]))"
             ));
         }
         None => {
