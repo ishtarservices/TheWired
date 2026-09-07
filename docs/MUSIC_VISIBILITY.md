@@ -13,6 +13,7 @@ A music event is in exactly one state, derived from its tags:
 |---|---|---|
 | **public** | no `visibility` tag, no `h` tag | both clients |
 | **space** | `["h", <spaceId>]` (no `visibility` tag; optional `["channel", <id>]`) | both clients |
+| **space (multi)** | several `["h", <spaceId>]` tags — one per space the event is shared into (no `visibility` tag) | desktop (edits/moves preserve the set; the picker itself is single-select) |
 | **private** | `["visibility","private"]` | desktop (NIP-44-encrypted content + cleartext `d`/`p` tags), mobile (cleartext metadata tags) |
 | **unlisted** | `["visibility","unlisted"]` | treated exactly like private everywhere server-side |
 | **local** | never published (desktop-only `signAndSaveLocally`) | desktop |
@@ -21,14 +22,35 @@ Both the desktop encrypted form and mobile's cleartext form of `private` must
 stay supported: gates key on the *tags* (`visibility`, `h`, `p`), which are
 cleartext in both forms. The relay mirrors `visibility` and `h` into dedicated
 `relay.events` columns at insert time (`event_store.rs`), so backend queries can
-filter without unpacking JSONB.
+filter without unpacking JSONB: `h_tags TEXT[]` holds every `h` value in tag
+order and the scalar `h_tag` is `h_tags[1]`, with `h_tag IS NULL ⇔ h_tags = '{}'`
+(so `h_tag IS NULL` still means "not space-scoped").
+
+## Multi-space events
+
+Any event — in practice the music kinds 31683/33123/30119/31686 — may carry
+several `["h", <spaceId>]` tags. The contract, enforced by the relay and
+mirrored by the backend:
+
+- **Read (any-of):** the event is visible to the author, an access-granting
+  `p`-tag, or a member of **any** listed space. A `#h` filter matches on any
+  of the tags, not just the first. Anonymous readers never see it.
+- **Publish (all-of, relay gate):** the author must be a member of **every**
+  listed space the relay can resolve (`app.spaces ∪ relay.groups`). Ids the
+  relay does not know are ignored (the space may be hosted elsewhere), but at
+  least one resolved membership is required — an event whose h tags are all
+  unknown is rejected. More than 16 distinct `h` tags is rejected with
+  `invalid: too many h tags`. A single-`h` event behaves exactly as before.
+- **Zap rollup:** a zap on a multi-space event counts toward each listed
+  space (`discoveryService.rollupSpaceZaps` unnests `h_tags`).
 
 ## Who may view a non-public event
 
 Implemented in `services/backend/src/services/musicVisibility.ts`
 (`isEventVisibleTo`) and mirrored in `services/blobAccess.ts` for media:
 
-- **space** (`h`): the author, or a member of that space (`app.space_members`).
+- **space** (`h`): the author, or a member of **any** of its listed spaces
+  (`app.space_members`; one membership query over all the event's `h` values).
 - **private / unlisted**: the author, or a pubkey with an *access-granting*
   `p` tag on the event.
 
@@ -48,7 +70,7 @@ Music p-tags carry a role in the 4th element: `["p", <pubkey>, <relay>, <role>]`
 
 | Layer | public | space (`h`) | private/unlisted |
 |---|---|---|---|
-| Relay query (NIP-01 REQ) | served | relay-gated per NIP-29 membership | relay-gated |
+| Relay query (NIP-01 REQ) | served | relay-gated per NIP-29 membership (any listed space) | relay-gated |
 | `GET /music/resolve/*` | 200 | 404 unless member/author | 404 unless author/grantee |
 | Album/playlist **child tracks** | included | dropped unless viewer authorized per child | dropped unless authorized |
 | Browse / search index (Meilisearch, trending) | indexed | **never indexed** (ingest, rebuild, and trending all exclude; a formerly-public version's doc is removed on privatize) | never indexed |
