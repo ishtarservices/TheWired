@@ -77,6 +77,7 @@ export function MoveTrackModal({ track, onClose, onBack }: MoveTrackModalProps) 
         featuredArtists: track.featuredArtists.length > 0 ? track.featuredArtists : undefined,
         visibility: track.visibility,
         spaceId: track.visibility === "space" ? track.spaceId : undefined,
+        spaceIds: track.visibility === "space" ? track.spaceIds : undefined,
         channelId: track.visibility === "space" ? track.channelId : undefined,
         revisionSummary: revisionSummary || undefined,
       });
@@ -101,6 +102,7 @@ export function MoveTrackModal({ track, onClose, onBack }: MoveTrackModalProps) 
             projectType: sourceAlbum.projectType,
             visibility: sourceAlbum.visibility,
             spaceId: sourceAlbum.visibility === "space" ? sourceAlbum.spaceId : undefined,
+            spaceIds: sourceAlbum.visibility === "space" ? sourceAlbum.spaceIds : undefined,
             channelId: sourceAlbum.visibility === "space" ? sourceAlbum.channelId : undefined,
             sharingDisabled: sourceAlbum.sharingDisabled,
           });
@@ -132,6 +134,7 @@ export function MoveTrackModal({ track, onClose, onBack }: MoveTrackModalProps) 
             projectType: targetAlbum.projectType,
             visibility: targetAlbum.visibility,
             spaceId: targetAlbum.visibility === "space" ? targetAlbum.spaceId : undefined,
+            spaceIds: targetAlbum.visibility === "space" ? targetAlbum.spaceIds : undefined,
             channelId: targetAlbum.visibility === "space" ? targetAlbum.channelId : undefined,
             sharingDisabled: targetAlbum.sharingDisabled,
           });

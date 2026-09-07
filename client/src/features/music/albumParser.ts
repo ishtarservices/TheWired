@@ -51,7 +51,9 @@ export function parseAlbumEvent(event: NostrEvent): MusicAlbum {
     : [];
 
   const visibility = parseVisibility(event);
-  const spaceId = event.tags.find((t) => t[0] === "h")?.[1];
+  // Every h tag (multi-space); the first one stays `spaceId` for the UI.
+  const spaceIds = event.tags.filter((t) => t[0] === "h" && t[1]).map((t) => t[1]);
+  const spaceId = spaceIds[0];
   const channelId = event.tags.find((t) => t[0] === "channel")?.[1];
   const sharingDisabled = event.tags.some((t) => t[0] === "sharing" && t[1] === "disabled");
   const revisionSummary = event.tags.find((t) => t[0] === "revision_summary")?.[1];
@@ -76,6 +78,7 @@ export function parseAlbumEvent(event: NostrEvent): MusicAlbum {
     createdAt: event.created_at,
     visibility,
     spaceId,
+    spaceIds,
     channelId,
     sharingDisabled: sharingDisabled || undefined,
     revisionSummary,
@@ -148,6 +151,7 @@ export async function parsePrivateAlbumEvent(
       trackCount: trackRefs.length,
       createdAt: event.created_at,
       visibility: "private",
+      spaceIds: [],
       revisionSummary: meta.revisionSummary as string | undefined,
     };
   } catch {

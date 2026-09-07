@@ -772,6 +772,7 @@ function ensureTrackAvailable(trackId: string, meta: TrackMeta): void {
       imageUrl: meta.imageUrl,
       createdAt: Math.floor(Date.now() / 1000),
       visibility: "public",
+      spaceIds: [],
     }),
   );
 }

@@ -103,6 +103,11 @@ export function EditTrackModal({ track, onClose }: EditTrackModalProps) {
         featuredArtists: featuredArtists.length > 0 ? featuredArtists : undefined,
         visibility,
         spaceId: visibility === "space" ? spaceId : undefined,
+        // The picker is single-select; if the user kept the original space,
+        // republish every space the track was shared into rather than
+        // collapsing a multi-space track down to one.
+        spaceIds:
+          visibility === "space" && spaceId === track.spaceId ? track.spaceIds : undefined,
         channelId: visibility === "space" && channelId ? channelId : undefined,
         revisionSummary: revisionSummary.trim() || undefined,
         sharingDisabled: !allowExport,
