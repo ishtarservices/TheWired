@@ -1,3 +1,10 @@
+# Production stack. This file is copied to the server and edited there by
+# hand (see docs/DEPLOY.md) — keep it in sync with what actually runs.
+#
+# Images are built from `main` by .github/workflows/build-images.yml and
+# pulled from GHCR; only this file, .env and deploy/deploy-all.sh live on the
+# host. Compose forwards ONLY the variables listed under each `environment:`
+# — an .env entry that is not named here never reaches its container.
 networks:
   frontend:
   backend:
@@ -72,6 +79,8 @@ services:
       RUST_ENV: production
       RUST_LOG: ${RUST_LOG:-info,thewired_relay=info}
       LOG_FORMAT: json
+      # Public URL the relay advertises (NIP-11 / NIP-42 challenge URL).
+      RELAY_URL: ${RELAY_URL:-wss://relay.thewired.app}
     depends_on:
       postgres:
         condition: service_healthy
@@ -99,13 +108,35 @@ services:
       PORT: 3002
       NODE_ENV: production
       LOG_LEVEL: info
+      # http://localhost is the packaged desktop app's origin (tauri-plugin-localhost).
       ALLOWED_ORIGINS: ${ALLOWED_ORIGINS:-https://thewired.app,tauri://localhost,http://localhost}
       PUBLIC_URL: ${PUBLIC_URL:-https://api.thewired.app}
       ADMIN_PUBKEYS: ${ADMIN_PUBKEYS:-}
+      LIVEKIT_URL: ${LIVEKIT_URL:-ws://livekit:7880}
+      LIVEKIT_API_KEY: ${LIVEKIT_API_KEY:-devkey}
+      LIVEKIT_API_SECRET: ${LIVEKIT_API_SECRET:-secret}
+      VAPID_PUBLIC_KEY: ${VAPID_PUBLIC_KEY:-}
+      VAPID_PRIVATE_KEY: ${VAPID_PRIVATE_KEY:-}
+      GIF_API_KEY: ${GIF_API_KEY:-}
+      # Blob storage. The image's working directory is /app/services/backend
+      # and the backend defaults to "blobs" relative to it — the volume below
+      # MUST stay mounted at this exact path or existing uploads "vanish".
+      BLOB_DIR: /app/services/backend/blobs
+      MAX_BLOB_SIZE: ${MAX_BLOB_SIZE:-524288000}
+      # Signs the ?tk= tokens for protected music (blob + HLS). The backend
+      # refuses to mint with an empty secret under NODE_ENV=production, so a
+      # missing value = every private/space track fails to play. Required.
+      MEDIA_TOKEN_SECRET: ${MEDIA_TOKEN_SECRET:?Set MEDIA_TOKEN_SECRET in .env (openssl rand -hex 32)}
+      # Transcoding pipeline — both flags on by default. Roll back by setting
+      # either to "false" in .env and redeploying; the client falls back to the
+      # original blob URL when HLS variants are missing. Concurrency 1 keeps a
+      # vCPU free for Fastify; bump to 2 only during deliberate backfills.
+      TRANSCODE_ENQUEUE: ${TRANSCODE_ENQUEUE:-true}
+      TRANSCODE_WORKER: ${TRANSCODE_WORKER:-true}
+      TRANSCODE_CONCURRENCY: ${TRANSCODE_CONCURRENCY:-1}
       # Share pages (thewired.app/music/*, /profile/*) + mobile universal links
-      # (/.well-known/apple-app-site-association, assetlinks.json). Compose only
-      # forwards variables listed here — an .env entry alone never reaches the
-      # container. Store URLs empty → the landing page's #download section.
+      # (/.well-known/apple-app-site-association, assetlinks.json). Store URLs
+      # empty → the landing page's #download section.
       WEB_BASE_URL: ${WEB_BASE_URL:-https://thewired.app}
       APPLE_APP_IDS: ${APPLE_APP_IDS:-53RG2QV7HT.app.soot.mobile}
       ANDROID_PACKAGE_NAME: ${ANDROID_PACKAGE_NAME:-app.soot.mobile}
@@ -113,28 +144,8 @@ services:
       IOS_APP_URL: ${IOS_APP_URL:-}
       ANDROID_APP_URL: ${ANDROID_APP_URL:-}
       DESKTOP_APP_URL: ${DESKTOP_APP_URL:-}
-      LIVEKIT_URL: ${LIVEKIT_URL:-ws://livekit:7880}
-      LIVEKIT_API_KEY: ${LIVEKIT_API_KEY:-devkey}
-      LIVEKIT_API_SECRET: ${LIVEKIT_API_SECRET:-secret}
-      VAPID_PUBLIC_KEY: ${VAPID_PUBLIC_KEY:-}
-      VAPID_PRIVATE_KEY: ${VAPID_PRIVATE_KEY:-}
-      GIF_API_KEY: ${GIF_API_KEY:-}
-      BLOB_DIR: /app/blobs
-      MAX_BLOB_SIZE: ${MAX_BLOB_SIZE:-104857600}
-      # Signs the ?tk= tokens for protected music (blob + HLS). The backend
-      # refuses to mint with an empty secret under NODE_ENV=production, so a
-      # missing value = every private/space track fails to play. Required.
-      MEDIA_TOKEN_SECRET: ${MEDIA_TOKEN_SECRET:?Set MEDIA_TOKEN_SECRET (openssl rand -hex 32)}
-      # Transcoding pipeline — both flags on by default. Roll back by setting
-      # either to "false" in .env and redeploying; the client falls back to the
-      # original blob URL when HLS variants are missing.
-      TRANSCODE_ENQUEUE: ${TRANSCODE_ENQUEUE:-true}
-      TRANSCODE_WORKER: ${TRANSCODE_WORKER:-true}
-      # Default 1 so one vCPU stays free for Fastify under steady load.
-      # Bump to 2 only during deliberate backfill windows (and watch CPU credits).
-      TRANSCODE_CONCURRENCY: ${TRANSCODE_CONCURRENCY:-1}
     volumes:
-      - blobdata:/app/blobs
+      - blobdata:/app/services/backend/blobs
     depends_on:
       postgres:
         condition: service_healthy
@@ -186,8 +197,8 @@ services:
   livekit:
     image: livekit/livekit-server:latest
     # The whole config is passed inline so compose interpolates the secrets
-    # (a mounted config/livekit.yaml would NOT be interpolated). See
-    # the ops runbook (not in the repo) for the networking rationale.
+    # (a mounted config/livekit.yaml would NOT be interpolated). Networking
+    # rationale: docs/DEPLOY.md.
     environment:
       LIVEKIT_LOG_LEVEL: info
       LIVEKIT_CONFIG: |
@@ -202,8 +213,8 @@ services:
           node_ip: ${LIVEKIT_NODE_IP:?Set LIVEKIT_NODE_IP to this host's public IP}
         turn:
           # Embedded TURN for symmetric-NAT clients (hotel/corporate Wi-Fi).
-          # UDP relay only; TLS TURN on 443 needs a dedicated IP + cert
-          # (see the ops runbook) and is a follow-up.
+          # UDP relay only; TLS TURN on 443 needs a dedicated IP + cert and
+          # is a follow-up.
           enabled: true
           domain: ${LIVEKIT_TURN_DOMAIN:-turn.thewired.app}
           udp_port: 3478
@@ -216,7 +227,8 @@ services:
           level: info
     command: --bind 0.0.0.0
     ports:
-      - "7881:7881/tcp"   # ICE/TCP fallback
+      - "7880:7880"       # signal (Caddy proxies this; not opened in the firewall)
+      - "7881:7881/tcp"   # ICE over TCP fallback
       - "7882:7882/udp"   # WebRTC media (muxed)
       - "3478:3478/udp"   # TURN relay
     restart: unless-stopped
@@ -225,7 +237,7 @@ services:
     deploy:
       resources:
         limits:
-          memory: 512m
+          memory: 1G
 
   landing:
     image: ghcr.io/ishtarservices/thewired-landing:latest
