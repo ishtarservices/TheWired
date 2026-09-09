@@ -37,7 +37,7 @@
 | **Score Worker** | Runs every 15 min. Score = `members*2 + active24h*5 + messages24h + recencyBoost`. Auto-delists inactive spaces (0 messages, 0 active, <3 members, listed 30+ days). | `workers/discoveryScoreComputer.ts` |
 | **Config** | `ADMIN_PUBKEYS` (comma-separated hex pubkeys), `MIN_LISTING_MEMBERS` (default 5). | `config.ts` |
 | **Client API** | Typed API client with all discovery endpoints. Types: `DiscoverSpace`, `SpaceCategory`, `DiscoverRelay`, `ListingRequest`. | `lib/api/discover.ts` |
-| **Discover Page** | Four tabs (Spaces, Relays, Communities, People). Spaces tab: featured section (horizontal scroll), trending section (2-col grid), category chip filters, browse-all with search/pagination. Relays tab: grid of relay cards. Loading skeletons and empty states. | `features/discover/DiscoverPage.tsx` |
+| **Discover Page** | Three segments (Spaces, Music, People) sharing one search. Spaces: scenes chips + category tile grid + sort chips (Zapped/Active/New/Biggest) + ranked directory whose rows carry a mono why-line (`spaceSignalLabel`); seq-guarded loads/paging. Music: albums, playlists (kind 30119 relay one-shot), genres, and a track list headed "Trending" only when trending delivered (otherwise "Recent" + disclosure). People: server-ranked handles (`/search/people`) + hybrid npub/NIP-50 search + quiet follow. The old Featured/Trending rails and the Relays tab were removed (see `features/discover/`). | `features/discover/*` |
 | **Route + Navigation** | `/discover` route in App.tsx. TopBar shows "Discover" with Compass icon. RightPanel has `discover` context. | `App.tsx`, `TopBar.tsx`, `uiSlice.ts`, `useRightPanelContext.ts`, `RightPanel.tsx` |
 
 ---
@@ -77,7 +77,10 @@
 - `client/src/features/discover/DiscoverPage.tsx` — Add button to `RelayCard`
 - `client/src/lib/nostr/relayManager.ts` — Existing `addRelay()` method
 
-### 4.3 Right Panel Discover Preview
+### 4.3 Right Panel Discover Preview — DONE
+
+Shipped as `features/discover/SpacePreviewPanel.tsx`: the ranked rows dispatch `previewDiscoverSpace` (uiSlice), which stores the directory snapshot, opens the discover panel context and clears any music-queue override; the panel carries the join flow. Original spec kept below for history.
+
 
 **What:** Clicking a space or relay card opens a detail preview in the RightPanel.
 

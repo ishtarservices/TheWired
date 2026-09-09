@@ -7,6 +7,7 @@ import { QueueContent } from "../../features/music/QueueContent";
 import { NowPlayingDetail } from "../../features/music/NowPlayingDetail";
 import { DMContactPanel } from "../../features/dm/DMContactPanel";
 import { ProfileSidePanel } from "../../features/profile/ProfileSidePanel";
+import { SpacePreviewPanel } from "../../features/discover/SpacePreviewPanel";
 // Lazy: the artifacts panel pulls recharts (already split) + the markdown
 // renderer; load it only once the AI panel is actually shown.
 const ArtifactsPanel = lazy(() =>
@@ -186,12 +187,7 @@ export function RightPanel() {
         {/* ── Discover context ── */}
         {mounted.has("discover") && (
           <div className={context === "discover" ? "" : "hidden"}>
-            <div className="flex flex-col items-center justify-center p-6 text-center">
-              <Info size={24} className="text-muted opacity-30 mb-2" />
-              <p className="text-xs text-muted">
-                Select a space or relay to preview details
-              </p>
-            </div>
+            <SpacePreviewPanel />
           </div>
         )}
       </div>
