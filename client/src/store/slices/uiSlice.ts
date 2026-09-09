@@ -1,4 +1,5 @@
 import { createSlice, type PayloadAction } from "@reduxjs/toolkit";
+import type { DiscoverSpace } from "@/lib/api/discover";
 
 type ActiveTab = "chat" | "reels" | "longform";
 export type SidebarMode = "spaces" | "music" | "messages" | "ai";
@@ -24,6 +25,10 @@ interface UIState {
   rightPanel: RightPanelState;
   /** Space IDs pinned to the Favorites section (persisted to IndexedDB) */
   pinnedSpaceIds: string[];
+  /** Space selected on /discover; rendered by SpacePreviewPanel in the right
+   *  panel. A directory snapshot (not a store entity) — cleared when the page
+   *  unmounts so a stale row is never shown on return. */
+  discoverPreviewSpace: DiscoverSpace | null;
 }
 
 interface AppNotification {
@@ -60,6 +65,7 @@ const initialState: UIState = {
     contextOverride: null,
   },
   pinnedSpaceIds: [],
+  discoverPreviewSpace: null,
 };
 
 export const uiSlice = createSlice({
@@ -128,6 +134,20 @@ export const uiSlice = createSlice({
       state.rightPanel.contextOverride = context;
     },
 
+    // ── Discover preview ──
+
+    /** Select a directory row: store the snapshot and make sure the discover
+     *  panel is showing. Idempotent (never toggles closed) and clears the
+     *  music-queue override so it cannot hide the preview. */
+    previewDiscoverSpace(state, action: PayloadAction<DiscoverSpace>) {
+      state.discoverPreviewSpace = action.payload;
+      state.rightPanel.openByContext.discover = true;
+      state.rightPanel.contextOverride = null;
+    },
+    clearDiscoverPreview(state) {
+      state.discoverPreviewSpace = null;
+    },
+
     // ── Pinned spaces actions ──
 
     /** Toggle a space's pinned status */
@@ -158,6 +178,8 @@ export const {
   setRightPanelOpen,
   setRightPanelTab,
   openRightPanelToTab,
+  previewDiscoverSpace,
+  clearDiscoverPreview,
   togglePinnedSpace,
   setPinnedSpaceIds,
 } = uiSlice.actions;
