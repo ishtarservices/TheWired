@@ -58,10 +58,11 @@ Compose refuses to start without these (`${VAR:?}`):
 | `RELAY_SECRET_KEY` | `openssl rand -hex 32` |
 | `MEDIA_TOKEN_SECRET` | `openssl rand -hex 32` — signs protected-music playback tokens; the backend will not mint without it |
 | `LIVEKIT_NODE_IP` | the host's public IP — advertised to WebRTC clients; a loopback or container IP breaks every call |
+| `LIVEKIT_API_KEY` | any name (e.g. `thewired`) — the token-signing key id, shared by the backend and LiveKit |
+| `LIVEKIT_API_SECRET` | `openssl rand -base64 32` — the LiveKit signaling endpoint is public, so this is what stops strangers minting room tokens |
 
 Everything else has a default in the compose file; `.env.example` lists them
-all with notes. `LIVEKIT_API_SECRET` defaults to `secret` and must be changed
-in production.
+all with notes. Nothing secret has a default.
 
 ## Host firewall
 

@@ -113,8 +113,10 @@ services:
       PUBLIC_URL: ${PUBLIC_URL:-https://api.thewired.app}
       ADMIN_PUBKEYS: ${ADMIN_PUBKEYS:-}
       LIVEKIT_URL: ${LIVEKIT_URL:-ws://livekit:7880}
-      LIVEKIT_API_KEY: ${LIVEKIT_API_KEY:-devkey}
-      LIVEKIT_API_SECRET: ${LIVEKIT_API_SECRET:-secret}
+      # No defaults: the LiveKit signaling endpoint is public, so a deployment
+      # that silently kept "devkey/secret" would let anyone mint room tokens.
+      LIVEKIT_API_KEY: ${LIVEKIT_API_KEY:?Set LIVEKIT_API_KEY in .env (any name, e.g. thewired)}
+      LIVEKIT_API_SECRET: ${LIVEKIT_API_SECRET:?Set LIVEKIT_API_SECRET in .env (openssl rand -base64 32)}
       VAPID_PUBLIC_KEY: ${VAPID_PUBLIC_KEY:-}
       VAPID_PRIVATE_KEY: ${VAPID_PRIVATE_KEY:-}
       GIF_API_KEY: ${GIF_API_KEY:-}
@@ -219,7 +221,7 @@ services:
           domain: ${LIVEKIT_TURN_DOMAIN:-turn.thewired.app}
           udp_port: 3478
         keys:
-          ${LIVEKIT_API_KEY:-devkey}: ${LIVEKIT_API_SECRET:-secret}
+          ${LIVEKIT_API_KEY:?Set LIVEKIT_API_KEY in .env}: ${LIVEKIT_API_SECRET:?Set LIVEKIT_API_SECRET in .env}
         room:
           max_participants: 100
           empty_timeout: 300
