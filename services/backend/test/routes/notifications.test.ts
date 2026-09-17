@@ -7,7 +7,7 @@
  */
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import type { FastifyInstance } from "fastify";
-import { eq } from "drizzle-orm";
+import { eq, sql } from "drizzle-orm";
 import { buildTestServer, closeTestServer } from "../helpers/testServer.js";
 import { LUNA, MARCUS, JAYDEE } from "../helpers/testUsers.js";
 import { db } from "../../src/db/connection.js";
@@ -96,5 +96,40 @@ describe("/notifications/preferences", () => {
     await put(LUNA.pubkey, { zaps: false });
     rows = await db.select().from(watchedBy).where(eq(watchedBy.watcherPubkey, LUNA.pubkey));
     expect(rows.map((r) => r.authorPubkey)).toEqual([JAYDEE.pubkey]);
+  });
+
+  it("a failed watched_by rewrite rolls the whole PUT back", async () => {
+    // A trigger that rejects one specific author simulates a mid-transaction
+    // insert failure AFTER the delete of the old rows: everything — the
+    // preference upsert and the index delete — must roll back together.
+    const POISON = "f".repeat(64);
+    await db.execute(sql`
+      CREATE OR REPLACE FUNCTION app.reject_poison_watch() RETURNS trigger AS $$
+      BEGIN
+        IF NEW.author_pubkey = '${sql.raw(POISON)}' THEN
+          RAISE EXCEPTION 'poison author';
+        END IF;
+        RETURN NEW;
+      END $$ LANGUAGE plpgsql`);
+    await db.execute(sql`
+      CREATE TRIGGER poison_watch_guard BEFORE INSERT ON app.watched_by
+      FOR EACH ROW EXECUTE FUNCTION app.reject_poison_watch()`);
+    try {
+      expect((await put(LUNA.pubkey, { watchedPubkeys: [MARCUS.pubkey] })).statusCode).toBe(200);
+
+      const res = await put(LUNA.pubkey, { zaps: false, watchedPubkeys: [JAYDEE.pubkey, POISON] });
+      expect(res.statusCode).toBe(500);
+
+      // The old watch survives (the delete rolled back) and the preference
+      // change from the same request was not applied.
+      const rows = await db.select().from(watchedBy).where(eq(watchedBy.watcherPubkey, LUNA.pubkey));
+      expect(rows.map((r) => r.authorPubkey)).toEqual([MARCUS.pubkey]);
+      const data = (await get(LUNA.pubkey)).json().data;
+      expect(data.zaps).toBe(true);
+      expect(data.watchedPubkeys).toEqual([MARCUS.pubkey]);
+    } finally {
+      await db.execute(sql`DROP TRIGGER IF EXISTS poison_watch_guard ON app.watched_by`);
+      await db.execute(sql`DROP FUNCTION IF EXISTS app.reject_poison_watch()`);
+    }
   });
 });

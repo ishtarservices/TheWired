@@ -98,6 +98,53 @@ describe("PROBE #58 — analytics authz", () => {
   });
 });
 
+describe("push routes authz — device tokens and suppression", () => {
+  const TOKEN = "ExponentPushToken[authzLuna]";
+  const WRAP = "a".repeat(64);
+
+  it("rejects anonymous callers on all three routes", async () => {
+    const reg = await server.inject({
+      method: "POST",
+      url: "/push/devices",
+      payload: { provider: "expo", token: TOKEN, platform: "ios" },
+    });
+    expect(reg.statusCode).toBe(401);
+
+    const del = await server.inject({ method: "DELETE", url: "/push/devices", payload: { token: TOKEN } });
+    expect(del.statusCode).toBe(401);
+
+    const sup = await server.inject({ method: "POST", url: "/push/suppress", payload: { eventIds: [WRAP] } });
+    expect(sup.statusCode).toBe(401);
+  });
+
+  it("scopes deletion and suppression to the caller's own pubkey", async () => {
+    const { pushService } = await import("../../src/services/pushService.js");
+    await pushService.registerDevice({ pubkey: LUNA.pubkey, provider: "expo", token: TOKEN, platform: "ios" });
+
+    // MARCUS cannot remove LUNA's token.
+    const del = await server.inject({
+      method: "DELETE",
+      url: "/push/devices",
+      headers: { "x-auth-pubkey": MARCUS.pubkey },
+      payload: { token: TOKEN },
+    });
+    expect(del.statusCode).toBe(200);
+    expect(del.json().data.removed).toBe(false);
+    expect(await pushService.devicesFor(LUNA.pubkey)).toHaveLength(1);
+
+    // MARCUS's suppression lands in his own set, never LUNA's.
+    const sup = await server.inject({
+      method: "POST",
+      url: "/push/suppress",
+      headers: { "x-auth-pubkey": MARCUS.pubkey },
+      payload: { eventIds: [WRAP] },
+    });
+    expect(sup.statusCode).toBe(200);
+    expect(await pushService.isSuppressed(LUNA.pubkey, WRAP)).toBe(false);
+    expect(await pushService.isSuppressed(MARCUS.pubkey, WRAP)).toBe(true);
+  });
+});
+
 describe("PROBE #102 — force-list authz", () => {
   it("rejects a non-owner listing-request and does not list the space", async () => {
     await createSpace("ll-space", LUNA.pubkey);

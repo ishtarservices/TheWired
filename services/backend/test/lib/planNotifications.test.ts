@@ -94,6 +94,12 @@ describe("planNotifications", () => {
     expect(planNotifications(reply, own, deps({ watchersOf: () => [BOB] }))).toEqual([]);
   });
 
+  it("kind 1: a space-exclusive (h-tagged) note never fans out to watchers; explicit mentions still push", () => {
+    const spacePost = ev({ tags: [["h", "s1"], ["p", ME]], content: "members only" });
+    const out = planNotifications(spacePost, own, deps({ watchersOf: () => [BOB] }));
+    expect(out.map((i) => [i.recipient, i.type])).toEqual([[ME, "mention"]]);
+  });
+
   it("kind 7: reaction with the target's preview; needs an e tag", () => {
     const like = ev({ kind: 7, tags: [["e", NOTE], ["p", ME]], content: "+" });
     const [r] = planNotifications(like, own, deps());
@@ -106,6 +112,17 @@ describe("planNotifications", () => {
     const fire = ev({ kind: 7, tags: [["e", NOTE], ["p", ME]], content: "🔥" });
     expect(planNotifications(fire, own, deps())[0].title).toBe("alice reacted 🔥");
     expect(planNotifications(ev({ kind: 7, tags: [["p", ME]] }), own, deps())).toEqual([]);
+  });
+
+  it("kind 7: the preview is only for the target's author, and long content is not an emoji", () => {
+    // BOB p-tagged on a note ME wrote: he gets the reaction push, no preview.
+    const misdirected = ev({ kind: 7, tags: [["e", NOTE], ["p", BOB]], content: "+" });
+    const [m] = planNotifications(misdirected, own, deps());
+    expect(m).toMatchObject({ recipient: BOB, body: "" });
+
+    // A kilobyte of "emoji" falls back to the liked title.
+    const essay = ev({ kind: 7, tags: [["e", NOTE], ["p", ME]], content: "x".repeat(1000) });
+    expect(planNotifications(essay, own, deps())[0].title).toBe("alice liked your note");
   });
 
   it("kind 9735: sats from the 9734 requester; self-zaps and unsettled receipts are silent", () => {
@@ -179,6 +196,9 @@ describe("planNotifications", () => {
     });
     const priv = ev({ kind: 31683, tags: [["d", "x"], ["visibility", "private"]] });
     expect(planNotifications(priv, own, deps({ watchersOf: () => [ME] }))).toEqual([]);
+    // Space-exclusive (h-tagged) releases are as silent as private ones.
+    const scoped = ev({ kind: 31683, tags: [["d", "x"], ["title", "X"], ["h", "s1"]] });
+    expect(planNotifications(scoped, own, deps({ watchersOf: () => [ME] }))).toEqual([]);
     expect(planNotifications(ev({ kind: 31683, tags: [] }), own, deps({ watchersOf: () => [ME] }))).toEqual([]);
   });
 

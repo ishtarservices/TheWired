@@ -19,6 +19,8 @@ import { getRedis } from "../../src/lib/redis.js";
 import {
   collapseGroup,
   dispatchOnce,
+  housekeeping,
+  HOUSEKEEPING_KEY,
   pollReceiptsOnce,
   QUEUE_TTL_MS,
   RECEIPT_DELAY_MS,
@@ -124,7 +126,52 @@ describe("dispatchOnce", () => {
     const stats = await dispatchOnce({ sender });
     expect(stats.expired).toBe(2);
     expect(sent).toHaveLength(0);
-    expect((await rowsFor(LUNA.pubkey)).every((r) => r.sent)).toBe(true);
+    // Retired but never delivered: sent = true (never retry), sent_at NULL
+    // (never counted by the badge).
+    expect((await rowsFor(LUNA.pubkey)).every((r) => r.sent && r.sentAt === null)).toBe(true);
+  });
+
+  it("the badge counts pending and delivered rows, never suppressed ones", async () => {
+    await device(LUNA.pubkey, TOKEN, new Date(Date.now() - 3600_000));
+    const wrapId = "d".repeat(64);
+    // A suppressed self-wrap dm (older, so its group dispatches first) plus a
+    // real reply.
+    await seed({
+      type: "dm",
+      title: "soot",
+      body: "new message",
+      collapseKey: `dm:${LUNA.pubkey}`,
+      data: JSON.stringify({ eventId: wrapId }),
+      createdAt: new Date(Date.now() - 5000),
+    });
+    await seed({ type: "reply" });
+    await pushService.suppressEvents(LUNA.pubkey, [wrapId]);
+
+    const { sender, sent } = fakeSender();
+    const stats = await dispatchOnce({ sender });
+    expect(stats.suppressed).toBe(1);
+    expect(stats.sent).toBe(1);
+    expect(sent).toHaveLength(1);
+    // Without the sent_at gate this would be 2: the dm row is newer than the
+    // device's last_seen_at but was deliberately never delivered.
+    expect(sent[0][0].badge).toBe(1);
+  });
+
+  it("runs housekeeping at most once per hour", async () => {
+    await getRedis().del(HOUSEKEEPING_KEY);
+    await device();
+    const old = await seed({ createdAt: new Date(Date.now() - 8 * 24 * 3600 * 1000) });
+    await db.update(pushDevices).set({ lastSeenAt: new Date(Date.now() - 100 * 24 * 3600 * 1000) }).where(eq(pushDevices.token, TOKEN));
+
+    await housekeeping();
+    expect((await rowsFor(LUNA.pubkey)).map((r) => r.id)).not.toContain(old);
+    expect(await pushService.devicesFor(LUNA.pubkey)).toHaveLength(0);
+
+    // Second call inside the window is throttled: nothing is pruned.
+    const old2 = await seed({ createdAt: new Date(Date.now() - 8 * 24 * 3600 * 1000) });
+    await housekeeping();
+    expect((await rowsFor(LUNA.pubkey)).map((r) => r.id)).toContain(old2);
+    await getRedis().del(HOUSEKEEPING_KEY);
   });
 
   it("drops a dm the recipient suppressed (their own self-wrap) at send time", async () => {
@@ -175,5 +222,25 @@ describe("pollReceiptsOnce", () => {
     expect(receipts).toHaveBeenCalledWith(["old"]);
     expect(await pushService.devicesFor(LUNA.pubkey)).toHaveLength(0);
     expect(await getRedis().llen(TICKETS_KEY)).toBe(1); // the young one waits
+  });
+
+  it("puts tickets back when the receipts call fails", async () => {
+    await device();
+    const now = Date.now();
+    await getRedis().lpush(
+      TICKETS_KEY,
+      JSON.stringify({ id: "old", token: TOKEN, at: now - RECEIPT_DELAY_MS - 1 }),
+    );
+    const sender: ExpoSender = {
+      send: vi.fn(async () => []),
+      receipts: vi.fn(async () => {
+        throw new Error("503");
+      }),
+    };
+    expect(await pollReceiptsOnce({ sender, now: () => now })).toBe(0);
+    // The ticket survives for the next poll; the device is untouched.
+    const restored = await getRedis().lrange(TICKETS_KEY, 0, -1);
+    expect(restored.map((e) => JSON.parse(e).id)).toEqual(["old"]);
+    expect(await pushService.devicesFor(LUNA.pubkey)).toHaveLength(1);
   });
 });

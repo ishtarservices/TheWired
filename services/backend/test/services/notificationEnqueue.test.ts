@@ -125,6 +125,27 @@ describe("enqueueNotification", () => {
     await getRedis().del(`notif:release:${LUNA.pubkey}:${address}`, `notif:release:${LUNA.pubkey}:${address}-2`);
   });
 
+  it("a replayed wrap id never pushes twice, even outside the rate window", async () => {
+    const wrapA = "a1".repeat(32);
+    const wrapB = "b2".repeat(32);
+    await getRedis().del(`notif:dm:${LUNA.pubkey}`, `notif:wrap:${wrapA}`, `notif:wrap:${wrapB}`);
+    await pushService.registerDevice({
+      pubkey: LUNA.pubkey,
+      provider: "expo",
+      token: "ExponentPushToken[lunareplay]",
+      platform: "ios",
+    });
+
+    expect(await enqueueNotification(intent("dm", { eventId: wrapA }))).toBe(true);
+    // The wraps REQ replays on reconnect; simulate the rate window having passed.
+    await getRedis().del(`notif:dm:${LUNA.pubkey}`);
+    expect(await enqueueNotification(intent("dm", { eventId: wrapA }))).toBe(false);
+    // A genuinely new wrap still pushes.
+    expect(await enqueueNotification(intent("dm", { eventId: wrapB }))).toBe(true);
+    expect(await queued()).toHaveLength(2);
+    await getRedis().del(`notif:dm:${LUNA.pubkey}`, `notif:wrap:${wrapA}`, `notif:wrap:${wrapB}`);
+  });
+
   it("dm needs a device and is rate-limited per recipient", async () => {
     await getRedis().del(`notif:dm:${LUNA.pubkey}`);
     expect(await enqueueNotification(intent("dm", { eventId: "a" }))).toBe(false);

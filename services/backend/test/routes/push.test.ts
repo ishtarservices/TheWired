@@ -17,7 +17,7 @@ import { buildTestServer, closeTestServer } from "../helpers/testServer.js";
 import { LUNA, MARCUS } from "../helpers/testUsers.js";
 import { db } from "../../src/db/connection.js";
 import { pushDevices } from "../../src/db/schema/notifications.js";
-import { pushService } from "../../src/services/pushService.js";
+import { pushService, MAX_DEVICES_PER_PUBKEY } from "../../src/services/pushService.js";
 
 let server: FastifyInstance;
 const TOKEN = "ExponentPushToken[abc123_-XYZ]";
@@ -73,6 +73,28 @@ describe("POST /push/devices", () => {
     expect(rows).toHaveLength(1);
     expect(rows[0].pubkey).toBe(MARCUS.pubkey);
     expect(await pushService.devicesFor(LUNA.pubkey)).toHaveLength(0);
+  });
+
+  it("caps devices per pubkey; a known token still heartbeats at the cap", async () => {
+    for (let i = 0; i < MAX_DEVICES_PER_PUBKEY; i++) {
+      await pushService.registerDevice({
+        pubkey: LUNA.pubkey,
+        provider: "expo",
+        token: `ExponentPushToken[cap${i}]`,
+        platform: "ios",
+      });
+    }
+    const over = await register(LUNA.pubkey, { token: "ExponentPushToken[capOver]" });
+    expect(over.statusCode).toBe(400);
+    expect(over.json().code).toBe("TOO_MANY_DEVICES");
+    expect(await pushService.devicesFor(LUNA.pubkey)).toHaveLength(MAX_DEVICES_PER_PUBKEY);
+
+    // Re-registering an existing token is a heartbeat, not a new device.
+    const heartbeat = await register(LUNA.pubkey, { token: "ExponentPushToken[cap0]" });
+    expect(heartbeat.statusCode).toBe(200);
+    // Another account on a fresh device is unaffected by LUNA's cap.
+    const other = await register(MARCUS.pubkey, { token: "ExponentPushToken[capOther]" });
+    expect(other.statusCode).toBe(200);
   });
 });
 
