@@ -8,6 +8,14 @@ import { getMeilisearchClient } from "../lib/meilisearch.js";
 import { verifyEvent } from "../lib/nostr/eventVerifier.js";
 import { parseZapSats } from "../lib/nostr/zapAmount.js";
 import { enqueueNotification } from "../services/notificationEnqueue.js";
+import {
+  KIND_GIFT_WRAP,
+  planNotifications,
+  RELEASE_KINDS,
+  threadParentId,
+  type PlanDeps,
+} from "../lib/notifications/planNotifications.js";
+import { watchedBy } from "../db/schema/notifications.js";
 import { revisionService } from "../services/revisionService.js";
 import { proposalService } from "../services/proposalService.js";
 import { eq, and, sql } from "drizzle-orm";
@@ -203,6 +211,111 @@ export async function processEvent(event: NostrEvent, ctx: IngestContext): Promi
   }
 
   if (indexSearch) await indexToMeilisearch(event);
+
+  await emitNotifications(event, ctx);
+}
+
+// ─── Push notifications ──────────────────────────────────────────────
+// The kinds that can produce a push (lib/notifications/planNotifications).
+// Own relay only — planNotifications re-checks, this just skips the lookups.
+const NOTIFYING_KINDS = new Set([1, 7, 9735, 9, KIND_GIFT_WRAP, ...RELEASE_KINDS]);
+
+async function relayEvent(id: string): Promise<{ pubkey: string; content: string } | undefined> {
+  try {
+    const rows = (await db.execute(
+      sql`SELECT pubkey, content FROM relay.events WHERE id = ${id} LIMIT 1`,
+    )) as unknown as Array<{ pubkey: string; content: string }>;
+    return rows[0];
+  } catch {
+    return undefined; // relay schema unavailable → degrade (mention, no preview)
+  }
+}
+
+/** Gather everything the pure planner needs, each lookup best-effort. */
+async function collectPlanDeps(event: NostrEvent): Promise<PlanDeps> {
+  const lastE = [...event.tags].reverse().find((t) => t[0] === "e")?.[1];
+  const referencedId =
+    event.kind === 1 ? threadParentId(event) : event.kind === 7 ? lastE : undefined;
+  const referenced = referencedId ? await relayEvent(referencedId) : undefined;
+
+  const namePubkeys = new Set<string>([event.pubkey]);
+  if (event.kind === 9735) {
+    const description = getTagValue(event, "description");
+    if (description) {
+      try {
+        const req = JSON.parse(description) as { pubkey?: string };
+        if (typeof req.pubkey === "string") namePubkeys.add(req.pubkey);
+      } catch {
+        // malformed — planner falls back to the P tag
+      }
+    }
+    const big = getTagValue(event, "P");
+    if (big) namePubkeys.add(big);
+  }
+  const names = new Map<string, string>();
+  try {
+    for (const p of await profileCacheService.getBatchProfiles([...namePubkeys])) {
+      const name = p.displayName?.trim() || p.name?.trim();
+      if (name) names.set(p.pubkey, name);
+    }
+  } catch {
+    // no names → short handles
+  }
+
+  let spaceName: string | undefined;
+  const spaceId = event.kind === 9 ? getTagValue(event, "h") : undefined;
+  if (spaceId) {
+    try {
+      const [row] = await db.select({ name: spaces.name }).from(spaces).where(eq(spaces.id, spaceId)).limit(1);
+      spaceName = row?.name ?? undefined;
+    } catch {
+      // unknown space → planner's fallback
+    }
+  }
+
+  let watchers: string[] = [];
+  const fansOut = RELEASE_KINDS.has(event.kind) || (event.kind === 1 && !threadParentId(event));
+  if (fansOut) {
+    try {
+      const rows = await db
+        .select({ watcher: watchedBy.watcherPubkey })
+        .from(watchedBy)
+        .where(eq(watchedBy.authorPubkey, event.pubkey));
+      watchers = rows.map((r) => r.watcher);
+    } catch {
+      watchers = [];
+    }
+  }
+
+  return {
+    parentAuthorOf: (id) => (id === referencedId ? referenced?.pubkey : undefined),
+    notePreviewOf: (id) => (id === referencedId ? referenced?.content : undefined),
+    displayName: (pk) => names.get(pk) ?? `${pk.slice(0, 8)}…`,
+    spaceName: () => spaceName,
+    watchersOf: () => watchers,
+  };
+}
+
+/** Plan + enqueue pushes for one ingested event. Never throws into ingest. */
+export async function emitNotifications(event: NostrEvent, ctx: IngestContext): Promise<void> {
+  if (!ctx.isOwnRelay || !NOTIFYING_KINDS.has(event.kind)) return;
+  try {
+    const deps = await collectPlanDeps(event);
+    const intents = planNotifications(event, ctx, deps);
+    for (const intent of intents) {
+      await enqueueNotification({
+        pubkey: intent.recipient,
+        type: intent.type,
+        title: intent.title,
+        body: intent.body,
+        url: intent.url,
+        collapseKey: intent.collapseKey,
+        data: intent.data,
+      });
+    }
+  } catch (err) {
+    console.error("[notifications] emit failed:", (err as Error).message);
+  }
 }
 
 async function indexProfile(event: NostrEvent) {
@@ -253,25 +366,6 @@ async function indexChatMessage(event: NostrEvent) {
       set: { messageCount: sql`${memberEngagement.messageCount} + 1` },
     });
 
-  const mentionedPubkeys = event.tags
-    .filter((t) => t[0] === "p" && t[1] !== event.pubkey)
-    .map((t) => t[1]);
-
-  const cleanContent = event.content
-    .replace(/nostr:(npub|nevent|naddr|note)1[a-z0-9]+/g, "@mention")
-    .replace(/\s{2,}/g, " ")
-    .trim();
-  const preview = cleanContent.length > 120 ? cleanContent.slice(0, 120) + "..." : cleanContent;
-
-  for (const pubkey of mentionedPubkeys) {
-    enqueueNotification({
-      pubkey,
-      type: "mention",
-      title: "You were mentioned",
-      body: preview,
-      data: { spaceId, eventId: event.id },
-    });
-  }
 }
 
 /**
