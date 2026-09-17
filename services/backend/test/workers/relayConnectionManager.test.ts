@@ -147,6 +147,7 @@ describe("relay manager — regression (own relay)", () => {
     expect(reqs.map((r) => r[1])).toEqual(["ingester", "ingester-music-backfill"]);
     // Main sub carries the full legacy kind set; backfill is music-only.
     expect((reqs[0][2] as { kinds: number[] }).kinds).toContain(9);
+    expect((reqs[0][2] as { kinds: number[] }).kinds).toContain(1059); // dm pushes
     expect((reqs[1][2] as { kinds: number[] }).kinds).toEqual([31683, 33123]);
   });
 });

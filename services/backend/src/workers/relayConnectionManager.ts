@@ -144,7 +144,9 @@ export function startRelayIngester(): { stop: () => void } {
           JSON.stringify([
             "REQ",
             "ingester",
-            { kinds: [0, 1, 5, 7, 9, 22, 30023, 34236, 31683, 33123, 30119, 31685, 9735, 9021, 9022, 39000], since },
+            // 1059 (NIP-59 gift wraps) is ingested for ONE reason: a content-free
+            // "new message" push to the `p` recipient. Never indexed.
+            { kinds: [0, 1, 5, 7, 9, 22, 30023, 34236, 31683, 33123, 30119, 31685, 9735, 9021, 9022, 39000, 1059], since },
           ]),
         );
         ws.send(JSON.stringify(["REQ", "ingester-music-backfill", { kinds: [31683, 33123] }]));

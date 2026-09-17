@@ -88,6 +88,7 @@ export type IngestAction =
   | "musicAlbum"
   | "proposal"
   | "deletion"
+  | "giftWrap"
   | null;
 
 export interface IngestPlan {
@@ -131,6 +132,11 @@ function decideAction(event: NostrEvent, ctx: IngestContext): IngestAction {
       return ctx.isOwnRelay ? "proposal" : null;
     case 5:
       return ctx.isOwnRelay ? "deletion" : null;
+    // NIP-59 gift wrap: opaque content, ephemeral author — the only thing we
+    // learn is who it is FOR, and the only thing we do is plan a content-free
+    // dm push (emitNotifications). Own relay only; never indexed.
+    case KIND_GIFT_WRAP:
+      return ctx.isOwnRelay ? "giftWrap" : null;
 
     // Space-scoped kinds — gated by allowedSpaceIds.
     case 7:
@@ -206,6 +212,8 @@ export async function processEvent(event: NostrEvent, ctx: IngestContext): Promi
     case "groupMembers":
       await indexGroupMembers(event);
       break;
+    case "giftWrap":
+      break; // notification-only (see emitNotifications)
     case null:
       break;
   }
