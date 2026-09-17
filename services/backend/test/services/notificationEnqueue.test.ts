@@ -115,6 +115,16 @@ describe("enqueueNotification", () => {
     expect(await queued()).toHaveLength(1);
   });
 
+  it("an edited release never pushes the same watcher twice", async () => {
+    const address = `31683:${"b".repeat(64)}:midnight`;
+    await getRedis().del(`notif:release:${LUNA.pubkey}:${address}`);
+    expect(await enqueueNotification(intent("release", { address }))).toBe(true);
+    expect(await enqueueNotification(intent("release", { address }))).toBe(false);
+    expect(await enqueueNotification(intent("release", { address: `${address}-2` }))).toBe(true);
+    expect(await queued()).toHaveLength(2);
+    await getRedis().del(`notif:release:${LUNA.pubkey}:${address}`, `notif:release:${LUNA.pubkey}:${address}-2`);
+  });
+
   it("dm needs a device and is rate-limited per recipient", async () => {
     await getRedis().del(`notif:dm:${LUNA.pubkey}`);
     expect(await enqueueNotification(intent("dm", { eventId: "a" }))).toBe(false);

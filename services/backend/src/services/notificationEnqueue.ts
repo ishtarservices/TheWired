@@ -21,6 +21,9 @@ export interface EnqueueParams {
 /** One "new message" push per recipient per window — a burst of DMs is one
  *  lock-screen line, not ten. */
 export const DM_RATE_WINDOW_SEC = 120;
+/** A release is addressable: an edit republishes the same kind:pubkey:d.
+ *  One push per watcher per address per day, so a tag fix never re-buzzes. */
+export const RELEASE_DEDUPE_SEC = 86_400;
 
 type Prefs = typeof notificationPreferences.$inferSelect;
 
@@ -101,6 +104,11 @@ export async function enqueueNotification(params: EnqueueParams): Promise<boolea
       const devices = await pushService.devicesFor(pubkey);
       if (devices.length === 0) return false;
       const ok = await getRedis().set(`notif:dm:${pubkey}`, "1", "EX", DM_RATE_WINDOW_SEC, "NX");
+      if (ok !== "OK") return false;
+    }
+
+    if (type === "release" && typeof data?.address === "string") {
+      const ok = await getRedis().set(`notif:release:${pubkey}:${data.address}`, "1", "EX", RELEASE_DEDUPE_SEC, "NX");
       if (ok !== "OK") return false;
     }
 
