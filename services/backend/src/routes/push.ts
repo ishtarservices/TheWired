@@ -73,8 +73,11 @@ export const pushRoutes: FastifyPluginAsync = async (server) => {
     const body = validate(registerDeviceBody, request.body, reply);
     if (!body) return;
 
-    const { id } = await pushService.registerDevice({ pubkey, ...body });
-    return { data: { id } };
+    const result = await pushService.registerDevice({ pubkey, ...body });
+    if (!result) {
+      return reply.status(400).send({ error: "Too many devices", code: "TOO_MANY_DEVICES" });
+    }
+    return { data: { id: result.id } };
   });
 
   /** DELETE /push/devices — drop this device's token (own pubkey only). */

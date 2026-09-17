@@ -25,6 +25,13 @@ import { processEvent, type NostrEvent } from "./ingestHandlers.js";
 
 const RECONNECT_MAX_MS = 60_000;
 
+/** NIP-59 gift wraps randomize created_at up to 2 days into the past, so the
+ *  shared max-created_at `since` cursor would filter nearly all of them out.
+ *  Their REQ looks back this far instead (2 days + slack); the replay this
+ *  causes on every (re)connect is absorbed by the per-wrap dedupe in
+ *  notificationEnqueue. */
+export const WRAP_LOOKBACK_SEC = 2 * 24 * 3600 + 3600;
+
 /** Tunables (env-overridable so tests can shrink intervals/caps). */
 function tunables() {
   return {
@@ -144,12 +151,20 @@ export function startRelayIngester(): { stop: () => void } {
           JSON.stringify([
             "REQ",
             "ingester",
-            // 1059 (NIP-59 gift wraps) is ingested for ONE reason: a content-free
-            // "new message" push to the `p` recipient. Never indexed.
-            { kinds: [0, 1, 5, 7, 9, 22, 30023, 34236, 31683, 33123, 30119, 31685, 9735, 9021, 9022, 39000, 1059], since },
+            { kinds: [0, 1, 5, 7, 9, 22, 30023, 34236, 31683, 33123, 30119, 31685, 9735, 9021, 9022, 39000], since },
           ]),
         );
         ws.send(JSON.stringify(["REQ", "ingester-music-backfill", { kinds: [31683, 33123] }]));
+        // 1059 (NIP-59 gift wraps) is ingested for ONE reason: a content-free
+        // "new message" push to the `p` recipient. Never indexed. Separate REQ:
+        // wraps backdate created_at, so the shared cursor would drop them.
+        ws.send(
+          JSON.stringify([
+            "REQ",
+            "ingester-wraps",
+            { kinds: [1059], since: Math.floor(Date.now() / 1000) - WRAP_LOOKBACK_SEC },
+          ]),
+        );
         return;
       }
 

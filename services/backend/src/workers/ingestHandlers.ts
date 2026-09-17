@@ -228,11 +228,16 @@ export async function processEvent(event: NostrEvent, ctx: IngestContext): Promi
 // Own relay only — planNotifications re-checks, this just skips the lookups.
 const NOTIFYING_KINDS = new Set([1, 7, 9735, 9, KIND_GIFT_WRAP, ...RELEASE_KINDS]);
 
-async function relayEvent(id: string): Promise<{ pubkey: string; content: string } | undefined> {
+async function relayEvent(
+  id: string,
+): Promise<{ pubkey: string; content: string; is_public: boolean } | undefined> {
   try {
+    // is_public gates what may reach a push BODY: an h-tagged (space-scoped)
+    // event's content must never leak to a recipient who may not be a member.
+    // The author is still returned so reply detection works for space notes.
     const rows = (await db.execute(
-      sql`SELECT pubkey, content FROM relay.events WHERE id = ${id} LIMIT 1`,
-    )) as unknown as Array<{ pubkey: string; content: string }>;
+      sql`SELECT pubkey, content, (h_tag IS NULL) AS is_public FROM relay.events WHERE id = ${id} LIMIT 1`,
+    )) as unknown as Array<{ pubkey: string; content: string; is_public: boolean }>;
     return rows[0];
   } catch {
     return undefined; // relay schema unavailable → degrade (mention, no preview)
@@ -297,7 +302,7 @@ async function collectPlanDeps(event: NostrEvent): Promise<PlanDeps> {
 
   return {
     parentAuthorOf: (id) => (id === referencedId ? referenced?.pubkey : undefined),
-    notePreviewOf: (id) => (id === referencedId ? referenced?.content : undefined),
+    notePreviewOf: (id) => (id === referencedId && referenced?.is_public ? referenced.content : undefined),
     displayName: (pk) => names.get(pk) ?? `${pk.slice(0, 8)}…`,
     spaceName: () => spaceName,
     watchersOf: () => watchers,

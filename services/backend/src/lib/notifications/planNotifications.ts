@@ -140,8 +140,10 @@ export function planNotifications(
           data: { eventId: event.id, actor: event.pubkey },
         });
       }
-      // Subscribed authors: top-level notes only (a reply is not a post).
-      if (!parentId) {
+      // Subscribed authors: top-level PUBLIC notes only — a reply is not a
+      // post, and a space-exclusive (h-tagged) note must not reach watchers
+      // outside the space.
+      if (!parentId && !tagValue(event, "h")) {
         for (const watcher of deps.watchersOf(event.pubkey)) {
           if (watcher === event.pubkey || tagged.includes(watcher)) continue;
           out.push({
@@ -161,9 +163,15 @@ export function planNotifications(
     case 7: {
       const target = [...event.tags].reverse().find((t) => t[0] === "e")?.[1];
       if (!target) return out;
-      const emoji = event.content && event.content !== "+" ? event.content : "";
-      const targetPreview = deps.notePreviewOf(target);
+      // Content is attacker-controlled: treat it as an emoji only when it is
+      // plausibly one, so a kilobyte of text can't become the push title.
+      const emoji =
+        event.content && event.content !== "+" && event.content.length <= 20 ? event.content : "";
+      const targetAuthor = deps.parentAuthorOf(target);
       for (const recipient of mentionedPubkeys(event)) {
+        // The target's preview is only for its author — a p-tag doesn't
+        // entitle an arbitrary recipient to another note's content.
+        const targetPreview = targetAuthor === recipient ? deps.notePreviewOf(target) : undefined;
         out.push({
           recipient,
           type: "reaction",
@@ -251,6 +259,9 @@ export function planNotifications(
       if (!address) return out;
       const visibility = tagValue(event, "visibility");
       if (visibility === "private" || visibility === "unlisted") return out;
+      // Space-exclusive (h-tagged) releases are non-public everywhere else
+      // (isNonPublicEvent); watchers may not be members of the space.
+      if (tagValue(event, "h")) return out;
       const title = tagValue(event, "title") ?? "untitled";
       const noun = event.kind === 31683 ? "track" : "project";
       const tagged = mentionedPubkeys(event);

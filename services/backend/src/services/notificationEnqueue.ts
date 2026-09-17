@@ -24,6 +24,11 @@ export const DM_RATE_WINDOW_SEC = 120;
 /** A release is addressable: an edit republishes the same kind:pubkey:d.
  *  One push per watcher per address per day, so a tag fix never re-buzzes. */
 export const RELEASE_DEDUPE_SEC = 86_400;
+/** The wraps REQ looks back 2 days on every (re)connect (relayConnectionManager
+ *  WRAP_LOOKBACK_SEC), so each wrap replays; one push per wrap id, ever. Must
+ *  outlive the lookback — and the 1h suppress TTL, so a replayed self-wrap
+ *  can't buzz its own sender. */
+export const WRAP_SEEN_SEC = 3 * 86_400;
 
 type Prefs = typeof notificationPreferences.$inferSelect;
 
@@ -99,10 +104,19 @@ export async function enqueueNotification(params: EnqueueParams): Promise<boolea
 
     if (type === "dm") {
       // Content-free pushes are only worth sending to a phone; desktop has
-      // the relay open. And one per window: the dispatcher collapses, but a
-      // burst spread over minutes would otherwise buzz for each message.
+      // the relay open. Checked before the wrap marker so a wrap first seen
+      // while the user has no device can still push after they register one.
       const devices = await pushService.devicesFor(pubkey);
       if (devices.length === 0) return false;
+      // The wraps REQ replays up to 2 days of wraps on every reconnect: a
+      // wrap id pushes at most once, ever.
+      const wrapId = typeof data?.eventId === "string" ? data.eventId : undefined;
+      if (wrapId) {
+        const fresh = await getRedis().set(`notif:wrap:${wrapId}`, "1", "EX", WRAP_SEEN_SEC, "NX");
+        if (fresh !== "OK") return false;
+      }
+      // And one per window: the dispatcher collapses, but a burst spread over
+      // minutes would otherwise buzz for each message.
       const ok = await getRedis().set(`notif:dm:${pubkey}`, "1", "EX", DM_RATE_WINDOW_SEC, "NX");
       if (ok !== "OK") return false;
     }

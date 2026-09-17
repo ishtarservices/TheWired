@@ -4,7 +4,7 @@ import {
   pushSubscriptions,
   pushDevices,
 } from "../db/schema/notifications.js";
-import { eq, and, lt, gt, sql, inArray } from "drizzle-orm";
+import { eq, and, lt, gt, or, isNotNull, sql, inArray } from "drizzle-orm";
 import { config } from "../config.js";
 import * as webPush from "web-push";
 import { startLockedInterval } from "../lib/workerLock.js";
@@ -27,7 +27,7 @@ export const PUSH_TTL_SEC = 3600;
 /** Ticket ids wait this long before receipts are asked for (Expo guidance). */
 export const RECEIPT_DELAY_MS = 15 * 60 * 1000;
 export const TICKETS_KEY = "notif:expo:tickets";
-const HOUSEKEEPING_KEY = "notif:housekeeping";
+export const HOUSEKEEPING_KEY = "notif:housekeeping";
 const QUEUE_RETENTION_DAYS = 7;
 const DEVICE_RETENTION_DAYS = 90;
 
@@ -122,11 +122,14 @@ export async function dispatchOnce(deps: DispatchDeps): Promise<DispatchStats> {
     .limit(BATCH_LIMIT);
   if (pending.length === 0) return stats;
 
-  const markSent = async (ids: string[]) => {
+  /** `delivered: false` retires a row nothing was sent for (expired,
+   *  suppressed, nobody to tell): sent = true so it is never retried, but
+   *  sent_at stays NULL so the badge query below doesn't count it. */
+  const markSent = async (ids: string[], delivered: boolean) => {
     if (ids.length === 0) return;
     await db
       .update(notificationQueue)
-      .set({ sent: true, sentAt: new Date(now()) })
+      .set({ sent: true, sentAt: delivered ? new Date(now()) : null })
       .where(inArray(notificationQueue.id, ids));
   };
 
@@ -135,7 +138,7 @@ export async function dispatchOnce(deps: DispatchDeps): Promise<DispatchStats> {
   const expired = pending.filter(
     (r) => (r.createdAt?.getTime() ?? 0) < cutoff || r.attempts >= MAX_ATTEMPTS,
   );
-  await markSent(expired.map((r) => r.id));
+  await markSent(expired.map((r) => r.id), false);
   stats.expired = expired.length;
   const live = pending.filter((r) => !expired.includes(r));
 
@@ -167,7 +170,7 @@ export async function dispatchOnce(deps: DispatchDeps): Promise<DispatchStats> {
           kept.push(row);
         }
       }
-      await markSent(dropped);
+      await markSent(dropped, false);
       stats.suppressed += dropped.length;
       if (kept.length === 0) continue;
       group = kept;
@@ -182,7 +185,7 @@ export async function dispatchOnce(deps: DispatchDeps): Promise<DispatchStats> {
       db.select().from(pushDevices).where(eq(pushDevices.pubkey, pubkey)),
     ]);
     if (subs.length === 0 && devices.length === 0) {
-      await markSent(ids); // nobody to tell — never retry
+      await markSent(ids, false); // nobody to tell — never retry
       continue;
     }
 
@@ -219,10 +222,19 @@ export async function dispatchOnce(deps: DispatchDeps): Promise<DispatchStats> {
     if (expoDevices.length > 0) {
       const messages: ExpoPushMessage[] = [];
       for (const device of expoDevices) {
+        // Unseen = still pending, or actually delivered (sent_at set). Rows
+        // retired undelivered — expired, suppressed self-wraps, nobody to
+        // tell — must not inflate the badge.
         const [{ count }] = await db
           .select({ count: sql<number>`count(*)::int` })
           .from(notificationQueue)
-          .where(and(eq(notificationQueue.pubkey, pubkey), gt(notificationQueue.createdAt, device.lastSeenAt)));
+          .where(
+            and(
+              eq(notificationQueue.pubkey, pubkey),
+              gt(notificationQueue.createdAt, device.lastSeenAt),
+              or(eq(notificationQueue.sent, false), isNotNull(notificationQueue.sentAt)),
+            ),
+          );
         messages.push({
           to: device.token,
           title: folded.title,
@@ -260,7 +272,7 @@ export async function dispatchOnce(deps: DispatchDeps): Promise<DispatchStats> {
     }
 
     if (allSent) {
-      await markSent(ids);
+      await markSent(ids, true);
       stats.sent += ids.length;
     } else {
       await db
@@ -278,9 +290,11 @@ export async function dispatchOnce(deps: DispatchDeps): Promise<DispatchStats> {
 export async function pollReceiptsOnce(deps: DispatchDeps): Promise<number> {
   const now = deps.now ?? Date.now;
   const redis = getRedis();
-  const raw = await redis.lrange(TICKETS_KEY, 0, -1);
+  // Atomic drain: a ticket LPUSHed by a concurrent dispatch tick between a
+  // separate LRANGE and DEL would be deleted unread.
+  const drained = await redis.multi().lrange(TICKETS_KEY, 0, -1).del(TICKETS_KEY).exec();
+  const raw = (drained?.[0]?.[1] as string[] | undefined) ?? [];
   if (raw.length === 0) return 0;
-  await redis.del(TICKETS_KEY);
 
   const ready: Array<{ id: string; token: string; at: number }> = [];
   const young: string[] = [];
@@ -314,7 +328,9 @@ export async function pollReceiptsOnce(deps: DispatchDeps): Promise<number> {
   return pruned;
 }
 
-async function housekeeping(): Promise<void> {
+/** At most one real pass per hour across all replicas (Redis NX). Exported
+ *  for tests. */
+export async function housekeeping(): Promise<void> {
   const ok = await getRedis().set(HOUSEKEEPING_KEY, "1", "EX", 3600, "NX");
   if (ok !== "OK") return;
   const queueCutoff = new Date(Date.now() - QUEUE_RETENTION_DAYS * 24 * 3600 * 1000);

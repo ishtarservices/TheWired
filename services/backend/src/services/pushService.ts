@@ -15,6 +15,10 @@ import { getRedis } from "../lib/redis.js";
 export const SUPPRESS_TTL_SEC = 3600;
 export const SUPPRESS_MAX_IDS = 20;
 
+/** More devices than anyone plausibly owns — the cap only bounds junk-token
+ *  registration (Expo throttles senders that push to dead tokens). */
+export const MAX_DEVICES_PER_PUBKEY = 20;
+
 export function suppressKey(pubkey: string): string {
   return `notif:suppress:${pubkey}`;
 }
@@ -50,8 +54,20 @@ export const pushService = {
 
   /** Upsert on token: a re-register from another account REBINDS the device
    *  (a shared phone that switched users without a clean logout must not keep
-   *  pushing the previous user's notifications). Doubles as the heartbeat. */
-  async registerDevice(params: RegisterDeviceParams): Promise<{ id: string }> {
+   *  pushing the previous user's notifications). Doubles as the heartbeat.
+   *  Returns null when the pubkey is at the device cap and the token is new
+   *  (soft cap — the count and insert don't race-proof each other). */
+  async registerDevice(params: RegisterDeviceParams): Promise<{ id: string } | null> {
+    const existing = await db
+      .select({ token: pushDevices.token })
+      .from(pushDevices)
+      .where(eq(pushDevices.pubkey, params.pubkey));
+    if (
+      existing.length >= MAX_DEVICES_PER_PUBKEY &&
+      !existing.some((d) => d.token === params.token)
+    ) {
+      return null;
+    }
     const id = nanoid();
     const now = new Date();
     const rows = await db
