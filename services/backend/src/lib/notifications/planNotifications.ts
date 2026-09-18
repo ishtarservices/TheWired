@@ -22,6 +22,7 @@
 
 import type { IngestContext, NostrEvent } from "../../workers/ingestHandlers.js";
 import { parseZapSats } from "../nostr/zapAmount.js";
+import { verifyEvent } from "../nostr/eventVerifier.js";
 
 export type NotificationType =
   | "reply"
@@ -188,19 +189,25 @@ export function planNotifications(
     case 9735: {
       const recipient = tagValue(event, "p");
       if (!recipient) return out;
+      // "N sats from <name>" attributes a payment to a person, so the zapper
+      // is taken ONLY from the embedded 9734 zap request, and only when that
+      // request verifies as an event signed by that key — the receipt's
+      // description is otherwise attacker-typed text, and anyone can publish
+      // a receipt naming a pubkey they don't control. (The amount is still
+      // the request's own claim, as everywhere else — bolt11 isn't decoded.)
+      const description = tagValue(event, "description");
+      if (!description) return out;
       let zapper: string | undefined;
       let comment = "";
-      const description = tagValue(event, "description");
-      if (description) {
-        try {
-          const req = JSON.parse(description) as { pubkey?: string; content?: string };
-          if (typeof req.pubkey === "string") zapper = req.pubkey;
+      try {
+        const req = JSON.parse(description) as NostrEvent;
+        if (req.kind === 9734 && verifyEvent(req)) {
+          zapper = req.pubkey;
           if (typeof req.content === "string") comment = req.content;
-        } catch {
-          // malformed 9734 — fall through
         }
+      } catch {
+        // malformed 9734 — no push
       }
-      if (!zapper) zapper = tagValue(event, "P");
       if (!zapper || zapper === recipient) return out;
       const sats = parseZapSats(event.tags);
       if (sats <= 0) return out;

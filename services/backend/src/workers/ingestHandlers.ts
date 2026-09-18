@@ -253,17 +253,17 @@ async function collectPlanDeps(event: NostrEvent): Promise<PlanDeps> {
 
   const namePubkeys = new Set<string>([event.pubkey]);
   if (event.kind === 9735) {
+    // Prefetched unconditionally; the planner only USES it after verifying
+    // the embedded 9734's signature.
     const description = getTagValue(event, "description");
     if (description) {
       try {
         const req = JSON.parse(description) as { pubkey?: string };
         if (typeof req.pubkey === "string") namePubkeys.add(req.pubkey);
       } catch {
-        // malformed — planner falls back to the P tag
+        // malformed — planner drops the receipt
       }
     }
-    const big = getTagValue(event, "P");
-    if (big) namePubkeys.add(big);
   }
   const names = new Map<string, string>();
   try {

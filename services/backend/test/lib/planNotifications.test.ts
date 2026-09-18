@@ -1,4 +1,5 @@
 import { describe, it, expect } from "vitest";
+import { finalizeEvent, generateSecretKey, getPublicKey } from "nostr-tools";
 import type { IngestContext, NostrEvent } from "../../src/workers/ingestHandlers.js";
 import {
   planNotifications,
@@ -125,26 +126,72 @@ describe("planNotifications", () => {
     expect(planNotifications(essay, own, deps())[0].title).toBe("alice liked your note");
   });
 
-  it("kind 9735: sats from the 9734 requester; self-zaps and unsettled receipts are silent", () => {
-    const req = { pubkey: BOB, content: "great set", tags: [["amount", "21000"]] };
+  it("kind 9735: sats from the SIGNED 9734 requester; self-zaps and unsettled receipts are silent", () => {
+    const bobSk = generateSecretKey();
+    const bobPk = getPublicKey(bobSk);
+    const req = finalizeEvent(
+      { kind: 9734, created_at: 1_700_000_000, content: "great set", tags: [["amount", "21000"], ["p", ME]] },
+      bobSk,
+    );
     const zap = ev({
       kind: 9735,
       pubkey: "d".repeat(64), // the LNURL server key
       tags: [["p", ME], ["e", NOTE], ["bolt11", "lnbc..."], ["description", JSON.stringify(req)]],
     });
-    const [z] = planNotifications(zap, own, deps());
+    const zapDeps = deps({ displayName: (pk) => (pk === bobPk ? "bob" : pk.slice(0, 8)) });
+    const [z] = planNotifications(zap, own, zapDeps);
     expect(z).toMatchObject({
       recipient: ME,
       type: "zap",
       title: "21 sats from bob",
       body: "great set",
       url: `soot://note/${NOTE}`,
-      data: { actor: BOB, sats: 21 },
+      data: { actor: bobPk, sats: 21 },
     });
-    const self = { ...zap, tags: zap.tags.map((t) => (t[0] === "description" ? ["description", JSON.stringify({ ...req, pubkey: ME })] : t)) };
-    expect(planNotifications(self, own, deps())).toEqual([]);
+    const selfReq = finalizeEvent(
+      { kind: 9734, created_at: 1_700_000_000, content: "", tags: [["amount", "21000"], ["p", bobPk]] },
+      bobSk,
+    );
+    const self = { ...zap, tags: [["p", bobPk], ["bolt11", "lnbc..."], ["description", JSON.stringify(selfReq)]] };
+    expect(planNotifications(self, own, zapDeps)).toEqual([]);
     const unpaid = { ...zap, tags: zap.tags.filter((t) => t[0] !== "bolt11") };
-    expect(planNotifications(unpaid, own, deps())).toEqual([]);
+    expect(planNotifications(unpaid, own, zapDeps)).toEqual([]);
+  });
+
+  it("kind 9735: a forged receipt cannot attribute a zap to a key it doesn't control", () => {
+    // The classic fake: unsigned description JSON naming someone else's pubkey.
+    const forged = ev({
+      kind: 9735,
+      pubkey: "d".repeat(64),
+      tags: [
+        ["p", ME],
+        ["bolt11", "x"],
+        ["description", JSON.stringify({ pubkey: BOB, content: "payment sent as agreed", tags: [["amount", "50000000000"]] })],
+      ],
+    });
+    expect(planNotifications(forged, own, deps())).toEqual([]);
+
+    // A signed 9734 whose signature doesn't verify (tampered pubkey) is also silent.
+    const sk = generateSecretKey();
+    const signed = finalizeEvent(
+      { kind: 9734, created_at: 1_700_000_000, content: "", tags: [["amount", "21000"]] },
+      sk,
+    );
+    const tampered = { ...signed, pubkey: BOB };
+    const spoofed = ev({
+      kind: 9735,
+      pubkey: "d".repeat(64),
+      tags: [["p", ME], ["bolt11", "x"], ["description", JSON.stringify(tampered)]],
+    });
+    expect(planNotifications(spoofed, own, deps())).toEqual([]);
+
+    // The bare P-tag fallback is gone: a receipt with only a P tag is silent.
+    const pOnly = ev({
+      kind: 9735,
+      pubkey: "d".repeat(64),
+      tags: [["p", ME], ["P", BOB], ["bolt11", "x"]],
+    });
+    expect(planNotifications(pOnly, own, deps())).toEqual([]);
   });
 
   it("kind 9: a space mention deep-links to the channel and names the space", () => {
