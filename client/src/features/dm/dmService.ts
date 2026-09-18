@@ -2,6 +2,7 @@ import { nip19 } from "nostr-tools";
 import { createGiftWrappedDM, createSelfWrap, buildRumor } from "@/lib/nostr/giftWrap";
 import { relayManager } from "@/lib/nostr/relayManager";
 import { getDMRelaysForPublish, getOwnDMRelays } from "@/lib/nostr/dmRelayList";
+import { suppressPushForEvents } from "@/lib/api/push";
 import { store } from "@/store";
 import {
   addDMMessage,
@@ -72,7 +73,9 @@ export async function sendDM(
   const recipientRelays = await getDMRelaysForPublish(recipientPubkey);
   const sent = relayManager.publish(recipientWrap, recipientRelays);
 
-  // Publish self-wrap to our own DM relays (falls back to all write relays)
+  // Publish self-wrap to our own DM relays (falls back to all write relays).
+  // Suppress first so the push pipeline never sees our own wrap as "new message".
+  await suppressPushForEvents([selfWrap.id]);
   const ownRelays = getOwnDMRelays();
   const selfSent = relayManager.publish(selfWrap, ownRelays.length > 0 ? ownRelays : undefined);
 
@@ -140,6 +143,7 @@ export async function editDM(
 
   // Send to self
   const { wrap: selfWrap } = await createSelfWrap(newContent, partnerPubkey, extraTags, sharedRumor);
+  await suppressPushForEvents([selfWrap.id]);
   const ownRelays = getOwnDMRelays();
   relayManager.publish(selfWrap, ownRelays.length > 0 ? ownRelays : undefined);
 
@@ -183,6 +187,7 @@ export async function deleteDMForEveryone(
 
   // Send to self
   const { wrap: selfWrap } = await createSelfWrap("", partnerPubkey, extraTags, sharedRumor);
+  await suppressPushForEvents([selfWrap.id]);
   const ownRelays = getOwnDMRelays();
   relayManager.publish(selfWrap, ownRelays.length > 0 ? ownRelays : undefined);
 
@@ -231,6 +236,7 @@ async function sendDMReactionRumor(
 
   // Send to self
   const { wrap: selfWrap } = await createSelfWrap(content, partnerPubkey, extraTags, sharedRumor);
+  await suppressPushForEvents([selfWrap.id]);
   const ownRelays = getOwnDMRelays();
   relayManager.publish(selfWrap, ownRelays.length > 0 ? ownRelays : undefined);
 

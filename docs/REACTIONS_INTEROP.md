@@ -50,8 +50,16 @@ rumors dropped), so either client can ship ahead of the other.
 
 ## Backend
 
-No changes. h-tagged kind 7s are classified `reaction` by
-`ingestHandlers.decideAction` and only bump `member_engagement` counters; the
-push path (`enqueueNotification`) is never called for reactions, so nothing
-renders as "reacted to your note" and no notification preference is involved.
-Mobile consumes `GET /gif/trending|search` and `POST /gif/register-share` as-is.
+Chat reactions reach the push planner (`services/backend/src/lib/notifications/planNotifications.ts`)
+because they carry `["p", author]`. An h-tagged kind 7 is worded and deep-linked
+as a space message ("<name> reacted 🔥 to your message in <space>",
+`soot://space/<id>`, empty body since space messages are non-public), collapsed
+per space, and gated by the recipient's "reactions" preference. Un-tagged
+reactions keep the note wording. `ingestHandlers` also bumps
+`member_engagement` counters for h-tagged kind 7s.
+
+DM reactions travel as gift wraps, so the backend only ever sees a content-free
+"new message" push for the recipient. The web client calls `POST /push/suppress`
+with each self-wrap id (messages, edits, deletes, reactions) before publishing it
+so the sender's own devices are not pushed. Mobile consumes
+`GET /gif/trending|search` and `POST /gif/register-share` as-is.

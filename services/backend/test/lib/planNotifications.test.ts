@@ -127,6 +127,23 @@ describe("planNotifications", () => {
     expect(planNotifications(essay, own, deps())[0].title).toBe("alice liked your note");
   });
 
+  it("kind 7: an h-tagged chat reaction is worded and deep-linked as a space message, never a note", () => {
+    const chatRx = ev({ kind: 7, tags: [["e", NOTE], ["p", ME], ["k", "9"], ["h", "s1"]], content: "🔥" });
+    const [r] = planNotifications(chatRx, own, deps());
+    expect(r).toMatchObject({
+      recipient: ME,
+      type: "reaction",
+      title: "alice reacted 🔥 to your message in neon",
+      body: "", // a space message is non-public: no preview in the push
+      url: "soot://space/s1",
+      collapseKey: `space:s1:${ME}`,
+      data: { targetEventId: NOTE, spaceId: "s1" },
+    });
+    // "+" / empty content never reads as "liked your note" for chat.
+    const plus = ev({ kind: 7, tags: [["e", NOTE], ["p", ME], ["h", "s2"]], content: "+" });
+    expect(planNotifications(plus, own, deps())[0].title).toBe("alice reacted to your message in a space");
+  });
+
   it("kind 9735: sats from the SIGNED 9734 requester; self-zaps and unsettled receipts are silent", () => {
     const bobSk = generateSecretKey();
     const bobPk = getPublicKey(bobSk);

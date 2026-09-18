@@ -276,7 +276,8 @@ async function collectPlanDeps(event: NostrEvent): Promise<PlanDeps> {
   }
 
   let spaceName: string | undefined;
-  const spaceId = event.kind === 9 ? getTagValue(event, "h") : undefined;
+  // Space mentions (kind:9) and chat reactions (h-tagged kind:7) name the space.
+  const spaceId = event.kind === 9 || event.kind === 7 ? getTagValue(event, "h") : undefined;
   if (spaceId) {
     try {
       const [row] = await db.select({ name: spaces.name }).from(spaces).where(eq(spaces.id, spaceId)).limit(1);
