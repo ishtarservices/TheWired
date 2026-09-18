@@ -7,6 +7,7 @@ import {
   threadParentId,
   type PlanDeps,
 } from "../../src/lib/notifications/planNotifications.js";
+import { invoiceForSats } from "../helpers/bolt11.js";
 
 const ME = "a".repeat(64);
 const ALICE = "b".repeat(64);
@@ -136,7 +137,7 @@ describe("planNotifications", () => {
     const zap = ev({
       kind: 9735,
       pubkey: "d".repeat(64), // the LNURL server key
-      tags: [["p", ME], ["e", NOTE], ["bolt11", "lnbc..."], ["description", JSON.stringify(req)]],
+      tags: [["p", ME], ["e", NOTE], ["bolt11", invoiceForSats(21)], ["description", JSON.stringify(req)]],
     });
     const zapDeps = deps({ displayName: (pk) => (pk === bobPk ? "bob" : pk.slice(0, 8)) });
     const [z] = planNotifications(zap, own, zapDeps);
@@ -152,10 +153,29 @@ describe("planNotifications", () => {
       { kind: 9734, created_at: 1_700_000_000, content: "", tags: [["amount", "21000"], ["p", bobPk]] },
       bobSk,
     );
-    const self = { ...zap, tags: [["p", bobPk], ["bolt11", "lnbc..."], ["description", JSON.stringify(selfReq)]] };
+    const self = { ...zap, tags: [["p", bobPk], ["bolt11", invoiceForSats(21)], ["description", JSON.stringify(selfReq)]] };
     expect(planNotifications(self, own, zapDeps)).toEqual([]);
     const unpaid = { ...zap, tags: zap.tags.filter((t) => t[0] !== "bolt11") };
     expect(planNotifications(unpaid, own, zapDeps)).toEqual([]);
+  });
+
+  it("kind 9735: a SIGNED request cannot overstate the amount — the bolt11 invoice is the figure", () => {
+    // Bob really signs a 9734 claiming 50M sats, but attaches a 21-sat invoice.
+    const bobSk = generateSecretKey();
+    const inflated = finalizeEvent(
+      { kind: 9734, created_at: 1_700_000_000, content: "", tags: [["amount", "50000000000"], ["p", ME]] },
+      bobSk,
+    );
+    const zap = ev({
+      kind: 9735,
+      pubkey: "d".repeat(64),
+      tags: [["p", ME], ["bolt11", invoiceForSats(21)], ["description", JSON.stringify(inflated)]],
+    });
+    expect(planNotifications(zap, own, deps())).toEqual([]);
+
+    // An undecodable placeholder invoice is just as silent, whatever the claim.
+    const vague = { ...zap, tags: [["p", ME], ["bolt11", "lnbc..."], ["description", JSON.stringify(inflated)]] };
+    expect(planNotifications(vague, own, deps())).toEqual([]);
   });
 
   it("kind 9735: a forged receipt cannot attribute a zap to a key it doesn't control", () => {

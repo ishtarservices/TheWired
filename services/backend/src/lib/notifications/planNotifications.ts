@@ -193,8 +193,9 @@ export function planNotifications(
       // is taken ONLY from the embedded 9734 zap request, and only when that
       // request verifies as an event signed by that key — the receipt's
       // description is otherwise attacker-typed text, and anyone can publish
-      // a receipt naming a pubkey they don't control. (The amount is still
-      // the request's own claim, as everywhere else — bolt11 isn't decoded.)
+      // a receipt naming a pubkey they don't control. (The amount comes from
+      // parseZapSats, which decodes the bolt11 invoice and cross-checks the
+      // request's own claim against it.)
       const description = tagValue(event, "description");
       if (!description) return out;
       let zapper: string | undefined;
