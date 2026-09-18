@@ -144,10 +144,20 @@ describe("relay manager — regression (own relay)", () => {
     await tick();
 
     const reqs = reqFrames(own);
-    expect(reqs.map((r) => r[1])).toEqual(["ingester", "ingester-music-backfill"]);
+    expect(reqs.map((r) => r[1])).toEqual(["ingester", "ingester-music-backfill", "ingester-wraps"]);
     // Main sub carries the full legacy kind set; backfill is music-only.
     expect((reqs[0][2] as { kinds: number[] }).kinds).toContain(9);
     expect((reqs[1][2] as { kinds: number[] }).kinds).toEqual([31683, 33123]);
+
+    // Gift wraps (dm pushes) get their own REQ: they backdate created_at up to
+    // 2 days, so the shared max-created_at cursor would drop nearly all of
+    // them. Fixed lookback instead, and NOT in the main kinds list.
+    expect((reqs[0][2] as { kinds: number[] }).kinds).not.toContain(1059);
+    const wraps = reqs[2][2] as { kinds: number[]; since: number };
+    expect(wraps.kinds).toEqual([1059]);
+    const { WRAP_LOOKBACK_SEC } = await import("../../src/workers/relayConnectionManager.js");
+    const expectedSince = Math.floor(Date.now() / 1000) - WRAP_LOOKBACK_SEC;
+    expect(Math.abs(wraps.since - expectedSince)).toBeLessThan(60);
   });
 });
 
