@@ -49,9 +49,20 @@ describe("planIngest — own relay", () => {
   });
 });
 
+describe("planIngest — gift wraps (content-free dm pushes)", () => {
+  it("own relay routes 1059 to the notification-only giftWrap action, never search", () => {
+    const plan = planIngest(ev(1059, [["p", "recipient"]]), ownCtx);
+    expect(plan.action).toBe("giftWrap");
+    expect(plan.indexSearch).toBe(false);
+  });
+  it("an external relay's 1059 is dropped", () => {
+    expect(planIngest(ev(1059, [["p", "recipient"]]), extCtx).action).toBeNull();
+  });
+});
+
 describe("planIngest — external relay (own-relay gate)", () => {
   it("DROPS global kinds from an external relay", () => {
-    for (const k of [0, 9735, 31683, 33123, 31685, 5]) {
+    for (const k of [0, 9735, 31683, 33123, 31685, 5, 1059]) {
       expect(planIngest(ev(k), extCtx).action).toBeNull();
     }
   });

@@ -82,6 +82,50 @@ export interface PushSubscribeRequest {
   spaceIds?: string[];
 }
 
+/** POST /push/devices — a mobile device token (Expo push service for v1). */
+export interface PushDeviceRegisterRequest {
+  provider: "expo" | "apns" | "fcm";
+  token: string;
+  platform: "ios" | "android";
+  appVersion?: string;
+  locale?: string;
+}
+
+/** DELETE /push/devices */
+export interface PushDeviceUnregisterRequest {
+  token: string;
+}
+
+/** POST /push/suppress — never push the caller for these event ids (the DM
+ *  self-wrap the sender's own client publishes). */
+export interface PushSuppressRequest {
+  eventIds: string[];
+}
+
+export type SpaceNotifMode = "all" | "mentions" | "nothing";
+
+/** GET/PUT /notifications/preferences — the server-side push gate. PUT is a
+ *  partial update; every field optional. */
+export interface NotificationPreferencesDto {
+  enabled: boolean;
+  mentions: boolean;
+  dms: boolean;
+  newFollowers: boolean;
+  chatMessages: boolean;
+  mutedSpaces: string[];
+  replies: boolean;
+  reactions: boolean;
+  zaps: boolean;
+  releases: boolean;
+  friendRequests: boolean;
+  spaceModes: Record<string, SpaceNotifMode>;
+  watchedPubkeys: string[];
+  /** unix ms; null = off. */
+  dndUntil: number | null;
+}
+
+export type NotificationPreferencesUpdate = Partial<NotificationPreferencesDto>;
+
 /** Analytics DTOs */
 export interface SpaceAnalytics {
   spaceId: string;
