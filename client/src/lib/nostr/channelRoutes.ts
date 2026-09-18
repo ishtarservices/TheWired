@@ -3,7 +3,9 @@ import { EVENT_KINDS } from "../../types/nostr";
 
 export const CHANNEL_ROUTES: Record<string, ChannelRoute> = {
   chat: {
-    kinds: [EVENT_KINDS.CHAT_MESSAGE, EVENT_KINDS.POLL, EVENT_KINDS.DELETION, EVENT_KINDS.MOD_DELETE_EVENT],
+    // kind:7 rides along so everyone receives chat reactions (h-tagged per the
+    // mobile wire contract); kind:5 covers both message deletes and un-reacts.
+    kinds: [EVENT_KINDS.REACTION, EVENT_KINDS.CHAT_MESSAGE, EVENT_KINDS.POLL, EVENT_KINDS.DELETION, EVENT_KINDS.MOD_DELETE_EVENT],
     usesHTag: true,
     pageSize: 50,
     sortOrder: "asc",

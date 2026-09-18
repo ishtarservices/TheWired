@@ -169,7 +169,27 @@ export function planNotifications(
       const emoji =
         event.content && event.content !== "+" && event.content.length <= 20 ? event.content : "";
       const targetAuthor = deps.parentAuthorOf(target);
+      // A chat reaction (mobile/web wire contract: kind:7 on a kind:9 carries
+      // ["h", spaceId]) is about a space message, not a note — word it and
+      // deep-link it like a space mention. The target's content is a
+      // non-public space message, so the body stays empty.
+      const spaceId = tagValue(event, "h");
+      const spaceName = spaceId ? deps.spaceName(spaceId) ?? "a space" : undefined;
       for (const recipient of mentionedPubkeys(event)) {
+        if (spaceId) {
+          out.push({
+            recipient,
+            type: "reaction",
+            title: emoji
+              ? `${name()} reacted ${emoji} to your message in ${spaceName}`
+              : `${name()} reacted to your message in ${spaceName}`,
+            body: "",
+            url: `soot://space/${spaceId}`,
+            collapseKey: `space:${spaceId}:${recipient}`,
+            data: { eventId: event.id, actor: event.pubkey, targetEventId: target, spaceId },
+          });
+          continue;
+        }
         // The target's preview is only for its author — a p-tag doesn't
         // entitle an arbitrary recipient to another note's content.
         const targetPreview = targetAuthor === recipient ? deps.notePreviewOf(target) : undefined;
@@ -193,8 +213,9 @@ export function planNotifications(
       // is taken ONLY from the embedded 9734 zap request, and only when that
       // request verifies as an event signed by that key — the receipt's
       // description is otherwise attacker-typed text, and anyone can publish
-      // a receipt naming a pubkey they don't control. (The amount is still
-      // the request's own claim, as everywhere else — bolt11 isn't decoded.)
+      // a receipt naming a pubkey they don't control. (The amount comes from
+      // parseZapSats, which decodes the bolt11 invoice and cross-checks the
+      // request's own claim against it.)
       const description = tagValue(event, "description");
       if (!description) return out;
       let zapper: string | undefined;

@@ -8,6 +8,7 @@ import {
   type NostrEvent,
 } from "../../src/workers/ingestHandlers.js";
 import { LUNA, MARCUS } from "../helpers/testUsers.js";
+import { invoiceForSats } from "../helpers/bolt11.js";
 
 /**
  * `zap_total:` / `zap_count:` are all-time counters that feed the trending
@@ -38,7 +39,7 @@ function zapReceipt(opts: { target: string; sats: number; user?: typeof LUNA }):
       created_at: clock,
       tags: [
         ["e", opts.target],
-        ["bolt11", "lnbc1fake"],
+        ["bolt11", invoiceForSats(opts.sats)],
         ["description", request],
       ],
       content: "",
@@ -95,7 +96,7 @@ describe("zap receipt ingest is idempotent", () => {
   it("leaves the counters untouched when the receipt has no `e` tag", async () => {
     clock += 1;
     const noTarget = finalizeEvent(
-      { kind: 9735, created_at: clock, tags: [["bolt11", "lnbc1fake"]], content: "" },
+      { kind: 9735, created_at: clock, tags: [["bolt11", invoiceForSats(5)]], content: "" },
       LUNA.secretKey,
     ) as NostrEvent;
 

@@ -5,7 +5,7 @@ import { DMMessage } from "./DMMessage";
 import { DMInput } from "./DMInput";
 import { UnreadDivider } from "@/components/chat/UnreadDivider";
 import { useDMConversation } from "./useDMConversation";
-import { sendDM, editDM, deleteDMForEveryone } from "./dmService";
+import { sendDM, editDM, deleteDMForEveryone, reactToDM, removeDMReaction } from "./dmService";
 import { useFileUpload } from "@/hooks/useFileUpload";
 import { usePlaybackBarSpacing } from "@/hooks/usePlaybackBarSpacing";
 import { useAppDispatch, useAppSelector } from "@/store/hooks";
@@ -202,7 +202,14 @@ export function DMConversation({ partnerPubkey, onBack }: DMConversationProps) {
   const handleSend = useCallback(
     async (content: string, emojiTags?: string[][]) => {
       try {
-        await sendDM(partnerPubkey, content, replyTo ? { wrapId: replyTo.wrapId } : undefined, emojiTags);
+        // Reply anchor = the target's rumorId (shared by both parties); wrapId
+        // only for legacy rows that never stored one.
+        await sendDM(
+          partnerPubkey,
+          content,
+          replyTo ? { wrapId: replyTo.wrapId, rumorId: replyTo.rumorId } : undefined,
+          emojiTags,
+        );
         setReplyTo(null);
         // Scroll to bottom after sending
         requestAnimationFrame(() => {
@@ -237,6 +244,20 @@ export function DMConversation({ partnerPubkey, onBack }: DMConversationProps) {
         await deleteDMForEveryone(partnerPubkey, rumorId);
       } catch (err) {
         console.error("Failed to delete DM:", err);
+      }
+    },
+    [partnerPubkey],
+  );
+
+  /** Add or remove our emoji reaction on a DM (typed NIP-17 rumor). */
+  const handleReact = useCallback(
+    async (message: DMMessageType, emoji: string, remove: boolean) => {
+      if (!message.rumorId) return; // legacy rows can't be anchored cross-party
+      try {
+        if (remove) await removeDMReaction(partnerPubkey, message.rumorId, emoji);
+        else await reactToDM(partnerPubkey, message.rumorId, emoji);
+      } catch (err) {
+        console.error("Failed to react to DM:", err);
       }
     },
     [partnerPubkey],
@@ -374,6 +395,7 @@ export function DMConversation({ partnerPubkey, onBack }: DMConversationProps) {
                 onEdit={setEditingMessage}
                 onDeleteForEveryone={handleDeleteForEveryone}
                 onReply={(m) => { setReplyTo(m); setEditingMessage(null); }}
+                onReact={handleReact}
                 allMessages={messages}
                 onJumpToMessage={(targetWrapId) => scrollToMessage(targetWrapId, msg.wrapId)}
               />

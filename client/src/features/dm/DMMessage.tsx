@@ -1,13 +1,16 @@
 import { useRef, useMemo, useState, useCallback, memo } from "react";
+import { SmilePlus } from "lucide-react";
 import { RichContent } from "@/components/content/RichContent";
 import { Avatar } from "@/components/ui/Avatar";
+import { ReactionPicker } from "@/components/chat/ReactionPicker";
+import { ReactionPills } from "@/components/chat/ReactionPills";
 import { useProfile } from "@/features/profile/useProfile";
 import { useUserPopover } from "@/features/profile/UserPopoverContext";
 import { useRelativeTime } from "@/hooks/useRelativeTime";
 import { useAppSelector } from "@/store/hooks";
 import { matchEmbed } from "@/lib/content/embedPatterns";
 import { DMMessageContextMenu } from "./DMMessageContextMenu";
-import { getDisplayName } from "./dmUtils";
+import { getDisplayName, resolveDMReplyTarget, dmReactionPills } from "./dmUtils";
 import type { DMMessage as DMMessageType } from "@/store/slices/dmSlice";
 
 const URL_RE = /https?:\/\/\S+/;
@@ -23,6 +26,8 @@ interface DMMessageProps {
   onEdit?: (message: DMMessageType) => void;
   onDeleteForEveryone?: (message: DMMessageType) => void;
   onReply?: (message: DMMessageType) => void;
+  /** Add (remove=false) or remove (remove=true) our emoji reaction. */
+  onReact?: (message: DMMessageType, emoji: string, remove: boolean) => void;
   /** All messages in the conversation, for looking up reply targets */
   allMessages?: DMMessageType[];
   onJumpToMessage?: (wrapId: string) => void;
@@ -35,6 +40,7 @@ export const DMMessage = memo(function DMMessage({
   onEdit,
   onDeleteForEveryone,
   onReply,
+  onReact,
   allMessages,
   onJumpToMessage,
 }: DMMessageProps) {
@@ -56,6 +62,32 @@ export const DMMessage = memo(function DMMessage({
   }, [displayContent, message.isDeleted]);
 
   const [ctxMenu, setCtxMenu] = useState<{ x: number; y: number } | null>(null);
+  const [showReactionPicker, setShowReactionPicker] = useState(false);
+  const bubbleRef = useRef<HTMLDivElement>(null);
+
+  // DM reactions are anchored on the rumor id — legacy rows without one can't
+  // be reacted to cross-party, so the affordance is hidden for them.
+  const canReact = !!onReact && !!message.rumorId && !message.isDeleted;
+  const pills = useMemo(() => dmReactionPills(message.reactions, myPubkey), [message.reactions, myPubkey]);
+
+  const handlePillToggle = useCallback(
+    (emoji: string) => {
+      if (!canReact || !myPubkey) return;
+      const mine = !!message.reactions?.[emoji]?.includes(myPubkey);
+      onReact!(message, emoji, mine);
+    },
+    [canReact, myPubkey, message, onReact],
+  );
+
+  const handlePickerSelect = useCallback(
+    (emoji: string) => {
+      if (!canReact || !myPubkey) return;
+      // Picking an emoji you already set toggles it off, like chat.
+      const mine = !!message.reactions?.[emoji]?.includes(myPubkey);
+      onReact!(message, emoji, mine);
+    },
+    [canReact, myPubkey, message, onReact],
+  );
 
   const handleContextMenu = useCallback((e: React.MouseEvent) => {
     e.preventDefault();
@@ -114,23 +146,54 @@ export const DMMessage = memo(function DMMessage({
           </button>
         )
       )}
-      <div className={`${hasEmbed ? "max-w-[85%]" : "max-w-[70%]"} ${isMe ? "items-end" : "items-start"}`}>
-        <div
-          className={`rounded-2xl px-4 py-2 text-sm ${
-            isMe
-              ? "bg-primary-dim text-heading rounded-br-sm border border-primary/15"
-              : "bg-card text-body rounded-bl-sm border border-border"
-          }`}
-        >
-          {message.replyToWrapId && (
-            <DMInlineReplyPreview
-              replyToWrapId={message.replyToWrapId}
-              allMessages={allMessages}
-              onJump={onJumpToMessage}
-            />
+      <div className={`group/dm ${hasEmbed ? "max-w-[85%]" : "max-w-[70%]"} ${isMe ? "items-end" : "items-start"}`}>
+        <div className={`flex items-center gap-1 ${isMe ? "flex-row-reverse" : ""}`}>
+          <div
+            ref={bubbleRef}
+            className={`rounded-2xl px-4 py-2 text-sm ${
+              isMe
+                ? "bg-primary-dim text-heading rounded-br-sm border border-primary/15"
+                : "bg-card text-body rounded-bl-sm border border-border"
+            }`}
+          >
+            {message.replyToWrapId && (
+              <DMInlineReplyPreview
+                replyToWrapId={message.replyToWrapId}
+                allMessages={allMessages}
+                onJump={onJumpToMessage}
+              />
+            )}
+            <RichContent content={displayContent} emojiTags={message.emojiTags} onMentionClick={(pubkey, anchor) => openUserPopover(pubkey, anchor)} />
+          </div>
+          {/* Hover row: react */}
+          {canReact && (
+            <button
+              type="button"
+              onClick={() => setShowReactionPicker((v) => !v)}
+              className="shrink-0 rounded-md p-1 text-muted opacity-0 transition-opacity hover:bg-surface-hover hover:text-heading group-hover/dm:opacity-100 focus-visible:opacity-100"
+              title="React"
+              aria-label="React"
+            >
+              <SmilePlus size={14} />
+            </button>
           )}
-          <RichContent content={displayContent} emojiTags={message.emojiTags} onMentionClick={(pubkey, anchor) => openUserPopover(pubkey, anchor)} />
         </div>
+        {showReactionPicker && canReact && (
+          <ReactionPicker
+            targetEventId={message.rumorId!}
+            targetPubkey={message.senderPubkey}
+            targetKind={14}
+            anchorRef={bubbleRef}
+            onClose={() => setShowReactionPicker(false)}
+            onSelect={handlePickerSelect}
+            unicodeOnly
+          />
+        )}
+        <ReactionPills
+          pills={pills}
+          onToggle={canReact ? handlePillToggle : undefined}
+          className={`mt-1 ${isMe ? "justify-end" : ""}`}
+        />
         {!isGrouped && (
           <div
             className={`mt-0.5 flex items-center gap-1 text-[10px] text-faint ${isMe ? "justify-end" : "justify-start"}`}
@@ -154,12 +217,16 @@ export const DMMessage = memo(function DMMessage({
         onEdit={() => onEdit?.(message)}
         onDeleteForEveryone={() => onDeleteForEveryone?.(message)}
         onReply={onReply ? () => onReply(message) : undefined}
+        onReact={canReact ? () => setShowReactionPicker(true) : undefined}
       />
     </div>
   );
 });
 
-/** Inline preview of the DM being replied to */
+/** Inline preview of the DM being replied to. `replyToWrapId` is the rumor's
+ *  `q` value — a rumorId from current clients, a wrapId from older ones — so it
+ *  is resolved rumorId-first, wrapId-fallback, and the jump targets the
+ *  resolved message's own wrapId (the DOM anchor). */
 function DMInlineReplyPreview({
   replyToWrapId,
   allMessages,
@@ -169,7 +236,7 @@ function DMInlineReplyPreview({
   allMessages?: DMMessageType[];
   onJump?: (wrapId: string) => void;
 }) {
-  const replyMsg = allMessages?.find((m) => m.wrapId === replyToWrapId);
+  const replyMsg = resolveDMReplyTarget(allMessages, replyToWrapId);
   const { profile } = useProfile(replyMsg?.senderPubkey ?? "");
 
   if (!replyMsg) {
@@ -188,7 +255,7 @@ function DMInlineReplyPreview({
   return (
     <button
       type="button"
-      onClick={() => onJump?.(replyToWrapId)}
+      onClick={() => onJump?.(replyMsg.wrapId)}
       className="mb-1 flex items-center gap-1.5 text-[11px] text-muted overflow-hidden cursor-pointer hover:opacity-80 transition-opacity w-full text-left"
     >
       <div className="h-3 w-0.5 shrink-0 rounded-full bg-primary/50" />

@@ -234,13 +234,21 @@ export function buildReply(
   };
 }
 
-/** Build an unsigned kind:7 reaction event (NIP-25) */
+/** Build an unsigned kind:7 reaction event (NIP-25).
+ *
+ *  Wire contract shared with the mobile client: tags `["e", target]`,
+ *  `["p", author]`, `["k", kind]`; empty content is normalized to `"+"`. When
+ *  the target is a NIP-29 chat message pass `spaceId` — the reaction then
+ *  carries `["h", spaceId]` so the space's `#h` subscription (and strict group
+ *  relays) accept and deliver it. */
 export function buildReaction(
   pubkey: string,
   target: { eventId: string; pubkey: string; kind: number },
   content = "+",
   /** NIP-30 custom emoji tag: ["emoji", shortcode, url] */
   emojiTag?: string[],
+  /** NIP-29 group id when the target lives in a space chat (kind:9). */
+  spaceId?: string,
 ): UnsignedEvent {
   const tags: string[][] = [
     ["e", target.eventId],
@@ -250,13 +258,38 @@ export function buildReaction(
   if (emojiTag) {
     tags.push(emojiTag);
   }
+  if (spaceId) {
+    tags.push(["h", spaceId]);
+  }
   return {
     pubkey,
     created_at: Math.floor(Date.now() / 1000),
     kind: 7,
     tags,
-    content,
+    content: content || "+",
   };
+}
+
+/** Build an unsigned kind:5 that retracts one of our own kind:7 reactions
+ *  (un-react). Tags exactly `["e", reactionEventId]`, `["k", "7"]` — the target
+ *  message is NEVER e-tagged, only the reaction. For chat reactions pass
+ *  `spaceId` so the deletion carries `["h", spaceId]` and reaches everyone on
+ *  the space's `#h` subscription (same pattern as chat message deletes). */
+export function buildReactionDeletion(
+  pubkey: string,
+  reactionEventId: string,
+  spaceId?: string,
+): UnsignedEvent {
+  const unsigned = buildDeletionEvent(
+    pubkey,
+    { eventIds: [reactionEventId] },
+    undefined,
+    ["7"],
+  );
+  if (spaceId) {
+    unsigned.tags.push(["h", spaceId]);
+  }
+  return unsigned;
 }
 
 /** Build an unsigned kind:6 repost event (NIP-18) */

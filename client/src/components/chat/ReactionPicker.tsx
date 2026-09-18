@@ -3,8 +3,7 @@ import { createPortal } from "react-dom";
 import { SmilePlus } from "lucide-react";
 import { useAppSelector } from "@/store/hooks";
 import { useEmojiMartCustomCategories } from "@/hooks/useCustomEmojis";
-import { buildReaction } from "@/lib/nostr/eventBuilder";
-import { signAndPublish } from "@/lib/nostr/publish";
+import { toggleReaction } from "@/features/reactions/reactionToggle";
 import type { CustomEmoji } from "@/types/emoji";
 
 const QUICK_REACTIONS = ["👍", "❤️", "😂", "😮", "😢", "🔥", "🎉", "👀"];
@@ -19,8 +18,16 @@ interface ReactionPickerProps {
   targetPubkey: string;
   targetKind: number;
   /** Ref to the button that triggered this picker — used for positioning */
-  anchorRef: React.RefObject<HTMLButtonElement | null>;
+  anchorRef: React.RefObject<HTMLButtonElement | HTMLDivElement | null>;
   onClose: () => void;
+  /**
+   * Select-only mode: instead of publishing a kind:7 the picker hands the chosen
+   * unicode emoji to the caller (DM reactions travel as NIP-17 rumors, not
+   * kind:7). Implies `unicodeOnly`.
+   */
+  onSelect?: (emoji: string) => void;
+  /** Hide NIP-30 custom emojis (DMs are plain unicode only, matching mobile). */
+  unicodeOnly?: boolean;
 }
 
 // Lazy-loaded emoji-mart modules (shared across instances)
@@ -33,11 +40,20 @@ export function ReactionPicker({
   targetKind,
   anchorRef,
   onClose,
+  onSelect,
+  unicodeOnly = false,
 }: ReactionPickerProps) {
   const pubkey = useAppSelector((s) => s.identity.pubkey);
   const shortcodeIndex = useAppSelector((s) => s.emoji.shortcodeIndex);
   const spaceId = useAppSelector((s) => s.spaces.activeSpaceId);
+  // Chat reactions are h-tagged with the active space and published to its
+  // relay set; note reactions follow the space's read/write mode. Selected as
+  // one object so the picker re-renders only when the active space changes.
+  const activeSpace = useAppSelector((s) =>
+    s.spaces.activeSpaceId ? s.spaces.list.find((sp) => sp.id === s.spaces.activeSpaceId) : undefined,
+  );
   const customCategories = useEmojiMartCustomCategories(spaceId);
+  const nativeOnly = unicodeOnly || !!onSelect;
 
   const [showFull, setShowFull] = useState(false);
   const [pickerLoaded, setPickerLoaded] = useState(!!PickerComponent);
@@ -148,17 +164,27 @@ export function ReactionPicker({
 
   const react = useCallback(
     async (content: string, emojiTag?: string[]) => {
+      if (onSelect) {
+        onSelect(content);
+        onClose();
+        return;
+      }
       if (!pubkey) return;
-      const unsigned = buildReaction(
-        pubkey,
-        { eventId: targetEventId, pubkey: targetPubkey, kind: targetKind },
-        content,
-        emojiTag,
-      );
-      await signAndPublish(unsigned);
       onClose();
+      try {
+        // Same emoji you already set → un-react (kind:5); otherwise kind:7.
+        await toggleReaction({
+          myPubkey: pubkey,
+          target: { eventId: targetEventId, pubkey: targetPubkey, kind: targetKind },
+          content,
+          emojiTag,
+          space: activeSpace,
+        });
+      } catch (err) {
+        console.error("[reactions] toggle failed", err);
+      }
     },
-    [pubkey, targetEventId, targetPubkey, targetKind, onClose],
+    [pubkey, targetEventId, targetPubkey, targetKind, onClose, onSelect, activeSpace],
   );
 
   const handleUnicodeReaction = useCallback(
@@ -175,6 +201,7 @@ export function ReactionPicker({
   const handleFullPickerSelect = useCallback(
     (emoji: Record<string, unknown>) => {
       if (emoji.src) {
+        if (nativeOnly) return;
         react(
           `:${emoji.id as string}:`,
           ["emoji", emoji.id as string, emoji.src as string],
@@ -183,10 +210,10 @@ export function ReactionPicker({
         react(emoji.native as string);
       }
     },
-    [react],
+    [react, nativeOnly],
   );
 
-  const customEmojis = Object.values(shortcodeIndex).slice(0, 16);
+  const customEmojis = nativeOnly ? [] : Object.values(shortcodeIndex).slice(0, 16);
 
   // ── Render via portal to escape scroll container clipping ──
 
@@ -205,7 +232,7 @@ export function ReactionPicker({
               onEmojiSelect={handleFullPickerSelect}
               theme="dark"
               set="native"
-              custom={customCategories.length > 0 ? customCategories : undefined}
+              custom={!nativeOnly && customCategories.length > 0 ? customCategories : undefined}
               autoFocus={true}
               perLine={9}
               emojiSize={28}
