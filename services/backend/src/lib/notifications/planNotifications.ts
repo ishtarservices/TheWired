@@ -246,7 +246,7 @@ export function planNotifications(
         type: "dm",
         title: "soot",
         body: "new message",
-        url: "soot://dm",
+        url: "soot://dm?segment=messages",
         collapseKey: `dm:${recipient}`,
         data: { eventId: event.id },
       });

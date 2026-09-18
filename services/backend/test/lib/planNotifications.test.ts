@@ -170,7 +170,7 @@ describe("planNotifications", () => {
       type: "dm",
       title: "soot",
       body: "new message",
-      url: "soot://dm",
+      url: "soot://dm?segment=messages",
       collapseKey: `dm:${ME}`,
       data: { eventId: "1".repeat(64) },
     });
