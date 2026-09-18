@@ -48,6 +48,43 @@ afterEach(() => {
   vi.useRealTimers();
 });
 
+describe("eventPipeline — un-react ordering", () => {
+  it("a kind:5 that arrives before the kind:7 it retracts suppresses that reaction", async () => {
+    const note = hex64(0xccc);
+    const me = hex64(0x777);
+    const rxId = hex64(0x555);
+    await processIncomingEvent(
+      makeEvent(1, { pubkey: me, kind: 5, tags: [["e", rxId], ["k", "7"]], content: "" }),
+      WS,
+    );
+    vi.advanceTimersByTime(50);
+    await processIncomingEvent(
+      makeEvent(0x555, { pubkey: me, kind: 7, tags: [["e", note], ["p", hex64(9)], ["k", "1"]], content: "+" }),
+      WS,
+    );
+    vi.advanceTimersByTime(50);
+    expect(store.getState().reactions.byTarget[note]).toBeUndefined();
+  });
+
+  it("but a third party's kind:5 cannot suppress someone else's reaction", async () => {
+    const note = hex64(0xccd);
+    const reactor = hex64(0x778);
+    const mallory = hex64(0x666);
+    const rxId = hex64(0x556);
+    await processIncomingEvent(
+      makeEvent(2, { pubkey: mallory, kind: 5, tags: [["e", rxId], ["k", "7"]], content: "" }),
+      WS,
+    );
+    vi.advanceTimersByTime(50);
+    await processIncomingEvent(
+      makeEvent(0x556, { pubkey: reactor, kind: 7, tags: [["e", note], ["k", "1"]], content: "+" }),
+      WS,
+    );
+    vi.advanceTimersByTime(50);
+    expect(Object.keys(store.getState().reactions.byTarget[note] ?? {})).toEqual([rxId]);
+  });
+});
+
 describe("eventPipeline — burst batching", () => {
   it("buffers burst-path events until the flush timer fires", async () => {
     const target = hex64(0xaaa);

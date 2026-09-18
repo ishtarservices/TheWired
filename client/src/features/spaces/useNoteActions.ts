@@ -1,8 +1,9 @@
 import { useCallback } from "react";
 import { useAppSelector } from "../../store/hooks";
 import type { NostrEvent } from "../../types/nostr";
-import { buildReaction, buildRepost, buildReply, buildQuoteNote } from "../../lib/nostr/eventBuilder";
+import { buildRepost, buildReply, buildQuoteNote } from "../../lib/nostr/eventBuilder";
 import { signAndPublish } from "../../lib/nostr/publish";
+import { toggleLike } from "../reactions/reactionToggle";
 import { parseThreadRef } from "./noteParser";
 
 export function useNoteActions(event: NostrEvent) {
@@ -22,14 +23,17 @@ export function useNoteActions(event: NostrEvent) {
   const spaceMode = activeSpace?.mode;
   const hostRelay = activeSpace?.hostRelay;
 
+  // Toggle: already liked → retract our reaction(s) with a kind:5 instead of
+  // stacking another kind:7. Relay targeting (host relay in read-write spaces,
+  // write relays otherwise) lives in `toggleLike`.
   const like = useCallback(async () => {
     if (!pubkey || !canInteract) return;
-    const unsigned = buildReaction(
-      pubkey,
-      { eventId: event.id, pubkey: event.pubkey, kind: event.kind },
-    );
-    await signAndPublish(unsigned, spaceMode === "read-write" && hostRelay ? [hostRelay] : undefined);
-  }, [pubkey, canInteract, event.id, event.pubkey, event.kind, spaceMode, hostRelay]);
+    await toggleLike({
+      myPubkey: pubkey,
+      target: { eventId: event.id, pubkey: event.pubkey, kind: event.kind },
+      space: activeSpace,
+    });
+  }, [pubkey, canInteract, event.id, event.pubkey, event.kind, activeSpace]);
 
   const repost = useCallback(async () => {
     if (!pubkey || !canWrite) return;

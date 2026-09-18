@@ -7,6 +7,7 @@ import {
   selectReactionCount,
   selectMyReaction,
   selectReactionAggregate,
+  selectMyReactionEventIds,
   aggregateReactions,
 } from "../reactionsSlice";
 
@@ -45,8 +46,8 @@ describe("reactionsSlice", () => {
     store.dispatch(addReaction({ targetEventId: "t1", reactor: "a", content: "❤️", eventId: "r2" }));
     expect(selectReactionCount(store.getState(), "t1")).toBe(2);
     const agg = selectReactionAggregate(store.getState(), "t1");
-    expect(agg).toContainEqual({ content: "👍", count: 1 });
-    expect(agg).toContainEqual({ content: "❤️", count: 1 });
+    expect(agg).toContainEqual({ content: "👍", count: 1, mine: false });
+    expect(agg).toContainEqual({ content: "❤️", count: 1, mine: false });
   });
 
   it("re-delivery of the same reaction id is idempotent", () => {
@@ -66,8 +67,45 @@ describe("reactionsSlice", () => {
       ]),
     );
     const agg = selectReactionAggregate(store.getState(), "t1");
-    expect(agg).toContainEqual({ content: "👍", count: 2 });
-    expect(agg).toContainEqual({ content: "🔥", count: 1 });
+    expect(agg).toContainEqual({ content: "👍", count: 2, mine: false });
+    expect(agg).toContainEqual({ content: "🔥", count: 1, mine: false });
+  });
+
+  it("aggregateReactions flags the pills the given user reacted with (multi-user data)", () => {
+    const store = createTestStore();
+    store.dispatch(
+      addReactions([
+        { targetEventId: "t1", reactor: "me", content: "👍", eventId: "r1" },
+        { targetEventId: "t1", reactor: "b", content: "👍", eventId: "r2" },
+        { targetEventId: "t1", reactor: "c", content: "🔥", eventId: "r3" },
+      ]),
+    );
+    const agg = selectReactionAggregate(store.getState(), "t1", "me");
+    expect(agg).toContainEqual({ content: "👍", count: 2, mine: true });
+    expect(agg).toContainEqual({ content: "🔥", count: 1, mine: false });
+    // No pubkey → nothing is "mine".
+    expect(selectReactionAggregate(store.getState(), "t1", null).every((p) => !p.mine)).toBe(true);
+  });
+
+  it("selectMyReactionEventIds returns own reaction ids, optionally narrowed to one emoji", () => {
+    const store = createTestStore();
+    store.dispatch(
+      addReactions([
+        { targetEventId: "t1", reactor: "me", content: "👍", eventId: "r1" },
+        { targetEventId: "t1", reactor: "me", content: "🔥", eventId: "r2" },
+        { targetEventId: "t1", reactor: "me", content: "", eventId: "r3" },
+        { targetEventId: "t1", reactor: "b", content: "👍", eventId: "r4" },
+      ]),
+    );
+    const s = store.getState();
+    expect(selectMyReactionEventIds(s, "t1", "me").sort()).toEqual(["r1", "r2", "r3"]);
+    expect(selectMyReactionEventIds(s, "t1", "me", "👍")).toEqual(["r1"]);
+    // "" normalizes to "+" on both sides.
+    expect(selectMyReactionEventIds(s, "t1", "me", "")).toEqual(["r3"]);
+    expect(selectMyReactionEventIds(s, "t1", "me", "+")).toEqual(["r3"]);
+    expect(selectMyReactionEventIds(s, "t1", "me", "❤️")).toEqual([]);
+    expect(selectMyReactionEventIds(s, "t1", null)).toEqual([]);
+    expect(selectMyReactionEventIds(s, "nope", "me")).toEqual([]);
   });
 
   it("selectMyReaction returns undefined with no pubkey or no reaction", () => {

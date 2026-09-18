@@ -12,11 +12,33 @@ import {
   buildAnnotationFilter,
   buildUserAnnotationsFilter,
   chunkAuthorsFilter,
+  splitChatFilters,
+  CHAT_REACTION_PAGE_LIMIT,
 } from "../filterBuilder";
 import { EVENT_KINDS } from "@/types/nostr";
 import { lunaVega, marcusCole } from "@/__tests__/fixtures/testUsers";
 
 const PK = lunaVega.pubkey;
+
+describe("splitChatFilters", () => {
+  it("moves kind:7 into its own filter so reactions don't consume the message page", () => {
+    const [messages, reactions] = splitChatFilters({
+      kinds: [7, 9, 1068, 5, 9005],
+      "#h": ["g"],
+      limit: 50,
+      since: 100,
+    });
+    expect(messages).toEqual({ kinds: [9, 1068, 5, 9005], "#h": ["g"], limit: 50, since: 100 });
+    expect(reactions).toEqual({ kinds: [7], "#h": ["g"], limit: CHAT_REACTION_PAGE_LIMIT, since: 100 });
+  });
+
+  it("passes filters without kind:7 (or with only kind:7) through untouched", () => {
+    const plain = { kinds: [9, 5], "#h": ["g"], limit: 50 };
+    expect(splitChatFilters(plain)).toEqual([plain]);
+    const only = { kinds: [7], "#h": ["g"], limit: 10 };
+    expect(splitChatFilters(only)).toEqual([only]);
+  });
+});
 
 describe("buildChannelFilter", () => {
   it("builds a filter with kinds and h-tag when route uses h-tag", () => {

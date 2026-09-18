@@ -2,8 +2,9 @@ import { useCallback } from "react";
 import { useAppSelector, useAppDispatch } from "../../store/hooks";
 import { setPinnedNotes } from "../../store/slices/identitySlice";
 import type { NostrEvent } from "../../types/nostr";
-import { buildReaction, buildRepost, buildReply, buildQuoteNote, buildPinnedNotesEvent, buildDeletionEvent } from "../../lib/nostr/eventBuilder";
+import { buildRepost, buildReply, buildQuoteNote, buildPinnedNotesEvent, buildDeletionEvent } from "../../lib/nostr/eventBuilder";
 import { signAndPublish } from "../../lib/nostr/publish";
+import { toggleLike } from "../reactions/reactionToggle";
 import { saveUserState } from "../../lib/db/userStateStore";
 import { deleteEvent as deleteEventFromDB } from "../../lib/db/eventStore";
 import { removeEvent, removeNote } from "../../store/slices/eventsSlice";
@@ -18,13 +19,14 @@ export function useProfileNoteActions(event: NostrEvent) {
   const canInteract = !!pubkey;
   const canWrite = !!pubkey;
 
+  // Toggle: already liked → kind:5 retracting our reaction, else a `+` kind:7.
+  // No space context here, so both go to the user's write relays.
   const like = useCallback(async () => {
     if (!pubkey) return;
-    const unsigned = buildReaction(
-      pubkey,
-      { eventId: event.id, pubkey: event.pubkey, kind: event.kind },
-    );
-    await signAndPublish(unsigned);
+    await toggleLike({
+      myPubkey: pubkey,
+      target: { eventId: event.id, pubkey: event.pubkey, kind: event.kind },
+    });
   }, [pubkey, event.id, event.pubkey, event.kind]);
 
   const repost = useCallback(async () => {

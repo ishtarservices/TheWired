@@ -30,7 +30,7 @@ afterEach(() => {
 });
 
 describe("EngagementWindow", () => {
-  it("fetches engagement for visible notes in document order, kinds [7,6,1,9735]", () => {
+  it("fetches engagement for visible notes in document order, kinds [7,6,1,9735,5]", () => {
     const w = new EngagementWindow(["wss://r"]);
     w.report("b", 1, true);
     w.report("a", 0, true);
@@ -38,7 +38,24 @@ describe("EngagementWindow", () => {
     expect(subscribe).toHaveBeenCalledTimes(1);
     expect(eIds(0)).toEqual(["a", "b"]); // sorted by feed index
     const filters = (subscribe.mock.calls[0][0] as { filters: { kinds: number[] }[] }).filters;
-    expect(filters.map((f) => f.kinds)).toEqual([[7], [6], [1], [9735]]);
+    expect(filters.map((f) => f.kinds)).toEqual([[7], [6], [1], [9735], [5]]);
+    w.dispose();
+  });
+
+  it("the kind:5 leg unions note ids with the reaction ids already known for them", () => {
+    const w = new EngagementWindow(["wss://r"], undefined, (noteIds) =>
+      noteIds.flatMap((id) => (id === "a" ? ["rx-a1", "rx-a2"] : [])),
+    );
+    w.report("a", 0, true);
+    w.report("b", 1, true);
+    w.flush();
+    const filters = (subscribe.mock.calls[0][0] as {
+      filters: { kinds: number[]; "#e": string[] }[];
+    }).filters;
+    const deletionLeg = filters.find((f) => f.kinds[0] === 5)!;
+    expect(deletionLeg["#e"]).toEqual(["a", "b", "rx-a1", "rx-a2"]);
+    // The other legs still target only the notes.
+    expect(filters.find((f) => f.kinds[0] === 7)!["#e"]).toEqual(["a", "b"]);
     w.dispose();
   });
 

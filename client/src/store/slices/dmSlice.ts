@@ -15,10 +15,34 @@ export interface DMMessage {
   editedAt?: number;
   /** Whether this message was remotely deleted */
   isDeleted?: boolean;
-  /** The wrapId of the message this is replying to */
+  /**
+   * The reply anchor: the rumor's `q` tag value. Current clients (web + mobile)
+   * write the target message's *rumorId* — the only id both parties share
+   * (each side holds a different gift-wrap id for the same rumor). Messages
+   * from older clients carry a wrapId here instead, so readers resolve
+   * rumorId-first, wrapId-fallback (`resolveDMReplyTarget`). Field name kept
+   * for persistence compatibility.
+   */
   replyToWrapId?: string;
   /** NIP-30 emoji tags for custom emojis in this message */
   emojiTags?: string[][];
+  /**
+   * Emoji reactions: unicode emoji → reactor pubkeys. Delivered as NIP-17
+   * typed rumors (`dm_reaction` / `dm_reaction_remove`) anchored on this
+   * message's rumorId. At most MAX_DM_REACTION_EMOJI distinct emoji.
+   */
+  reactions?: Record<string, string[]>;
+}
+
+/** Distinct emoji cap per DM message (matches the mobile client). */
+export const MAX_DM_REACTION_EMOJI = 16;
+/** Reactions that arrived before their target message, keyed by rumorId. */
+const MAX_PENDING_DM_REACTION_TARGETS = 500;
+
+interface PendingDMReaction {
+  emoji: string;
+  reactor: string;
+  remove: boolean;
 }
 
 export interface DMContact {
@@ -42,6 +66,9 @@ interface DMState {
   lastReadTimestamps: Record<string, number>;
   /** Monotonic counter bumped on every mutation — drives persistence fingerprint */
   mutationCounter: number;
+  /** Reactions whose target rumor hasn't arrived yet (cold start delivers
+   *  newest-first). Drained by addDMMessage. In-memory only. */
+  pendingReactions: Record<string, PendingDMReaction[]>;
 }
 
 const initialState: DMState = {
@@ -54,6 +81,7 @@ const initialState: DMState = {
   unreadDividers: {},
   lastReadTimestamps: {},
   mutationCounter: 0,
+  pendingReactions: {},
 };
 
 /** Build a friendly one-line message preview: summarize noisy refs/URLs, then truncate */
@@ -74,6 +102,84 @@ function markWrapProcessed(state: DMState, wrapId: string): boolean {
     for (const id of evicted) delete state.processedWrapIdSet[id];
   }
   return true;
+}
+
+/** Apply one reaction add/remove to a message. Returns whether anything changed.
+ *  Adds are reactor-deduped and capped at MAX_DM_REACTION_EMOJI distinct emoji
+ *  (an emoji already on the message still accepts new reactors). */
+function applyDMReaction(
+  msg: DMMessage,
+  emoji: string,
+  reactor: string,
+  remove: boolean,
+): boolean {
+  if (remove) {
+    const list = msg.reactions?.[emoji];
+    if (!list) return false;
+    const next = list.filter((p) => p !== reactor);
+    if (next.length === list.length) return false;
+    if (next.length > 0) {
+      msg.reactions![emoji] = next;
+    } else {
+      delete msg.reactions![emoji];
+      if (Object.keys(msg.reactions!).length === 0) delete msg.reactions;
+    }
+    return true;
+  }
+  const reactions = msg.reactions ?? (msg.reactions = {});
+  let list = reactions[emoji];
+  if (!list) {
+    if (Object.keys(reactions).length >= MAX_DM_REACTION_EMOJI) return false;
+    list = reactions[emoji] = [];
+  }
+  if (list.includes(reactor)) return false;
+  list.push(reactor);
+  return true;
+}
+
+/** Queue a reaction for a rumor we haven't seen yet (bounded, oldest evicted). */
+function bufferPendingReaction(state: DMState, rumorId: string, r: PendingDMReaction): void {
+  const list = state.pendingReactions[rumorId] ?? (state.pendingReactions[rumorId] = []);
+  list.push(r);
+  const keys = Object.keys(state.pendingReactions);
+  if (keys.length > MAX_PENDING_DM_REACTION_TARGETS) {
+    for (const k of keys.slice(0, keys.length - MAX_PENDING_DM_REACTION_TARGETS)) {
+      delete state.pendingReactions[k];
+    }
+  }
+}
+
+/** Shared body of reactDMMessage / removeDMReaction. */
+function handleDMReaction(
+  state: DMState,
+  payload: {
+    partnerPubkey: string;
+    rumorId: string;
+    emoji: string;
+    reactorPubkey: string;
+    wrapId?: string;
+  },
+  remove: boolean,
+): void {
+  const { partnerPubkey, rumorId, reactorPubkey, wrapId } = payload;
+  const emoji = payload.emoji.trim();
+  if (!emoji) return;
+  // Dedup the reaction wrap (no-op on the self-wrap echo of an optimistic react).
+  if (wrapId && !markWrapProcessed(state, wrapId)) return;
+
+  // Match by rumorId first, fall back to wrapId for legacy messages.
+  const msgs = state.messages[partnerPubkey];
+  const msg = msgs?.find((m) => m.rumorId === rumorId)
+    ?? msgs?.find((m) => m.wrapId === rumorId);
+  if (!msg) {
+    // Target not here yet (or ever) — keep it so a late-arriving message
+    // picks it up instead of losing the reaction for good.
+    bufferPendingReaction(state, rumorId, { emoji, reactor: reactorPubkey, remove });
+    return;
+  }
+  if (applyDMReaction(msg, emoji, reactorPubkey, remove)) {
+    state.mutationCounter += 1;
+  }
 }
 
 /** Insert a message in sorted (ascending createdAt) order via binary search */
@@ -137,6 +243,14 @@ export const dmSlice = createSlice({
 
       // Binary insert instead of push+sort
       insertSorted(state.messages[partnerPubkey], message);
+
+      // Drain reactions that arrived ahead of this message.
+      if (message.rumorId && state.pendingReactions[message.rumorId]) {
+        for (const r of state.pendingReactions[message.rumorId]) {
+          applyDMReaction(message, r.emoji, r.reactor, r.remove);
+        }
+        delete state.pendingReactions[message.rumorId];
+      }
 
       // Update contact
       const contactIdx = state.contacts.findIndex((c) => c.pubkey === partnerPubkey);
@@ -312,6 +426,37 @@ export const dmSlice = createSlice({
       state.mutationCounter += 1;
     },
 
+    /** Add an emoji reaction to a DM (typed rumor `dm_reaction`, anchored on the
+     *  target's rumorId). Either party may react; the reactor is the rumor's
+     *  author. wrapId dedupes the self-wrap echo of an optimistic react. */
+    reactDMMessage(
+      state,
+      action: PayloadAction<{
+        partnerPubkey: string;
+        rumorId: string;
+        emoji: string;
+        reactorPubkey: string;
+        wrapId?: string;
+      }>,
+    ) {
+      handleDMReaction(state, action.payload, false);
+    },
+
+    /** Remove the reactor's emoji reaction (typed rumor `dm_reaction_remove`).
+     *  Only the reactor's own entry is touched — you can't clear someone else's. */
+    removeDMReaction(
+      state,
+      action: PayloadAction<{
+        partnerPubkey: string;
+        rumorId: string;
+        emoji: string;
+        reactorPubkey: string;
+        wrapId?: string;
+      }>,
+    ) {
+      handleDMReaction(state, action.payload, true);
+    },
+
     /** Merge relay-synced read timestamps (NIP-78). Takes max per conversation. */
     applyRelayReadState(state, action: PayloadAction<Record<string, number>>) {
       const remote = action.payload;
@@ -430,6 +575,8 @@ export const {
   deleteDMMessage,
   editDMMessage,
   remoteDeleteDMMessage,
+  reactDMMessage,
+  removeDMReaction,
   applyRelayReadState,
   deleteDMConversation,
   restoreDMState,

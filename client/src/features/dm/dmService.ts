@@ -3,7 +3,13 @@ import { createGiftWrappedDM, createSelfWrap, buildRumor } from "@/lib/nostr/gif
 import { relayManager } from "@/lib/nostr/relayManager";
 import { getDMRelaysForPublish, getOwnDMRelays } from "@/lib/nostr/dmRelayList";
 import { store } from "@/store";
-import { addDMMessage, editDMMessage, remoteDeleteDMMessage } from "@/store/slices/dmSlice";
+import {
+  addDMMessage,
+  editDMMessage,
+  remoteDeleteDMMessage,
+  reactDMMessage,
+  removeDMReaction as removeDMReactionAction,
+} from "@/store/slices/dmSlice";
 
 /** 15 minutes in seconds */
 const EDIT_WINDOW_SECONDS = 15 * 60;
@@ -29,7 +35,9 @@ function resolveHexPubkey(input: string): string {
 export async function sendDM(
   recipientPubkey: string,
   content: string,
-  replyTo?: { wrapId: string },
+  /** The message being replied to. The `q` tag carries its rumorId (shared by
+   *  both parties); wrapId is only used when a legacy row has no rumorId. */
+  replyTo?: { wrapId: string; rumorId?: string },
   emojiTags?: string[][],
 ): Promise<void> {
   const myPubkey = store.getState().identity.pubkey;
@@ -45,7 +53,8 @@ export async function sendDM(
 
   // Build extra tags for reply + emoji
   const extraTags: string[][] = [];
-  if (replyTo) extraTags.push(["q", replyTo.wrapId]);
+  const replyAnchor = replyTo ? (replyTo.rumorId ?? replyTo.wrapId) : undefined;
+  if (replyAnchor) extraTags.push(["q", replyAnchor]);
   if (emojiTags) extraTags.push(...emojiTags);
 
   // Build one shared rumor so both wraps have the same rumorId.
@@ -90,7 +99,7 @@ export async function sendDM(
         createdAt: sharedRumor.created_at,
         wrapId: selfWrap.id,
         rumorId,
-        replyToWrapId: replyTo?.wrapId,
+        replyToWrapId: replyAnchor,
         emojiTags: emojiTags && emojiTags.length > 0 ? emojiTags : undefined,
       },
     }),
@@ -184,6 +193,83 @@ export async function deleteDMForEveryone(
       rumorId: originalRumorId,
       senderPubkey: myPubkey,
       wrapId: selfWrap.id,
+    }),
+  );
+}
+
+/**
+ * Send a typed reaction rumor (`dm_reaction` / `dm_reaction_remove`) anchored on
+ * the target message's rumorId, dual-wrapped exactly like `editDM` so both
+ * parties (and our other devices) receive it. Plain unicode only.
+ */
+async function sendDMReactionRumor(
+  partnerPubkey: string,
+  targetRumorId: string,
+  emoji: string,
+  remove: boolean,
+): Promise<{ myPubkey: string; partnerPubkey: string; selfWrapId: string; emoji: string }> {
+  const myPubkey = store.getState().identity.pubkey;
+  if (!myPubkey) throw new Error("Not logged in");
+  const content = emoji.trim();
+  if (!content) throw new Error("Reaction emoji is required");
+  if (!/^[0-9a-f]{64}$/i.test(targetRumorId)) throw new Error("Invalid reaction target");
+
+  partnerPubkey = resolveHexPubkey(partnerPubkey);
+
+  const extraTags: string[][] = [
+    ["type", remove ? "dm_reaction_remove" : "dm_reaction"],
+    ["e", targetRumorId],
+  ];
+
+  // Build shared rumor for both wraps
+  const sharedRumor = await buildRumor(myPubkey, partnerPubkey, content, extraTags);
+
+  // Send to recipient
+  const { wrap: recipientWrap } = await createGiftWrappedDM(content, partnerPubkey, extraTags, sharedRumor);
+  const recipientRelays = await getDMRelaysForPublish(partnerPubkey);
+  relayManager.publish(recipientWrap, recipientRelays);
+
+  // Send to self
+  const { wrap: selfWrap } = await createSelfWrap(content, partnerPubkey, extraTags, sharedRumor);
+  const ownRelays = getOwnDMRelays();
+  relayManager.publish(selfWrap, ownRelays.length > 0 ? ownRelays : undefined);
+
+  return { myPubkey, partnerPubkey, selfWrapId: selfWrap.id, emoji: content };
+}
+
+/** React to a DM with a unicode emoji. */
+export async function reactToDM(
+  partnerPubkey: string,
+  targetRumorId: string,
+  emoji: string,
+): Promise<void> {
+  const r = await sendDMReactionRumor(partnerPubkey, targetRumorId, emoji, false);
+  // Optimistic local update; the self-wrap echo is deduped by wrapId.
+  store.dispatch(
+    reactDMMessage({
+      partnerPubkey: r.partnerPubkey,
+      rumorId: targetRumorId,
+      emoji: r.emoji,
+      reactorPubkey: r.myPubkey,
+      wrapId: r.selfWrapId,
+    }),
+  );
+}
+
+/** Remove our own emoji reaction from a DM. */
+export async function removeDMReaction(
+  partnerPubkey: string,
+  targetRumorId: string,
+  emoji: string,
+): Promise<void> {
+  const r = await sendDMReactionRumor(partnerPubkey, targetRumorId, emoji, true);
+  store.dispatch(
+    removeDMReactionAction({
+      partnerPubkey: r.partnerPubkey,
+      rumorId: targetRumorId,
+      emoji: r.emoji,
+      reactorPubkey: r.myPubkey,
+      wrapId: r.selfWrapId,
     }),
   );
 }

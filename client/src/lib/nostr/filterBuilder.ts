@@ -32,6 +32,31 @@ export function buildChannelFilter(
   return filter;
 }
 
+/** Reactions fetched alongside a chat page. Several per message on a busy
+ *  room, so the budget is a multiple of the message page size. */
+export const CHAT_REACTION_PAGE_LIMIT = 300;
+
+/**
+ * Chat routes carry kind:7 so the `#h` subscription delivers everyone's
+ * reactions — but a reaction must not eat into the message page: with one
+ * `limit: 50` filter, three reactions per message would leave ~12 messages on
+ * the first page. Split the reactions out into their own filter (same `#h`,
+ * `since`/`until`, own limit). Filters without kind:7 pass through untouched.
+ */
+export function splitChatFilters(
+  filter: NostrFilter,
+  reactionLimit: number = CHAT_REACTION_PAGE_LIMIT,
+): NostrFilter[] {
+  const kinds = filter.kinds ?? [];
+  if (!kinds.includes(EVENT_KINDS.REACTION) || kinds.length === 1) return [filter];
+  const messages: NostrFilter = {
+    ...filter,
+    kinds: kinds.filter((k) => k !== EVENT_KINDS.REACTION),
+  };
+  const reactions: NostrFilter = { ...filter, kinds: [EVENT_KINDS.REACTION], limit: reactionLimit };
+  return [messages, reactions];
+}
+
 /** Build a filter for fetching user metadata */
 export function buildProfileFilter(pubkeys: string[]): NostrFilter {
   return { kinds: [0], authors: pubkeys };

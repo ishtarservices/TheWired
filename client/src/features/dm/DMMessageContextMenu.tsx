@@ -1,4 +1,4 @@
-import { Copy, Trash2, EyeOff, Pencil, Reply, BrainCircuit, Zap } from "lucide-react";
+import { Copy, Trash2, EyeOff, Pencil, Reply, BrainCircuit, Zap, SmilePlus } from "lucide-react";
 import { useAppDispatch } from "@/store/hooks";
 import { deleteDMMessage } from "@/store/slices/dmSlice";
 import { PopoverMenu, PopoverMenuItem, PopoverMenuSeparator } from "@/components/ui/PopoverMenu";
@@ -21,6 +21,8 @@ interface DMMessageContextMenuProps {
   onEdit: () => void;
   onDeleteForEveryone: () => void;
   onReply?: () => void;
+  /** Opens the emoji picker for a DM reaction (absent when the message can't be reacted to). */
+  onReact?: () => void;
 }
 
 export function DMMessageContextMenu({
@@ -35,6 +37,7 @@ export function DMMessageContextMenu({
   onEdit,
   onDeleteForEveryone,
   onReply,
+  onReact,
 }: DMMessageContextMenuProps) {
   const dispatch = useAppDispatch();
   const anchorRef = useRef<HTMLDivElement>(null);
@@ -67,6 +70,13 @@ export function DMMessageContextMenu({
         }}
       />
       <PopoverMenu open={open} onClose={onClose} anchorRef={anchorRef} position="below">
+        {onReact && (
+          <PopoverMenuItem
+            icon={<SmilePlus size={14} />}
+            label="React"
+            onClick={() => { onReact(); onClose(); }}
+          />
+        )}
         {onReply && (
           <PopoverMenuItem
             icon={<Reply size={14} />}
