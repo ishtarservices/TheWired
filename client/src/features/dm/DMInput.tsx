@@ -25,8 +25,12 @@ const LazyEmojiPicker = lazy(() =>
 );
 
 interface DMInputProps {
-  onSend: (content: string, emojiTags?: string[][]) => void;
+  /** `encrypted` = attachments uploaded as kind-15 ciphertext (their URLs are
+   *  NOT appended to the text). */
+  onSend: (content: string, emojiTags?: string[][], encrypted?: UploadedAttachment[]) => void;
   disabled?: boolean;
+  /** Fired (throttled upstream) while the user types — typing indicator. */
+  onTyping?: () => void;
   /** File upload state/handlers from parent */
   attachments: UploadedAttachment[];
   onRemoveAttachment: (id: string) => void;
@@ -60,6 +64,7 @@ function detectEmojiQuery(value: string, cursorPos: number): string | null {
 export function DMInput({
   onSend,
   disabled,
+  onTyping,
   attachments,
   onRemoveAttachment,
   onClearAttachments,
@@ -233,11 +238,15 @@ export function DMInput({
         }
       }
 
+      const encrypted: UploadedAttachment[] = [];
       for (const att of attachments) {
-        if (att.status === "done" && att.result) {
-          if (content.length > 0) content += "\n";
-          content += att.result.url;
+        if (att.status !== "done" || !att.result) continue;
+        if (att.dmFile) {
+          encrypted.push(att);
+          continue;
         }
+        if (content.length > 0) content += "\n";
+        content += att.result.url;
       }
 
       // Append pending GIF URL
@@ -257,7 +266,7 @@ export function DMInput({
         }
       }
 
-      onSend(content, emojiTags.length > 0 ? emojiTags : undefined);
+      onSend(content, emojiTags.length > 0 ? emojiTags : undefined, encrypted.length > 0 ? encrypted : undefined);
       setValue("");
       setMentionQuery(null);
       setEmojiQuery(null);
@@ -439,6 +448,7 @@ export function DMInput({
             value={value}
             onChange={(e) => {
               setValue(e.target.value);
+              if (e.target.value.length > 0) onTyping?.();
               updateAutocompleteState(e.target.value, e.target.selectionStart);
             }}
             onKeyDown={handleKeyDown}

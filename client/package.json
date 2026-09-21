@@ -19,6 +19,7 @@
     "@emoji-mart/data": "^1.2.1",
     "@emoji-mart/react": "^1.1.1",
     "@ishtarservices/core": "workspace:*",
+    "@ishtarservices/shared-types": "workspace:*",
     "@noble/curves": "^1.9.7",
     "@noble/hashes": "^1.8.0",
     "@reduxjs/toolkit": "^2.11.2",

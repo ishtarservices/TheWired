@@ -15,13 +15,21 @@ export interface BlossomUploadResult {
   mimeType: string;
 }
 
-/** Compute SHA-256 hex hash of a file */
-async function hashFile(file: File): Promise<string> {
-  const buffer = await file.arrayBuffer();
-  const hashBuffer = await crypto.subtle.digest("SHA-256", buffer);
+/** Compute SHA-256 hex hash of bytes */
+async function hashBytes(bytes: Uint8Array): Promise<string> {
+  const hashBuffer = await crypto.subtle.digest("SHA-256", bytes as BufferSource);
   return Array.from(new Uint8Array(hashBuffer))
     .map((b) => b.toString(16).padStart(2, "0"))
     .join("");
+}
+
+/** The app's own Blossom endpoint (backend behind the gateway), tried first
+ *  for encrypted DM blobs so the ciphertext stays on infrastructure we run.
+ *  Falls back to the public servers. */
+function ownBlossomServer(): string | null {
+  const base = (import.meta.env.VITE_API_URL as string | undefined) ?? "";
+  if (!base) return null;
+  return base.replace(/\/api\/?$/, "");
 }
 
 /** Build a Blossom auth event (kind:24242) for upload authorization */
@@ -64,10 +72,29 @@ export async function blossomUpload(
   file: File,
   servers?: string[],
 ): Promise<BlossomUploadResult> {
-  const sha256 = await hashFile(file);
   const ext = file.name.split(".").pop() ?? "";
-  const serverList = servers ?? DEFAULT_SERVERS;
-  const authToken = await buildBlossomAuth(sha256, file.size, file.type);
+  return blossomUploadBytes(new Uint8Array(await file.arrayBuffer()), file.type, { servers, ext });
+}
+
+/**
+ * Upload raw bytes (e.g. an AES-GCM-encrypted DM attachment, docs/DM_WIRE_CONTRACT.md
+ * §3.4). Opaque blobs go as `application/octet-stream`; with `preferOwn` the
+ * app's own Blossom server is tried before the public list.
+ */
+export async function blossomUploadBytes(
+  body: Uint8Array,
+  mimeType: string,
+  opts: { servers?: string[]; ext?: string; preferOwn?: boolean } = {},
+): Promise<BlossomUploadResult> {
+  // Copy into a plain ArrayBuffer-backed view (fetch's BodyInit typing).
+  const payload = new Uint8Array(body);
+  const sha256 = await hashBytes(payload);
+  const ext = opts.ext ?? "";
+  const own = opts.preferOwn ? ownBlossomServer() : null;
+  const serverList = [...(own ? [own] : []), ...(opts.servers ?? DEFAULT_SERVERS)];
+  const authToken = await buildBlossomAuth(sha256, payload.length, mimeType);
+  const fileSize = payload.length;
+  const fileType = mimeType;
 
   let lastError: Error | null = null;
 
@@ -75,15 +102,14 @@ export async function blossomUpload(
     try {
       // BUD-02: upload endpoint is PUT /upload, not /<sha256>
       const uploadUrl = `${server}/upload`;
-      const body = new Uint8Array(await file.arrayBuffer());
 
       const res = await tauriFetch(uploadUrl, {
         method: "PUT",
         headers: {
-          "Content-Type": file.type,
+          "Content-Type": fileType,
           Authorization: `Nostr ${authToken}`,
         },
-        body,
+        body: payload,
       });
 
       if (!res.ok) {
@@ -97,8 +123,8 @@ export async function blossomUpload(
       return {
         url: data.url ?? `${server}/${sha256}${ext ? `.${ext}` : ""}`,
         sha256: data.sha256 ?? sha256,
-        size: data.size ?? file.size,
-        mimeType: data.type ?? file.type,
+        size: data.size ?? fileSize,
+        mimeType: data.type ?? fileType,
       };
     } catch (err) {
       lastError = err instanceof Error ? err : new Error(String(err));

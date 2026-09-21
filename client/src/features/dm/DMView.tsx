@@ -5,6 +5,7 @@ import { NewDMModal } from "./NewDMModal";
 import { useAppDispatch, useAppSelector } from "@/store/hooks";
 import { setActiveConversation } from "@/store/slices/dmSlice";
 import { Lock, SquarePen } from "lucide-react";
+import { DMAIConsentDialog } from "@/features/ai/context/DMAIConsentDialog";
 
 export function DMView() {
   const { pubkey: routePubkey } = useParams<{ pubkey?: string }>();
@@ -48,6 +49,7 @@ export function DMView() {
 
   return (
     <div className="flex flex-1 overflow-hidden">
+      <DMAIConsentDialog />
       {activePubkey ? (
         <DMConversation partnerPubkey={activePubkey} onBack={handleBack} />
       ) : (

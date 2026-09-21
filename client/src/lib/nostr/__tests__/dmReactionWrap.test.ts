@@ -50,6 +50,7 @@ function rumor(over: {
     createdAt: Math.floor(Date.now() / 1000) - 60,
     wrapId: over.wrapId,
     rumorId: hex64(0xf00 + over.wrapId.length),
+    kind: 14,
   };
 }
 
@@ -124,6 +125,7 @@ describe("typed DM reaction rumors through the pipeline", () => {
       createdAt: Math.floor(Date.now() / 1000) - 30,
       wrapId: "late-wrap",
       rumorId: LATE,
+      kind: 14,
     });
     await processIncomingEvent(wrap(6), WS);
     await settle();

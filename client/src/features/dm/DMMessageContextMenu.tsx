@@ -6,6 +6,7 @@ import { useZap } from "@/features/wallet/WalletProvider";
 import { useRef } from "react";
 import { useAskAI } from "@/features/ai/context/useAskAI";
 import { buildDMMessageContext } from "@/features/ai/context/aiContext";
+import { ensureDMAIConsent } from "@/features/ai/context/dmConsent";
 import { useAppSelector } from "@/store/hooks";
 import { selectFeatureEnabled, FEATURE_AI } from "@/store/slices/featuresSlice";
 
@@ -101,8 +102,11 @@ export function DMMessageContextMenu({
             icon={<BrainCircuit size={14} />}
             label="Ask AI"
             onClick={() => {
-              askAI(buildDMMessageContext(partnerPubkey, wrapId));
               onClose();
+              // Decrypted DMs leave the device: confirm per session, per provider.
+              void ensureDMAIConsent().then((ok) => {
+                if (ok) askAI(buildDMMessageContext(partnerPubkey, wrapId));
+              });
             }}
           />
         )}

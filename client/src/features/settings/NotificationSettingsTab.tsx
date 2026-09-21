@@ -1,5 +1,7 @@
-import { Bell, BellOff, Clock } from "lucide-react";
+import { useEffect, useState } from "react";
+import { Bell, BellOff, Clock, MessageSquareLock } from "lucide-react";
 import { useAppDispatch } from "../../store/hooks";
+import { getDMPrefs, setDMPrefs, subscribeDMPrefs } from "../dm/dmPrefs";
 import { setPreferences } from "../../store/slices/notificationSlice";
 import { useNotificationPreferences } from "../notifications/useNotifications";
 import { requestBrowserPermission } from "../notifications/browserNotify";
@@ -47,6 +49,8 @@ function Toggle({ label, description, checked, onChange }: ToggleProps) {
 export function NotificationSettingsTab() {
   const dispatch = useAppDispatch();
   const prefs = useNotificationPreferences();
+  const [dmPrefs, setDmPrefsState] = useState(getDMPrefs);
+  useEffect(() => subscribeDMPrefs(setDmPrefsState), []);
 
   const update = (key: string, value: boolean | number | undefined) => {
     const updated = { ...prefs, [key]: value };
@@ -133,6 +137,31 @@ export function NotificationSettingsTab() {
             description="Play a sound for new notifications"
             checked={prefs.sound}
             onChange={(v) => update("sound", v)}
+          />
+        </div>
+      </div>
+
+      {/* Messages: presence signals (docs/DM_WIRE_CONTRACT.md §2) */}
+      <div className="rounded-lg border border-border bg-panel p-4">
+        <div className="mb-1 flex items-center gap-2">
+          <MessageSquareLock size={16} className="text-primary" />
+          <h3 className="text-sm font-semibold text-heading">Messages</h3>
+        </div>
+        <p className="mb-3 text-xs text-muted">
+          Typing indicators and receipts are encrypted, sent only to friends, and best-effort — other apps may not show them.
+        </p>
+        <div className="divide-y divide-border">
+          <Toggle
+            label="Send typing indicators"
+            description="Let friends see when you're typing to them"
+            checked={dmPrefs.typing}
+            onChange={(v) => setDMPrefs({ typing: v })}
+          />
+          <Toggle
+            label="Send read receipts"
+            description="Let friends see when their messages were delivered and read"
+            checked={dmPrefs.receipts}
+            onChange={(v) => setDMPrefs({ receipts: v })}
           />
         </div>
       </div>

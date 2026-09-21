@@ -3,13 +3,14 @@ import {
   restoreDMState,
   type DMMessage,
   type DMContact,
+  type DMFlags,
 } from "@/store/slices/dmSlice";
 import { saveUserState, getUserState } from "@/lib/db/userStateStore";
 
 const DM_STATE_KEY = "dm_state";
 const DEBOUNCE_MS = 3_000;
 /** Max messages persisted per conversation to avoid unbounded IndexedDB growth */
-const MAX_MESSAGES_PER_CONVERSATION = 200;
+const MAX_MESSAGES_PER_CONVERSATION = 500;
 /** Max processedWrapIds to persist (keeps dedup working across restarts) */
 const MAX_PERSISTED_WRAP_IDS = 3000;
 
@@ -20,6 +21,7 @@ interface PersistedDMState {
   contacts: DMContact[];
   processedWrapIds: string[];
   lastReadTimestamps?: Record<string, number>;
+  flags?: DMFlags;
 }
 
 /** Build a trimmed snapshot of DM state suitable for IndexedDB persistence */
@@ -40,6 +42,7 @@ function buildPersistedState(): PersistedDMState {
     contacts: state.contacts,
     processedWrapIds: state.processedWrapIds.slice(-MAX_PERSISTED_WRAP_IDS),
     lastReadTimestamps: state.lastReadTimestamps,
+    flags: state.flags,
   };
 }
 
@@ -54,6 +57,7 @@ export async function loadDMState(): Promise<void> {
       contacts: persisted.contacts,
       processedWrapIds: persisted.processedWrapIds,
       lastReadTimestamps: persisted.lastReadTimestamps,
+      flags: persisted.flags,
     }),
   );
 }

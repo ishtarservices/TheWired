@@ -6,7 +6,7 @@ export type { Invite, SpacePreview, InviteWithPreview, RedeemResult } from "./in
 export { search } from "./search";
 export { getTrending, getPersonalized } from "./feeds";
 export { getProfile, batchProfiles } from "./profiles";
-export { subscribePush, unsubscribePush, suppressPushForEvents } from "./push";
+export { subscribePush, unsubscribePush } from "./push";
 export { getSpaceAnalytics } from "./analytics";
 export { pinMessage, scheduleMessage } from "./content";
 export { uploadAudio, uploadCoverArt, getTrendingTracks, getTrendingAlbums, searchMusic } from "./music";
