@@ -1,6 +1,6 @@
 {
   "name": "@ishtarservices/core",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "type": "module",
   "main": "./src/index.ts",
   "types": "./src/index.ts",
@@ -26,9 +26,10 @@
     "prepublishOnly": "pnpm build"
   },
   "dependencies": {
+    "@ishtarservices/shared-types": "workspace:*",
+    "@noble/ciphers": "^2.1.1",
     "@noble/curves": "^1.9.7",
     "@noble/hashes": "^1.8.0",
-    "@ishtarservices/shared-types": "workspace:*",
     "lru-cache": "^11.2.6",
     "nostr-tools": "^2.23.1"
   },
