@@ -98,9 +98,12 @@ export function DMConversation({ partnerPubkey, onBack }: DMConversationProps) {
       .filter((m) => m.senderPubkey !== myPubkey && m.rumorId && !receiptedRef.current.has(m.rumorId))
       .map((m) => m.rumorId!);
     if (fresh.length === 0) return;
-    for (const id of fresh) receiptedRef.current.add(id);
-    void sendReceipt(partnerPubkey, "read", fresh);
-  }, [messages, partnerPubkey, myPubkey]);
+    // Mark as receipted only once a receipt actually went out: a peer who
+    // becomes a friend later (or a toggle flipped on) still gets one.
+    void sendReceipt(partnerPubkey, "read", fresh).then((sent) => {
+      if (sent) for (const id of fresh) receiptedRef.current.add(id);
+    });
+  }, [messages, partnerPubkey, myPubkey, friends]);
   const { scrollPaddingClass, inputMarginClass } = usePlaybackBarSpacing();
 
   // Unread divider: count captured by setActiveConversation before clearing

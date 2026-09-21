@@ -353,21 +353,24 @@ export async function sendTyping(conversationId: string): Promise<void> {
   }
 }
 
-/** Send a delivered/read receipt (kind 20015, 7-d expiry, no self-wrap). */
+/** Send a delivered/read receipt (kind 20015, 7-d expiry, no self-wrap).
+ *  Returns false when nothing was sent (not friends / opted out / failed) so
+ *  callers can retry later instead of marking the rumors as receipted. */
 export async function sendReceipt(
   conversationId: string,
   status: DMReceiptStatus,
   rumorIds: string[],
-): Promise<void> {
-  if (rumorIds.length === 0 || !presenceAllowed(conversationId, "receipts")) return;
+): Promise<boolean> {
+  if (rumorIds.length === 0 || !presenceAllowed(conversationId, "receipts")) return false;
   try {
     await publishRumor(conversationId, "", receiptRumorTags(status, rumorIds), {
       kind: KIND_DM_RECEIPT,
       expiration: defaultExpirationFor("receipt", nowSec()),
       noSelfWrap: true,
     });
+    return true;
   } catch {
-    // best-effort
+    return false; // best-effort
   }
 }
 
