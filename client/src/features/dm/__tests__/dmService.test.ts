@@ -35,6 +35,7 @@ vi.mock("@/lib/nostr/relayManager", () => {
 vi.mock("@/lib/nostr/dmRelayList", () => ({
   getDMRelaysForPublish: async () => ["wss://peer"],
   getOwnDMRelays: () => ["wss://own"],
+  fallbackDMRelays: () => ["wss://w", "ws://localhost:7777"],
 }));
 vi.mock("@/lib/nostr/publish", () => ({ signAndPublish: vi.fn(async () => {}) }));
 

@@ -467,7 +467,9 @@ export class RelayConnection {
       }
       case "NOTICE": {
         const text = String(msg[1] ?? "");
-        if (/unknown message type: NEG-/i.test(text)) {
+        // Our relay: "unknown message type: NEG-OPEN"; strfry: "bad msg: negentropy
+        // disabled" — either way this relay won't reconcile, fall back.
+        if (this.negSessions.size > 0 && /NEG-|negentropy/i.test(text)) {
           this.negUnsupported = true;
           this.failAllNeg();
           break;

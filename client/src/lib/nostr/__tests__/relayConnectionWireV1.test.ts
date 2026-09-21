@@ -139,7 +139,7 @@ describe("NIP-77 negentropySync (§7.5)", () => {
   it("resolves null when the relay does not speak NEG-* and short-circuits afterwards", async () => {
     const { conn, ws } = connect(false);
     const p = conn.negentropySync({ kinds: [1059] }, []);
-    ws.receive(["NOTICE", "unknown message type: NEG-OPEN"]);
+    ws.receive(["NOTICE", "ERROR: bad msg: negentropy disabled"]);
     expect(await p).toBeNull();
     expect(await conn.negentropySync({ kinds: [1059] }, [])).toBeNull();
     expect(ws.frames().filter((f) => f[0] === "NEG-OPEN")).toHaveLength(1);

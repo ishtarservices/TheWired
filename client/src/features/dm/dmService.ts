@@ -27,7 +27,7 @@ import type { DMFileMeta, DMReceiptStatus } from "@ishtarservices/shared-types";
 import { createGiftWrappedDM, createSelfWrap, buildRumor } from "@/lib/nostr/giftWrap";
 import { createGroupMessageWraps } from "@/lib/nostr/nip17Room";
 import { relayManager } from "@/lib/nostr/relayManager";
-import { getDMRelaysForPublish, getOwnDMRelays } from "@/lib/nostr/dmRelayList";
+import { getDMRelaysForPublish, getOwnDMRelays, fallbackDMRelays } from "@/lib/nostr/dmRelayList";
 import { buildMuteListEvent } from "@/lib/nostr/eventBuilder";
 import { signAndPublish } from "@/lib/nostr/publish";
 import { store } from "@/store";
@@ -119,10 +119,10 @@ async function publishRumor(
     for (const { to, wrap } of result.wraps) {
       if (to === myPubkey) {
         const own = getOwnDMRelays();
-        selfSent = relayManager.publish(wrap, own.length > 0 ? own : undefined);
+        selfSent = relayManager.publish(wrap, own.length > 0 ? own : fallbackDMRelays());
         selfWrapId = wrap.id;
       } else {
-        sent += relayManager.publish(wrap, await getDMRelaysForPublish(to));
+        sent += relayManager.publish(wrap, (await getDMRelaysForPublish(to)) ?? fallbackDMRelays());
       }
     }
     return { rumorId: result.rumorId, createdAt: nowSec(), selfWrapId, sent, selfSent };
@@ -133,13 +133,13 @@ async function publishRumor(
     kind: opts.kind ?? KIND_DM_MESSAGE,
   });
   const { wrap: recipientWrap } = await createGiftWrappedDM(content, peer, extraTags, sharedRumor, wrapOpts);
-  const sent = relayManager.publish(recipientWrap, await getDMRelaysForPublish(peer));
+  const sent = relayManager.publish(recipientWrap, (await getDMRelaysForPublish(peer)) ?? fallbackDMRelays());
   let selfSent = 0;
   let selfWrapId = "";
   if (!opts.noSelfWrap) {
     const { wrap: selfWrap } = await createSelfWrap(content, peer, extraTags, sharedRumor, wrapOpts);
     const own = getOwnDMRelays();
-    selfSent = relayManager.publish(selfWrap, own.length > 0 ? own : undefined);
+    selfSent = relayManager.publish(selfWrap, own.length > 0 ? own : fallbackDMRelays());
     selfWrapId = selfWrap.id;
   }
   return { rumorId: sharedRumor.id, createdAt: sharedRumor.created_at, selfWrapId, sent, selfSent };

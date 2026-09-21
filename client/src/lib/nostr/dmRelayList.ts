@@ -2,7 +2,7 @@ import type { NostrEvent } from "../../types/nostr";
 import { normalizeRelayUrl } from "./nip65";
 import { isSafeRelayUrl } from "../security/ssrfGuard";
 import { relayManager } from "./relayManager";
-import { BOOTSTRAP_RELAYS } from "./constants";
+import { BOOTSTRAP_RELAYS, APP_RELAY } from "./constants";
 import { store } from "../../store";
 
 /** Parse a kind:10050 DM relay list event into relay URLs */
@@ -103,9 +103,22 @@ export async function getDMRelaysForPublish(
   return relays;
 }
 
-/** Get the current user's own DM relay list from Redux state */
+/** Get the current user's own DM relay list from Redux state. Empty when the
+ *  user never published a kind 10050 — callers then use `fallbackDMRelays()`. */
 export function getOwnDMRelays(): string[] {
   return store.getState().identity.dmRelayList;
+}
+
+/**
+ * Where a gift wrap goes when the target has no kind-10050 list: every
+ * connected write relay PLUS the platform relay. The platform relay is the
+ * one our push pipeline reads and the one AUTH-gates wraps to their recipient
+ * (docs/DM_WIRE_CONTRACT.md §7); it must never be skipped just because it was
+ * dialed read-only earlier in the session.
+ */
+export function fallbackDMRelays(): string[] {
+  const writes = relayManager.getWriteRelays().map((c) => c.url);
+  return [...new Set([...writes, APP_RELAY])];
 }
 
 /** Clear the in-memory DM relay cache (call on logout) */
