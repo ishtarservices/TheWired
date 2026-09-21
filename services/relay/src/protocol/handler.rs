@@ -9,8 +9,24 @@ use crate::nostr::membership_gate::{
     distinct_h_tags, evaluate_publish_gate, PublishVerdict, SpaceMembership,
 };
 use crate::nostr::verify::verify_event;
+use crate::nostr::wrap_gate::{self, ReadCtx, WrapAuthGate};
 use crate::protocol::subscription::SubscriptionManager;
 use crate::server::AppState;
+
+/// NIP-77 frame size limit (bytes) for the relay side of a reconciliation.
+const NEG_FRAME_SIZE_LIMIT: u64 = 60_000;
+
+/// The read context of a connection: who it is, whether it may read every
+/// gift wrap (ingest role, or a gate mode other than `enforce`), and "now".
+pub fn read_ctx<'a>(state: &'a AppState, authed_pubkey: &'a Option<String>) -> ReadCtx<'a> {
+    let authed = authed_pubkey.as_deref();
+    let ingest = authed.is_some_and(|pk| state.config.is_ingest(pk));
+    ReadCtx {
+        authed,
+        serve_all_wraps: ingest || state.config.wrap_auth_gate != WrapAuthGate::Enforce,
+        now: wrap_gate::unix_now(),
+    }
+}
 
 /// Char-boundary-safe prefix for logging untrusted strings (#113). Slicing an
 /// unverified event's id/pubkey with `&s[..12]` panics on a short string or a
@@ -43,10 +59,14 @@ pub async fn handle_message(
     tracing::debug!(msg_type, "Received");
 
     match msg_type {
-        "EVENT" => handle_event(msg, state, broadcast_tx).await,
+        "EVENT" => handle_event(msg, state, broadcast_tx, authed_pubkey).await,
         "REQ" => handle_req(msg, state, subscriptions, authed_pubkey).await,
         "CLOSE" => handle_close(msg, subscriptions).await,
         "AUTH" => handle_auth(msg, state, authed_pubkey, space_memberships, auth_challenge).await,
+        // NIP-77 negentropy set reconciliation (docs/DM_WIRE_CONTRACT.md §7.5).
+        "NEG-OPEN" => handle_neg_open(msg, state, subscriptions, authed_pubkey).await,
+        "NEG-MSG" => handle_neg_msg(msg, subscriptions).await,
+        "NEG-CLOSE" => handle_neg_close(msg, subscriptions).await,
         _ => {
             tracing::debug!(msg_type, "Unknown message type");
             vec![format!(r#"["NOTICE","unknown message type: {msg_type}"]"#)]
@@ -104,11 +124,22 @@ async fn handle_event(
     msg: serde_json::Value,
     state: &Arc<AppState>,
     broadcast_tx: &broadcast::Sender<Event>,
+    authed_pubkey: &Option<String>,
 ) -> Vec<String> {
     let event: Event = match serde_json::from_value(msg.get(1).cloned().unwrap_or_default()) {
         Ok(e) => e,
         Err(_) => return vec![r#"["NOTICE","invalid event"]"#.to_string()],
     };
+
+    // NIP-40: an already-expired event is dropped on receipt.
+    if wrap_gate::is_expired(&event, wrap_gate::unix_now()) {
+        return vec![format!(r#"["OK","{}",false,"invalid: event expired"]"#, event.id)];
+    }
+
+    // NIP-17 self-wrap detection: a gift wrap published by a socket that is
+    // authenticated as the wrap's own recipient is the sender's copy. Recorded
+    // so the backend push planner can skip it (§7.3).
+    let self_published = wrap_gate::is_self_published(&event, authed_pubkey.as_deref());
 
     // Verify signature off the async runtime — schnorr verify + SHA-256 is
     // CPU-bound and would otherwise block the Tokio event loop (RELAY_OPTIMIZATIONS §3).
@@ -348,7 +379,7 @@ async fn handle_event(
     }
 
     // Store regular events
-    match state.pool.store_event(&event).await {
+    match state.pool.store_event_flagged(&event, self_published).await {
         Ok(true) => {
             tracing::debug!(
                 event_id = log_prefix(&event.id),
@@ -422,12 +453,32 @@ async fn handle_req(
         }
     }
 
+    // NIP-17: gift wraps are served only to their authenticated recipient
+    // (docs/DM_WIRE_CONTRACT.md §7.1). An anonymous REQ that explicitly asks
+    // for kind 1059 gets an `auth-required` CLOSED so the client AUTHs and
+    // retries; in `warn` mode we serve as before and log the would-be denial.
+    if authed_pubkey.is_none() && wrap_gate::filters_want_wraps(&filters) {
+        match state.config.wrap_auth_gate {
+            WrapAuthGate::Enforce => {
+                return vec![format!(
+                    r#"["CLOSED","{}","auth-required: gift wraps are served only to their recipient"]"#,
+                    sub_id
+                )];
+            }
+            WrapAuthGate::Warn => {
+                tracing::info!(sub_id, "wrap gate (warn): anonymous REQ for kind 1059 would be denied");
+            }
+            WrapAuthGate::Off => {}
+        }
+    }
+    let ctx = read_ctx(state, authed_pubkey);
+
     // Query stored events for each filter, merge with id-dedup, newest-first.
     let mut seen = HashSet::new();
     let mut merged: Vec<crate::nostr::event::Event> = Vec::new();
     for filter in &filters {
         let events = state.pool
-            .query_events(filter, authed_pubkey.as_deref())
+            .query_events_ctx(filter, &ctx)
             .await
             .unwrap_or_default();
         for e in events {
@@ -461,6 +512,124 @@ async fn handle_req(
 
     responses.push(format!(r#"["EOSE","{}"]"#, sub_id));
     responses
+}
+
+/// `["NEG-OPEN", <subId>, <filter>, <initialMessageHex>]` → the relay builds a
+/// sealed (created_at, id) vector for everything the filter matches under the
+/// connection's read context, answers the initiator's first frame and keeps
+/// the vector for follow-up NEG-MSGs.
+async fn handle_neg_open(
+    msg: serde_json::Value,
+    state: &Arc<AppState>,
+    subscriptions: &Arc<Mutex<SubscriptionManager>>,
+    authed_pubkey: &Option<String>,
+) -> Vec<String> {
+    let sub_id = match msg.get(1).and_then(|v| v.as_str()) {
+        Some(id) if !id.is_empty() && id.len() <= 64 => id.to_string(),
+        _ => return vec![r#"["NOTICE","NEG-OPEN: missing subscription ID"]"#.to_string()],
+    };
+    let filter: Filter = match msg.get(2).cloned().map(serde_json::from_value) {
+        Some(Ok(f)) => f,
+        _ => return vec![format!(r#"["NEG-ERR","{}","error: invalid filter"]"#, sub_id)],
+    };
+    let initial = match msg.get(3).and_then(|v| v.as_str()).map(hex::decode) {
+        Some(Ok(bytes)) if !bytes.is_empty() => bytes,
+        _ => return vec![format!(r#"["NEG-ERR","{}","error: invalid initial message"]"#, sub_id)],
+    };
+
+    if authed_pubkey.is_none()
+        && wrap_gate::filters_want_wraps(std::slice::from_ref(&filter))
+        && state.config.wrap_auth_gate == WrapAuthGate::Enforce
+    {
+        return vec![format!(
+            r#"["NEG-ERR","{}","blocked: auth-required: gift wraps are served only to their recipient"]"#,
+            sub_id
+        )];
+    }
+
+    let ctx = read_ctx(state, authed_pubkey);
+    let max = crate::db::event_store::MAX_NEG_IDS;
+    let rows = match state.pool.query_event_ids(&filter, &ctx, max).await {
+        Ok(rows) => rows,
+        Err(e) => {
+            tracing::error!(sub_id, error = %e, "NEG-OPEN query failed");
+            return vec![format!(r#"["NEG-ERR","{}","error: query failed"]"#, sub_id)];
+        }
+    };
+    if rows.len() as i64 > max {
+        return vec![format!(r#"["NEG-ERR","{}","blocked: too many records"]"#, sub_id)];
+    }
+
+    let mut storage = negentropy::NegentropyStorageVector::with_capacity(rows.len());
+    for (created_at, id) in &rows {
+        let Ok(bytes) = hex::decode(id) else { continue };
+        let Ok(id) = negentropy::Id::from_slice(&bytes) else { continue };
+        if storage.insert((*created_at).max(0) as u64, id).is_err() {
+            return vec![format!(r#"["NEG-ERR","{}","error: storage"]"#, sub_id)];
+        }
+    }
+    if storage.seal().is_err() {
+        return vec![format!(r#"["NEG-ERR","{}","error: storage"]"#, sub_id)];
+    }
+
+    let response = match reconcile_frame(&storage, &initial) {
+        Ok(bytes) => bytes,
+        Err(reason) => return vec![format!(r#"["NEG-ERR","{}","error: {reason}"]"#, sub_id)],
+    };
+
+    {
+        let mut subs = subscriptions.lock().await;
+        if let Err(msg) = subs.neg_open(sub_id.clone(), storage) {
+            return vec![format!(r#"["NEG-ERR","{}","blocked: {}"]"#, sub_id, msg)];
+        }
+    }
+    tracing::debug!(sub_id, records = rows.len(), "NEG-OPEN");
+    vec![format!(r#"["NEG-MSG","{}","{}"]"#, sub_id, hex::encode(response))]
+}
+
+/// `["NEG-MSG", <subId>, <hex>]` from the initiator → one reconciliation round.
+async fn handle_neg_msg(
+    msg: serde_json::Value,
+    subscriptions: &Arc<Mutex<SubscriptionManager>>,
+) -> Vec<String> {
+    let sub_id = match msg.get(1).and_then(|v| v.as_str()) {
+        Some(id) => id.to_string(),
+        None => return vec![r#"["NOTICE","NEG-MSG: missing subscription ID"]"#.to_string()],
+    };
+    let query = match msg.get(2).and_then(|v| v.as_str()).map(hex::decode) {
+        Some(Ok(bytes)) if !bytes.is_empty() => bytes,
+        _ => return vec![format!(r#"["NEG-ERR","{}","error: invalid message"]"#, sub_id)],
+    };
+    let subs = subscriptions.lock().await;
+    let Some(storage) = subs.neg_get(&sub_id) else {
+        return vec![format!(r#"["NEG-ERR","{}","closed: no such session"]"#, sub_id)];
+    };
+    match reconcile_frame(storage, &query) {
+        Ok(bytes) => vec![format!(r#"["NEG-MSG","{}","{}"]"#, sub_id, hex::encode(bytes))],
+        Err(reason) => vec![format!(r#"["NEG-ERR","{}","error: {reason}"]"#, sub_id)],
+    }
+}
+
+async fn handle_neg_close(
+    msg: serde_json::Value,
+    subscriptions: &Arc<Mutex<SubscriptionManager>>,
+) -> Vec<String> {
+    if let Some(sub_id) = msg.get(1).and_then(|v| v.as_str()) {
+        subscriptions.lock().await.neg_close(sub_id);
+    }
+    vec![]
+}
+
+/// Run one relay-side reconciliation round over a sealed storage vector. The
+/// crate keeps no cross-frame state on the responder (timestamps reset per
+/// frame), so a fresh `Negentropy` per frame is correct.
+fn reconcile_frame(
+    storage: &negentropy::NegentropyStorageVector,
+    query: &[u8],
+) -> Result<Vec<u8>, String> {
+    let mut neg = negentropy::Negentropy::borrowed(storage, NEG_FRAME_SIZE_LIMIT)
+        .map_err(|e| e.to_string())?;
+    neg.reconcile(query).map_err(|e| e.to_string())
 }
 
 async fn handle_close(

@@ -24,6 +24,7 @@
 use crate::nostr::event::Event;
 use crate::nostr::filter::Filter;
 use crate::nostr::membership_gate::SpaceMembership;
+use crate::nostr::wrap_gate::ReadCtx;
 use sqlx::PgPool;
 use std::collections::HashSet;
 
@@ -55,6 +56,63 @@ impl Db {
             Db::Pg(p) => event_store::store_event(p, event).await,
             #[cfg(feature = "embedded")]
             Db::Sqlite(p) => sqlite::store_event(p, event).await,
+        }
+    }
+
+    /// Store an event, recording the self-published gift-wrap flag
+    /// (docs/DM_WIRE_CONTRACT.md §7.3) and its NIP-40 expiration.
+    pub async fn store_event_flagged(&self, event: &Event, self_published: bool) -> anyhow::Result<bool> {
+        match self {
+            Db::Pg(p) => event_store::store_event_flagged(p, event, self_published).await,
+            #[cfg(feature = "embedded")]
+            Db::Sqlite(p) => sqlite::store_event_flagged(p, event, self_published).await,
+        }
+    }
+
+    /// Query events under a full read context (ingest role, gate mode, now).
+    pub async fn query_events_ctx(&self, filter: &Filter, ctx: &ReadCtx<'_>) -> anyhow::Result<Vec<Event>> {
+        match self {
+            Db::Pg(p) => event_store::query_events_ctx(p, filter, ctx).await,
+            #[cfg(feature = "embedded")]
+            Db::Sqlite(p) => sqlite::query_events_ctx(p, filter, ctx).await,
+        }
+    }
+
+    /// `(created_at, id)` pairs for NIP-77 reconciliation, oldest first, at
+    /// most `max + 1` rows.
+    pub async fn query_event_ids(&self, filter: &Filter, ctx: &ReadCtx<'_>, max: i64) -> anyhow::Result<Vec<(i64, String)>> {
+        match self {
+            Db::Pg(p) => event_store::query_event_ids(p, filter, ctx, max).await,
+            #[cfg(feature = "embedded")]
+            Db::Sqlite(p) => sqlite::query_event_ids(p, filter, ctx, max).await,
+        }
+    }
+
+    /// NIP-40 sweeper: rows removed.
+    pub async fn delete_expired(&self, now: i64) -> anyhow::Result<u64> {
+        match self {
+            Db::Pg(p) => event_store::delete_expired(p, now).await,
+            #[cfg(feature = "embedded")]
+            Db::Sqlite(p) => sqlite::delete_expired(p, now).await,
+        }
+    }
+
+    /// Gift-wrap retention by first-seen age (Postgres only; the embedded
+    /// relay stores no wraps).
+    pub async fn delete_wraps_older_than_days(&self, days: u32) -> anyhow::Result<u64> {
+        match self {
+            Db::Pg(p) => event_store::delete_wraps_older_than_days(p, days).await,
+            #[cfg(feature = "embedded")]
+            Db::Sqlite(_) => Ok(0),
+        }
+    }
+
+    /// Was this stored event a self-published gift wrap?
+    pub async fn is_self_published(&self, event_id: &str) -> anyhow::Result<bool> {
+        match self {
+            Db::Pg(p) => event_store::is_self_published(p, event_id).await,
+            #[cfg(feature = "embedded")]
+            Db::Sqlite(p) => sqlite::is_self_published(p, event_id).await,
         }
     }
 

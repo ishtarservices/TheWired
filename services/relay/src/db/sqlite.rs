@@ -15,6 +15,7 @@ use sqlx::{QueryBuilder, Sqlite, SqlitePool};
 
 use crate::nostr::event::Event;
 use crate::nostr::filter::Filter;
+use crate::nostr::wrap_gate::{event_expiration, ReadCtx, KIND_GIFT_WRAP};
 
 /// Hard cap on rows per query (matches the Postgres store / strfry).
 const MAX_QUERY_LIMIT: i64 = 500;
@@ -35,9 +36,12 @@ CREATE TABLE IF NOT EXISTS events (
     sig         TEXT NOT NULL,
     d_tag       TEXT,
     h_tag       TEXT,
-    visibility  TEXT
+    visibility  TEXT,
+    expires_at  INTEGER,
+    self_published INTEGER NOT NULL DEFAULT 0
 );
 CREATE INDEX IF NOT EXISTS idx_events_kind_created ON events (kind, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_events_expires_at   ON events (expires_at) WHERE expires_at IS NOT NULL;
 CREATE INDEX IF NOT EXISTS idx_events_pubkey_kind  ON events (pubkey, kind);
 CREATE INDEX IF NOT EXISTS idx_events_htag         ON events (h_tag) WHERE h_tag IS NOT NULL;
 CREATE INDEX IF NOT EXISTS idx_events_created      ON events (created_at DESC);
@@ -98,7 +102,38 @@ pub async fn connect(path: &str) -> anyhow::Result<SqlitePool> {
     let pool = SqlitePoolOptions::new().connect_with(opts).await?;
     sqlx::raw_sql(SCHEMA).execute(&pool).await?;
     backfill_event_tags(&pool).await?;
+    ensure_wire_v1_columns(&pool).await?;
     Ok(pool)
+}
+
+/// Databases created before the DM wire contract lack `expires_at` /
+/// `self_published` (CREATE TABLE IF NOT EXISTS won't add them). Add them
+/// once, gated on `user_version` 2.
+async fn ensure_wire_v1_columns(pool: &SqlitePool) -> anyhow::Result<()> {
+    let version: i64 = sqlx::query_scalar("PRAGMA user_version")
+        .fetch_one(pool)
+        .await
+        .unwrap_or(0);
+    if version >= 2 {
+        return Ok(());
+    }
+    let cols: Vec<(i64, String)> = sqlx::query_as("SELECT cid, name FROM pragma_table_info('events')")
+        .fetch_all(pool)
+        .await?;
+    let has = |n: &str| cols.iter().any(|(_, c)| c == n);
+    if !has("expires_at") {
+        sqlx::query("ALTER TABLE events ADD COLUMN expires_at INTEGER").execute(pool).await?;
+    }
+    if !has("self_published") {
+        sqlx::query("ALTER TABLE events ADD COLUMN self_published INTEGER NOT NULL DEFAULT 0")
+            .execute(pool)
+            .await?;
+    }
+    sqlx::query("CREATE INDEX IF NOT EXISTS idx_events_expires_at ON events (expires_at) WHERE expires_at IS NOT NULL")
+        .execute(pool)
+        .await?;
+    sqlx::query("PRAGMA user_version = 2").execute(pool).await?;
+    Ok(())
 }
 
 /// One-time backfill: older builds indexed only p/e tags into `event_tags`, so
@@ -137,6 +172,7 @@ pub async fn connect_memory() -> anyhow::Result<SqlitePool> {
         .await?;
     sqlx::raw_sql(SCHEMA).execute(&pool).await?;
     backfill_event_tags(&pool).await?;
+    ensure_wire_v1_columns(&pool).await?;
     Ok(pool)
 }
 
@@ -151,10 +187,21 @@ fn is_addressable(kind: i32) -> bool {
 /// Store an event, replacing older replaceable/addressable versions. Returns
 /// true if a new row was inserted (false on duplicate / superseded).
 pub async fn store_event(pool: &SqlitePool, event: &Event) -> anyhow::Result<bool> {
+    store_event_flagged(pool, event, false).await
+}
+
+/// Store an event, recording the self-published gift-wrap flag and its NIP-40
+/// expiration (docs/DM_WIRE_CONTRACT.md §7).
+pub async fn store_event_flagged(
+    pool: &SqlitePool,
+    event: &Event,
+    self_published: bool,
+) -> anyhow::Result<bool> {
     let d_tag = event.get_tag_value("d");
     let h_tag = event.get_tag_value("h");
     let visibility = event.get_tag_value("visibility");
     let tags_json = serde_json::to_string(&event.tags)?;
+    let expires_at = event_expiration(event);
 
     let mut tx = pool.begin().await?;
 
@@ -180,8 +227,8 @@ pub async fn store_event(pool: &SqlitePool, event: &Event) -> anyhow::Result<boo
     }
 
     let inserted = sqlx::query(
-        "INSERT OR IGNORE INTO events (id, pubkey, created_at, kind, tags, content, sig, d_tag, h_tag, visibility) \
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        "INSERT OR IGNORE INTO events (id, pubkey, created_at, kind, tags, content, sig, d_tag, h_tag, visibility, expires_at, self_published) \
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
     )
     .bind(&event.id)
     .bind(&event.pubkey)
@@ -193,6 +240,8 @@ pub async fn store_event(pool: &SqlitePool, event: &Event) -> anyhow::Result<boo
     .bind(&d_tag)
     .bind(&h_tag)
     .bind(&visibility)
+    .bind(expires_at)
+    .bind(self_published as i64)
     .execute(&mut *tx)
     .await?
     .rows_affected()
@@ -250,34 +299,22 @@ pub async fn query_events(
     filter: &Filter,
     authed_pubkey: Option<&str>,
 ) -> anyhow::Result<Vec<Event>> {
+    query_events_ctx(pool, filter, &ReadCtx::plain(authed_pubkey)).await
+}
+
+/// Query under a full read context (ingest role, gate mode, now).
+pub async fn query_events_ctx(
+    pool: &SqlitePool,
+    filter: &Filter,
+    ctx: &ReadCtx<'_>,
+) -> anyhow::Result<Vec<Event>> {
     if let Some(ref q) = filter.search {
-        return search_events(pool, q, filter.limit.unwrap_or(100), authed_pubkey).await;
+        return search_events_ctx(pool, q, filter.limit.unwrap_or(100), ctx).await;
     }
 
     let mut qb: QueryBuilder<Sqlite> =
         QueryBuilder::new("SELECT id, pubkey, created_at, kind, tags, content, sig FROM events WHERE 1 = 1");
-
-    push_in(&mut qb, "id", &filter.ids);
-    push_in(&mut qb, "pubkey", &filter.authors);
-    push_in_i32(&mut qb, "kind", &filter.kinds);
-    // `#h` matches ANY h tag on the event (multi-space events), via the
-    // event_tags child table rather than the first-h-only `h_tag` column.
-    push_tag_subquery(&mut qb, "h", &filter.h_tags);
-    push_in(&mut qb, "d_tag", &filter.d_tags);
-    push_tag_subquery(&mut qb, "p", &filter.p_tags);
-    push_tag_subquery(&mut qb, "e", &filter.e_tags);
-    for (name, values) in &filter.generic_tags {
-        push_tag_subquery(&mut qb, name, values);
-    }
-
-    if let Some(since) = filter.since {
-        qb.push(" AND created_at >= ").push_bind(since);
-    }
-    if let Some(until) = filter.until {
-        qb.push(" AND created_at <= ").push_bind(until);
-    }
-
-    push_visibility_gate(&mut qb, authed_pubkey);
+    push_filter_conditions(&mut qb, filter, ctx);
 
     // Clamp to [0, MAX] so a negative limit can't return the whole table (#70).
     let limit = filter.limit.unwrap_or(MAX_QUERY_LIMIT).clamp(0, MAX_QUERY_LIMIT);
@@ -287,10 +324,86 @@ pub async fn query_events(
     Ok(rows.into_iter().map(row_to_event).collect())
 }
 
+/// `(created_at, id)` pairs for NIP-77 reconciliation, oldest first, at most
+/// `max + 1` rows (the caller detects overflow). Search filters are not
+/// reconcilable.
+pub async fn query_event_ids(
+    pool: &SqlitePool,
+    filter: &Filter,
+    ctx: &ReadCtx<'_>,
+    max: i64,
+) -> anyhow::Result<Vec<(i64, String)>> {
+    if filter.search.is_some() {
+        return Ok(Vec::new());
+    }
+    let mut qb: QueryBuilder<Sqlite> =
+        QueryBuilder::new("SELECT created_at, id FROM events WHERE 1 = 1");
+    push_filter_conditions(&mut qb, filter, ctx);
+    qb.push(" ORDER BY created_at ASC, id ASC LIMIT ").push_bind(max.max(0) + 1);
+    let rows: Vec<(i64, String)> = qb.build_query_as().fetch_all(pool).await?;
+    Ok(rows)
+}
+
+/// NIP-40 sweeper.
+pub async fn delete_expired(pool: &SqlitePool, now: i64) -> anyhow::Result<u64> {
+    let r = sqlx::query("DELETE FROM events WHERE expires_at IS NOT NULL AND expires_at <= ?")
+        .bind(now)
+        .execute(pool)
+        .await?;
+    Ok(r.rows_affected())
+}
+
+pub async fn is_self_published(pool: &SqlitePool, event_id: &str) -> anyhow::Result<bool> {
+    let row: Option<(i64,)> = sqlx::query_as("SELECT self_published FROM events WHERE id = ?")
+        .bind(event_id)
+        .fetch_optional(pool)
+        .await?;
+    Ok(row.map(|r| r.0 != 0).unwrap_or(false))
+}
+
+/// The filter's own conditions + the visibility / gift-wrap / expiration gate.
+fn push_filter_conditions(qb: &mut QueryBuilder<Sqlite>, filter: &Filter, ctx: &ReadCtx<'_>) {
+    push_in(qb, "id", &filter.ids);
+    push_in(qb, "pubkey", &filter.authors);
+    push_in_i32(qb, "kind", &filter.kinds);
+    // `#h` matches ANY h tag on the event (multi-space events), via the
+    // event_tags child table rather than the first-h-only `h_tag` column.
+    push_tag_subquery(qb, "h", &filter.h_tags);
+    push_in(qb, "d_tag", &filter.d_tags);
+    push_tag_subquery(qb, "p", &filter.p_tags);
+    push_tag_subquery(qb, "e", &filter.e_tags);
+    for (name, values) in &filter.generic_tags {
+        push_tag_subquery(qb, name, values);
+    }
+
+    if let Some(since) = filter.since {
+        qb.push(" AND created_at >= ").push_bind(since);
+    }
+    if let Some(until) = filter.until {
+        qb.push(" AND created_at <= ").push_bind(until);
+    }
+
+    push_visibility_gate(qb, ctx);
+}
+
 /// Append the visibility/membership predicates to a query over the `events`
-/// table (or an aliased copy via `col_prefix`, e.g. "e.").
-fn push_visibility_gate(qb: &mut QueryBuilder<Sqlite>, authed_pubkey: Option<&str>) {
-    match authed_pubkey {
+/// table, plus the gift-wrap recipient gate and the NIP-40 expiration filter
+/// (docs/DM_WIRE_CONTRACT.md §7).
+fn push_visibility_gate(qb: &mut QueryBuilder<Sqlite>, ctx: &ReadCtx<'_>) {
+    qb.push(" AND (expires_at IS NULL OR expires_at > ").push_bind(ctx.now).push(")");
+    if !ctx.serve_all_wraps {
+        match ctx.authed {
+            Some(pk) => {
+                qb.push(format!(" AND (kind <> {KIND_GIFT_WRAP} OR id IN (SELECT event_id FROM event_tags WHERE tag_name = 'p' AND tag_value = "))
+                    .push_bind(pk.to_string())
+                    .push("))");
+            }
+            None => {
+                qb.push(format!(" AND kind <> {KIND_GIFT_WRAP}"));
+            }
+        }
+    }
+    match ctx.authed {
         Some(pk) => {
             // private/unlisted: author or p-tagged collaborator
             qb.push(" AND (visibility IS NULL OR pubkey = ")
@@ -358,12 +471,25 @@ pub async fn search_events(
     limit: i64,
     authed_pubkey: Option<&str>,
 ) -> anyhow::Result<Vec<Event>> {
+    search_events_ctx(pool, query, limit, &ReadCtx::plain(authed_pubkey)).await
+}
+
+/// NIP-50 search under a full read context: wraps never match, expired never served.
+pub async fn search_events_ctx(
+    pool: &SqlitePool,
+    query: &str,
+    limit: i64,
+    ctx: &ReadCtx<'_>,
+) -> anyhow::Result<Vec<Event>> {
     let mut qb: QueryBuilder<Sqlite> = QueryBuilder::new(
         "SELECT e.id, e.pubkey, e.created_at, e.kind, e.tags, e.content, e.sig \
          FROM events_fts f JOIN events e ON e.rowid = f.rowid WHERE events_fts MATCH ",
     );
     qb.push_bind(query.to_string());
-    match authed_pubkey {
+    qb.push(format!(" AND e.kind <> {KIND_GIFT_WRAP} AND (e.expires_at IS NULL OR e.expires_at > "))
+        .push_bind(ctx.now)
+        .push(")");
+    match ctx.authed {
         Some(pk) => {
             qb.push(" AND (e.visibility IS NULL OR e.pubkey = ")
                 .push_bind(pk.to_string())

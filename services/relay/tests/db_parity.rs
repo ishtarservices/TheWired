@@ -43,6 +43,16 @@ struct Obs {
     group_has_bob_after_remove: bool,
     existed_before_delete: bool,
     exists_after_delete: bool,
+    // --- DM wire contract §7: gift-wrap gate, self-wrap flag, NIP-40 ---
+    wrap_anon_count: usize,
+    wrap_recipient_count: usize,
+    wrap_stranger_count: usize,
+    wrap_ingest_count: usize,
+    wrap_self_published: bool,
+    wrap_ids_for_neg: usize,
+    expiring_visible_before: usize,
+    expiring_visible_after: usize,
+    expired_swept: u64,
 }
 
 /// Drive a full relay-native lifecycle through `db` and capture observations.
@@ -92,6 +102,34 @@ async fn exercise(db: &Db, alice: &TestIdentity, bob: &TestIdentity) -> Obs {
     db.delete_event(&note_a.id).await.unwrap();
     let exists_after_delete = db.get_event_by_id(&note_a.id).await.unwrap().is_some();
 
+    // --- gift wraps: served only to the authenticated recipient (or ingest) ---
+    use thewired_relay::nostr::wrap_gate::ReadCtx;
+    let ephemeral = TestIdentity::from_seed(9);
+    let wrap = sign_event(&ephemeral, 1059, vec![vec!["p".into(), bob.pubkey.clone()]], "cipher", 200);
+    db.store_event_flagged(&wrap, true).await.unwrap();
+    let wrap_filter = filt(serde_json::json!({ "kinds": [1059], "#p": [bob.pubkey] }));
+    let ctx = |authed: Option<&'static str>, all: bool| ReadCtx { authed, serve_all_wraps: all, now: 300 };
+    let bob_pk: &'static str = Box::leak(bob.pubkey.clone().into_boxed_str());
+    let carol_pk: &'static str = Box::leak(TestIdentity::from_seed(3).pubkey.into_boxed_str());
+    let wrap_anon_count = db.query_events_ctx(&wrap_filter, &ctx(None, false)).await.unwrap().len();
+    let wrap_recipient_count = db.query_events_ctx(&wrap_filter, &ctx(Some(bob_pk), false)).await.unwrap().len();
+    let wrap_stranger_count = db.query_events_ctx(&wrap_filter, &ctx(Some(carol_pk), false)).await.unwrap().len();
+    let wrap_ingest_count = db.query_events_ctx(&wrap_filter, &ctx(Some(carol_pk), true)).await.unwrap().len();
+    let wrap_self_published = db.is_self_published(&wrap.id).await.unwrap();
+    let wrap_ids_for_neg = db.query_event_ids(&wrap_filter, &ctx(Some(bob_pk), false), 100).await.unwrap().len();
+
+    // --- NIP-40: hidden once expired, then swept ---
+    let expiring = sign_event(alice, 1, vec![vec!["expiration".into(), "400".into()]], "brief", 102);
+    db.store_event(&expiring).await.unwrap();
+    let exp_filter = filt(serde_json::json!({ "ids": [expiring.id] }));
+    let expiring_visible_before = db.query_events_ctx(&exp_filter, &ctx(None, false)).await.unwrap().len();
+    let expiring_visible_after = db
+        .query_events_ctx(&exp_filter, &ReadCtx { authed: None, serve_all_wraps: false, now: 400 })
+        .await
+        .unwrap()
+        .len();
+    let expired_swept = db.delete_expired(400).await.unwrap();
+
     Obs {
         inserted_first,
         inserted_dup,
@@ -111,6 +149,15 @@ async fn exercise(db: &Db, alice: &TestIdentity, bob: &TestIdentity) -> Obs {
         group_has_bob_after_remove,
         existed_before_delete,
         exists_after_delete,
+        wrap_anon_count,
+        wrap_recipient_count,
+        wrap_stranger_count,
+        wrap_ingest_count,
+        wrap_self_published,
+        wrap_ids_for_neg,
+        expiring_visible_before,
+        expiring_visible_after,
+        expired_swept,
     }
 }
 
@@ -145,6 +192,15 @@ fn expected(alice: &TestIdentity, bob: &TestIdentity, note_a_id: &str, note_b_id
         group_has_bob_after_remove: false,
         existed_before_delete: true,
         exists_after_delete: false,
+        wrap_anon_count: 0,
+        wrap_recipient_count: 1,
+        wrap_stranger_count: 0,
+        wrap_ingest_count: 1,
+        wrap_self_published: true,
+        wrap_ids_for_neg: 1,
+        expiring_visible_before: 1,
+        expiring_visible_after: 0,
+        expired_swept: 1,
     }
 }
 

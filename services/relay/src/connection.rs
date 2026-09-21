@@ -9,6 +9,7 @@ use tokio::sync::broadcast;
 use tokio::sync::Mutex;
 
 use crate::nostr::event::Event;
+use crate::nostr::wrap_gate::{self, ReadCtx, WrapAuthGate};
 use crate::protocol::handler;
 use crate::protocol::nip42;
 use crate::server::AppState;
@@ -59,13 +60,11 @@ async fn maybe_refresh_memberships(
 /// Maximum incoming WebSocket message size (128 KiB)
 const MAX_MESSAGE_SIZE: usize = 128 * 1024;
 
-/// Per-connection message-rate cap for restricted (embedded) relays, which have
-/// no rate-limiting gateway in front of them. Generous enough never to bother a
-/// real client (30 msg/s sustained) but stops a flood from a public tunnel.
-const RATE_WINDOW: Duration = Duration::from_secs(10);
-const RATE_MAX_MSGS: u32 = 300;
-
-/// Visibility check for broadcast events (no per-broadcast DB query).
+/// Visibility check for broadcast events (no per-broadcast DB query), with
+/// the DM wire contract's gift-wrap gate and NIP-40 expiration applied:
+///   0. Expired events are never forwarded; a kind-1059 wrap goes only to
+///      its authenticated recipient (or the ingest role / non-enforcing gate).
+/// Then the ordinary rules:
 /// Order:
 ///   1. Public events (no visibility, no h-tag) → visible to everyone.
 ///   2. Unauthenticated clients → never see protected events.
@@ -76,11 +75,29 @@ const RATE_MAX_MSGS: u32 = 300;
 ///      `app.space_members`. Without this, members of a space never receive
 ///      live broadcasts of kind:9 from other members — only history via
 ///      REQ — so chat appears frozen until you switch and re-enter.
+#[cfg(test)]
 fn is_event_visible_to(
     event: &Event,
     authed_pubkey: &Option<String>,
     space_memberships: &HashSet<String>,
 ) -> bool {
+    let ctx = ReadCtx::plain(authed_pubkey.as_deref());
+    is_event_visible_to_ctx(event, &ctx, space_memberships)
+}
+
+fn is_event_visible_to_ctx(
+    event: &Event,
+    ctx: &ReadCtx<'_>,
+    space_memberships: &HashSet<String>,
+) -> bool {
+    if wrap_gate::is_expired(event, ctx.now) {
+        return false;
+    }
+    if !wrap_gate::wrap_visible(event, ctx) {
+        return false;
+    }
+    let authed_owned: Option<String> = ctx.authed.map(str::to_string);
+    let authed_pubkey = &authed_owned;
     let visibility = event.get_tag_value("visibility");
     let h_tags = event.get_tag_values("h");
 
@@ -118,7 +135,35 @@ pub async fn handle_connection(
     state: Arc<AppState>,
     mut broadcast_rx: broadcast::Receiver<Event>,
     addr: SocketAddr,
+    client_ip: std::net::IpAddr,
 ) {
+    // Per-IP connection cap (docs/DM_WIRE_CONTRACT.md §7.6). Counted on the
+    // proxy-resolved client IP; released on disconnect below.
+    let ip_cap = state.config.max_conns_per_ip;
+    if ip_cap > 0 {
+        let over = {
+            let mut m = state.ip_conns.lock().unwrap_or_else(|e| e.into_inner());
+            let n = m.entry(client_ip).or_insert(0);
+            if *n >= ip_cap {
+                true
+            } else {
+                *n += 1;
+                false
+            }
+        };
+        if over {
+            tracing::warn!(remote = %addr, client = %client_ip, "Connection cap reached for IP");
+            let (mut sender, _) = socket.split();
+            let _ = sender
+                .send(Message::Text(
+                    r#"["NOTICE","rate limited: too many connections from your address"]"#.into(),
+                ))
+                .await;
+            let _ = sender.close().await;
+            return;
+        }
+    }
+
     let conn_count = state.active_connections.fetch_add(1, Ordering::Relaxed) + 1;
     let connected_at = std::time::Instant::now();
     let mut events_received: u64 = 0;
@@ -139,7 +184,10 @@ pub async fn handle_connection(
     // Last time `space_memberships` was refreshed from the DB. AUTH populates
     // the cache and stamps this; lazy refresh in the broadcast path bumps it.
     let mut memberships_refreshed_at: Instant = Instant::now();
-    // Per-connection rate window (only enforced when `state.hosted_only`).
+    // Per-connection rate window — always on; nothing else limits WebSocket
+    // traffic (the Caddy proxy routes the relay around the gateway).
+    let rate_window = Duration::from_secs(state.config.rate_window_secs.max(1));
+    let rate_max_msgs = state.config.rate_max_msgs;
     let mut rate_window_start: Instant = Instant::now();
     let mut msgs_in_window: u32 = 0;
     let auth_challenge = nip42::generate_challenge();
@@ -162,16 +210,15 @@ pub async fn handle_connection(
                             let _ = sender.send(Message::Text(notice.into())).await;
                             continue;
                         }
-                        // Rate limit (restricted relays only — production sits
-                        // behind the gateway). Drop over-limit messages; warn once.
-                        if state.hosted_only {
-                            if rate_window_start.elapsed() >= RATE_WINDOW {
+                        // Rate limit. Drop over-limit messages; warn once per window.
+                        if rate_max_msgs > 0 {
+                            if rate_window_start.elapsed() >= rate_window {
                                 rate_window_start = Instant::now();
                                 msgs_in_window = 0;
                             }
                             msgs_in_window += 1;
-                            if msgs_in_window > RATE_MAX_MSGS {
-                                if msgs_in_window == RATE_MAX_MSGS + 1 {
+                            if msgs_in_window > rate_max_msgs {
+                                if msgs_in_window == rate_max_msgs + 1 {
                                     let _ = sender
                                         .send(Message::Text(
                                             r#"["NOTICE","rate limited: slow down"]"#.into(),
@@ -230,8 +277,17 @@ pub async fn handle_connection(
                         }
 
                         // Visibility check: don't send protected events to unauthorized clients
-                        if !is_event_visible_to(&event, &authed_pubkey, &space_memberships) {
+                        let ctx = handler::read_ctx(&state, &authed_pubkey);
+                        if !is_event_visible_to_ctx(&event, &ctx, &space_memberships) {
                             continue;
+                        }
+                        // Gate in `warn` mode: the wrap is being served to a
+                        // non-recipient; count it so we know when to enforce.
+                        if event.kind == wrap_gate::KIND_GIFT_WRAP
+                            && state.config.wrap_auth_gate == WrapAuthGate::Warn
+                            && !wrap_gate::wrap_visible(&event, &ReadCtx { serve_all_wraps: false, ..ctx })
+                        {
+                            tracing::info!(remote = %addr, "wrap gate (warn): live wrap would be denied");
                         }
 
                         let subs = subscriptions.lock().await;
@@ -259,6 +315,15 @@ pub async fn handle_connection(
     }
 
     state.active_connections.fetch_sub(1, Ordering::Relaxed);
+    if ip_cap > 0 {
+        let mut m = state.ip_conns.lock().unwrap_or_else(|e| e.into_inner());
+        if let Some(n) = m.get_mut(&client_ip) {
+            *n = n.saturating_sub(1);
+            if *n == 0 {
+                m.remove(&client_ip);
+            }
+        }
+    }
     tracing::info!(
         remote = %addr,
         duration_secs = connected_at.elapsed().as_secs(),
@@ -433,6 +498,29 @@ mod tests {
             "a just-stamped Instant must be considered fresh — \
              otherwise we'd refresh on every broadcast event after AUTH"
         );
+    }
+
+    /// DM wire contract §7.1: a gift wrap reaches only its authenticated
+    /// recipient — never anonymous sockets, never other authed users — unless
+    /// the connection holds the ingest role.
+    #[test]
+    fn gift_wrap_only_to_recipient_or_ingest() {
+        let evt = event_with(1059, "ephemeral", vec![vec!["p".into(), "bob".into()]]);
+        assert!(!is_event_visible_to(&evt, &None, &empty_set()));
+        assert!(is_event_visible_to(&evt, &Some("bob".into()), &empty_set()));
+        assert!(!is_event_visible_to(&evt, &Some("carol".into()), &empty_set()));
+        let ingest = ReadCtx { authed: Some("backend"), serve_all_wraps: true, now: 0 };
+        assert!(is_event_visible_to_ctx(&evt, &ingest, &empty_set()));
+    }
+
+    /// NIP-40: an expired event is never forwarded, even a public one.
+    #[test]
+    fn expired_events_are_never_broadcast() {
+        let evt = event_with(1, "alice", vec![vec!["expiration".into(), "100".into()]]);
+        let live = ReadCtx { authed: None, serve_all_wraps: false, now: 99 };
+        let dead = ReadCtx { authed: None, serve_all_wraps: false, now: 100 };
+        assert!(is_event_visible_to_ctx(&evt, &live, &empty_set()));
+        assert!(!is_event_visible_to_ctx(&evt, &dead, &empty_set()));
     }
 
     /// Visibility-tagged events without an h-tag still respect author / p-tag.

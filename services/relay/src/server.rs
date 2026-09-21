@@ -5,9 +5,11 @@ use axum::{
     routing::get,
     Json, Router,
 };
-use std::net::SocketAddr;
+use std::collections::HashMap;
+use std::net::{IpAddr, SocketAddr};
 use std::sync::atomic::AtomicUsize;
 use std::sync::Arc;
+use std::time::Duration;
 use tokio::sync::broadcast;
 use tower_http::cors::{AllowOrigin, CorsLayer};
 
@@ -33,6 +35,37 @@ pub struct AppState {
     pub hosted_only: bool,
     /// In `hosted_only` mode, the only pubkey allowed to create groups (9007).
     pub owner_pubkey: Option<String>,
+    /// Live connections per client IP (per-IP cap, `RELAY_MAX_CONNS_PER_IP`).
+    pub ip_conns: std::sync::Mutex<HashMap<IpAddr, usize>>,
+}
+
+/// NIP-40 sweep cadence.
+const SWEEP_INTERVAL: Duration = Duration::from_secs(300);
+
+/// Background task: delete expired events every [`SWEEP_INTERVAL`] and apply
+/// the gift-wrap retention policy (`RELAY_WRAP_RETENTION_DAYS`). The first
+/// sweep runs at boot.
+pub fn spawn_sweeper(state: Arc<AppState>) -> tokio::task::JoinHandle<()> {
+    tokio::spawn(async move {
+        let mut interval = tokio::time::interval(SWEEP_INTERVAL);
+        loop {
+            interval.tick().await;
+            let now = crate::nostr::wrap_gate::unix_now();
+            match state.pool.delete_expired(now).await {
+                Ok(n) if n > 0 => tracing::info!(removed = n, "Swept expired events (NIP-40)"),
+                Ok(_) => {}
+                Err(e) => tracing::warn!(error = %e, "Expiration sweep failed"),
+            }
+            let days = state.config.wrap_retention_days;
+            if days > 0 {
+                match state.pool.delete_wraps_older_than_days(days).await {
+                    Ok(n) if n > 0 => tracing::info!(removed = n, days, "Applied gift-wrap retention"),
+                    Ok(_) => {}
+                    Err(e) => tracing::warn!(error = %e, "Gift-wrap retention sweep failed"),
+                }
+            }
+        }
+    })
 }
 
 pub async fn run(config: Config, pool: Db) -> anyhow::Result<()> {
@@ -42,8 +75,26 @@ pub async fn run(config: Config, pool: Db) -> anyhow::Result<()> {
 
     let relay_identity = RelayIdentity::new(config.relay_secret_key.clone(), &config.rust_env);
 
-    let relay_url = std::env::var("RELAY_URL")
-        .unwrap_or_else(|_| format!("ws://localhost:{}", port));
+    let relay_url = match std::env::var("RELAY_URL") {
+        Ok(u) => u,
+        Err(_) => {
+            let fallback = format!("ws://localhost:{}", port);
+            if config.rust_env == "production" {
+                // Strict NIP-42 relay-tag matching is on in production; without
+                // the public URL every client AUTH fails (`relay.thewired.app`
+                // vs `127.0.0.1:7777`) and the DM inbox stays empty.
+                tracing::error!(
+                    fallback,
+                    "RELAY_URL is not set — NIP-42 AUTH will reject every client; set it to the public wss:// URL"
+                );
+            }
+            fallback
+        }
+    };
+    if !config.ingest_pubkeys.is_empty() {
+        tracing::info!(count = config.ingest_pubkeys.len(), "Ingest-role pubkeys configured");
+    }
+    tracing::info!(gate = ?config.wrap_auth_gate, "Gift-wrap AUTH gate mode");
 
     let state = Arc::new(AppState {
         pool,
@@ -52,10 +103,13 @@ pub async fn run(config: Config, pool: Db) -> anyhow::Result<()> {
         relay_identity,
         active_connections: AtomicUsize::new(0),
         relay_url,
-        // Production is a multi-tenant relay behind the rate-limiting gateway.
+        // Production is a multi-tenant relay; rate limits live in connection.rs.
         hosted_only: false,
         owner_pubkey: None,
+        ip_conns: std::sync::Mutex::new(HashMap::new()),
     });
+
+    let _sweeper = spawn_sweeper(state.clone());
 
     let listener = tokio::net::TcpListener::bind(format!("0.0.0.0:{}", port)).await?;
     tracing::info!("Relay listening on 0.0.0.0:{}", port);
@@ -97,6 +151,7 @@ pub struct EmbeddedRelay {
     pub lan_url: Option<String>,
     shutdown: Option<tokio::sync::oneshot::Sender<()>>,
     join: tokio::task::JoinHandle<()>,
+    sweeper: tokio::task::JoinHandle<()>,
 }
 
 #[cfg(feature = "embedded")]
@@ -119,6 +174,7 @@ impl EmbeddedRelay {
         if let Some(tx) = self.shutdown.take() {
             let _ = tx.send(());
         }
+        self.sweeper.abort();
         let _ = self.join.await;
     }
 }
@@ -177,6 +233,7 @@ pub async fn run_embedded(
         relay_description: "Embedded NIP-29 relay".to_string(),
         relay_secret_key: None,
         rust_env: "development".to_string(),
+        ..Config::default()
     };
 
     let state = Arc::new(AppState {
@@ -190,8 +247,10 @@ pub async fn run_embedded(
         // and only the owner may create them.
         hosted_only: true,
         owner_pubkey,
+        ip_conns: std::sync::Mutex::new(HashMap::new()),
     });
 
+    let sweeper = spawn_sweeper(state.clone());
     let (shutdown_tx, shutdown_rx) = tokio::sync::oneshot::channel::<()>();
     let join = tokio::spawn(async move {
         let server = axum::serve(
@@ -213,6 +272,7 @@ pub async fn run_embedded(
         lan_url,
         shutdown: Some(shutdown_tx),
         join,
+        sweeper,
     })
 }
 
@@ -336,6 +396,11 @@ async fn root_handler(
         return nip11_response(&state).into_response();
     }
 
+    // The client's IP for the per-IP connection cap: behind the Caddy proxy
+    // every socket arrives from the proxy, so trust the first hop of
+    // X-Forwarded-For only when RELAY_TRUST_PROXY is set.
+    let client_ip = client_ip_of(&req, addr, state.config.trust_proxy);
+
     // Otherwise, attempt WebSocket upgrade
     match WebSocketUpgrade::from_request(req, &*state).await {
         Ok(ws) => {
@@ -343,13 +408,30 @@ async fn root_handler(
             tracing::debug!(remote = %addr, "WebSocket upgrade");
             let resp: Response = ws
                 .on_upgrade(move |socket| {
-                    connection::handle_connection(socket, state, broadcast_rx, addr)
+                    connection::handle_connection(socket, state, broadcast_rx, addr, client_ip)
                 })
                 .into_response();
             resp
         }
         Err(_) => nip11_response(&state).into_response(),
     }
+}
+
+/// Resolve the client IP: the peer address, or the first `X-Forwarded-For`
+/// hop when the deployment trusts its proxy.
+fn client_ip_of(req: &Request, addr: SocketAddr, trust_proxy: bool) -> IpAddr {
+    if trust_proxy {
+        if let Some(ip) = req
+            .headers()
+            .get("x-forwarded-for")
+            .and_then(|v| v.to_str().ok())
+            .and_then(|v| v.split(',').next())
+            .and_then(|first| first.trim().parse::<IpAddr>().ok())
+        {
+            return ip;
+        }
+    }
+    addr.ip()
 }
 
 fn nip11_response(state: &AppState) -> impl IntoResponse {
@@ -360,7 +442,9 @@ fn nip11_response(state: &AppState) -> impl IntoResponse {
         // Clients MUST pin this as the expected author when reading group metadata,
         // otherwise any pubkey can forge a group's admin/member lists.
         "pubkey": state.relay_identity.pubkey,
-        "supported_nips": [1, 2, 9, 11, 29, 42, 50],
+        // 17/44/59: NIP-17 DMs with the kind-1059 recipient gate (§7.1);
+        // 40: expiration honoured + swept; 77: negentropy reconciliation.
+        "supported_nips": [1, 2, 9, 11, 17, 29, 40, 42, 44, 50, 59, 77],
         "software": "thewired-relay",
         "version": env!("CARGO_PKG_VERSION"),
         "limitation": {
@@ -368,9 +452,17 @@ fn nip11_response(state: &AppState) -> impl IntoResponse {
             // Must match the enforced cap in handler.rs (MAX_FILTERS) so clients
             // that respect NIP-11 don't build REQs the relay then rejects.
             "max_filters": 16,
+            "max_limit": 500,
             "max_event_tags": 2500,
-            "max_content_length": 102400
-        }
+            "max_content_length": 102400,
+            "max_message_length": 131072,
+            // AUTH is required only to read kind 1059, not for the relay as a whole.
+            "auth_required": false,
+            "restricted_writes": state.hosted_only
+        },
+        "retention": [
+            { "kinds": [1059], "time": if state.config.wrap_retention_days > 0 { serde_json::json!(state.config.wrap_retention_days as u64 * 86400) } else { serde_json::Value::Null } }
+        ]
     });
     (
         [(header::CONTENT_TYPE, "application/nostr+json")],
