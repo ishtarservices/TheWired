@@ -132,7 +132,7 @@ describe("push routes authz — device tokens and suppression", () => {
     expect(del.json().data.removed).toBe(false);
     expect(await pushService.devicesFor(LUNA.pubkey)).toHaveLength(1);
 
-    // MARCUS's suppression lands in his own set, never LUNA's.
+    // /push/suppress is a deprecated no-op: authenticated 200, no state.
     const sup = await server.inject({
       method: "POST",
       url: "/push/suppress",
@@ -140,8 +140,7 @@ describe("push routes authz — device tokens and suppression", () => {
       payload: { eventIds: [WRAP] },
     });
     expect(sup.statusCode).toBe(200);
-    expect(await pushService.isSuppressed(LUNA.pubkey, WRAP)).toBe(false);
-    expect(await pushService.isSuppressed(MARCUS.pubkey, WRAP)).toBe(true);
+    expect(sup.json().data.deprecated).toBe(true);
   });
 });
 

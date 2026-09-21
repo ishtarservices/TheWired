@@ -5,7 +5,7 @@
  *   phone that switched accounts without a clean logout must not keep
  *   pushing the previous user).
  * - DELETE /push/devices only removes a token the caller owns.
- * - POST /push/suppress is scoped to the caller's own pubkey.
+ * - POST /push/suppress is a deprecated, auth-required no-op.
  *
  * Harness TRUNCATEs app.* between tests → build state inline.
  * Needs Postgres `thewired_test` (pnpm dev:infra). Redis is ioredis-mock.
@@ -18,6 +18,7 @@ import { LUNA, MARCUS } from "../helpers/testUsers.js";
 import { db } from "../../src/db/connection.js";
 import { pushDevices } from "../../src/db/schema/notifications.js";
 import { pushService, MAX_DEVICES_PER_PUBKEY } from "../../src/services/pushService.js";
+import { getRedis } from "../../src/lib/redis.js";
 
 let server: FastifyInstance;
 const TOKEN = "ExponentPushToken[abc123_-XYZ]";
@@ -126,20 +127,12 @@ describe("DELETE /push/devices", () => {
   });
 });
 
-describe("POST /push/suppress", () => {
+describe("POST /push/suppress (deprecated no-op)", () => {
   const EVENT = "e".repeat(64);
 
-  it("records ids under the caller's own pubkey only", async () => {
+  it("still requires auth, answers 200 + deprecated, and records nothing", async () => {
     const anon = await server.inject({ method: "POST", url: "/push/suppress", payload: { eventIds: [EVENT] } });
     expect(anon.statusCode).toBe(401);
-
-    const bad = await server.inject({
-      method: "POST",
-      url: "/push/suppress",
-      headers: { "x-auth-pubkey": LUNA.pubkey },
-      payload: { eventIds: ["nope"] },
-    });
-    expect(bad.statusCode).toBe(400);
 
     const ok = await server.inject({
       method: "POST",
@@ -148,19 +141,9 @@ describe("POST /push/suppress", () => {
       payload: { eventIds: [EVENT] },
     });
     expect(ok.statusCode).toBe(200);
-    expect(await pushService.isSuppressed(LUNA.pubkey, EVENT)).toBe(true);
-    expect(await pushService.isSuppressed(MARCUS.pubkey, EVENT)).toBe(false);
-    expect(await pushService.isSuppressed(LUNA.pubkey, "f".repeat(64))).toBe(false);
-  });
-
-  it("caps the batch size", async () => {
-    const res = await server.inject({
-      method: "POST",
-      url: "/push/suppress",
-      headers: { "x-auth-pubkey": LUNA.pubkey },
-      payload: { eventIds: Array.from({ length: 21 }, (_, i) => i.toString(16).padStart(64, "0")) },
-    });
-    expect(res.statusCode).toBe(400);
+    expect(ok.json().data).toEqual({ success: true, deprecated: true });
+    // No Redis state: the relay flags self-wraps itself now.
+    expect(await getRedis().keys("notif:suppress:*")).toEqual([]);
   });
 });
 

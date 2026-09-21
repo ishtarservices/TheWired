@@ -131,29 +131,28 @@ describe("dispatchOnce", () => {
     expect((await rowsFor(LUNA.pubkey)).every((r) => r.sent && r.sentAt === null)).toBe(true);
   });
 
-  it("the badge counts pending and delivered rows, never suppressed ones", async () => {
+  it("the badge counts pending and delivered rows, never retired-undelivered ones", async () => {
     await device(LUNA.pubkey, TOKEN, new Date(Date.now() - 3600_000));
-    const wrapId = "d".repeat(64);
-    // A suppressed self-wrap dm (older, so its group dispatches first) plus a
-    // real reply.
+    // A row retired without delivery (sent = true, sent_at NULL — e.g. expired
+    // before dispatch) plus a real reply.
     await seed({
       type: "dm",
       title: "soot",
       body: "new message",
       collapseKey: `dm:${LUNA.pubkey}`,
-      data: JSON.stringify({ eventId: wrapId }),
+      data: JSON.stringify({ type: "dm", eventId: "d".repeat(64), relay: "wss://r" }),
       createdAt: new Date(Date.now() - 5000),
+      sent: true,
+      sentAt: null,
     });
     await seed({ type: "reply" });
-    await pushService.suppressEvents(LUNA.pubkey, [wrapId]);
 
     const { sender, sent } = fakeSender();
     const stats = await dispatchOnce({ sender });
-    expect(stats.suppressed).toBe(1);
     expect(stats.sent).toBe(1);
     expect(sent).toHaveLength(1);
     // Without the sent_at gate this would be 2: the dm row is newer than the
-    // device's last_seen_at but was deliberately never delivered.
+    // device's last_seen_at but was never delivered.
     expect(sent[0][0].badge).toBe(1);
   });
 
@@ -174,16 +173,34 @@ describe("dispatchOnce", () => {
     await getRedis().del(HOUSEKEEPING_KEY);
   });
 
-  it("drops a dm the recipient suppressed (their own self-wrap) at send time", async () => {
+  it("a dm push wakes the iOS extension: mutableContent + category + DMPushData, body still content-free", async () => {
     await device();
     const wrapId = "e".repeat(64);
-    await seed({ type: "dm", title: "soot", body: "new message", collapseKey: `dm:${LUNA.pubkey}`, data: JSON.stringify({ eventId: wrapId }) });
-    await pushService.suppressEvents(LUNA.pubkey, [wrapId]);
+    await seed({
+      type: "dm",
+      title: "soot",
+      body: "new message",
+      url: "soot://dm?segment=messages",
+      collapseKey: `dm:${LUNA.pubkey}`,
+      data: JSON.stringify({ type: "dm", eventId: wrapId, relay: "wss://relay.test" }),
+    });
     const { sender, sent } = fakeSender();
     const stats = await dispatchOnce({ sender });
-    expect(stats.suppressed).toBe(1);
-    expect(sent).toHaveLength(0);
-    expect((await rowsFor(LUNA.pubkey))[0].sent).toBe(true);
+    expect(stats.sent).toBe(1);
+    expect(sent[0][0]).toMatchObject({
+      title: "soot",
+      body: "new message",
+      channelId: "dms",
+      mutableContent: true,
+      categoryId: "dm",
+      data: { type: "dm", url: "soot://dm?segment=messages", eventId: wrapId, relay: "wss://relay.test" },
+    });
+    // Non-dm pushes never carry the extension flags.
+    await seed({ type: "reply" });
+    const second = fakeSender();
+    await dispatchOnce({ sender: second.sender });
+    expect(second.sent[0][0].mutableContent).toBeUndefined();
+    expect(second.sent[0][0].categoryId).toBeUndefined();
   });
 
   it("deletes a device on DeviceNotRegistered and still marks the row sent", async () => {

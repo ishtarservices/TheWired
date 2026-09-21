@@ -105,14 +105,13 @@ export interface DispatchDeps {
 interface DispatchStats {
   sent: number;
   expired: number;
-  suppressed: number;
   pruned: number;
 }
 
 /** One dispatcher pass. Exported so tests drive it with a fake sender. */
 export async function dispatchOnce(deps: DispatchDeps): Promise<DispatchStats> {
   const now = deps.now ?? Date.now;
-  const stats: DispatchStats = { sent: 0, expired: 0, suppressed: 0, pruned: 0 };
+  const stats: DispatchStats = { sent: 0, expired: 0, pruned: 0 };
 
   const pending = await db
     .select()
@@ -156,25 +155,10 @@ export async function dispatchOnce(deps: DispatchDeps): Promise<DispatchStats> {
   for (const rows of groups.values()) {
     const pubkey = rows[0].pubkey;
 
-    // 3. Client-declared suppression (the DM self-wrap), checked at send time
-    //    so the ingest-before-suppress race is closed.
-    let group = rows;
-    if (rows[0].type === "dm") {
-      const kept: QueueRow[] = [];
-      const dropped: string[] = [];
-      for (const row of rows) {
-        const eventId = parseData(row)?.eventId;
-        if (typeof eventId === "string" && (await pushService.isSuppressed(pubkey, eventId))) {
-          dropped.push(row.id);
-        } else {
-          kept.push(row);
-        }
-      }
-      await markSent(dropped, false);
-      stats.suppressed += dropped.length;
-      if (kept.length === 0) continue;
-      group = kept;
-    }
+    // 3. (Self-wrap suppression used to live here as a client-declared Redis
+    //    set. The relay now flags self-published wraps at ingest and the
+    //    emitter never queues them — docs/DM_WIRE_CONTRACT.md §7.3.)
+    const group = rows;
 
     const ids = group.map((r) => r.id);
     const folded = collapseGroup(group);
@@ -235,16 +219,22 @@ export async function dispatchOnce(deps: DispatchDeps): Promise<DispatchStats> {
               or(eq(notificationQueue.sent, false), isNotNull(notificationQueue.sentAt)),
             ),
           );
+        const isDm = folded.type === "dm";
+        // DM data carries DMPushData (eventId + relay) so the iOS Notification
+        // Service Extension can fetch + decrypt on device; mutableContent wakes
+        // it (docs/DM_WIRE_CONTRACT.md §8).
+        const newestData = isDm ? (parseData(group[group.length - 1]) ?? {}) : {};
         messages.push({
           to: device.token,
           title: folded.title,
           body: folded.body,
-          data: { type: folded.type, url: folded.url ?? undefined },
+          data: { ...newestData, type: folded.type, url: folded.url ?? undefined },
           sound: "default",
           badge: Math.max(1, Number(count) || 0),
           priority: "high",
           ttl: PUSH_TTL_SEC,
           channelId: channelFor(folded.type),
+          ...(isDm ? { mutableContent: true, categoryId: "dm" } : {}),
         });
       }
       try {
@@ -350,9 +340,9 @@ export function startNotificationDispatcher(): { stop: () => void } {
     initialDelayMs: 5000,
     task: async () => {
       const stats = await dispatchOnce({ sender });
-      if (stats.sent || stats.expired || stats.suppressed || stats.pruned) {
+      if (stats.sent || stats.expired || stats.pruned) {
         console.log(
-          `[notifications] sent=${stats.sent} expired=${stats.expired} suppressed=${stats.suppressed} pruned=${stats.pruned}`,
+          `[notifications] sent=${stats.sent} expired=${stats.expired} pruned=${stats.pruned}`,
         );
       }
       await housekeeping().catch(() => {});

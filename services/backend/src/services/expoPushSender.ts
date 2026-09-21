@@ -31,6 +31,11 @@ export interface ExpoPushMessage {
   priority?: "default" | "normal" | "high";
   ttl?: number;
   channelId?: ExpoChannel;
+  /** iOS: let a Notification Service Extension rewrite the content. */
+  mutableContent?: boolean;
+  /** Notification category (interactive actions / NSE routing). */
+  categoryId?: string;
+  subtitle?: string;
 }
 
 export interface ExpoTicket {

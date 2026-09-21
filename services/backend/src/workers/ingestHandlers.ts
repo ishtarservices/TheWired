@@ -1,3 +1,4 @@
+import { config } from "../config.js";
 import { db } from "../db/connection.js";
 import { profileCacheService } from "../services/profileCacheService.js";
 import { spaceMembers } from "../db/schema/members.js";
@@ -302,6 +303,7 @@ async function collectPlanDeps(event: NostrEvent): Promise<PlanDeps> {
   }
 
   return {
+    publicRelayUrl: config.publicRelayUrl,
     parentAuthorOf: (id) => (id === referencedId ? referenced?.pubkey : undefined),
     notePreviewOf: (id) => (id === referencedId && referenced?.is_public ? referenced.content : undefined),
     displayName: (pk) => names.get(pk) ?? `${pk.slice(0, 8)}…`,
@@ -310,10 +312,28 @@ async function collectPlanDeps(event: NostrEvent): Promise<PlanDeps> {
   };
 }
 
+/** Was this gift wrap published by its own recipient (the sender's self-wrap)?
+ *  The relay records it at ingest from the NIP-42 identity of the publishing
+ *  socket (docs/DM_WIRE_CONTRACT.md §7.3) — replaces the client-declared
+ *  POST /push/suppress, which taught the server per-message authorship.
+ *  Degrades to "not self" so a schema hiccup means one extra push, never a
+ *  missed one. */
+export async function isSelfPublishedWrap(eventId: string): Promise<boolean> {
+  try {
+    const rows = (await db.execute(
+      sql`SELECT self_published FROM relay.events WHERE id = ${eventId} LIMIT 1`,
+    )) as unknown as Array<{ self_published: boolean | null }>;
+    return rows[0]?.self_published === true;
+  } catch {
+    return false;
+  }
+}
+
 /** Plan + enqueue pushes for one ingested event. Never throws into ingest. */
 export async function emitNotifications(event: NostrEvent, ctx: IngestContext): Promise<void> {
   if (!ctx.isOwnRelay || !NOTIFYING_KINDS.has(event.kind)) return;
   try {
+    if (event.kind === KIND_GIFT_WRAP && (await isSelfPublishedWrap(event.id))) return;
     const deps = await collectPlanDeps(event);
     const intents = planNotifications(event, ctx, deps);
     for (const intent of intents) {

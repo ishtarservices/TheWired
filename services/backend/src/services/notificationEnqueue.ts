@@ -26,8 +26,8 @@ export const DM_RATE_WINDOW_SEC = 120;
 export const RELEASE_DEDUPE_SEC = 86_400;
 /** The wraps REQ looks back 2 days on every (re)connect (relayConnectionManager
  *  WRAP_LOOKBACK_SEC), so each wrap replays; one push per wrap id, ever. Must
- *  outlive the lookback — and the 1h suppress TTL, so a replayed self-wrap
- *  can't buzz its own sender. */
+ *  outlive the lookback. (Self-wraps never reach the queue: the relay flags
+ *  them and the emitter skips them.) */
 export const WRAP_SEEN_SEC = 3 * 86_400;
 
 type Prefs = typeof notificationPreferences.$inferSelect;

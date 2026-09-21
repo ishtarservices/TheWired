@@ -76,6 +76,16 @@ services:
       RELAY_PORT: 7777
       RELAY_NAME: ${RELAY_NAME:-The Wired Relay}
       RELAY_SECRET_KEY: ${RELAY_SECRET_KEY:?Set RELAY_SECRET_KEY in .env}
+      # The PUBLIC wss:// URL clients dial — strict NIP-42 relay-tag matching
+      # compares against this; unset it and every AUTH fails.
+      RELAY_URL: ${PUBLIC_RELAY_URL:?Set PUBLIC_RELAY_URL in .env}
+      # DM wire contract v1 (docs/DM_WIRE_CONTRACT.md §7): ingest-role pubkeys
+      # (the backend's INGEST_SECRET_KEY pubkey), the kind-1059 AUTH gate mode
+      # (warn for the first release, then enforce), proxy trust for per-IP caps.
+      RELAY_INGEST_PUBKEYS: ${RELAY_INGEST_PUBKEYS:-}
+      RELAY_WRAP_AUTH_GATE: ${RELAY_WRAP_AUTH_GATE:-warn}
+      RELAY_WRAP_RETENTION_DAYS: ${RELAY_WRAP_RETENTION_DAYS:-0}
+      RELAY_TRUST_PROXY: "1"
       RUST_ENV: production
       RUST_LOG: ${RUST_LOG:-info,thewired_relay=info}
       LOG_FORMAT: json
@@ -105,6 +115,10 @@ services:
       MEILISEARCH_URL: http://meilisearch:7700
       MEILISEARCH_KEY: ${MEILI_MASTER_KEY:?err}
       RELAY_URL: ws://relay:7777
+      # Public relay URL (for NIP-42 AUTH relay tags + DM push payloads) and
+      # the ingest-role key whose pubkey the relay lists in RELAY_INGEST_PUBKEYS.
+      PUBLIC_RELAY_URL: ${PUBLIC_RELAY_URL:?Set PUBLIC_RELAY_URL in .env}
+      INGEST_SECRET_KEY: ${INGEST_SECRET_KEY:-}
       PORT: 3002
       NODE_ENV: production
       LOG_LEVEL: info
