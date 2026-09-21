@@ -89,18 +89,34 @@ export function DMConversation({ partnerPubkey, onBack }: DMConversationProps) {
   // Read receipts (kind-20015): once per incoming rumor while this
   // conversation is open and the window is focused.
   const receiptedRef = useRef<Set<string>>(new Set());
-  useEffect(() => {
-    receiptedRef.current = new Set();
-  }, [partnerPubkey]);
+  const receiptInFlightRef = useRef<Set<string>>(new Set());
+  const receiptPartnerRef = useRef(partnerPubkey);
   useEffect(() => {
     if (typeof document !== "undefined" && document.visibilityState === "hidden") return;
+    // Reset only when the conversation actually changes (not on every effect
+    // run — StrictMode replays effects, which must not clear the in-flight set).
+    if (receiptPartnerRef.current !== partnerPubkey) {
+      receiptPartnerRef.current = partnerPubkey;
+      receiptedRef.current = new Set();
+      receiptInFlightRef.current = new Set();
+    }
     const fresh = messages
-      .filter((m) => m.senderPubkey !== myPubkey && m.rumorId && !receiptedRef.current.has(m.rumorId))
+      .filter(
+        (m) =>
+          m.senderPubkey !== myPubkey &&
+          m.rumorId &&
+          !receiptedRef.current.has(m.rumorId) &&
+          !receiptInFlightRef.current.has(m.rumorId),
+      )
       .map((m) => m.rumorId!);
     if (fresh.length === 0) return;
     // Mark as receipted only once a receipt actually went out: a peer who
-    // becomes a friend later (or a toggle flipped on) still gets one.
+    // becomes a friend later (or a toggle flipped on) still gets one. The
+    // in-flight set stops a re-render (or StrictMode's double effect) from
+    // publishing the same receipt twice while the first is still signing.
+    for (const id of fresh) receiptInFlightRef.current.add(id);
     void sendReceipt(partnerPubkey, "read", fresh).then((sent) => {
+      for (const id of fresh) receiptInFlightRef.current.delete(id);
       if (sent) for (const id of fresh) receiptedRef.current.add(id);
     });
   }, [messages, partnerPubkey, myPubkey, friends]);

@@ -106,6 +106,9 @@ export const DMMessage = memo(function DMMessage({
     (Math.floor(Date.now() / 1000) - message.createdAt) <= DM_EDIT_WINDOW_SECONDS;
   const readCount = message.readBy?.length ?? 0;
   const deliveredCount = message.deliveredTo?.length ?? 0;
+  // Receipt / sync glyphs render even inside a grouped run (the time does not),
+  // otherwise a read mark on the last message of a run is invisible.
+  const hasStatusGlyph = isMe && (!!message.syncWarning || readCount > 0 || deliveredCount > 0);
 
   // Deleted message placeholder
   if (message.isDeleted) {
@@ -208,11 +211,11 @@ export const DMMessage = memo(function DMMessage({
           onToggle={canReact ? handlePillToggle : undefined}
           className={`mt-1 ${isMe ? "justify-end" : ""}`}
         />
-        {!isGrouped && (
+        {(!isGrouped || hasStatusGlyph) && (
           <div
             className={`mt-0.5 flex items-center gap-1 text-[10px] text-faint ${isMe ? "justify-end" : "justify-start"}`}
           >
-            <span>{timeAgo}</span>
+            {!isGrouped && <span>{timeAgo}</span>}
             {message.editedContent && (
               <span className="italic">(edited)</span>
             )}
