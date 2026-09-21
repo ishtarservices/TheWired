@@ -97,7 +97,8 @@ describe("groupSubscriptions — bg chat sub collapse", () => {
 
     expect([...h1.filters[0]["#h"]].sort()).toEqual(["A", "B"]);
     expect(h2.filters[0]["#h"]).toEqual(["C"]);
-    expect(h1.filters[0].kinds).toEqual([9, 1068, 5, 9005]);
+    // kind:7 rides along so chat reactions are delivered (mobile wire contract).
+    expect(h1.filters[0].kinds).toEqual([7, 9, 1068, 5, 9005]);
   });
 
   it("collapses many spaces on one host into a single subscription", () => {

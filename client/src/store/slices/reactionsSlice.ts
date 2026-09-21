@@ -95,23 +95,72 @@ export function selectMyReaction(
   return undefined;
 }
 
+/** Event ids of the current user's own kind:7 reactions on a target — the ids an
+ *  un-react (kind:5) must reference. `content` narrows to one emoji (chat pill
+ *  toggle); omitted, every own reaction on the target is returned (notes unlike). */
+export function selectMyReactionEventIds(
+  state: WithReactions,
+  targetId: string,
+  myPubkey: string | null,
+  content?: string,
+): string[] {
+  if (!myPubkey) return [];
+  const t = state.reactions.byTarget[targetId];
+  if (!t) return [];
+  const wanted = content === undefined ? undefined : content || "+";
+  const ids: string[] = [];
+  for (const id of Object.keys(t)) {
+    const entry = t[id];
+    if (entry.reactor !== myPubkey) continue;
+    if (wanted !== undefined && entry.content !== wanted) continue;
+    ids.push(id);
+  }
+  return ids;
+}
+
+/** Every known kind:7 event id on any of `targetIds`. An un-react is a kind:5
+ *  that e-tags the *reaction* id (not the note), so engagement subscriptions
+ *  union these with the note ids to catch retractions. */
+export function selectReactionEventIdsFor(
+  state: WithReactions,
+  targetIds: readonly string[],
+): string[] {
+  const out: string[] = [];
+  for (const targetId of targetIds) {
+    const t = state.reactions.byTarget[targetId];
+    if (t) out.push(...Object.keys(t));
+  }
+  return out;
+}
+
+export interface ReactionPill {
+  content: string;
+  count: number;
+  /** True when `myPubkey` (if given) is among this emoji's reactors. */
+  mine: boolean;
+}
+
 /** Group a target's reactions into emoji-pill counts. Pure helper so a component
  *  can subscribe to the (stable) map reference and memoize the grouping. */
 export function aggregateReactions(
   map: Record<string, ReactionEntry> | undefined,
-): { content: string; count: number }[] {
+  myPubkey?: string | null,
+): ReactionPill[] {
   if (!map) return [];
-  const grouped: Record<string, number> = {};
+  const grouped: Record<string, { count: number; mine: boolean }> = {};
   for (const id of Object.keys(map)) {
-    const c = map[id].content;
-    grouped[c] = (grouped[c] ?? 0) + 1;
+    const { content, reactor } = map[id];
+    const g = grouped[content] ?? (grouped[content] = { count: 0, mine: false });
+    g.count += 1;
+    if (myPubkey && reactor === myPubkey) g.mine = true;
   }
-  return Object.entries(grouped).map(([content, count]) => ({ content, count }));
+  return Object.entries(grouped).map(([content, { count, mine }]) => ({ content, count, mine }));
 }
 
 export function selectReactionAggregate(
   state: WithReactions,
   targetId: string,
-): { content: string; count: number }[] {
-  return aggregateReactions(state.reactions.byTarget[targetId]);
+  myPubkey?: string | null,
+): ReactionPill[] {
+  return aggregateReactions(state.reactions.byTarget[targetId], myPubkey);
 }

@@ -15,7 +15,7 @@ import { addZap, addZaps, type ZapInput } from "../../store/slices/zapsSlice";
 import { addPollVote, addPollVotes, removeVoteByEventId, removePoll, type PollVoteInput } from "../../store/slices/pollsSlice";
 import { getSatoshisAmountFromBolt11 } from "nostr-tools/nip57";
 import { addTrack, indexTrackByArtist, indexTrackByAlbum, indexTrackByArtistName, indexAlbumByArtist, indexAlbumByArtistName, addAlbum, addPlaylist, addAnnotation, removeAnnotation, removeTrack, removeAlbum, removePlaylist } from "../../store/slices/musicSlice";
-import { addDMMessage, editDMMessage, remoteDeleteDMMessage } from "../../store/slices/dmSlice";
+import { addDMMessage, editDMMessage, remoteDeleteDMMessage, reactDMMessage, removeDMReaction } from "../../store/slices/dmSlice";
 import { parseTrackEvent, parsePrivateTrackEvent } from "../../features/music/trackParser";
 import { parseAlbumEvent, parsePrivateAlbumEvent } from "../../features/music/albumParser";
 import { parsePlaylistEvent } from "../../features/music/playlistParser";
@@ -462,6 +462,12 @@ async function processIncomingEvent(
     if (authorized && event.kind === EVENT_KINDS.CHAT_MESSAGE) {
       dispatch(hideMessage(event.id));
       deps.persistence.deleteEvent(event.id).catch(() => {});
+      return;
+    }
+    // An un-react (kind:5 for a kind:7) that arrived before the reaction it
+    // retracts — relays don't order across kinds. Drop the reaction instead of
+    // folding it into the aggregate, or the pill would reappear.
+    if (authorized && event.kind === EVENT_KINDS.REACTION) {
       return;
     }
     // Otherwise (unauthorized deleter, or a kind we don't pre-suppress) fall
@@ -1229,6 +1235,19 @@ async function handleGiftWrap(event: NostrEvent): Promise<void> {
       handleDMDeleteWrap(dm, myPubkey);
       return;
     }
+    if (typeTag === "dm_reaction") {
+      handleDMReactionWrap(dm, myPubkey, false);
+      return;
+    }
+    if (typeTag === "dm_reaction_remove") {
+      handleDMReactionWrap(dm, myPubkey, true);
+      return;
+    }
+    // Unknown typed rumor from a newer client — drop rather than render it as a
+    // chat bubble (mirrors the mobile client's leniency).
+    if (typeTag !== undefined) {
+      return;
+    }
 
     const isOwnMessage = dm.sender === myPubkey;
 
@@ -1251,7 +1270,8 @@ async function handleGiftWrap(event: NostrEvent): Promise<void> {
     // Only the seal and gift wrap timestamps are randomized for privacy.
     const displayTimestamp = dm.createdAt;
 
-    // Extract reply reference from q-tag (if this is a reply)
+    // Reply anchor: the q-tag value — the target's rumorId from current
+    // clients, a wrapId from older ones. Resolved rumorId-first at render time.
     const replyToWrapId = dm.tags.find((t) => t[0] === "q")?.[1];
 
     // Extract NIP-30 emoji tags for custom emoji rendering
@@ -1550,6 +1570,33 @@ function handleDMEditWrap(
       wrapId: dm.wrapId,
     }),
   );
+}
+
+/** Handle an incoming DM reaction / reaction-removal from a gift wrap. The
+ *  reactor is the rumor's author (seal-verified); the anchor is the target's
+ *  rumorId; the emoji is the rumor content. */
+function handleDMReactionWrap(
+  dm: { sender: string; content: string; tags: string[][]; wrapId: string },
+  myPubkey: string,
+  remove: boolean,
+): void {
+  const isOwnMessage = dm.sender === myPubkey;
+  const partnerPubkey = isOwnMessage
+    ? dm.tags.find((t) => t[0] === "p" && t[1] !== myPubkey)?.[1] ?? dm.sender
+    : dm.sender;
+
+  const targetRumorId = dm.tags.find((t) => t[0] === "e")?.[1];
+  const emoji = dm.content.trim();
+  if (!targetRumorId || !emoji || !HEX64_RE.test(partnerPubkey)) return;
+
+  const payload = {
+    partnerPubkey,
+    rumorId: targetRumorId,
+    emoji,
+    reactorPubkey: dm.sender,
+    wrapId: dm.wrapId,
+  };
+  dispatch(remove ? removeDMReaction(payload) : reactDMMessage(payload));
 }
 
 /** Handle an incoming DM delete from a gift wrap */

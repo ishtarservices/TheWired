@@ -6,6 +6,7 @@ import {
   buildPinnedNotesEvent,
   buildReply,
   buildReaction,
+  buildReactionDeletion,
   buildRepost,
   buildQuoteNote,
   buildDeletionEvent,
@@ -284,6 +285,43 @@ describe("buildReaction", () => {
     expect(ev.tags).toContainEqual([
       "emoji", "fire", "https://example.com/fire.png",
     ]);
+  });
+
+  it("normalizes empty content to + (NIP-25 / mobile contract)", () => {
+    expect(buildReaction(PK, target, "").content).toBe("+");
+  });
+
+  it("has no h tag unless a space id is given", () => {
+    expect(buildReaction(PK, target, "👍").tags.some((t) => t[0] === "h")).toBe(false);
+  });
+
+  it("h-tags chat reactions with the space id", () => {
+    const chatTarget = { eventId: "msg1", pubkey: PK2, kind: 9 };
+    const ev = buildReaction(PK, chatTarget, "👍", undefined, "space-1");
+    expect(ev.tags).toEqual([
+      ["e", "msg1"],
+      ["p", PK2],
+      ["k", "9"],
+      ["h", "space-1"],
+    ]);
+  });
+});
+
+// ─── buildReactionDeletion ───────────────────────────────
+
+describe("buildReactionDeletion", () => {
+  it("builds a kind:5 that e-tags ONLY the reaction id with k=7", () => {
+    const ev = buildReactionDeletion(PK, "rx1");
+    expect(ev.kind).toBe(5);
+    expect(ev.content).toBe("");
+    expect(ev.tags).toEqual([["e", "rx1"], ["k", "7"]]);
+  });
+
+  it("appends an h tag for chat reactions", () => {
+    const ev = buildReactionDeletion(PK, "rx1", "space-1");
+    expect(ev.tags).toEqual([["e", "rx1"], ["k", "7"], ["h", "space-1"]]);
+    // Never the target message — only the reaction event id.
+    expect(ev.tags.filter((t) => t[0] === "e")).toHaveLength(1);
   });
 });
 

@@ -5,7 +5,9 @@ import {
   useRef,
   type ReactNode,
 } from "react";
+import { store } from "../../store";
 import { subscriptionManager } from "../../lib/nostr/subscriptionManager";
+import { selectReactionEventIdsFor } from "../../store/slices/reactionsSlice";
 import { EVENT_KINDS } from "../../types/nostr";
 
 /** Debounce window for coalescing scroll-driven visibility changes before
@@ -32,6 +34,10 @@ export class EngagementWindow {
   constructor(
     private readonly relayUrls?: string[],
     private readonly debounceMs: number = DEFAULT_DEBOUNCE_MS,
+    /** Reaction event ids already known for a set of notes — the kind:5
+     *  (un-react) leg needs them because a kind:5 e-tags the reaction, not the
+     *  note. Injected so the pure class stays store-free in tests. */
+    private readonly getReactionIds: (noteIds: string[]) => string[] = () => [],
   ) {}
 
   /** Report a card entering/leaving the viewport. `index` is its feed position,
@@ -58,12 +64,18 @@ export class EngagementWindow {
     if (this.subId) subscriptionManager.close(this.subId);
     // Single REQ, multiple filters (NIP-01 OR). No `limit`: chunking by viewport
     // is the volume control, and relays ignore client limits anyway.
+    // Un-reacts: union the note ids with every reaction id already known for
+    // them (a retraction references the reaction id). Coverage converges as
+    // later batches learn more reaction ids.
+    const reactionIds = this.getReactionIds(ids);
+    const deletionTargets = reactionIds.length > 0 ? [...new Set([...ids, ...reactionIds])] : ids;
     this.subId = subscriptionManager.subscribe({
       filters: [
         { kinds: [EVENT_KINDS.REACTION], "#e": ids },
         { kinds: [EVENT_KINDS.REPOST], "#e": ids },
         { kinds: [EVENT_KINDS.SHORT_TEXT], "#e": ids },
         { kinds: [EVENT_KINDS.ZAP_RECEIPT], "#e": ids },
+        { kinds: [EVENT_KINDS.DELETION], "#e": deletionTargets },
       ],
       relayUrls: this.relayUrls,
     });
@@ -95,7 +107,11 @@ export function EngagementCollectorProvider({
   children: ReactNode;
 }) {
   const ref = useRef<EngagementWindow | null>(null);
-  if (ref.current === null) ref.current = new EngagementWindow(relayUrls);
+  if (ref.current === null) {
+    ref.current = new EngagementWindow(relayUrls, undefined, (noteIds) =>
+      selectReactionEventIdsFor(store.getState(), noteIds),
+    );
+  }
 
   useEffect(() => {
     const win = ref.current;

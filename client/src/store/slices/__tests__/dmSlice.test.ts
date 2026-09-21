@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { dmSlice } from "../dmSlice";
+import { dmSlice, MAX_DM_REACTION_EMOJI } from "../dmSlice";
 import { createTestStore } from "@/__tests__/helpers/createTestStore";
 import { lunaVega, riverChen } from "@/__tests__/fixtures/testUsers";
 
@@ -10,6 +10,8 @@ const {
   deleteDMMessage,
   editDMMessage,
   remoteDeleteDMMessage,
+  reactDMMessage,
+  removeDMReaction,
   deleteDMConversation,
 } = dmSlice.actions;
 
@@ -324,6 +326,121 @@ describe("dmSlice", () => {
     const msg = store.getState().dm.messages[PARTNER_PK][0];
     expect(msg.isDeleted).toBeFalsy();
     expect(msg.content).toBe("keep me");
+  });
+
+  // ─── reactions ─────────────────────────────────
+
+  function seedTarget(store: ReturnType<typeof createTestStore>, extra: Record<string, unknown> = {}) {
+    store.dispatch(
+      addDMMessage({
+        partnerPubkey: PARTNER_PK,
+        message: makeMessage({ rumorId: "rumor-1", wrapId: "wrap-1", ...extra }) as any,
+        myPubkey: MY_PK,
+      }),
+    );
+  }
+  const msg0 = (store: ReturnType<typeof createTestStore>) => store.getState().dm.messages[PARTNER_PK][0];
+
+  it("reactDMMessage records emoji → reactor pubkeys on the message found by rumorId", () => {
+    const store = createTestStore();
+    seedTarget(store);
+    const before = store.getState().dm.mutationCounter;
+    store.dispatch(reactDMMessage({ partnerPubkey: PARTNER_PK, rumorId: "rumor-1", emoji: "🔥", reactorPubkey: MY_PK, wrapId: "rx-wrap-1" }));
+    store.dispatch(reactDMMessage({ partnerPubkey: PARTNER_PK, rumorId: "rumor-1", emoji: "🔥", reactorPubkey: PARTNER_PK, wrapId: "rx-wrap-2" }));
+    store.dispatch(reactDMMessage({ partnerPubkey: PARTNER_PK, rumorId: "rumor-1", emoji: "❤️", reactorPubkey: PARTNER_PK, wrapId: "rx-wrap-3" }));
+    expect(msg0(store).reactions).toEqual({ "🔥": [MY_PK, PARTNER_PK], "❤️": [PARTNER_PK] });
+    // Persistence fingerprint moved so the reactions get saved.
+    expect(store.getState().dm.mutationCounter).toBeGreaterThan(before);
+    // Reactions never touch the conversation preview / unread state.
+    expect(store.getState().dm.contacts[0].lastMessagePreview).toBe("hello");
+  });
+
+  it("dedupes the self-wrap echo of an optimistic reaction by wrapId", () => {
+    const store = createTestStore();
+    seedTarget(store);
+    const payload = { partnerPubkey: PARTNER_PK, rumorId: "rumor-1", emoji: "🔥", reactorPubkey: MY_PK, wrapId: "self-wrap" };
+    store.dispatch(reactDMMessage(payload)); // optimistic
+    const counter = store.getState().dm.mutationCounter;
+    store.dispatch(reactDMMessage(payload)); // echo from relay
+    expect(msg0(store).reactions).toEqual({ "🔥": [MY_PK] });
+    expect(store.getState().dm.mutationCounter).toBe(counter);
+    // Even with a fresh wrap id, the same reactor + emoji is idempotent.
+    store.dispatch(reactDMMessage({ ...payload, wrapId: "other-device-wrap" }));
+    expect(msg0(store).reactions).toEqual({ "🔥": [MY_PK] });
+  });
+
+  it("removeDMReaction clears only the reactor's own entry and prunes empty emoji", () => {
+    const store = createTestStore();
+    seedTarget(store);
+    store.dispatch(reactDMMessage({ partnerPubkey: PARTNER_PK, rumorId: "rumor-1", emoji: "🔥", reactorPubkey: MY_PK, wrapId: "a" }));
+    store.dispatch(reactDMMessage({ partnerPubkey: PARTNER_PK, rumorId: "rumor-1", emoji: "🔥", reactorPubkey: PARTNER_PK, wrapId: "b" }));
+    // Partner tries to remove MY reaction — only their own entry is affected.
+    store.dispatch(removeDMReaction({ partnerPubkey: PARTNER_PK, rumorId: "rumor-1", emoji: "🔥", reactorPubkey: PARTNER_PK, wrapId: "c" }));
+    expect(msg0(store).reactions).toEqual({ "🔥": [MY_PK] });
+    store.dispatch(removeDMReaction({ partnerPubkey: PARTNER_PK, rumorId: "rumor-1", emoji: "🔥", reactorPubkey: MY_PK, wrapId: "d" }));
+    expect(msg0(store).reactions).toBeUndefined();
+    // Removing what isn't there is a no-op.
+    const counter = store.getState().dm.mutationCounter;
+    store.dispatch(removeDMReaction({ partnerPubkey: PARTNER_PK, rumorId: "rumor-1", emoji: "🔥", reactorPubkey: MY_PK, wrapId: "e" }));
+    expect(store.getState().dm.mutationCounter).toBe(counter);
+  });
+
+  it("caps distinct emoji per message at MAX_DM_REACTION_EMOJI but still accepts reactors on existing emoji", () => {
+    const store = createTestStore();
+    seedTarget(store);
+    for (let i = 0; i < MAX_DM_REACTION_EMOJI + 3; i++) {
+      store.dispatch(reactDMMessage({ partnerPubkey: PARTNER_PK, rumorId: "rumor-1", emoji: `e${i}`, reactorPubkey: MY_PK, wrapId: `w${i}` }));
+    }
+    const reactions = msg0(store).reactions!;
+    expect(Object.keys(reactions)).toHaveLength(MAX_DM_REACTION_EMOJI);
+    expect(reactions["e0"]).toEqual([MY_PK]);
+    expect(reactions[`e${MAX_DM_REACTION_EMOJI}`]).toBeUndefined();
+    store.dispatch(reactDMMessage({ partnerPubkey: PARTNER_PK, rumorId: "rumor-1", emoji: "e0", reactorPubkey: PARTNER_PK, wrapId: "late" }));
+    expect(msg0(store).reactions!["e0"]).toEqual([MY_PK, PARTNER_PK]);
+    expect(Object.keys(msg0(store).reactions!)).toHaveLength(MAX_DM_REACTION_EMOJI);
+  });
+
+  it("falls back to matching the anchor against wrapId for legacy messages without a rumorId", () => {
+    const store = createTestStore();
+    store.dispatch(
+      addDMMessage({ partnerPubkey: PARTNER_PK, message: makeMessage({ wrapId: "legacy-wrap", rumorId: undefined }) as any, myPubkey: MY_PK }),
+    );
+    store.dispatch(reactDMMessage({ partnerPubkey: PARTNER_PK, rumorId: "legacy-wrap", emoji: "👍", reactorPubkey: PARTNER_PK, wrapId: "rx" }));
+    expect(msg0(store).reactions).toEqual({ "👍": [PARTNER_PK] });
+  });
+
+  it("buffers a reaction that arrives before its target and applies it when the message lands", () => {
+    const store = createTestStore();
+    store.dispatch(reactDMMessage({ partnerPubkey: PARTNER_PK, rumorId: "rumor-late", emoji: "🎉", reactorPubkey: PARTNER_PK, wrapId: "rx-early" }));
+    store.dispatch(removeDMReaction({ partnerPubkey: PARTNER_PK, rumorId: "rumor-late", emoji: "🎉", reactorPubkey: MY_PK, wrapId: "rx-early-2" }));
+    expect(store.getState().dm.messages[PARTNER_PK]).toBeUndefined();
+    expect(store.getState().dm.pendingReactions["rumor-late"]).toHaveLength(2);
+
+    store.dispatch(
+      addDMMessage({ partnerPubkey: PARTNER_PK, message: makeMessage({ rumorId: "rumor-late", wrapId: "wrap-late" }) as any, myPubkey: MY_PK }),
+    );
+    expect(msg0(store).reactions).toEqual({ "🎉": [PARTNER_PK] });
+    expect(store.getState().dm.pendingReactions["rumor-late"]).toBeUndefined();
+    // The early wrap is still deduped if it is re-delivered later.
+    store.dispatch(reactDMMessage({ partnerPubkey: PARTNER_PK, rumorId: "rumor-late", emoji: "🎉", reactorPubkey: PARTNER_PK, wrapId: "rx-early" }));
+    expect(msg0(store).reactions).toEqual({ "🎉": [PARTNER_PK] });
+  });
+
+  it("ignores empty emoji content", () => {
+    const store = createTestStore();
+    seedTarget(store);
+    store.dispatch(reactDMMessage({ partnerPubkey: PARTNER_PK, rumorId: "rumor-1", emoji: "   ", reactorPubkey: MY_PK, wrapId: "x" }));
+    expect(msg0(store).reactions).toBeUndefined();
+  });
+
+  it("reactions survive a persistence round-trip through restoreDMState", () => {
+    const store = createTestStore();
+    seedTarget(store);
+    store.dispatch(reactDMMessage({ partnerPubkey: PARTNER_PK, rumorId: "rumor-1", emoji: "🔥", reactorPubkey: MY_PK, wrapId: "a" }));
+    const snapshot = JSON.parse(JSON.stringify(store.getState().dm));
+    const fresh = createTestStore();
+    fresh.dispatch(dmSlice.actions.restoreDMState({ messages: snapshot.messages, contacts: snapshot.contacts, processedWrapIds: snapshot.processedWrapIds }));
+    expect(msg0(fresh).reactions).toEqual({ "🔥": [MY_PK] });
   });
 
   // ─── deleteDMConversation ──────────────────────

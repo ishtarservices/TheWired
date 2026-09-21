@@ -1,7 +1,7 @@
 import { subscriptionManager } from "./subscriptionManager";
 import { relayManager } from "./relayManager";
 import { flushEventPipeline } from "./eventPipeline";
-import { buildChannelFilter, buildSpaceFeedFilter, chunkAuthorsFilter } from "./filterBuilder";
+import { buildChannelFilter, buildSpaceFeedFilter, chunkAuthorsFilter, splitChatFilters } from "./filterBuilder";
 import { getChannelRoute } from "./channelRoutes";
 import { getSpaceChannelRoute } from "../../features/spaces/spaceChannelRoutes";
 import { EVENT_KINDS } from "../../types/nostr";
@@ -53,7 +53,9 @@ function openHostSub(host: string, since: number = defaultSince()): void {
   const subId = subscriptionManager.subscribe({
     filters: [
       {
-        kinds: [EVENT_KINDS.CHAT_MESSAGE, EVENT_KINDS.POLL, EVENT_KINDS.DELETION, EVENT_KINDS.MOD_DELETE_EVENT],
+        // kind:7 so chat reactions (h-tagged) reach members who don't have the
+        // channel open; kind:5 covers message deletes and un-reacts alike.
+        kinds: [EVENT_KINDS.REACTION, EVENT_KINDS.CHAT_MESSAGE, EVENT_KINDS.POLL, EVENT_KINDS.DELETION, EVENT_KINDS.MOD_DELETE_EVENT],
         "#h": ids,
         since,
       },
@@ -258,8 +260,9 @@ export function switchChannel(
     adminPubkeys,
   });
 
+  // Chat reactions (kind:7) get their own filter so they don't eat the page.
   const subId = subscriptionManager.subscribe({
-    filters: [filter],
+    filters: splitChatFilters(filter),
     relayUrls: [relayUrl],
   });
 
@@ -318,7 +321,7 @@ export function switchSpaceChannel(
   // going offline; the pipeline dedups by event id. Feed channels (notes,
   // media, articles) use all read relays — members publish to their own relays.
   const subId = subscriptionManager.subscribe({
-    filters: [filter],
+    filters: splitChatFilters(filter),
     relayUrls: route.filterMode === "htag"
       ? resolveRelaySet(space)
       : undefined,  // all read relays

@@ -5,6 +5,7 @@ import { Avatar } from "../../components/ui/Avatar";
 import { RichContent } from "../../components/content/RichContent";
 import { BlockedMessage } from "../../components/ui/BlockedMessage";
 import { ReactionPicker } from "../../components/chat/ReactionPicker";
+import { ReactionPills } from "../../components/chat/ReactionPills";
 import { ChatMessageContextMenu } from "./ChatMessageContextMenu";
 import { useProfile } from "../profile/useProfile";
 import { useIsBlocked } from "../../hooks/useIsBlocked";
@@ -12,6 +13,7 @@ import { useUnblock } from "../../hooks/useUnblock";
 import { useAppSelector } from "../../store/hooks";
 import { eventsSelectors } from "../../store/slices/eventsSlice";
 import { aggregateReactions } from "../../store/slices/reactionsSlice";
+import { toggleReaction } from "../reactions/reactionToggle";
 import { EVENT_KINDS, type NostrEvent } from "../../types/nostr";
 import { useZap } from "../wallet/WalletProvider";
 import { PollCard } from "../polls/PollCard";
@@ -68,8 +70,28 @@ export function ChatMessage({
   // Aggregate reactions for this message from the reaction-aggregate slice.
   // Subscribes only to this message's reactor map (a stable reference unless
   // this message's reactions change) — no longer the whole entity store.
+  // Now fed by everyone's kind:7s from the chat #h subscription, not just the
+  // local echo, so `mine` marks which pills the current user set.
+  const myPubkey = useAppSelector((s) => s.identity.pubkey);
+  const activeSpace = useAppSelector((s) =>
+    s.spaces.activeSpaceId ? s.spaces.list.find((sp) => sp.id === s.spaces.activeSpaceId) : undefined,
+  );
   const reactionMap = useAppSelector((s) => s.reactions.byTarget[event.id]);
-  const reactions = useMemo(() => aggregateReactions(reactionMap), [reactionMap]);
+  const reactions = useMemo(() => aggregateReactions(reactionMap, myPubkey), [reactionMap, myPubkey]);
+
+  // Pill tap: same emoji you set → un-react (kind:5, h-tagged); else add it.
+  const handlePillToggle = useCallback(
+    (content: string) => {
+      if (!myPubkey) return;
+      toggleReaction({
+        myPubkey,
+        target: { eventId: event.id, pubkey: event.pubkey, kind: event.kind },
+        content,
+        space: activeSpace,
+      }).catch((err) => console.error("[reactions] toggle failed", err));
+    },
+    [myPubkey, event.id, event.pubkey, event.kind, activeSpace],
+  );
 
   const handleContextMenu = useCallback((e: React.MouseEvent) => {
     e.preventDefault();
@@ -180,24 +202,12 @@ export function ChatMessage({
             <RichContent content={displayContent} emojiTags={event.tags.filter((t) => t[0] === "emoji")} onMentionClick={onMentionClick} />
           </div>
         )}
-        {/* Reaction display */}
-        {reactions.length > 0 && (
-          <div className="mt-1 flex flex-wrap gap-1">
-            {reactions.map(({ content, count }) => (
-              <span
-                key={content}
-                className="inline-flex items-center gap-1 rounded-full bg-surface-hover px-2 py-0.5 text-xs text-body border border-border"
-              >
-                {content.startsWith(":") && content.endsWith(":") ? (
-                  <ReactionEmoji shortcode={content} />
-                ) : (
-                  <span>{content}</span>
-                )}
-                {count > 1 && <span className="text-muted">{count}</span>}
-              </span>
-            ))}
-          </div>
-        )}
+        {/* Reaction pills — tap to toggle your own reaction */}
+        <ReactionPills
+          pills={reactions}
+          onToggle={myPubkey ? handlePillToggle : undefined}
+          className="mt-1"
+        />
       </div>
       <ChatMessageContextMenu
         open={!!ctxMenu}
@@ -258,22 +268,4 @@ function InlineReplyPreview({ eventId, onJump }: { eventId: string; onJump?: (ev
       <span className="truncate">{preview}</span>
     </button>
   );
-}
-
-/** Render a custom emoji reaction shortcode (looks up in event reactions) */
-function ReactionEmoji({ shortcode }: { shortcode: string }) {
-  const shortcodeIndex = useAppSelector((s) => s.emoji.shortcodeIndex);
-  const clean = shortcode.replace(/^:|:$/g, "");
-  const emoji = shortcodeIndex[clean];
-
-  if (emoji) {
-    return (
-      <img
-        src={emoji.url}
-        alt={shortcode}
-        className="inline-block h-4 w-4 object-contain"
-      />
-    );
-  }
-  return <span>{shortcode}</span>;
 }

@@ -95,7 +95,9 @@ export async function seedSpaceZapReceipts(
         ${id}, ${event.pubkey}, ${nowSec - Math.floor(roll * 6 * 3600)}, 9735,
         ${JSON.stringify([
           ["e", event.id],
-          ["bolt11", "lnbc-dev-seed"],
+          // HRP must encode the same amount (n = 100 msat units) or the
+          // rollup's bolt11 cross-check counts the receipt as unsettled.
+          ["bolt11", `lnbc${sats * 10}n1qqdevseed`],
           ["description", request],
         ])}::jsonb,
         '', ${"0".repeat(128)}, ARRAY[${event.id}]::text[]

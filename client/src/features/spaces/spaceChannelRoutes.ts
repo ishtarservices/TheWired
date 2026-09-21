@@ -3,7 +3,9 @@ import type { SpaceChannelType, SpaceChannelRoute } from "../../types/space";
 
 export const SPACE_CHANNEL_ROUTES: Record<SpaceChannelType, SpaceChannelRoute> = {
   chat: {
-    kinds: [EVENT_KINDS.CHAT_MESSAGE, EVENT_KINDS.DELETION, EVENT_KINDS.MOD_DELETE_EVENT],
+    // kind:7 rides along so everyone receives chat reactions (h-tagged per the
+    // mobile wire contract); kind:5 covers both message deletes and un-reacts.
+    kinds: [EVENT_KINDS.REACTION, EVENT_KINDS.CHAT_MESSAGE, EVENT_KINDS.DELETION, EVENT_KINDS.MOD_DELETE_EVENT],
     filterMode: "htag",
     pageSize: 50,
     sortOrder: "asc",

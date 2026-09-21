@@ -4,6 +4,7 @@ import { db } from "../../src/db/connection.js";
 import { spaces } from "../../src/db/schema/spaces.js";
 import { discoveryService } from "../../src/services/discoveryService.js";
 import { LUNA, MARCUS } from "../helpers/testUsers.js";
+import { invoiceForSats } from "../helpers/bolt11.js";
 
 /**
  * DB-backed tests for the per-space zap rollup and its effect on the discovery
@@ -81,7 +82,7 @@ async function seedZapReceipt(targetId: string, sats: number, ageSeconds = 60) {
       ${id}, ${MARCUS.pubkey}, ${Math.floor(Date.now() / 1000) - ageSeconds}, 9735,
       ${JSON.stringify([
         ["e", targetId],
-        ["bolt11", "lnbc1..."],
+        ["bolt11", invoiceForSats(sats)],
         ["description", request],
       ])}::jsonb,
       '', ${"0".repeat(128)}, ARRAY[${targetId}]::text[]
