@@ -1,6 +1,11 @@
 import { getSigner } from "@/lib/nostr/loginFlow";
 import { signingQueue } from "@/lib/nostr/signingQueue";
-import { fetch as tauriFetch } from "@tauri-apps/plugin-http";
+import { fetch as tauriPluginFetch } from "@tauri-apps/plugin-http";
+
+/** Tauri's HTTP plugin bypasses CORS in the desktop app; the browser preview
+ *  has no `invoke` bridge, so use window.fetch there. */
+const isTauri = typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
+const tauriFetch: typeof fetch = isTauri ? (tauriPluginFetch as unknown as typeof fetch) : (...a) => fetch(...a);
 
 const DEFAULT_SERVERS = [
   "https://blossom.primal.net",

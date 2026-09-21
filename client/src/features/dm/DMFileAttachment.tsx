@@ -4,6 +4,11 @@ import { fetch as tauriFetch } from "@tauri-apps/plugin-http";
 import { decryptDMFile } from "@ishtarservices/core";
 import type { DMFileMeta } from "@ishtarservices/shared-types";
 
+/** Tauri's HTTP plugin bypasses CORS in the desktop app; the plain browser
+ *  preview has no `invoke` bridge, so fall back to window.fetch there. */
+const isTauri = typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
+const httpFetch: typeof fetch = isTauri ? (tauriFetch as unknown as typeof fetch) : (...a) => fetch(...a);
+
 /** Anything above this is click-to-load rather than auto-fetched. */
 const AUTO_LOAD_MAX_BYTES = 8 * 1024 * 1024;
 
@@ -25,7 +30,7 @@ const objectUrlCache = new Map<string, string>();
 async function fetchAndDecrypt(meta: DMFileMeta): Promise<string> {
   const cached = objectUrlCache.get(meta.x);
   if (cached) return cached;
-  const res = await tauriFetch(meta.url, { method: "GET" });
+  const res = await httpFetch(meta.url, { method: "GET" });
   if (!res.ok) throw new Error(`download failed (${res.status})`);
   const ciphertext = new Uint8Array(await res.arrayBuffer());
   const plain = decryptDMFile(ciphertext, meta);
