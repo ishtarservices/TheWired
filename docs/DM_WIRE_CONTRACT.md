@@ -1,6 +1,6 @@
 # DM wire contract — The Wired desktop ↔ soot mobile ↔ relay ↔ backend
 
-**Contract version:** `wire_version = 1` · **Document version:** 1.0.0 (2026-09-21)
+**Contract version:** `wire_version = 1` · **Document version:** 1.0.1 (2026-09-21)
 **Owner:** the TheWiredV1 monorepo (server side + `@ishtarservices/core`). soot implements it; it does not change it.
 **Ships in:** `@ishtarservices/shared-types@0.2.0`, `@ishtarservices/core@0.2.0`, `thewired-relay` ≥ 0.2.0, backend ≥ migration 0029.
 
@@ -155,7 +155,7 @@ Content = `nip44(self → self, JSON)`; tags `[["d","thewired:dm_read_state"]]`;
 
 ### 7.1 NIP-42 AUTH gate on kind 1059
 - Stored query: a kind-1059 row is returned only when the connection is authenticated **and** the authenticated pubkey is in the event's `p` tags (or holds the ingest role, §7.3).
-- Unauthenticated `REQ` whose filter `kinds` explicitly includes 1059 → `["CLOSED", <subId>, "auth-required: gift wraps are served only to their recipient"]`. Filters without an explicit 1059 silently exclude wraps.
+- Unauthenticated `REQ` whose filter `kinds` explicitly includes 1059 → `["CLOSED", <subId>, "auth-required: gift wraps are served only to their recipient"]`. The `auth-required:` prefix is the stable contract (NIP-42 machine-readable prefix); the text after it may change. Filters without an explicit 1059 silently exclude wraps.
 - Live broadcast: same rule per connection.
 - The relay sends `["AUTH", challenge]` on connect. Clients MUST answer it (kind 22242 with `["relay", <url as dialed>]`, `["challenge", …]`) before or immediately after the 1059 REQ and MUST re-send the REQ after `["OK", …, true]` if it was `CLOSED` with the `auth-required:` prefix. Desktop and soot both already answer AUTH; both need the CLOSED → re-REQ step.
 - Gate mode is an env on the relay (`RELAY_WRAP_AUTH_GATE=warn|enforce`); prod runs `warn` for one release, then `enforce`. Clients should not depend on the mode.
@@ -179,7 +179,7 @@ Replaces since-window resync on relays that list 77 (ours; also relay.damus.io, 
 3. Loop on `["NEG-MSG", subId, hex]` via `reconcile(msg, onHave, onNeed)` until it returns `null`, then `["NEG-CLOSE", subId]`.
 4. `need` ids (relay has, you don't) → `REQ {"ids":[…]}` in chunks of 100 on the same socket, then decrypt as usual.
 5. `have` ids (you have, relay doesn't) that are **self-wraps you published to this relay** → republish them (this repairs silent self-wrap failures). Recipient wraps you sent are never in your own storage, so they are not in `have`.
-6. Persist per relay: `lastReconciledAt`. No `since` cursor is needed for relays that reconcile; keep the since-window path only for relays that answer `NEG-ERR` or `NOTICE unknown message type`.
+6. Persist per relay: `lastReconciledAt`. No `since` cursor is needed for relays that reconcile; keep the since-window path only for relays that answer `NEG-ERR` or a `NOTICE` about NEG-*. Our relay (pre-0.2.0) says `unknown message type: NEG-OPEN`; strfry deployments with the feature off (relay.damus.io, nos.lol as of 2026-09) say `ERROR: bad msg: negentropy disabled` — treat any NOTICE mentioning `NEG-` or `negentropy` while a session is open as "unsupported" and stop retrying on that relay for the session.
 7. Relay limits: ≤ 4 concurrent NEG sessions per connection, ≤ 20 000 ids per session → `["NEG-ERR", subId, "blocked: too many records"]`; idle sessions are closed after 60 s → `NEG-ERR … "closed"`.
 
 nostr-tools ≥ 2.23 exports `Negentropy` and `NegentropyStorageVector` from `nostr-tools/nip77`; drive the frames with your own socket (the bundled `NegentropySync` wants its `AbstractRelay`).
@@ -244,4 +244,5 @@ Plan: (1) on login publish a 30443 with a signing key distinct from the nsec (ke
 | Marmot | §10 plan only |
 
 ## 12. Change log
+- **1.0.1 (2026-09-21)** — clarified the stable `auth-required:` prefix and strfry's `negentropy disabled` NOTICE (§7.1, §7.5). No wire change.
 - **1.0.0 (2026-09-21)** — initial contract: seal verification + rumor-id recompute, kinds 15/7/20014/20015, `e` replies, expiration table, read-state v2 with merge + tombstones, relay AUTH gate / NIP-40 / NIP-77 / rate limits, `self_published` replaces `/push/suppress`, NSE contract, Marmot kinds corrected to 30443/444/445.
