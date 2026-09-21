@@ -13,12 +13,15 @@ export function parseDMRelayList(event: NostrEvent): string[] {
   for (const tag of event.tags) {
     if (tag[0] !== "relay" || !tag[1]) continue;
     const url = normalizeRelayUrl(tag[1]);
+    if (!url) continue;
     // SSRF guard: a kind:10050 published by the *recipient* (an attacker, when
     // you DM them) is fully attacker-controlled, and getDMRelaysForPublish dials
     // every entry via relayManager.connect. Drop loopback/private/link-local
     // hosts so it can't make the client connect to internal services. See
-    // lib/security/ssrfGuard.ts.
-    if (url && isSafeRelayUrl(url)) urls.push(url);
+    // lib/security/ssrfGuard.ts. The one exemption is our own configured
+    // platform relay (APP_RELAY): a dev build points it at loopback, and a
+    // peer listing exactly that URL dials nothing we don't already dial.
+    if (url === (normalizeRelayUrl(APP_RELAY) ?? APP_RELAY) || isSafeRelayUrl(url)) urls.push(url);
   }
   return urls;
 }
