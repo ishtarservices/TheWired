@@ -38,6 +38,12 @@ pub enum PublishVerdict {
 /// Whether an event of this kind needs to pass the h-tag membership check
 /// before being stored/broadcast. Returns false for NIP-29 management and
 /// related auxiliary kinds, which are handled elsewhere or valid from non-members.
+///
+/// Reserved for DM phase 2 (docs/DM_WIRE_CONTRACT.md §10): Marmot kind-445
+/// group events carry an `h` tag that is an MLS `nostr_group_id`, NOT a NIP-29
+/// group id, and are signed by a fresh ephemeral key per event. They must be
+/// exempted here (and stored as public-opaque) before the relay can carry
+/// Marmot traffic. Not done yet — 445 is still gated like any other kind.
 pub fn requires_h_membership_check(kind: i32) -> bool {
     !matches!(
         kind,

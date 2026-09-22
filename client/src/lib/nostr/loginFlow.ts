@@ -87,6 +87,7 @@ import { profileCache } from "./profileCache";
 import { parseProfile } from "../../features/profile/profileParser";
 import { loadDMState, startDMPersistence, cancelPendingSave as cancelDMSave, flushPendingSave as flushDMSave } from "../../features/dm/dmPersistence";
 import { loadDMReadState, startDMReadStateSync, cancelPendingSave as cancelDMReadStateSave, flushPendingSave as flushDMReadStateSave } from "../../features/dm/dmReadState";
+import { startGiftWrapReconciliation } from "../../features/dm/dmSync";
 import { loadFollowerState, startFollowerPersistence, cancelPendingSave as cancelFollowerSave, flushPendingSave as flushFollowerSave } from "./followerPersistence";
 import { loadFriendRequestState, startFriendRequestPersistence, cancelPendingSave as cancelFriendRequestSave, flushPendingSave as flushFriendRequestSave } from "./friendRequestPersistence";
 import { loadNotificationState, startNotificationPersistence, cancelPendingSave as cancelNotificationSave, flushPendingSave as flushNotificationSave } from "../../features/notifications/notificationPersistence";
@@ -135,6 +136,7 @@ let cleanupFollowerPersistence: (() => void) | null = null;
 let cleanupFriendRequestPersistence: (() => void) | null = null;
 let cleanupNotificationPersistence: (() => void) | null = null;
 let cleanupActiveSpacePersistence: (() => void) | null = null;
+let cleanupGiftWrapReconciliation: (() => void) | null = null;
 
 export function getSigner(): NostrSigner | null {
   return currentSigner;
@@ -1221,12 +1223,24 @@ export async function performLogin(
   const giftWrapRelayUrls = dmRelays.length > 0
     ? [...new Set([...dmRelays, ...BOOTSTRAP_RELAYS])]
     : BOOTSTRAP_RELAYS;
+  const giftWrapSubStartedAt = Math.floor(Date.now() / 1000);
   subscriptionManager.subscribe({
     filters: [giftWrapFilter],
     relayUrls: giftWrapRelayUrls,
+    // Persist the watermark only once the backlog actually arrived: advancing
+    // it before EOSE silently narrowed the next window after a failed sync.
+    onEOSE: () => {
+      if (store.getState().identity.pubkey !== pubkey) return;
+      saveUserState("last_gift_wrap_ts", giftWrapSubStartedAt).catch(() => {});
+    },
   });
-  // Persist current timestamp for next session
-  saveUserState("last_gift_wrap_ts", Math.floor(Date.now() / 1000)).catch(() => {});
+  // NIP-77: reconcile the inbox by event id on relays that speak it
+  // (docs/DM_WIRE_CONTRACT.md §7.5); the since-window sub above is the fallback.
+  cleanupGiftWrapReconciliation?.();
+  cleanupGiftWrapReconciliation = startGiftWrapReconciliation(pubkey, () => {
+    const dm = store.getState().identity.dmRelayList;
+    return dm.length > 0 ? [...new Set([...dm, ...BOOTSTRAP_RELAYS])] : [...BOOTSTRAP_RELAYS];
+  });
 
   // Step 7h: Load cached followers, then subscribe for kind:3 events that tag us.
   // Use all connected read relays (not just bootstrap) so user-configured relays are included.
@@ -1517,6 +1531,8 @@ export function performCleanup(): void {
 
   cleanupActiveSpacePersistence?.();
   cleanupActiveSpacePersistence = null;
+  cleanupGiftWrapReconciliation?.();
+  cleanupGiftWrapReconciliation = null;
 
   // 3. Close subscriptions and background chat subs
   subscriptionManager.closeAll();
@@ -1557,6 +1573,8 @@ export async function performLogout(): Promise<void> {
   cleanupNotificationPersistence = null;
   cleanupActiveSpacePersistence?.();
   cleanupActiveSpacePersistence = null;
+  cleanupGiftWrapReconciliation?.();
+  cleanupGiftWrapReconciliation = null;
 
   // 3. Close all relay subscriptions and background chat subs
   subscriptionManager.closeAll();

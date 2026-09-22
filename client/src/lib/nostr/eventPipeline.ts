@@ -15,7 +15,9 @@ import { addZap, addZaps, type ZapInput } from "../../store/slices/zapsSlice";
 import { addPollVote, addPollVotes, removeVoteByEventId, removePoll, type PollVoteInput } from "../../store/slices/pollsSlice";
 import { getSatoshisAmountFromBolt11 } from "nostr-tools/nip57";
 import { addTrack, indexTrackByArtist, indexTrackByAlbum, indexTrackByArtistName, indexAlbumByArtist, indexAlbumByArtistName, addAlbum, addPlaylist, addAnnotation, removeAnnotation, removeTrack, removeAlbum, removePlaylist } from "../../store/slices/musicSlice";
-import { addDMMessage, editDMMessage, remoteDeleteDMMessage, reactDMMessage, removeDMReaction } from "../../store/slices/dmSlice";
+import { addDMMessage, editDMMessage, remoteDeleteDMMessage, reactDMMessage, removeDMReaction, setTyping, applyReceipt } from "../../store/slices/dmSlice";
+import { parseDMWire } from "@ishtarservices/core";
+import { queueDeliveredReceipt } from "./dmSignals";
 import { parseTrackEvent, parsePrivateTrackEvent } from "../../features/music/trackParser";
 import { parseAlbumEvent, parsePrivateAlbumEvent } from "../../features/music/albumParser";
 import { parsePlaylistEvent } from "../../features/music/playlistParser";
@@ -1201,63 +1203,112 @@ async function handleGiftWrap(event: NostrEvent): Promise<void> {
       return;
     }
 
-    // Check for friend request type tags before DM routing
-    const typeTag = dm.tags.find((t) => t[0] === "type")?.[1];
-    if (typeTag === "friend_request") {
-      handleFriendRequestWrap(dm, myPubkey);
-      return;
+    // Blocked senders (kind-10000 mute list) are dropped before anything renders.
+    if (dm.sender !== myPubkey) {
+      const muteList = getState().identity.muteList;
+      if (muteList.some((m) => m.type === "pubkey" && m.value === dm.sender)) return;
     }
-    if (typeTag === "friend_request_accept") {
-      handleFriendAcceptWrap(dm, myPubkey);
-      return;
-    }
-    if (typeTag === "friend_request_remove") {
-      handleFriendRemoveWrap(dm, myPubkey);
-      return;
-    }
-    if (typeTag === "call_invite") {
-      handleCallInviteWrap(dm, myPubkey);
-      return;
-    }
-    if (typeTag === "call_decline") {
-      handleCallDeclineWrap(dm, myPubkey);
-      return;
-    }
-    if (typeTag === "call_missed") {
-      handleCallMissedWrap(dm, myPubkey);
-      return;
-    }
-    if (typeTag === "dm_edit") {
-      handleDMEditWrap(dm, myPubkey);
-      return;
-    }
-    if (typeTag === "dm_delete") {
-      handleDMDeleteWrap(dm, myPubkey);
-      return;
-    }
-    if (typeTag === "dm_reaction") {
-      handleDMReactionWrap(dm, myPubkey, false);
-      return;
-    }
-    if (typeTag === "dm_reaction_remove") {
-      handleDMReactionWrap(dm, myPubkey, true);
-      return;
-    }
-    // Unknown typed rumor from a newer client — drop rather than render it as a
-    // chat bubble (mirrors the mobile client's leniency).
-    if (typeTag !== undefined) {
-      return;
+
+    // One parser for the spec form (kind 15 / kind 7 / `e` replies / typing /
+    // receipts) and the legacy typed-rumor form (docs/DM_WIRE_CONTRACT.md §2).
+    const w = parseDMWire(dm, myPubkey);
+    const nowSec = Math.round(Date.now() / 1000);
+    switch (w.type) {
+      case "unknown":
+        // Unknown kind / type from a newer client — drop rather than render
+        // it as a chat bubble.
+        return;
+      case "friend_request":
+        handleFriendRequestWrap(dm, myPubkey);
+        return;
+      case "friend_request_accept":
+        handleFriendAcceptWrap(dm, myPubkey);
+        return;
+      case "friend_request_remove":
+        handleFriendRemoveWrap(dm, myPubkey);
+        return;
+      case "call_invite":
+        handleCallInviteWrap(dm, myPubkey);
+        return;
+      case "call_decline":
+        handleCallDeclineWrap(dm, myPubkey);
+        return;
+      case "call_missed":
+        handleCallMissedWrap(dm, myPubkey);
+        return;
+      case "edit":
+        dispatch(
+          editDMMessage({
+            partnerPubkey: w.conversationId,
+            rumorId: w.targetRumorId,
+            newContent: w.content,
+            editedAt: nowSec,
+            senderPubkey: dm.sender,
+            wrapId: dm.wrapId,
+          }),
+        );
+        return;
+      case "delete":
+        dispatch(
+          remoteDeleteDMMessage({
+            partnerPubkey: w.conversationId,
+            rumorId: w.targetRumorId,
+            senderPubkey: dm.sender,
+            wrapId: dm.wrapId,
+          }),
+        );
+        return;
+      case "reaction":
+        dispatch(
+          reactDMMessage({
+            partnerPubkey: w.conversationId,
+            rumorId: w.targetRumorId,
+            emoji: w.emoji,
+            reactorPubkey: dm.sender,
+            wrapId: dm.wrapId,
+          }),
+        );
+        return;
+      case "reaction_remove":
+        dispatch(
+          removeDMReaction({
+            partnerPubkey: w.conversationId,
+            rumorId: w.targetRumorId,
+            emoji: w.emoji,
+            reactorPubkey: dm.sender,
+            wrapId: dm.wrapId,
+          }),
+        );
+        return;
+      case "typing":
+        if (dm.sender !== myPubkey) {
+          dispatch(setTyping({ conversationId: w.conversationId, pubkey: dm.sender, until: nowSec + 6 }));
+        }
+        return;
+      case "receipt":
+        if (dm.sender !== myPubkey) {
+          dispatch(
+            applyReceipt({
+              conversationId: w.conversationId,
+              rumorIds: w.rumorIds,
+              status: w.status,
+              from: dm.sender,
+              wrapId: dm.wrapId,
+            }),
+          );
+        }
+        return;
+      case "text":
+      case "file":
+        break;
     }
 
     const isOwnMessage = dm.sender === myPubkey;
+    const partnerPubkey = w.conversationId;
 
-    // Determine conversation partner
-    const partnerPubkey = isOwnMessage
-      ? dm.tags.find((t) => t[0] === "p" && t[1] !== myPubkey)?.[1] ?? dm.sender
-      : dm.sender;
-
-    // Reject if partner pubkey is invalid (corrupted decryption artifact)
-    if (!HEX64_RE.test(partnerPubkey) || (partnerPubkey === myPubkey && !isOwnMessage)) {
+    // Reject if the 1:1 partner pubkey is invalid (corrupted decryption
+    // artifact). Room ids are a `g` value or a sorted-participant key.
+    if (!w.isRoom && (!HEX64_RE.test(partnerPubkey) || (partnerPubkey === myPubkey && !isOwnMessage))) {
       return;
     }
 
@@ -1270,13 +1321,6 @@ async function handleGiftWrap(event: NostrEvent): Promise<void> {
     // Only the seal and gift wrap timestamps are randomized for privacy.
     const displayTimestamp = dm.createdAt;
 
-    // Reply anchor: the q-tag value — the target's rumorId from current
-    // clients, a wrapId from older ones. Resolved rumorId-first at render time.
-    const replyToWrapId = dm.tags.find((t) => t[0] === "q")?.[1];
-
-    // Extract NIP-30 emoji tags for custom emoji rendering
-    const dmEmojiTags = dm.tags.filter((t) => t[0] === "emoji");
-
     dispatch(
       addDMMessage({
         partnerPubkey,
@@ -1284,21 +1328,30 @@ async function handleGiftWrap(event: NostrEvent): Promise<void> {
         message: {
           id: dm.wrapId,
           senderPubkey: dm.sender,
-          content: dm.content,
+          content: w.type === "text" ? w.content : "",
           createdAt: displayTimestamp,
           wrapId: dm.wrapId,
           rumorId: dm.rumorId,
-          replyToWrapId,
-          emojiTags: dmEmojiTags.length > 0 ? dmEmojiTags : undefined,
+          replyToWrapId: w.replyTo,
+          emojiTags: w.type === "text" && w.emojiTags.length > 0 ? w.emojiTags : undefined,
+          kind: w.type === "file" ? 15 : 14,
+          attachment: w.type === "file" ? w.file : undefined,
+          wrapCreatedAt: event.created_at,
+          expiresAt: w.expiration,
         },
+        room: w.isRoom ? { participants: w.participants, subject: w.subject } : undefined,
       }),
     );
 
-    // Only fire notification for genuinely new incoming messages that we're
-    // not currently viewing. Prevents spurious notifications on app reload
-    // when old wraps are re-fetched from relays.
-    if (!isOwnMessage && !alreadyProcessed && dmState.activeConversation !== partnerPubkey) {
-      evaluateDMNotification(dm.sender, dm.content);
+    if (!isOwnMessage && !alreadyProcessed) {
+      // Delivered receipt (friends only, batched; docs/DM_WIRE_CONTRACT.md §2).
+      queueDeliveredReceipt(partnerPubkey, dm.rumorId);
+      // Only fire notification for genuinely new incoming messages that we're
+      // not currently viewing. Prevents spurious notifications on app reload
+      // when old wraps are re-fetched from relays.
+      if (dmState.activeConversation !== partnerPubkey) {
+        evaluateDMNotification(dm.sender, w.type === "text" ? w.content : "Sent an attachment");
+      }
     }
   } catch {
     // Decryption failed — common for wraps not addressed to us
@@ -1545,81 +1598,6 @@ function handleCallMissedWrap(
   if (callState.incomingCall?.callerPubkey === dm.sender) {
     dispatch(missedCall());
   }
-}
-
-/** Handle an incoming DM edit from a gift wrap */
-function handleDMEditWrap(
-  dm: { sender: string; content: string; tags: string[][]; wrapId: string },
-  myPubkey: string,
-): void {
-  const isOwnMessage = dm.sender === myPubkey;
-  const partnerPubkey = isOwnMessage
-    ? dm.tags.find((t) => t[0] === "p" && t[1] !== myPubkey)?.[1] ?? dm.sender
-    : dm.sender;
-
-  const originalRumorId = dm.tags.find((t) => t[0] === "e")?.[1];
-  if (!originalRumorId || !HEX64_RE.test(partnerPubkey)) return;
-
-  dispatch(
-    editDMMessage({
-      partnerPubkey,
-      rumorId: originalRumorId,
-      newContent: dm.content,
-      editedAt: Math.round(Date.now() / 1000),
-      senderPubkey: dm.sender,
-      wrapId: dm.wrapId,
-    }),
-  );
-}
-
-/** Handle an incoming DM reaction / reaction-removal from a gift wrap. The
- *  reactor is the rumor's author (seal-verified); the anchor is the target's
- *  rumorId; the emoji is the rumor content. */
-function handleDMReactionWrap(
-  dm: { sender: string; content: string; tags: string[][]; wrapId: string },
-  myPubkey: string,
-  remove: boolean,
-): void {
-  const isOwnMessage = dm.sender === myPubkey;
-  const partnerPubkey = isOwnMessage
-    ? dm.tags.find((t) => t[0] === "p" && t[1] !== myPubkey)?.[1] ?? dm.sender
-    : dm.sender;
-
-  const targetRumorId = dm.tags.find((t) => t[0] === "e")?.[1];
-  const emoji = dm.content.trim();
-  if (!targetRumorId || !emoji || !HEX64_RE.test(partnerPubkey)) return;
-
-  const payload = {
-    partnerPubkey,
-    rumorId: targetRumorId,
-    emoji,
-    reactorPubkey: dm.sender,
-    wrapId: dm.wrapId,
-  };
-  dispatch(remove ? removeDMReaction(payload) : reactDMMessage(payload));
-}
-
-/** Handle an incoming DM delete from a gift wrap */
-function handleDMDeleteWrap(
-  dm: { sender: string; content: string; tags: string[][]; wrapId: string },
-  myPubkey: string,
-): void {
-  const isOwnMessage = dm.sender === myPubkey;
-  const partnerPubkey = isOwnMessage
-    ? dm.tags.find((t) => t[0] === "p" && t[1] !== myPubkey)?.[1] ?? dm.sender
-    : dm.sender;
-
-  const originalRumorId = dm.tags.find((t) => t[0] === "e")?.[1];
-  if (!originalRumorId || !HEX64_RE.test(partnerPubkey)) return;
-
-  dispatch(
-    remoteDeleteDMMessage({
-      partnerPubkey,
-      rumorId: originalRumorId,
-      senderPubkey: dm.sender,
-      wrapId: dm.wrapId,
-    }),
-  );
 }
 
   return {

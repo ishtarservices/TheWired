@@ -306,6 +306,17 @@ class RelayManagerImpl {
     return subId;
   }
 
+  /** NIP-77 reconciliation against one relay (null = unsupported / not connected). */
+  negentropySync(
+    url: string,
+    filter: NostrFilter,
+    items: Array<{ id: string; created_at: number }>,
+  ): Promise<{ need: string[]; have: string[] } | null> {
+    const conn = this.connections.get(this.key(url));
+    if (!conn || conn.getStatus() !== "connected") return Promise.resolve(null);
+    return conn.negentropySync(filter, items);
+  }
+
   closeSubscription(subId: string): void {
     this.onEventCallbacks.delete(subId);
     this.onEOSECallbacks.delete(subId);

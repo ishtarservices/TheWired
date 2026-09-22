@@ -23,6 +23,7 @@ import { pushService } from "../../src/services/pushService.js";
 import { getRedis } from "../../src/lib/redis.js";
 import { ensureRelayEventsTable } from "../helpers/relayEvents.js";
 import { LUNA, MARCUS } from "../helpers/testUsers.js";
+import { config } from "../../src/config.js";
 
 const own: IngestContext = { relayUrl: "ws://own", isOwnRelay: true, allowedSpaceIds: null };
 const ext: IngestContext = {
@@ -194,8 +195,9 @@ describe("kind 1059 wrap through processEvent", () => {
     let rows = await rowsFor(LUNA.pubkey);
     expect(rows).toHaveLength(1);
     expect(rows[0]).toMatchObject({ type: "dm", title: "soot", body: "new message", url: "soot://dm?segment=messages" });
-    // Content-free: nothing but the wrap id in data — no sender, no ciphertext.
-    expect(JSON.parse(rows[0].data!)).toEqual({ eventId: wrap.id });
+    // Content-free: the wrap id + where to fetch it (DMPushData) — no sender,
+    // no ciphertext.
+    expect(JSON.parse(rows[0].data!)).toEqual({ type: "dm", eventId: wrap.id, relay: config.publicRelayUrl });
     expect(JSON.stringify(rows[0])).not.toContain("opaque-ciphertext");
     expect(JSON.stringify(rows[0])).not.toContain(wrap.pubkey);
 
@@ -211,5 +213,42 @@ describe("kind 1059 wrap through processEvent", () => {
     await db.delete(notificationQueue).where(eq(notificationQueue.pubkey, LUNA.pubkey));
     await processEvent(wrap, ext);
     expect(await rowsFor(LUNA.pubkey)).toHaveLength(0);
+  });
+
+  it("never queues a self-published wrap (the relay flagged the sender's own copy)", async () => {
+    await pushService.registerDevice({
+      pubkey: LUNA.pubkey,
+      provider: "expo",
+      token: "ExponentPushToken[emitluna2]",
+      platform: "ios",
+    });
+    const selfWrap = finalizeEvent(
+      {
+        kind: 1059,
+        created_at: Math.floor(Date.now() / 1000) - 3600,
+        tags: [["p", LUNA.pubkey]],
+        content: "opaque-ciphertext",
+      },
+      MARCUS.secretKey,
+    ) as NostrEvent;
+    // The relay stored it from a socket authenticated as LUNA → self_published.
+    await ensureRelayEventsTable();
+    await db.execute(
+      sql`INSERT INTO relay.events (id, pubkey, kind, tags, content, created_at, sig, h_tags, self_published)
+          VALUES (${selfWrap.id}, ${selfWrap.pubkey}, 1059, '[]'::jsonb, '', ${selfWrap.created_at},
+                  ${"0".repeat(128)}, '{}'::text[], TRUE)`,
+    );
+    seededRelayIds.push(selfWrap.id);
+
+    await processEvent(selfWrap, own);
+    expect(await rowsFor(LUNA.pubkey)).toHaveLength(0);
+
+    // A wrap the relay did NOT flag (or has no row for) still pushes.
+    const inbound = finalizeEvent(
+      { kind: 1059, created_at: Math.floor(Date.now() / 1000) - 60, tags: [["p", LUNA.pubkey]], content: "x" },
+      MARCUS.secretKey,
+    ) as NostrEvent;
+    await processEvent(inbound, own);
+    expect(await rowsFor(LUNA.pubkey)).toHaveLength(1);
   });
 });

@@ -1,5 +1,6 @@
-import { useState, useCallback, memo } from "react";
-import { MessageCircle, Users, X, SquarePen, Search } from "lucide-react";
+import { useState, useCallback, useMemo, memo } from "react";
+import { MessageCircle, Users, X, SquarePen, Search, Pin, VolumeX, Archive, ChevronRight } from "lucide-react";
+import { isConversationFlagged } from "@/store/slices/dmSlice";
 import { Avatar } from "@/components/ui/Avatar";
 import { useProfile } from "@/features/profile/useProfile";
 import { useRelativeTime } from "@/hooks/useRelativeTime";
@@ -32,6 +33,22 @@ export function DMSidebar({ activePartner, onSelectContact }: DMSidebarProps) {
   const [searchOpen, setSearchOpen] = useState(false);
   const [contactFilter, setContactFilter] = useState("");
   const [ctxMenu, setCtxMenu] = useState<{ pubkey: string; x: number; y: number } | null>(null);
+  const [showArchived, setShowArchived] = useState(false);
+  const flags = useAppSelector((s) => s.dm.flags);
+
+  // Pinned first (most recent first within), then the rest; archived rows live
+  // in a collapsed section at the bottom (docs/DM_WIRE_CONTRACT.md §6).
+  const { pinned, regular, archived } = useMemo(() => {
+    const pinned: DMContact[] = [];
+    const regular: DMContact[] = [];
+    const archived: DMContact[] = [];
+    for (const c of contacts) {
+      if (isConversationFlagged(flags, "archived", c.pubkey)) archived.push(c);
+      else if (isConversationFlagged(flags, "pinned", c.pubkey)) pinned.push(c);
+      else regular.push(c);
+    }
+    return { pinned, regular, archived };
+  }, [contacts, flags]);
 
   const handleContactContextMenu = useCallback(
     (pubkey: string, e: React.MouseEvent) => {
@@ -159,16 +176,44 @@ export function DMSidebar({ activePartner, onSelectContact }: DMSidebarProps) {
             </div>
           ) : (
             <>
-              {contacts.map((contact) => (
+              {[...pinned, ...regular].map((contact) => (
                 <DMContactItem
                   key={contact.pubkey}
                   contact={contact}
                   isActive={activePartner === contact.pubkey}
                   filter={contactFilter}
+                  pinned={isConversationFlagged(flags, "pinned", contact.pubkey)}
+                  muted={isConversationFlagged(flags, "muted", contact.pubkey)}
                   onClick={() => onSelectContact(contact.pubkey)}
                   onContextMenu={(e) => handleContactContextMenu(contact.pubkey, e)}
                 />
               ))}
+              {archived.length > 0 && (
+                <div className="border-t border-border">
+                  <button
+                    type="button"
+                    onClick={() => setShowArchived((v) => !v)}
+                    className="flex w-full items-center gap-2 px-4 py-2 text-[10px] font-semibold uppercase tracking-wider text-muted hover:text-heading"
+                    data-testid="dm-archived-toggle"
+                  >
+                    <ChevronRight size={12} className={`transition-transform ${showArchived ? "rotate-90" : ""}`} />
+                    <Archive size={11} />
+                    Archived ({archived.length})
+                  </button>
+                  {showArchived &&
+                    archived.map((contact) => (
+                      <DMContactItem
+                        key={contact.pubkey}
+                        contact={contact}
+                        isActive={activePartner === contact.pubkey}
+                        filter={contactFilter}
+                        muted={isConversationFlagged(flags, "muted", contact.pubkey)}
+                        onClick={() => onSelectContact(contact.pubkey)}
+                        onContextMenu={(e) => handleContactContextMenu(contact.pubkey, e)}
+                      />
+                    ))}
+                </div>
+              )}
               <DMConversationContextMenu
                 open={!!ctxMenu}
                 onClose={() => setCtxMenu(null)}
@@ -234,17 +279,24 @@ const DMContactItem = memo(function DMContactItem({
   contact,
   isActive,
   filter,
+  pinned,
+  muted,
   onClick,
   onContextMenu,
 }: {
   contact: DMContact;
   isActive: boolean;
   filter?: string;
+  pinned?: boolean;
+  muted?: boolean;
   onClick: () => void;
   onContextMenu: (e: React.MouseEvent) => void;
 }) {
-  const { profile } = useProfile(contact.pubkey);
-  const displayName = getDisplayName(profile, contact.pubkey);
+  const isRoom = !!contact.isRoom;
+  const { profile } = useProfile(isRoom ? null : contact.pubkey);
+  const displayName = isRoom
+    ? contact.subject || `Room · ${contact.participants?.length ?? 0} people`
+    : getDisplayName(profile, contact.pubkey);
   const timeAgo = useRelativeTime(contact.lastMessageAt);
 
   // Hide if contact filter is active and doesn't match
@@ -264,11 +316,19 @@ const DMContactItem = memo(function DMContactItem({
         isActive ? "bg-surface-hover" : "hover:bg-surface"
       }`}
     >
-      <Avatar src={profile?.picture} alt={displayName} size="sm" />
+      {isRoom ? (
+        <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-primary/15 text-primary">
+          <Users size={14} />
+        </div>
+      ) : (
+        <Avatar src={profile?.picture} alt={displayName} size="sm" />
+      )}
       <div className="min-w-0 flex-1">
         <div className="flex items-center justify-between">
-          <span className="text-sm font-medium text-heading truncate">
-            {displayName}
+          <span className="flex min-w-0 items-center gap-1 text-sm font-medium text-heading">
+            <span className="truncate">{displayName}</span>
+            {pinned && <Pin size={11} className="shrink-0 text-muted" data-testid="dm-pin-glyph" />}
+            {muted && <VolumeX size={11} className="shrink-0 text-muted" data-testid="dm-mute-glyph" />}
           </span>
           <span className="text-[10px] text-faint shrink-0 ml-2">
             {timeAgo}
@@ -279,7 +339,7 @@ const DMContactItem = memo(function DMContactItem({
             {contact.lastMessagePreview}
           </span>
           {contact.unreadCount > 0 && (
-            <span className="ml-2 flex h-4 min-w-4 items-center justify-center rounded-full bg-primary px-1 text-[10px] font-bold text-white">
+            <span className={`ml-2 flex h-4 min-w-4 items-center justify-center rounded-full px-1 text-[10px] font-bold ${muted ? "bg-surface text-muted" : "bg-primary text-white"}`}>
               {contact.unreadCount}
             </span>
           )}

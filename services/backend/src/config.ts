@@ -8,6 +8,15 @@ export const config = {
   meilisearchUrl: process.env.MEILISEARCH_URL ?? "http://localhost:7700",
   meilisearchKey: process.env.MEILISEARCH_KEY ?? "thewired_dev_key",
   relayUrl: process.env.RELAY_URL ?? "ws://localhost:7777",
+  /** The relay's PUBLIC URL as clients dial it (and as the relay's own
+   *  RELAY_URL names it) — goes into NIP-42 AUTH `relay` tags and DM push
+   *  payloads. Defaults to RELAY_URL (identical in dev; differs behind Docker). */
+  publicRelayUrl: process.env.PUBLIC_RELAY_URL ?? process.env.RELAY_URL ?? "ws://localhost:7777",
+  /** Ingest-role secret key (64-hex or nsec). With it the ingester answers the
+   *  relay's NIP-42 challenge so it can read kind-1059 gift wraps for the
+   *  content-free DM push (docs/DM_WIRE_CONTRACT.md §7.2). Its pubkey must be
+   *  listed in the relay's RELAY_INGEST_PUBKEYS. Empty = no AUTH (dev / gate off). */
+  ingestSecretKey: process.env.INGEST_SECRET_KEY ?? "",
   logLevel: process.env.LOG_LEVEL ?? "info",
   vapidPublicKey: process.env.VAPID_PUBLIC_KEY ?? "",
   vapidPrivateKey: process.env.VAPID_PRIVATE_KEY ?? "",

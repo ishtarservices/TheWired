@@ -32,6 +32,7 @@ import {
 } from "@/store/slices/callSlice";
 import { setMediaError } from "@/store/slices/voiceSlice";
 import { createGiftWrappedDM, createSelfWrap } from "@/lib/nostr/giftWrap";
+import { defaultExpirationFor } from "@ishtarservices/core";
 import { relayManager } from "@/lib/nostr/relayManager";
 import { getDMRelaysForPublish, getOwnDMRelays } from "@/lib/nostr/dmRelayList";
 import { fetchDMVoiceToken } from "@/lib/api/voice";
@@ -109,9 +110,12 @@ export async function initiateCall(
     transport: CALL_TRANSPORT,
   });
 
+  // Call signaling expires on the relay (docs/DM_WIRE_CONTRACT.md §5) — no
+  // stale invites replaying on reconnect.
+  const callWrapOpts = { expiration: defaultExpirationFor("call", Math.floor(Date.now() / 1000)) };
   const [recipientResult, selfResult] = await Promise.all([
-    createGiftWrappedDM(invitePayload, partnerPubkey, [["type", "call_invite"]]),
-    createSelfWrap(invitePayload, partnerPubkey, [["type", "call_invite"]]),
+    createGiftWrappedDM(invitePayload, partnerPubkey, [["type", "call_invite"]], undefined, callWrapOpts),
+    createSelfWrap(invitePayload, partnerPubkey, [["type", "call_invite"]], undefined, callWrapOpts),
   ]);
 
   const partnerRelays = await getDMRelaysForPublish(partnerPubkey);
@@ -312,7 +316,9 @@ async function sendCallStatus(
   type: "call_decline" | "call_missed",
 ): Promise<void> {
   try {
-    const { wrap } = await createGiftWrappedDM("", partnerPubkey, [["type", type]]);
+    const { wrap } = await createGiftWrappedDM("", partnerPubkey, [["type", type]], undefined, {
+      expiration: defaultExpirationFor("call", Math.floor(Date.now() / 1000)),
+    });
     const relays = await getDMRelaysForPublish(partnerPubkey);
     relayManager.publish(wrap, relays);
   } catch (e) {

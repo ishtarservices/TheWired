@@ -1,5 +1,7 @@
 import { useState, useCallback, useRef, useEffect } from "react";
-import { blossomUpload, type BlossomUploadResult } from "@/lib/api/blossom";
+import { blossomUpload, blossomUploadBytes, type BlossomUploadResult } from "@/lib/api/blossom";
+import { encryptDMFile } from "@ishtarservices/core";
+import type { DMFileMeta } from "@ishtarservices/shared-types";
 
 const isTauri =
   typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
@@ -12,6 +14,40 @@ export interface UploadedAttachment {
   error?: string;
   /** Local object URL for preview */
   previewUrl: string;
+  /** Set when uploaded encrypted (DMs): the kind-15 metadata to send.
+   *  `result.url` then points at the opaque ciphertext blob. */
+  dmFile?: DMFileMeta;
+}
+
+/** `<w>x<h>` of an image file, or undefined for non-images / failures. */
+function imageDimensions(file: File, previewUrl: string): Promise<string | undefined> {
+  if (!file.type.startsWith("image/") || typeof Image === "undefined") return Promise.resolve(undefined);
+  return new Promise((resolve) => {
+    const img = new Image();
+    img.onload = () => resolve(img.naturalWidth && img.naturalHeight ? `${img.naturalWidth}x${img.naturalHeight}` : undefined);
+    img.onerror = () => resolve(undefined);
+    img.src = previewUrl;
+  });
+}
+
+/** Encrypt (AES-256-GCM, docs/DM_WIRE_CONTRACT.md §3.4) and upload as an opaque blob. */
+async function uploadEncrypted(file: File, previewUrl: string): Promise<{ result: BlossomUploadResult; dmFile: DMFileMeta }> {
+  const mime = file.type || "application/octet-stream";
+  const plain = new Uint8Array(await file.arrayBuffer());
+  const enc = encryptDMFile(plain);
+  const result = await blossomUploadBytes(enc.ciphertext, "application/octet-stream", { preferOwn: true, ext: "bin" });
+  const dim = await imageDimensions(file, previewUrl);
+  const dmFile: DMFileMeta = {
+    url: result.url,
+    fileType: mime,
+    key: enc.key,
+    nonce: enc.nonce,
+    x: enc.x,
+    ox: enc.ox,
+    size: enc.size,
+    ...(dim ? { dim } : {}),
+  };
+  return { result, dmFile };
 }
 
 const MAX_FILE_SIZE = 100 * 1024 * 1024; // 100MB
@@ -43,7 +79,8 @@ function isAcceptedType(file: File): boolean {
   return ext ? ext in EXT_TO_MIME : false;
 }
 
-export function useFileUpload() {
+export function useFileUpload(opts: { encrypt?: boolean } = {}) {
+  const encrypt = !!opts.encrypt;
   const [attachments, setAttachments] = useState<UploadedAttachment[]>([]);
   const [dragOver, setDragOver] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -76,10 +113,13 @@ export function useFileUpload() {
 
       setAttachments((prev) => [...prev, attachment]);
 
-      blossomUpload(file)
-        .then((result) => {
+      const upload = encrypt
+        ? uploadEncrypted(file, previewUrl)
+        : blossomUpload(file).then((result) => ({ result, dmFile: undefined as DMFileMeta | undefined }));
+      upload
+        .then(({ result, dmFile }) => {
           setAttachments((prev) =>
-            prev.map((a) => (a.id === id ? { ...a, result, status: "done" } : a)),
+            prev.map((a) => (a.id === id ? { ...a, result, dmFile, status: "done" } : a)),
           );
         })
         .catch((err) => {
@@ -92,7 +132,7 @@ export function useFileUpload() {
           );
         });
     }
-  }, []);
+  }, [encrypt]);
 
   // ---- Tauri native file drop ----
   useEffect(() => {

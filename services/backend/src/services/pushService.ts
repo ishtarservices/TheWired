@@ -7,21 +7,10 @@ import {
 } from "../db/schema/notifications.js";
 import { eq, and, lt } from "drizzle-orm";
 import { nanoid } from "../lib/id.js";
-import { getRedis } from "../lib/redis.js";
-
-/** How long a client-declared "don't push me for this event" lives. The
- *  dispatcher checks it at send time, so it only has to outlive the
- *  ingest → dispatch gap (≤ ~35 s) with margin. */
-export const SUPPRESS_TTL_SEC = 3600;
-export const SUPPRESS_MAX_IDS = 20;
 
 /** More devices than anyone plausibly owns — the cap only bounds junk-token
  *  registration (Expo throttles senders that push to dead tokens). */
 export const MAX_DEVICES_PER_PUBKEY = 20;
-
-export function suppressKey(pubkey: string): string {
-  return `notif:suppress:${pubkey}`;
-}
 
 export interface RegisterDeviceParams {
   pubkey: string;
@@ -123,24 +112,5 @@ export const pushService = {
       .where(lt(pushDevices.lastSeenAt, cutoff))
       .returning({ id: pushDevices.id });
     return rows.length;
-  },
-
-  // ── Client-declared suppression (the DM self-wrap) ──
-
-  /** The client publishes a self-addressed gift wrap for every DM it sends;
-   *  the ingester cannot tell it from an inbound one. The sender's app calls
-   *  this with the self-wrap id; the dispatcher drops matching dm rows. Keyed
-   *  by the caller's own pubkey — nobody can suppress someone else's. */
-  async suppressEvents(pubkey: string, eventIds: string[]): Promise<void> {
-    if (eventIds.length === 0) return;
-    const redis = getRedis();
-    const key = suppressKey(pubkey);
-    await redis.sadd(key, ...eventIds);
-    await redis.expire(key, SUPPRESS_TTL_SEC);
-  },
-
-  async isSuppressed(pubkey: string, eventId: string): Promise<boolean> {
-    const redis = getRedis();
-    return (await redis.sismember(suppressKey(pubkey), eventId)) === 1;
   },
 };

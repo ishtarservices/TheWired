@@ -1,4 +1,5 @@
 import type { NostrEvent, NostrFilter, RelayMessage, ClientMessage } from "../../types/nostr";
+import { Negentropy, NegentropyStorageVector } from "@ishtarservices/core";
 import type { RelayMode, RelayStatus } from "../../types/relay";
 import type { RelayEOSECallback, RelayOKCallback, RelayStatusCallback } from "./types";
 import { computeBackoff, StormDetector } from "./reconnect";
@@ -42,6 +43,14 @@ const AUTH_WEDGE_MS = 3000;
 /** Max times a sub is re-deferred after a server CLOSED "too many subscriptions"
  *  before we give up — bounds the retry even if a relay's real cap is below ours. */
 const MAX_CLOSED_RETRIES = 3;
+
+interface NegSession {
+  neg: Negentropy;
+  need: string[];
+  have: string[];
+  resolve: (r: { need: string[]; have: string[] } | null) => void;
+  timer: ReturnType<typeof setTimeout>;
+}
 
 export class RelayConnection {
   readonly url: string;
@@ -97,6 +106,13 @@ export class RelayConnection {
   private authWedgeTimer: ReturnType<typeof setTimeout> | null = null;
   /** Event id of the last AUTH (kind:22242) we sent, to match its OK. */
   private lastAuthEventId: string | null = null;
+
+  // ── NIP-77 negentropy sessions (docs/DM_WIRE_CONTRACT.md §7.5) ──
+  private negSessions = new Map<string, NegSession>();
+  private negCounter = 0;
+  /** Set once this relay answers NEG-OPEN with "unknown message type" —
+   *  further reconciliations short-circuit to null (since-window fallback). */
+  private negUnsupported = false;
 
   /** Short relay name for logging (computed once). */
   private shortUrl: string;
@@ -166,6 +182,7 @@ export class RelayConnection {
 
     this.ws.onclose = () => {
       this.ws = null;
+      this.failAllNeg();
       // Old AUTH challenge is invalid for the next session; clear it so we
       // don't replay a stale challenge that the relay will reject.
       this.pendingAuthChallenge = null;
@@ -282,6 +299,53 @@ export class RelayConnection {
     }).catch((err) => {
       console.warn(`[auth] ${this.shortUrl} AUTH error`, err);
     });
+  }
+
+  /**
+   * NIP-77 set reconciliation: tell the relay which `(created_at, id)` pairs we
+   * hold for `filter`; resolves with the ids we lack (`need`) and the ids the
+   * relay lacks (`have`). Resolves null when the relay doesn't speak NEG-*,
+   * errors, or times out — callers fall back to a since-window REQ.
+   */
+  negentropySync(
+    filter: NostrFilter,
+    items: Array<{ id: string; created_at: number }>,
+    timeoutMs = 15_000,
+  ): Promise<{ need: string[]; have: string[] } | null> {
+    if (this.negUnsupported || !this.ws || this.ws.readyState !== WebSocket.OPEN) {
+      return Promise.resolve(null);
+    }
+    const storage = new NegentropyStorageVector();
+    for (const it of items) storage.insert(it.created_at, it.id);
+    storage.seal();
+    const neg = new Negentropy(storage, 60_000);
+    const id = `neg_${++this.negCounter}_${Date.now().toString(36)}`;
+    let initial: string;
+    try {
+      initial = neg.initiate();
+    } catch {
+      return Promise.resolve(null);
+    }
+    return new Promise((resolve) => {
+      const timer = setTimeout(() => this.finishNeg(id, null), timeoutMs);
+      this.negSessions.set(id, { neg, need: [], have: [], resolve, timer });
+      this.ws!.send(JSON.stringify(["NEG-OPEN", id, filter, initial]));
+    });
+  }
+
+  private finishNeg(id: string, result: { need: string[]; have: string[] } | null): void {
+    const session = this.negSessions.get(id);
+    if (!session) return;
+    clearTimeout(session.timer);
+    this.negSessions.delete(id);
+    if (this.ws && this.ws.readyState === WebSocket.OPEN) {
+      this.ws.send(JSON.stringify(["NEG-CLOSE", id]));
+    }
+    session.resolve(result);
+  }
+
+  private failAllNeg(): void {
+    for (const id of [...this.negSessions.keys()]) this.finishNeg(id, null);
   }
 
   send(msg: ClientMessage): void {
@@ -402,7 +466,40 @@ export class RelayConnection {
         break;
       }
       case "NOTICE": {
-        console.warn(`[Relay ${this.shortUrl}] NOTICE: ${msg[1]}`);
+        const text = String(msg[1] ?? "");
+        // Our relay: "unknown message type: NEG-OPEN"; strfry: "bad msg: negentropy
+        // disabled" — either way this relay won't reconcile, fall back.
+        if (this.negSessions.size > 0 && /NEG-|negentropy/i.test(text)) {
+          this.negUnsupported = true;
+          this.failAllNeg();
+          break;
+        }
+        console.warn(`[Relay ${this.shortUrl}] NOTICE: ${text}`);
+        break;
+      }
+      case "NEG-MSG": {
+        const session = this.negSessions.get(msg[1] as string);
+        if (!session) break;
+        try {
+          const next = session.neg.reconcile(
+            msg[2] as string,
+            (id) => session.have.push(id),
+            (id) => session.need.push(id),
+          );
+          if (next === null) {
+            this.finishNeg(msg[1] as string, { need: session.need, have: session.have });
+          } else if (this.ws && this.ws.readyState === WebSocket.OPEN) {
+            this.ws.send(JSON.stringify(["NEG-MSG", msg[1], next]));
+          }
+        } catch (err) {
+          console.warn(`[Relay ${this.shortUrl}] NEG-MSG error`, err);
+          this.finishNeg(msg[1] as string, null);
+        }
+        break;
+      }
+      case "NEG-ERR": {
+        console.warn(`[Relay ${this.shortUrl}] NEG-ERR ${msg[1]}: ${msg[2]}`);
+        this.finishNeg(msg[1] as string, null);
         break;
       }
       case "CLOSED": {
@@ -420,6 +517,21 @@ export class RelayConnection {
         // drainDeferred only fires on a real closeSubscription(), so this can't
         // busy-loop; MAX_CLOSED_RETRIES bounds it even if a relay's real cap is
         // below ours. Safe because the client cap is kept in lockstep with relays.
+        // NIP-42 `auth-required:` (e.g. a kind-1059 REQ sent before AUTH
+        // completed — docs/DM_WIRE_CONTRACT.md §7.1). Keep the sub tracked,
+        // hold it until the AUTH OK (or the wedge timeout) and re-send it.
+        if (/^auth-required/i.test(reason) && this.subscriptions.has(subId)) {
+          this.everChallenged = true;
+          this.pendingEOSE.delete(subId);
+          this.heldReqs.set(subId, this.subscriptions.get(subId)!);
+          if (this.reqGate !== "holding") {
+            this.reqGate = "holding";
+            if (this.authWedgeTimer) clearTimeout(this.authWedgeTimer);
+            this.authWedgeTimer = setTimeout(() => this.releaseReqGate(), AUTH_WEDGE_MS);
+          }
+          this.tryAuth();
+          break;
+        }
         if (/too many subscriptions/i.test(reason) && this.subscriptions.has(subId)) {
           const tries = (this.closedRetries.get(subId) ?? 0) + 1;
           if (tries <= MAX_CLOSED_RETRIES) {

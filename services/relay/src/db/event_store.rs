@@ -3,6 +3,10 @@ use sqlx::{PgPool, Postgres};
 
 use crate::nostr::event::Event;
 use crate::nostr::filter::Filter;
+use crate::nostr::wrap_gate::{event_expiration, ReadCtx, KIND_GIFT_WRAP};
+
+/// Upper bound on ids a single NIP-77 reconciliation may cover.
+pub const MAX_NEG_IDS: i64 = 20_000;
 
 /// Hard cap on rows returned per query, matching strfry's 500 (RELAY_OPTIMIZATIONS
 /// §1). A client cannot tie up a DB connection with `limit: 5000`.
@@ -22,7 +26,18 @@ fn is_addressable(kind: i32) -> bool {
 /// Handles replaceable (kinds 0, 3, 10000-19999) and addressable (kinds 30000-39999)
 /// events by replacing older versions for the same pubkey+kind (or pubkey+kind+d_tag).
 pub async fn store_event(pool: &PgPool, event: &Event) -> anyhow::Result<bool> {
+    store_event_flagged(pool, event, false).await
+}
+
+/// Store an event, recording whether it is a self-published gift wrap
+/// (docs/DM_WIRE_CONTRACT.md §7.3) and its NIP-40 `expiration`.
+pub async fn store_event_flagged(
+    pool: &PgPool,
+    event: &Event,
+    self_published: bool,
+) -> anyhow::Result<bool> {
     let d_tag = event.get_tag_value("d");
+    let expires_at = event_expiration(event);
     // Every h tag goes into the indexed `h_tags` array (multi-space events);
     // the scalar `h_tag` column is kept as h_tags[1] so `h_tag IS NULL` still
     // means "public" for the backend queries that read it.
@@ -74,8 +89,8 @@ pub async fn store_event(pool: &PgPool, event: &Event) -> anyhow::Result<bool> {
 
     let result = sqlx::query(
         r#"
-        INSERT INTO relay.events (id, pubkey, created_at, kind, tags, content, sig, d_tag, h_tag, visibility, p_tags, e_tags, h_tags)
-        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
+        INSERT INTO relay.events (id, pubkey, created_at, kind, tags, content, sig, d_tag, h_tag, visibility, p_tags, e_tags, h_tags, expires_at, self_published)
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)
         ON CONFLICT (id) DO NOTHING
         "#,
     )
@@ -92,6 +107,8 @@ pub async fn store_event(pool: &PgPool, event: &Event) -> anyhow::Result<bool> {
     .bind(&p_tags)
     .bind(&e_tags)
     .bind(&h_tags)
+    .bind(expires_at)
+    .bind(self_published)
     .execute(pool)
     .await;
 
@@ -123,32 +140,22 @@ pub async fn store_event(pool: &PgPool, event: &Event) -> anyhow::Result<bool> {
     }
 }
 
-/// Query events matching a filter with dynamic WHERE clauses
-pub async fn query_events(pool: &PgPool, filter: &Filter, authed_pubkey: Option<&str>) -> anyhow::Result<Vec<Event>> {
-    // Delegate NIP-50 full-text search to the dedicated handler
-    if let Some(ref search_query) = filter.search {
-        // Clamp to MAX_LIMIT so a search REQ can't tie up a DB connection (strfry
-        // caps at 500). See RELAY_OPTIMIZATIONS §1.
-        let limit = filter.limit.unwrap_or(100).clamp(0, MAX_QUERY_LIMIT);
-        return crate::protocol::nip50::search_events(pool, search_query, limit, authed_pubkey).await;
-    }
+/// Dynamic bind values for the hand-built WHERE clause. sqlx doesn't support
+/// heterogeneous dynamic binding, so we build `$N` placeholders and bind in
+/// order.
+enum BindValue {
+    StringVec(Vec<String>),
+    IntVec(Vec<i32>),
+    Int64(i64),
+    Str(String),
+}
 
-    let start = std::time::Instant::now();
-
+/// Build the WHERE conditions + ordered binds for `filter` under `ctx`.
+/// Shared by the REQ query, the NIP-77 id listing and (in spirit) the search
+/// path so the visibility, gift-wrap and expiration rules can't drift.
+fn build_conditions(filter: &Filter, ctx: &ReadCtx<'_>) -> (Vec<String>, Vec<BindValue>) {
     let mut conditions: Vec<String> = Vec::new();
     let mut param_counter: usize = 0;
-
-    // We'll collect bind values in typed vecs and bind them in order.
-    // Since sqlx doesn't support heterogeneous dynamic binding easily,
-    // we build the query string with $N placeholders and bind in order.
-    //
-    // We track which parameters are which type so we can bind them correctly.
-    enum BindValue {
-        StringVec(Vec<String>),
-        IntVec(Vec<i32>),
-        Int64(i64),
-        Str(String),
-    }
     let mut binds: Vec<BindValue> = Vec::new();
 
     // ids: WHERE id = ANY($N)
@@ -235,11 +242,21 @@ pub async fn query_events(pool: &PgPool, filter: &Filter, authed_pubkey: Option<
         ));
     }
 
+    // NIP-40: never serve an expired event, even if it is still stored.
+    {
+        param_counter += 1;
+        conditions.push(format!("(expires_at IS NULL OR expires_at > ${param_counter})"));
+        binds.push(BindValue::Int64(ctx.now));
+    }
+
     // Visibility access control: filter protected events based on authenticated pubkey.
     // - Private/unlisted events: only visible to author or p-tagged collaborators
     // - Space-scoped events (h_tag): only visible to author or space members
     // - Public events (no visibility, no h_tag): visible to everyone
-    match authed_pubkey {
+    // - Gift wraps (kind 1059): only to the authenticated p-tagged recipient
+    //   (docs/DM_WIRE_CONTRACT.md §7.1) unless the connection holds the
+    //   ingest role / the gate is not enforced.
+    match ctx.authed {
         Some(pk) => {
             param_counter += 1;
             let auth_param = param_counter;
@@ -264,19 +281,68 @@ pub async fn query_events(pool: &PgPool, filter: &Filter, authed_pubkey: Option<
                  OR h_tags && ARRAY(SELECT space_id FROM app.space_members WHERE pubkey = ${auth_param}[1]) \
                  OR h_tags && ARRAY(SELECT group_id FROM relay.group_members WHERE pubkey = ${auth_param}[1]))"
             ));
+
+            if !ctx.serve_all_wraps {
+                conditions.push(format!(
+                    "(kind <> {KIND_GIFT_WRAP} OR ${auth_param}[1] = ANY(p_tags))"
+                ));
+            }
         }
         None => {
             // Unauthenticated: only public events (no visibility tag, no h_tag)
             conditions.push("visibility IS NULL".to_string());
             conditions.push("h_tag IS NULL".to_string());
+            if !ctx.serve_all_wraps {
+                conditions.push(format!("kind <> {KIND_GIFT_WRAP}"));
+            }
         }
     }
 
-    let where_clause = if conditions.is_empty() {
+    (conditions, binds)
+}
+
+fn where_clause(conditions: &[String]) -> String {
+    if conditions.is_empty() {
         String::new()
     } else {
         format!("WHERE {}", conditions.join(" AND "))
-    };
+    }
+}
+
+macro_rules! bind_all {
+    ($query:expr, $binds:expr) => {{
+        let mut q = $query;
+        for bind in $binds.iter() {
+            q = match bind {
+                BindValue::StringVec(v) => q.bind(v),
+                BindValue::IntVec(v) => q.bind(v),
+                BindValue::Int64(v) => q.bind(v),
+                BindValue::Str(v) => q.bind(v),
+            };
+        }
+        q
+    }};
+}
+
+/// Query events matching a filter with dynamic WHERE clauses (pre-contract
+/// signature: no ingest role, gate enforced, wall-clock now).
+pub async fn query_events(pool: &PgPool, filter: &Filter, authed_pubkey: Option<&str>) -> anyhow::Result<Vec<Event>> {
+    query_events_ctx(pool, filter, &ReadCtx::plain(authed_pubkey)).await
+}
+
+/// Query events matching a filter under a full read context.
+pub async fn query_events_ctx(pool: &PgPool, filter: &Filter, ctx: &ReadCtx<'_>) -> anyhow::Result<Vec<Event>> {
+    // Delegate NIP-50 full-text search to the dedicated handler
+    if let Some(ref search_query) = filter.search {
+        // Clamp to MAX_LIMIT so a search REQ can't tie up a DB connection (strfry
+        // caps at 500). See RELAY_OPTIMIZATIONS §1.
+        let limit = filter.limit.unwrap_or(100).clamp(0, MAX_QUERY_LIMIT);
+        return crate::protocol::nip50::search_events_ctx(pool, search_query, limit, ctx).await;
+    }
+
+    let start = std::time::Instant::now();
+    let (conditions, binds) = build_conditions(filter, ctx);
+    let where_clause = where_clause(&conditions);
 
     // Clamp to [0, MAX] so a negative limit can't bypass the cap (#70).
     let limit = filter.limit.unwrap_or(MAX_QUERY_LIMIT).clamp(0, MAX_QUERY_LIMIT);
@@ -284,26 +350,7 @@ pub async fn query_events(pool: &PgPool, filter: &Filter, authed_pubkey: Option<
         "SELECT id, pubkey, created_at, kind, tags, content, sig FROM relay.events {where_clause} ORDER BY created_at DESC LIMIT {limit}"
     );
 
-    // Build the query and bind parameters in order
-    let mut query = sqlx::query_as::<Postgres, EventRow>(&sql);
-
-    for bind in &binds {
-        match bind {
-            BindValue::StringVec(v) => {
-                query = query.bind(v);
-            }
-            BindValue::IntVec(v) => {
-                query = query.bind(v);
-            }
-            BindValue::Int64(v) => {
-                query = query.bind(v);
-            }
-            BindValue::Str(v) => {
-                query = query.bind(v);
-            }
-        }
-    }
-
+    let query = bind_all!(sqlx::query_as::<Postgres, EventRow>(&sql), binds);
     let events: Vec<EventRow> = query.fetch_all(pool).await?;
 
     let elapsed = start.elapsed();
@@ -328,6 +375,64 @@ pub async fn query_events(pool: &PgPool, filter: &Filter, authed_pubkey: Option<
             sig: r.sig,
         })
         .collect())
+}
+
+/// `(created_at, id)` of every event matching `filter` under `ctx`, oldest
+/// first — the input to a NIP-77 negentropy storage vector. Returns at most
+/// `max + 1` rows so the caller can detect "too many" and answer
+/// `NEG-ERR blocked`. Search filters are not reconcilable.
+pub async fn query_event_ids(
+    pool: &PgPool,
+    filter: &Filter,
+    ctx: &ReadCtx<'_>,
+    max: i64,
+) -> anyhow::Result<Vec<(i64, String)>> {
+    if filter.search.is_some() {
+        return Ok(Vec::new());
+    }
+    let (conditions, binds) = build_conditions(filter, ctx);
+    let where_clause = where_clause(&conditions);
+    let limit = max.max(0) + 1;
+    let sql = format!(
+        "SELECT created_at, id FROM relay.events {where_clause} ORDER BY created_at ASC, id ASC LIMIT {limit}"
+    );
+    let query = bind_all!(sqlx::query_as::<Postgres, (i64, String)>(&sql), binds);
+    Ok(query.fetch_all(pool).await?)
+}
+
+/// NIP-40 sweeper: delete every event whose `expiration` has passed.
+pub async fn delete_expired(pool: &PgPool, now: i64) -> anyhow::Result<u64> {
+    let r = sqlx::query("DELETE FROM relay.events WHERE expires_at IS NOT NULL AND expires_at <= $1")
+        .bind(now)
+        .execute(pool)
+        .await?;
+    Ok(r.rows_affected())
+}
+
+/// Server-side gift-wrap retention: delete kind-1059 rows first seen more
+/// than `days` days ago (`RELAY_WRAP_RETENTION_DAYS`).
+pub async fn delete_wraps_older_than_days(pool: &PgPool, days: u32) -> anyhow::Result<u64> {
+    if days == 0 {
+        return Ok(0);
+    }
+    let r = sqlx::query(
+        "DELETE FROM relay.events WHERE kind = $1 AND first_seen < NOW() - make_interval(days => $2)",
+    )
+    .bind(KIND_GIFT_WRAP)
+    .bind(days as i32)
+    .execute(pool)
+    .await?;
+    Ok(r.rows_affected())
+}
+
+/// Was this stored event a self-published gift wrap? (The backend reads the
+/// column by SQL too; this is for tests and the embedded relay.)
+pub async fn is_self_published(pool: &PgPool, event_id: &str) -> anyhow::Result<bool> {
+    let row: Option<(bool,)> = sqlx::query_as("SELECT self_published FROM relay.events WHERE id = $1")
+        .bind(event_id)
+        .fetch_optional(pool)
+        .await?;
+    Ok(row.map(|r| r.0).unwrap_or(false))
 }
 
 /// Get an event by ID (for author verification in deletion)

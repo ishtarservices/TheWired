@@ -25,6 +25,9 @@ export async function ensureRelayEventsTable(): Promise<void> {
   await db.execute(sql`ALTER TABLE relay.events ADD COLUMN IF NOT EXISTS h_tag TEXT`);
   await db.execute(sql`ALTER TABLE relay.events ADD COLUMN IF NOT EXISTS h_tags TEXT[]`);
   await db.execute(sql`ALTER TABLE relay.events ADD COLUMN IF NOT EXISTS d_tag TEXT`);
+  // DM wire contract v1 (relay migration 005): NIP-40 expiry + self-wrap flag.
+  await db.execute(sql`ALTER TABLE relay.events ADD COLUMN IF NOT EXISTS expires_at BIGINT`);
+  await db.execute(sql`ALTER TABLE relay.events ADD COLUMN IF NOT EXISTS self_published BOOLEAN NOT NULL DEFAULT FALSE`);
 }
 
 export interface MusicEventOpts {

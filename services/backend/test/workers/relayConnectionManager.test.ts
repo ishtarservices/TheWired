@@ -161,6 +161,85 @@ describe("relay manager — regression (own relay)", () => {
   });
 });
 
+describe("relay manager — NIP-42 ingest role (own relay)", () => {
+  // A fixed test key; its pubkey is what an operator would put in the relay's
+  // RELAY_INGEST_PUBKEYS.
+  const SK = "7".repeat(64);
+  let savedKey: string;
+  let savedPublic: string;
+
+  beforeEach(() => {
+    savedKey = config.ingestSecretKey;
+    savedPublic = config.publicRelayUrl;
+    (config as { ingestSecretKey: string }).ingestSecretKey = SK;
+    (config as { publicRelayUrl: string }).publicRelayUrl = "wss://relay.public.test";
+  });
+  afterEach(() => {
+    (config as { ingestSecretKey: string }).ingestSecretKey = savedKey;
+    (config as { publicRelayUrl: string }).publicRelayUrl = savedPublic;
+  });
+
+  it("answers the AUTH challenge with the public relay URL and sends the wraps REQ only after OK", async () => {
+    const { ingestPubkey } = await import("../../src/workers/relayConnectionManager.js");
+    await startManager();
+    const own = await waitForWs(config.relayUrl);
+    own.simulateOpen();
+    await tick();
+
+    // Before AUTH: the two legacy REQs, no wraps REQ.
+    expect(reqFrames(own).map((r) => r[1])).toEqual(["ingester", "ingester-music-backfill"]);
+
+    own.simulateMessage(["AUTH", "challenge-abc"]);
+    await tick();
+    const auth = own.sent.map((s) => JSON.parse(s)).find((m) => m[0] === "AUTH");
+    expect(auth).toBeTruthy();
+    const ev = auth![1] as { kind: number; pubkey: string; tags: string[][]; id: string; sig: string };
+    expect(ev.kind).toBe(22242);
+    expect(ev.pubkey).toBe(ingestPubkey());
+    expect(ev.tags).toContainEqual(["relay", "wss://relay.public.test"]);
+    expect(ev.tags).toContainEqual(["challenge", "challenge-abc"]);
+    expect(ev.sig).toHaveLength(128);
+
+    // Still no wraps REQ until the relay acknowledges the AUTH.
+    expect(reqFrames(own).map((r) => r[1])).not.toContain("ingester-wraps");
+    own.simulateMessage(["OK", ev.id, true, ""]);
+    await tick();
+    const reqs = reqFrames(own);
+    expect(reqs.map((r) => r[1])).toEqual(["ingester", "ingester-music-backfill", "ingester-wraps"]);
+    expect((reqs[2][2] as { kinds: number[] }).kinds).toEqual([1059]);
+  });
+
+  it("re-sends the wraps REQ when the relay CLOSED it as auth-required", async () => {
+    await startManager();
+    const own = await waitForWs(config.relayUrl);
+    own.simulateOpen();
+    await tick();
+    own.simulateMessage(["AUTH", "c1"]);
+    await tick();
+    const auth = own.sent.map((s) => JSON.parse(s)).find((m) => m[0] === "AUTH")!;
+    own.simulateMessage(["OK", auth[1].id, true, ""]);
+    await tick();
+    expect(reqFrames(own).filter((r) => r[1] === "ingester-wraps")).toHaveLength(1);
+
+    // A CLOSED auth-required on an authenticated socket → immediate re-REQ.
+    own.simulateMessage(["CLOSED", "ingester-wraps", "auth-required: gift wraps are served only to their recipient"]);
+    await tick();
+    expect(reqFrames(own).filter((r) => r[1] === "ingester-wraps")).toHaveLength(2);
+  });
+
+  it("ignores AUTH challenges when no ingest key is configured (legacy path)", async () => {
+    (config as { ingestSecretKey: string }).ingestSecretKey = "";
+    await startManager();
+    const own = await waitForWs(config.relayUrl);
+    own.simulateOpen();
+    await tick();
+    own.simulateMessage(["AUTH", "challenge-xyz"]);
+    await tick();
+    expect(own.sent.map((s) => JSON.parse(s)).some((m) => m[0] === "AUTH")).toBe(false);
+    expect(reqFrames(own).map((r) => r[1])).toEqual(["ingester", "ingester-music-backfill", "ingester-wraps"]);
+  });
+});
+
 describe("relay manager — external relays", () => {
   it("opens a scoped connection per registered relay (collapsing its spaces)", async () => {
     await insertSpaceWithRelay("spaceA", "wss://ext.example");

@@ -1,5 +1,6 @@
-import { useMemo, memo, useRef, useEffect } from "react";
-import { Search, X, MessageCircle, Users, Clock } from "lucide-react";
+import { useMemo, memo, useRef, useEffect, useState } from "react";
+import { Search, X, MessageCircle, Users, Clock, Check } from "lucide-react";
+import { createRoom } from "./dmService";
 import { Modal } from "@/components/ui/Modal";
 import { Avatar } from "@/components/ui/Avatar";
 import { useUserSearch } from "@/features/search/useUserSearch";
@@ -63,9 +64,37 @@ export function NewDMModal({ open, onClose, onSelect }: NewDMModalProps) {
     [results, myPubkey],
   );
 
+  // Room mode: pick 2–9 people, optional subject, create a NIP-17 room.
+  const [roomMode, setRoomMode] = useState(false);
+  const [picked, setPicked] = useState<string[]>([]);
+  const [subject, setSubject] = useState("");
+  const [roomError, setRoomError] = useState<string | null>(null);
+  useEffect(() => {
+    if (!open) {
+      setRoomMode(false);
+      setPicked([]);
+      setSubject("");
+      setRoomError(null);
+    }
+  }, [open]);
+
   const handleSelect = (pubkey: string) => {
+    if (roomMode) {
+      setPicked((prev) => (prev.includes(pubkey) ? prev.filter((p) => p !== pubkey) : prev.length >= 9 ? prev : [...prev, pubkey]));
+      return;
+    }
     onSelect(pubkey);
     onClose();
+  };
+
+  const handleCreateRoom = () => {
+    try {
+      const roomId = createRoom(picked, subject);
+      onSelect(roomId);
+      onClose();
+    } catch (err) {
+      setRoomError(err instanceof Error ? err.message : "Couldn't create the room");
+    }
   };
 
   return (
@@ -73,7 +102,16 @@ export function NewDMModal({ open, onClose, onSelect }: NewDMModalProps) {
       <div className="w-full max-w-md max-h-[90vh] rounded-2xl card-glass border border-border shadow-2xl overflow-hidden">
         {/* Header */}
         <div className="flex items-center justify-between border-b border-border px-4 py-3">
-          <h2 className="text-sm font-semibold text-heading">New Message</h2>
+          <h2 className="text-sm font-semibold text-heading">{roomMode ? "New Room" : "New Message"}</h2>
+          <button
+            type="button"
+            onClick={() => setRoomMode((v) => !v)}
+            className={`ml-auto mr-2 inline-flex items-center gap-1 rounded-lg px-2 py-1 text-[11px] transition-colors ${roomMode ? "bg-primary/15 text-primary" : "text-muted hover:text-heading"}`}
+            data-testid="dm-room-toggle"
+          >
+            <Users size={12} />
+            {roomMode ? "Room" : "Group"}
+          </button>
           <button
             onClick={onClose}
             className="rounded-lg p-1 text-muted hover:text-heading hover:bg-surface-hover transition-colors"
@@ -105,6 +143,32 @@ export function NewDMModal({ open, onClose, onSelect }: NewDMModalProps) {
           </div>
         </div>
 
+        {roomMode && (
+          <div className="border-b border-border px-4 py-2 space-y-2">
+            <input
+              type="text"
+              value={subject}
+              onChange={(e) => setSubject(e.target.value)}
+              placeholder="Room name (optional)"
+              className="w-full rounded-lg bg-field border border-border px-3 py-1.5 text-sm text-heading placeholder-muted outline-none focus:border-primary/40"
+              data-testid="dm-room-subject"
+            />
+            <div className="flex items-center justify-between text-[11px] text-muted">
+              <span>{picked.length} selected · pick 2–9 people (encrypted, up to 10 incl. you)</span>
+              <button
+                type="button"
+                disabled={picked.length < 2}
+                onClick={handleCreateRoom}
+                className="rounded-lg bg-primary/15 px-3 py-1 text-xs font-medium text-primary hover:bg-primary/25 disabled:opacity-40"
+                data-testid="dm-room-create"
+              >
+                Create room
+              </button>
+            </div>
+            {roomError && <p className="text-[11px] text-red-400">{roomError}</p>}
+          </div>
+        )}
+
         {/* Results / Browse area */}
         <div className="max-h-80 overflow-y-auto">
           {isSearchActive ? (
@@ -125,6 +189,7 @@ export function NewDMModal({ open, onClose, onSelect }: NewDMModalProps) {
                   key={r.pubkey}
                   pubkey={r.pubkey}
                   profile={r.profile}
+                  selected={roomMode && picked.includes(r.pubkey)}
                   onClick={() => handleSelect(r.pubkey)}
                 />
               ))}
@@ -144,6 +209,7 @@ export function NewDMModal({ open, onClose, onSelect }: NewDMModalProps) {
                     <PersonItem
                       key={pk}
                       pubkey={pk}
+                      selected={roomMode && picked.includes(pk)}
                       onClick={() => handleSelect(pk)}
                     />
                   ))}
@@ -154,13 +220,14 @@ export function NewDMModal({ open, onClose, onSelect }: NewDMModalProps) {
               {contacts.length > 0 && (
                 <Section icon={Clock} label="Recent">
                   {contacts
-                    .filter((c) => c.pubkey !== myPubkey)
+                    .filter((c) => c.pubkey !== myPubkey && !c.isRoom)
                     .slice(0, 10)
                     .map((c) => (
                       <PersonItem
                         key={c.pubkey}
                         pubkey={c.pubkey}
                         subtitle={c.lastMessagePreview}
+                        selected={roomMode && picked.includes(c.pubkey)}
                         onClick={() => handleSelect(c.pubkey)}
                       />
                     ))}
@@ -174,6 +241,7 @@ export function NewDMModal({ open, onClose, onSelect }: NewDMModalProps) {
                     <PersonItem
                       key={pk}
                       pubkey={pk}
+                      selected={roomMode && picked.includes(pk)}
                       onClick={() => handleSelect(pk)}
                     />
                   ))}
@@ -229,10 +297,12 @@ function Section({
 const SearchResultItem = memo(function SearchResultItem({
   pubkey,
   profile,
+  selected,
   onClick,
 }: {
   pubkey: string;
   profile: Kind0Profile;
+  selected?: boolean;
   onClick: () => void;
 }) {
   const name =
@@ -241,7 +311,7 @@ const SearchResultItem = memo(function SearchResultItem({
   return (
     <button
       onClick={onClick}
-      className="flex w-full items-center gap-3 px-4 py-2.5 text-left transition-colors hover:bg-surface-hover"
+      className={`flex w-full items-center gap-3 px-4 py-2.5 text-left transition-colors hover:bg-surface-hover ${selected ? "bg-primary/10" : ""}`}
     >
       <Avatar src={profile.picture} alt={name} size="sm" />
       <div className="min-w-0 flex-1">
@@ -254,7 +324,7 @@ const SearchResultItem = memo(function SearchResultItem({
           </span>
         )}
       </div>
-      <MessageCircle size={14} className="shrink-0 text-muted" />
+      {selected ? <Check size={14} className="shrink-0 text-primary" /> : <MessageCircle size={14} className="shrink-0 text-muted" />}
     </button>
   );
 });
@@ -263,10 +333,12 @@ const SearchResultItem = memo(function SearchResultItem({
 const PersonItem = memo(function PersonItem({
   pubkey,
   subtitle,
+  selected,
   onClick,
 }: {
   pubkey: string;
   subtitle?: string;
+  selected?: boolean;
   onClick: () => void;
 }) {
   const { profile } = useProfile(pubkey);
@@ -275,7 +347,7 @@ const PersonItem = memo(function PersonItem({
   return (
     <button
       onClick={onClick}
-      className="flex w-full items-center gap-3 px-4 py-2.5 text-left transition-colors hover:bg-surface-hover"
+      className={`flex w-full items-center gap-3 px-4 py-2.5 text-left transition-colors hover:bg-surface-hover ${selected ? "bg-primary/10" : ""}`}
     >
       <Avatar src={profile?.picture} alt={displayName} size="sm" />
       <div className="min-w-0 flex-1">
@@ -294,7 +366,7 @@ const PersonItem = memo(function PersonItem({
           )
         )}
       </div>
-      <MessageCircle size={14} className="shrink-0 text-muted" />
+      {selected ? <Check size={14} className="shrink-0 text-primary" /> : <MessageCircle size={14} className="shrink-0 text-muted" />}
     </button>
   );
 });

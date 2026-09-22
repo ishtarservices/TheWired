@@ -96,8 +96,9 @@ export interface PushDeviceUnregisterRequest {
   token: string;
 }
 
-/** POST /push/suppress — never push the caller for these event ids (the DM
- *  self-wrap the sender's own client publishes). */
+/** POST /push/suppress — @deprecated no-op since DM wire contract v1: the
+ *  relay flags self-published wraps itself (docs/DM_WIRE_CONTRACT.md §7.3).
+ *  Clients should stop calling it; the route is removed two releases later. */
 export interface PushSuppressRequest {
   eventIds: string[];
 }

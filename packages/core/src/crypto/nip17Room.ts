@@ -5,6 +5,7 @@ import {
   type GiftWrapContext,
   type Rumor,
   type UnwrappedDM,
+  type WrapOptions,
 } from "./giftWrap";
 import type { NostrEvent } from "@ishtarservices/shared-types";
 
@@ -54,11 +55,20 @@ export function roomKeyFromParticipants(pubkeys: string[]): string {
  * except the sender; optionally carries a `subject` (room name) and a `g`
  * (explicit room id).
  */
+export interface GroupRumorOptions {
+  subject?: string;
+  roomId?: string;
+  /** Additional rumor tags (reply anchors, file tags, `type` control tags…). */
+  extraTags?: string[][];
+  /** Rumor kind (14 text default; 15 file, 7 reaction, 20014 typing…). */
+  kind?: number;
+}
+
 export async function buildGroupRumor(
   myPubkey: string,
   participants: string[],
   content: string,
-  opts?: { subject?: string; roomId?: string },
+  opts?: GroupRumorOptions,
 ): Promise<Rumor> {
   const others = Array.from(new Set(participants)).filter((p) => p && p !== myPubkey);
   if (others.length === 0) {
@@ -67,9 +77,10 @@ export async function buildGroupRumor(
   const extraTags: string[][] = others.slice(1).map((p) => ["p", p]);
   if (opts?.roomId) extraTags.push(["g", opts.roomId]);
   if (opts?.subject) extraTags.push(["subject", opts.subject]);
+  if (opts?.extraTags) extraTags.push(...opts.extraTags);
   // buildRumor prepends ["p", others[0]], so the rumor ends up p-tagging all
   // `others` plus the subject/g tags.
-  return buildRumor(myPubkey, others[0], content, extraTags);
+  return buildRumor(myPubkey, others[0], content, extraTags, { kind: opts?.kind });
 }
 
 /**
@@ -81,7 +92,10 @@ export async function createGroupMessageWraps(
   ctx: GiftWrapContext,
   content: string,
   participants: string[],
-  opts?: { subject?: string; roomId?: string },
+  opts?: GroupRumorOptions & WrapOptions & {
+    /** Skip the self-wrap (typing / receipts, §2). */
+    noSelfWrap?: boolean;
+  },
 ): Promise<GroupMessageResult> {
   const members = Array.from(new Set(participants));
   const others = members.filter((p) => p && p !== ctx.myPubkey);
@@ -93,16 +107,22 @@ export async function createGroupMessageWraps(
   const rumor = await buildGroupRumor(ctx.myPubkey, members, content, {
     subject: opts?.subject,
     roomId: opts?.roomId,
+    extraTags: opts?.extraTags,
+    kind: opts?.kind,
   });
+  const wrapOpts: WrapOptions | undefined =
+    opts?.expiration !== undefined ? { expiration: opts.expiration } : undefined;
 
   const wraps: GroupWrap[] = [];
   for (const recipient of others) {
-    const { wrap } = await createGiftWrappedDM(ctx, content, recipient, undefined, rumor);
+    const { wrap } = await createGiftWrappedDM(ctx, content, recipient, undefined, rumor, wrapOpts);
     wraps.push({ to: recipient, wrap });
   }
   // Self-wrap so the sender sees their own message.
-  const self = await createSelfWrap(ctx, content, ctx.myPubkey, undefined, rumor);
-  wraps.push({ to: ctx.myPubkey, wrap: self.wrap });
+  if (!opts?.noSelfWrap) {
+    const self = await createSelfWrap(ctx, content, ctx.myPubkey, undefined, rumor, wrapOpts);
+    wraps.push({ to: ctx.myPubkey, wrap: self.wrap });
+  }
 
   return { rumorId: rumor.id, roomId, wraps };
 }

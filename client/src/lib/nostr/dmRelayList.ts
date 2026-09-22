@@ -2,7 +2,7 @@ import type { NostrEvent } from "../../types/nostr";
 import { normalizeRelayUrl } from "./nip65";
 import { isSafeRelayUrl } from "../security/ssrfGuard";
 import { relayManager } from "./relayManager";
-import { BOOTSTRAP_RELAYS } from "./constants";
+import { BOOTSTRAP_RELAYS, APP_RELAY } from "./constants";
 import { store } from "../../store";
 
 /** Parse a kind:10050 DM relay list event into relay URLs */
@@ -13,12 +13,15 @@ export function parseDMRelayList(event: NostrEvent): string[] {
   for (const tag of event.tags) {
     if (tag[0] !== "relay" || !tag[1]) continue;
     const url = normalizeRelayUrl(tag[1]);
+    if (!url) continue;
     // SSRF guard: a kind:10050 published by the *recipient* (an attacker, when
     // you DM them) is fully attacker-controlled, and getDMRelaysForPublish dials
     // every entry via relayManager.connect. Drop loopback/private/link-local
     // hosts so it can't make the client connect to internal services. See
-    // lib/security/ssrfGuard.ts.
-    if (url && isSafeRelayUrl(url)) urls.push(url);
+    // lib/security/ssrfGuard.ts. The one exemption is our own configured
+    // platform relay (APP_RELAY): a dev build points it at loopback, and a
+    // peer listing exactly that URL dials nothing we don't already dial.
+    if (url === (normalizeRelayUrl(APP_RELAY) ?? APP_RELAY) || isSafeRelayUrl(url)) urls.push(url);
   }
   return urls;
 }
@@ -103,9 +106,22 @@ export async function getDMRelaysForPublish(
   return relays;
 }
 
-/** Get the current user's own DM relay list from Redux state */
+/** Get the current user's own DM relay list from Redux state. Empty when the
+ *  user never published a kind 10050 — callers then use `fallbackDMRelays()`. */
 export function getOwnDMRelays(): string[] {
   return store.getState().identity.dmRelayList;
+}
+
+/**
+ * Where a gift wrap goes when the target has no kind-10050 list: every
+ * connected write relay PLUS the platform relay. The platform relay is the
+ * one our push pipeline reads and the one AUTH-gates wraps to their recipient
+ * (docs/DM_WIRE_CONTRACT.md §7); it must never be skipped just because it was
+ * dialed read-only earlier in the session.
+ */
+export function fallbackDMRelays(): string[] {
+  const writes = relayManager.getWriteRelays().map((c) => c.url);
+  return [...new Set([...writes, APP_RELAY])];
 }
 
 /** Clear the in-memory DM relay cache (call on logout) */

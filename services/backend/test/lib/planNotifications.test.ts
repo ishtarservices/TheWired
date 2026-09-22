@@ -33,6 +33,7 @@ function ev(over: Partial<NostrEvent>): NostrEvent {
 
 function deps(over: Partial<PlanDeps> = {}): PlanDeps {
   return {
+    publicRelayUrl: "wss://relay.test",
     parentAuthorOf: (id) => (id === NOTE ? ME : undefined),
     notePreviewOf: (id) => (id === NOTE ? "my original note" : undefined),
     displayName: (pk) => (pk === ALICE ? "alice" : pk === BOB ? "bob" : pk.slice(0, 8)),
@@ -256,7 +257,8 @@ describe("planNotifications", () => {
       body: "new message",
       url: "soot://dm?segment=messages",
       collapseKey: `dm:${ME}`,
-      data: { eventId: "1".repeat(64) },
+      // DMPushData: what the iOS extension needs to fetch + decrypt on device.
+      data: { type: "dm", eventId: "1".repeat(64), relay: "wss://relay.test" },
     });
     expect(JSON.stringify(d)).not.toContain("ciphertext");
   });

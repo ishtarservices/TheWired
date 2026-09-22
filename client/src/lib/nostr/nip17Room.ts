@@ -7,6 +7,8 @@ import {
   createGroupMessageWraps as coreCreateGroupMessageWraps,
   type GroupMessageResult,
   type GroupWrap,
+  type GroupRumorOptions,
+  type WrapOptions,
 } from "@ishtarservices/core";
 import { nip44Encrypt, nip44Decrypt } from "./nip44";
 import { getSigner } from "./loginFlow";
@@ -32,7 +34,7 @@ export async function createGroupMessageWraps(
   content: string,
   participants: string[],
   myPubkey: string,
-  opts?: { subject?: string; roomId?: string },
+  opts?: GroupRumorOptions & WrapOptions & { noSelfWrap?: boolean },
 ): Promise<GroupMessageResult> {
   const signer = getSigner();
   if (!signer) throw new Error("No signer available");

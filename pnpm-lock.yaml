@@ -38,6 +38,9 @@ importers:
       '@ishtarservices/core':
         specifier: workspace:*
         version: link:../packages/core
+      '@ishtarservices/shared-types':
+        specifier: workspace:*
+        version: link:../packages/shared-types
       '@noble/curves':
         specifier: ^1.9.7
         version: 1.9.7
@@ -219,6 +222,9 @@ importers:
       '@ishtarservices/shared-types':
         specifier: workspace:*
         version: link:../shared-types
+      '@noble/ciphers':
+        specifier: ^2.1.1
+        version: 2.1.1
       '@noble/curves':
         specifier: ^1.9.7
         version: 1.9.7

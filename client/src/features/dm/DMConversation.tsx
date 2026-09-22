@@ -5,8 +5,11 @@ import { DMMessage } from "./DMMessage";
 import { DMInput } from "./DMInput";
 import { UnreadDivider } from "@/components/chat/UnreadDivider";
 import { useDMConversation } from "./useDMConversation";
-import { sendDM, editDM, deleteDMForEveryone, reactToDM, removeDMReaction } from "./dmService";
-import { useFileUpload } from "@/hooks/useFileUpload";
+import { sendDM, sendDMFile, editDM, deleteDMForEveryone, reactToDM, removeDMReaction, sendTyping, sendReceipt } from "./dmService";
+import { useFileUpload, type UploadedAttachment } from "@/hooks/useFileUpload";
+import { useFriends } from "./useFriends";
+import { expireTyping } from "@/store/slices/dmSlice";
+import { Users } from "lucide-react";
 import { usePlaybackBarSpacing } from "@/hooks/usePlaybackBarSpacing";
 import { useAppDispatch, useAppSelector } from "@/store/hooks";
 import { markConversationRead, clearDMUnreadDivider } from "@/store/slices/dmSlice";
@@ -65,8 +68,58 @@ export function DMConversation({ partnerPubkey, onBack }: DMConversationProps) {
   const isNearBottomRef = useRef(true);
   const [showScrollButton, setShowScrollButton] = useState(false);
 
-  // File upload — owned here so dropZoneRef covers the entire DM view
-  const upload = useFileUpload();
+  // File upload — owned here so dropZoneRef covers the entire DM view.
+  // DM attachments are AES-GCM encrypted before upload (kind 15).
+  const upload = useFileUpload({ encrypt: true });
+  const contact = useAppSelector((s) => s.dm.contacts.find((c) => c.pubkey === partnerPubkey));
+  const isRoom = !!contact?.isRoom;
+  const friends = useFriends();
+  const friendSet = useMemo(() => new Set(friends), [friends]);
+  const myPubkey = useAppSelector((s) => s.identity.pubkey);
+
+  // Typing indicator (kind-20014 rumors): names of peers typing right now.
+  const typingMap = useAppSelector((s) => s.dm.typing[partnerPubkey]);
+  useEffect(() => {
+    if (!typingMap) return;
+    const t = setInterval(() => dispatch(expireTyping(Math.floor(Date.now() / 1000))), 1000);
+    return () => clearInterval(t);
+  }, [typingMap, dispatch]);
+  const typingPubkeys = useMemo(() => (typingMap ? Object.keys(typingMap) : []), [typingMap]);
+
+  // Read receipts (kind-20015): once per incoming rumor while this
+  // conversation is open and the window is focused.
+  const receiptedRef = useRef<Set<string>>(new Set());
+  const receiptInFlightRef = useRef<Set<string>>(new Set());
+  const receiptPartnerRef = useRef(partnerPubkey);
+  useEffect(() => {
+    if (typeof document !== "undefined" && document.visibilityState === "hidden") return;
+    // Reset only when the conversation actually changes (not on every effect
+    // run — StrictMode replays effects, which must not clear the in-flight set).
+    if (receiptPartnerRef.current !== partnerPubkey) {
+      receiptPartnerRef.current = partnerPubkey;
+      receiptedRef.current = new Set();
+      receiptInFlightRef.current = new Set();
+    }
+    const fresh = messages
+      .filter(
+        (m) =>
+          m.senderPubkey !== myPubkey &&
+          m.rumorId &&
+          !receiptedRef.current.has(m.rumorId) &&
+          !receiptInFlightRef.current.has(m.rumorId),
+      )
+      .map((m) => m.rumorId!);
+    if (fresh.length === 0) return;
+    // Mark as receipted only once a receipt actually went out: a peer who
+    // becomes a friend later (or a toggle flipped on) still gets one. The
+    // in-flight set stops a re-render (or StrictMode's double effect) from
+    // publishing the same receipt twice while the first is still signing.
+    for (const id of fresh) receiptInFlightRef.current.add(id);
+    void sendReceipt(partnerPubkey, "read", fresh).then((sent) => {
+      for (const id of fresh) receiptInFlightRef.current.delete(id);
+      if (sent) for (const id of fresh) receiptedRef.current.add(id);
+    });
+  }, [messages, partnerPubkey, myPubkey, friends]);
   const { scrollPaddingClass, inputMarginClass } = usePlaybackBarSpacing();
 
   // Unread divider: count captured by setActiveConversation before clearing
@@ -200,16 +253,21 @@ export function DMConversation({ partnerPubkey, onBack }: DMConversationProps) {
   }, [dispatch, partnerPubkey]);
 
   const handleSend = useCallback(
-    async (content: string, emojiTags?: string[][]) => {
+    async (content: string, emojiTags?: string[][], encrypted?: UploadedAttachment[]) => {
       try {
         // Reply anchor = the target's rumorId (shared by both parties); wrapId
         // only for legacy rows that never stored one.
-        await sendDM(
-          partnerPubkey,
-          content,
-          replyTo ? { wrapId: replyTo.wrapId, rumorId: replyTo.rumorId } : undefined,
-          emojiTags,
-        );
+        const reply = replyTo ? { wrapId: replyTo.wrapId, rumorId: replyTo.rumorId } : undefined;
+        if (encrypted && encrypted.length > 0) {
+          // kind-15 file messages; the text (if any) rides as a caption reply
+          // to the first one.
+          for (let i = 0; i < encrypted.length; i++) {
+            const meta = encrypted[i].dmFile!;
+            await sendDMFile(partnerPubkey, meta, { caption: i === 0 ? content : undefined, replyTo: reply });
+          }
+        } else {
+          await sendDM(partnerPubkey, content, reply, emojiTags);
+        }
         setReplyTo(null);
         // Scroll to bottom after sending
         requestAnimationFrame(() => {
@@ -299,13 +357,25 @@ export function DMConversation({ partnerPubkey, onBack }: DMConversationProps) {
         >
           <ArrowLeft size={18} />
         </button>
-        <Avatar src={profile?.picture} alt={displayName} size="sm" />
+        {isRoom ? (
+          <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-primary/15 text-primary">
+            <Users size={15} />
+          </div>
+        ) : (
+          <Avatar src={profile?.picture} alt={displayName} size="sm" />
+        )}
         <div className="min-w-0 flex-1">
           <div className="text-sm font-semibold text-heading truncate">
-            {displayName}
+            {isRoom ? contact?.subject || `Room · ${contact?.participants?.length ?? 0} people` : displayName}
           </div>
-          {profile?.nip05 && (
-            <div className="text-xs text-muted truncate">{profile.nip05}</div>
+          {typingPubkeys.length > 0 ? (
+            <div className="text-xs text-primary truncate" data-testid="dm-typing">
+              {isRoom ? `${typingPubkeys.length} typing…` : "typing…"}
+            </div>
+          ) : isRoom ? (
+            <div className="text-xs text-muted truncate">{contact?.participants?.length ?? 0} participants · encrypted room</div>
+          ) : (
+            profile?.nip05 && <div className="text-xs text-muted truncate">{profile.nip05}</div>
           )}
         </div>
         <div className="flex items-center gap-1">
@@ -325,6 +395,8 @@ export function DMConversation({ partnerPubkey, onBack }: DMConversationProps) {
               <Search size={16} />
             </button>
           )}
+          {!isRoom && (
+          <>
           <button
             onClick={() => startCall(partnerPubkey, "audio")}
             disabled={isInCall}
@@ -348,6 +420,8 @@ export function DMConversation({ partnerPubkey, onBack }: DMConversationProps) {
           >
             <Zap size={16} />
           </button>
+          </>
+          )}
         </div>
       </div>
 
@@ -392,6 +466,8 @@ export function DMConversation({ partnerPubkey, onBack }: DMConversationProps) {
                 message={msg}
                 partnerPubkey={partnerPubkey}
                 isGrouped={isGrouped}
+                isRoom={isRoom}
+                senderIsFriend={friendSet.has(msg.senderPubkey)}
                 onEdit={setEditingMessage}
                 onDeleteForEveryone={handleDeleteForEveryone}
                 onReply={(m) => { setReplyTo(m); setEditingMessage(null); }}
@@ -469,6 +545,7 @@ export function DMConversation({ partnerPubkey, onBack }: DMConversationProps) {
       {/* Input */}
       <DMInput
         onSend={handleSend}
+        onTyping={() => void sendTyping(partnerPubkey)}
         attachments={upload.attachments}
         onRemoveAttachment={upload.removeAttachment}
         onClearAttachments={upload.clearAttachments}

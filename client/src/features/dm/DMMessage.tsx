@@ -1,5 +1,7 @@
 import { useRef, useMemo, useState, useCallback, memo } from "react";
-import { SmilePlus } from "lucide-react";
+import { SmilePlus, Check, CheckCheck, AlertTriangle, Timer } from "lucide-react";
+import { DM_EDIT_WINDOW_SECONDS } from "@ishtarservices/shared-types";
+import { DMFileAttachment } from "./DMFileAttachment";
 import { RichContent } from "@/components/content/RichContent";
 import { Avatar } from "@/components/ui/Avatar";
 import { ReactionPicker } from "@/components/chat/ReactionPicker";
@@ -15,9 +17,6 @@ import type { DMMessage as DMMessageType } from "@/store/slices/dmSlice";
 
 const URL_RE = /https?:\/\/\S+/;
 
-/** 15 minutes in seconds */
-const EDIT_WINDOW_SECONDS = 15 * 60;
-
 interface DMMessageProps {
   message: DMMessageType;
   partnerPubkey: string;
@@ -31,6 +30,10 @@ interface DMMessageProps {
   /** All messages in the conversation, for looking up reply targets */
   allMessages?: DMMessageType[];
   onJumpToMessage?: (wrapId: string) => void;
+  /** Room conversation: label other senders above their first bubble in a run. */
+  isRoom?: boolean;
+  /** Attachments from friends auto-decrypt; strangers' are click-to-load. */
+  senderIsFriend?: boolean;
 }
 
 export const DMMessage = memo(function DMMessage({
@@ -43,6 +46,8 @@ export const DMMessage = memo(function DMMessage({
   onReact,
   allMessages,
   onJumpToMessage,
+  isRoom,
+  senderIsFriend,
 }: DMMessageProps) {
   const myPubkey = useAppSelector((s) => s.identity.pubkey);
   const isMe = message.senderPubkey === myPubkey;
@@ -96,9 +101,14 @@ export const DMMessage = memo(function DMMessage({
 
   const displayName = getDisplayName(profile, message.senderPubkey);
 
-  // Edit window check
+  // Advisory edit window (docs/DM_WIRE_CONTRACT.md §2): 24 h, UI only.
   const canEdit = isMe && !message.isDeleted &&
-    (Math.floor(Date.now() / 1000) - message.createdAt) <= EDIT_WINDOW_SECONDS;
+    (Math.floor(Date.now() / 1000) - message.createdAt) <= DM_EDIT_WINDOW_SECONDS;
+  const readCount = message.readBy?.length ?? 0;
+  const deliveredCount = message.deliveredTo?.length ?? 0;
+  // Receipt / sync glyphs render even inside a grouped run (the time does not),
+  // otherwise a read mark on the last message of a run is invisible.
+  const hasStatusGlyph = isMe && (!!message.syncWarning || readCount > 0 || deliveredCount > 0);
 
   // Deleted message placeholder
   if (message.isDeleted) {
@@ -156,6 +166,9 @@ export const DMMessage = memo(function DMMessage({
                 : "bg-card text-body rounded-bl-sm border border-border"
             }`}
           >
+            {isRoom && !isMe && !isGrouped && (
+              <div className="mb-0.5 text-[11px] font-medium text-primary-soft/80">{displayName}</div>
+            )}
             {message.replyToWrapId && (
               <DMInlineReplyPreview
                 replyToWrapId={message.replyToWrapId}
@@ -163,7 +176,11 @@ export const DMMessage = memo(function DMMessage({
                 onJump={onJumpToMessage}
               />
             )}
-            <RichContent content={displayContent} emojiTags={message.emojiTags} onMentionClick={(pubkey, anchor) => openUserPopover(pubkey, anchor)} />
+            {message.attachment ? (
+              <DMFileAttachment meta={message.attachment} isMe={isMe} autoLoad={!!senderIsFriend} />
+            ) : (
+              <RichContent content={displayContent} emojiTags={message.emojiTags} onMentionClick={(pubkey, anchor) => openUserPopover(pubkey, anchor)} />
+            )}
           </div>
           {/* Hover row: react */}
           {canReact && (
@@ -194,13 +211,34 @@ export const DMMessage = memo(function DMMessage({
           onToggle={canReact ? handlePillToggle : undefined}
           className={`mt-1 ${isMe ? "justify-end" : ""}`}
         />
-        {!isGrouped && (
+        {(!isGrouped || hasStatusGlyph) && (
           <div
             className={`mt-0.5 flex items-center gap-1 text-[10px] text-faint ${isMe ? "justify-end" : "justify-start"}`}
           >
-            <span>{timeAgo}</span>
+            {!isGrouped && <span>{timeAgo}</span>}
             {message.editedContent && (
               <span className="italic">(edited)</span>
+            )}
+            {message.expiresAt !== undefined && (
+              <span title="Disappearing message" className="inline-flex items-center"><Timer size={10} /></span>
+            )}
+            {isMe && message.syncWarning && (
+              <span
+                title="Not synced to your other devices — the copy for your own inbox failed to publish"
+                className="inline-flex items-center text-amber-400"
+                data-testid="dm-sync-warning"
+              >
+                <AlertTriangle size={10} />
+              </span>
+            )}
+            {isMe && !message.syncWarning && (readCount > 0 || deliveredCount > 0) && (
+              <span
+                title={readCount > 0 ? "Read" : "Delivered"}
+                className={`inline-flex items-center ${readCount > 0 ? "text-primary" : ""}`}
+                data-testid={readCount > 0 ? "dm-read" : "dm-delivered"}
+              >
+                {readCount > 0 ? <CheckCheck size={11} /> : <Check size={11} />}
+              </span>
             )}
           </div>
         )}
@@ -211,7 +249,7 @@ export const DMMessage = memo(function DMMessage({
         position={ctxMenu ?? { x: 0, y: 0 }}
         partnerPubkey={partnerPubkey}
         wrapId={message.wrapId}
-        content={displayContent}
+        content={message.attachment ? message.attachment.url : displayContent}
         isOwnMessage={isMe}
         canEdit={canEdit}
         onEdit={() => onEdit?.(message)}

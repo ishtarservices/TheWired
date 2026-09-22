@@ -4,6 +4,8 @@ import { spaceRelays } from "../db/schema/relays.js";
 import { spaces } from "../db/schema/spaces.js";
 import { getRedis } from "../lib/redis.js";
 import { and, eq, ne, sql } from "drizzle-orm";
+import { finalizeEvent, getPublicKey, nip19 } from "nostr-tools";
+import { hexToBytes } from "@noble/hashes/utils";
 import { processEvent, type NostrEvent } from "./ingestHandlers.js";
 
 /**
@@ -32,6 +34,56 @@ const RECONNECT_MAX_MS = 60_000;
  *  notificationEnqueue. */
 export const WRAP_LOOKBACK_SEC = 2 * 24 * 3600 + 3600;
 
+/** The ingest-role key as bytes, or null when unset/invalid. Accepts 64-hex or
+ *  `nsec1…`. */
+export function ingestSecretKeyBytes(raw: string = config.ingestSecretKey): Uint8Array | null {
+  const v = raw.trim();
+  if (!v) return null;
+  try {
+    if (/^[0-9a-f]{64}$/i.test(v)) return hexToBytes(v.toLowerCase());
+    if (v.startsWith("nsec1")) {
+      const d = nip19.decode(v);
+      if (d.type === "nsec") return d.data as Uint8Array;
+    }
+  } catch {
+    // fall through
+  }
+  return null;
+}
+
+/** The ingest-role pubkey (hex) — the value to put in the relay's
+ *  RELAY_INGEST_PUBKEYS. Null when no key is configured. */
+export function ingestPubkey(): string | null {
+  const sk = ingestSecretKeyBytes();
+  return sk ? getPublicKey(sk) : null;
+}
+
+/** Sign the NIP-42 kind-22242 answer to `challenge`. The `relay` tag carries
+ *  the relay's PUBLIC URL (what the relay's RELAY_URL names), not the internal
+ *  address we dial. */
+export function buildAuthEvent(challenge: string, sk: Uint8Array, relayUrl: string = config.publicRelayUrl): NostrEvent {
+  return finalizeEvent(
+    {
+      kind: 22242,
+      created_at: Math.floor(Date.now() / 1000),
+      tags: [
+        ["relay", relayUrl],
+        ["challenge", challenge],
+      ],
+      content: "",
+    },
+    sk,
+  ) as unknown as NostrEvent;
+}
+
+function wrapsReq(): string {
+  return JSON.stringify([
+    "REQ",
+    "ingester-wraps",
+    { kinds: [1059], since: Math.floor(Date.now() / 1000) - WRAP_LOOKBACK_SEC },
+  ]);
+}
+
 /** Tunables (env-overridable so tests can shrink intervals/caps). */
 function tunables() {
   return {
@@ -48,6 +100,13 @@ interface Conn {
   /** Space ids this external relay serves (empty/ignored for the own relay). */
   spaceIds: Set<string>;
   relayPubkey?: string;
+  /** Own relay only: id of the kind-22242 AUTH we sent, until its OK lands. */
+  pendingAuthId?: string;
+  /** Own relay only: NIP-42 completed on this socket. */
+  authed: boolean;
+  /** Own relay only: the wraps REQ was CLOSED auth-required and must be re-sent
+   *  once AUTH completes. */
+  wrapsPendingAuth: boolean;
   reconnectTimer: ReturnType<typeof setTimeout> | null;
   backoffMs: number;
   maxSeen: number;
@@ -109,6 +168,8 @@ export function startRelayIngester(): { stop: () => void } {
       maxSeen: 0,
       windowStart: Date.now(),
       windowCount: 0,
+      authed: false,
+      wrapsPendingAuth: false,
     };
   }
 
@@ -143,6 +204,9 @@ export function startRelayIngester(): { stop: () => void } {
 
     ws.addEventListener("open", async () => {
       conn.backoffMs = cfg.reconnectBaseMs;
+      conn.authed = false;
+      conn.pendingAuthId = undefined;
+      conn.wrapsPendingAuth = false;
       const since = await getSince(url);
 
       if (isOwn(url)) {
@@ -158,13 +222,15 @@ export function startRelayIngester(): { stop: () => void } {
         // 1059 (NIP-59 gift wraps) is ingested for ONE reason: a content-free
         // "new message" push to the `p` recipient. Never indexed. Separate REQ:
         // wraps backdate created_at, so the shared cursor would drop them.
-        ws.send(
-          JSON.stringify([
-            "REQ",
-            "ingester-wraps",
-            { kinds: [1059], since: Math.floor(Date.now() / 1000) - WRAP_LOOKBACK_SEC },
-          ]),
-        );
+        // The relay serves wraps only to an authenticated ingest-role socket
+        // (docs/DM_WIRE_CONTRACT.md §7.1–7.2): with a key configured the REQ
+        // waits for the AUTH OK (see the message handler); without one it is
+        // sent now (dev, or a relay whose gate is off/warn).
+        if (ingestSecretKeyBytes()) {
+          conn.wrapsPendingAuth = true;
+        } else {
+          ws.send(wrapsReq());
+        }
         return;
       }
 
@@ -180,6 +246,7 @@ export function startRelayIngester(): { stop: () => void } {
     ws.addEventListener("message", (ev: MessageEvent) => {
       try {
         const msg = JSON.parse(String(ev.data));
+        if (isOwn(url) && handleOwnRelayControl(conn, ws, msg)) return;
         if (msg[0] !== "EVENT" || !msg[2]) return;
         if (!rateOk(conn, url)) return;
         const event = msg[2] as NostrEvent;
@@ -210,6 +277,48 @@ export function startRelayIngester(): { stop: () => void } {
     ws.addEventListener("error", () => {
       // close handler will schedule the reconnect
     });
+  }
+
+  /** NIP-42 on the own relay: answer AUTH challenges with the ingest key,
+   *  send the wraps REQ once the AUTH is acknowledged, and re-send it when
+   *  the relay CLOSED it as auth-required. Returns true when the frame was a
+   *  control frame (not an EVENT). */
+  function handleOwnRelayControl(conn: Conn, ws: WebSocket, msg: unknown[]): boolean {
+    const type = msg[0];
+    if (type === "AUTH" && typeof msg[1] === "string") {
+      const sk = ingestSecretKeyBytes();
+      if (!sk) return true;
+      const auth = buildAuthEvent(msg[1], sk);
+      conn.pendingAuthId = auth.id;
+      ws.send(JSON.stringify(["AUTH", auth]));
+      return true;
+    }
+    if (type === "OK" && typeof msg[1] === "string" && msg[1] === conn.pendingAuthId) {
+      conn.pendingAuthId = undefined;
+      if (msg[2] === true) {
+        conn.authed = true;
+        if (conn.wrapsPendingAuth) {
+          conn.wrapsPendingAuth = false;
+          ws.send(wrapsReq());
+        }
+      } else {
+        console.warn(`[ingester] relay rejected ingest AUTH: ${String(msg[3] ?? "")}`);
+      }
+      return true;
+    }
+    if (type === "CLOSED" && msg[1] === "ingester-wraps") {
+      const reason = String(msg[2] ?? "");
+      if (reason.startsWith("auth-required")) {
+        // Sent before AUTH completed: retry after the OK (or immediately if
+        // we are already authenticated on this socket).
+        if (conn.authed) ws.send(wrapsReq());
+        else conn.wrapsPendingAuth = true;
+      } else {
+        console.warn(`[ingester] wraps subscription closed: ${reason}`);
+      }
+      return true;
+    }
+    return type !== "EVENT";
   }
 
   function closeConnection(url: string): void {
@@ -280,6 +389,12 @@ export function startRelayIngester(): { stop: () => void } {
   }
 
   // Always connect the own relay first (unchanged single-relay behavior).
+  const ingestPk = ingestPubkey();
+  if (ingestPk) {
+    console.log(`[ingester] NIP-42 ingest role enabled (pubkey ${ingestPk.slice(0, 12)}…)`);
+  } else if (config.ingestSecretKey) {
+    console.warn("[ingester] INGEST_SECRET_KEY is set but not a valid hex/nsec key — wraps REQ will be unauthenticated");
+  }
   connections.set(config.relayUrl, newConn(new Set()));
   open(config.relayUrl);
   // Then reconcile external relays now and on an interval.

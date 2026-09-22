@@ -37,7 +37,10 @@ export type RelayMessage =
   | ["EOSE", string]
   | ["CLOSED", string, string]
   | ["NOTICE", string]
-  | ["AUTH", string];
+  | ["AUTH", string]
+  /** NIP-77 negentropy reconciliation frames. */
+  | ["NEG-MSG", string, string]
+  | ["NEG-ERR", string, string];
 
 /** Client-to-relay message types */
 export type ClientMessage =

@@ -9,17 +9,45 @@ use crate::nostr::filter::Filter;
 /// advertised by `server.rs`.
 const MAX_SUBSCRIPTIONS: usize = 100;
 
+/// Concurrent NIP-77 reconciliation sessions per connection.
+pub const MAX_NEG_SESSIONS: usize = 4;
+
 /// Manages subscriptions for a single WebSocket connection. Each subscription
 /// holds one or more filters (NIP-01) — an event matches if it matches ANY.
+/// Also owns the connection's NIP-77 negentropy sessions (a sealed storage
+/// vector per NEG-OPEN id) so the handler signature stays unchanged.
 pub struct SubscriptionManager {
     subscriptions: HashMap<String, Vec<Filter>>,
+    neg_sessions: HashMap<String, negentropy::NegentropyStorageVector>,
 }
 
 impl SubscriptionManager {
     pub fn new() -> Self {
         Self {
             subscriptions: HashMap::new(),
+            neg_sessions: HashMap::new(),
         }
+    }
+
+    /// Register (or replace) a negentropy session's sealed storage.
+    pub fn neg_open(
+        &mut self,
+        id: String,
+        storage: negentropy::NegentropyStorageVector,
+    ) -> Result<(), &'static str> {
+        if !self.neg_sessions.contains_key(&id) && self.neg_sessions.len() >= MAX_NEG_SESSIONS {
+            return Err("too many negentropy sessions");
+        }
+        self.neg_sessions.insert(id, storage);
+        Ok(())
+    }
+
+    pub fn neg_get(&self, id: &str) -> Option<&negentropy::NegentropyStorageVector> {
+        self.neg_sessions.get(id)
+    }
+
+    pub fn neg_close(&mut self, id: &str) {
+        self.neg_sessions.remove(id);
     }
 
     pub fn add(&mut self, id: String, filters: Vec<Filter>) -> Result<(), &'static str> {

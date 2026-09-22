@@ -10,7 +10,9 @@
  * Privacy stance — this is the one place push bodies are written:
  *  - DM pushes carry NO sender, text or thread: title "soot", body
  *    "new message". The gift wrap's author is ephemeral and its content
- *    opaque; we only know the recipient (`p`).
+ *    opaque; we only know the recipient (`p`). The sender's own self-wrap is
+ *    skipped upstream (ingestHandlers.isSelfPublishedWrap — the relay flags
+ *    it from the publisher's NIP-42 identity).
  *  - reply / mention / reaction / zap / chat / post pushes carry short
  *    previews of PUBLIC relay content only.
  *  - release pushes carry the public title.
@@ -49,6 +51,9 @@ export interface NotificationIntent {
 }
 
 export interface PlanDeps {
+  /** The relay's public URL, carried in DM push data so the iOS Notification
+   *  Service Extension knows where to fetch the wrap (§8). */
+  publicRelayUrl?: string;
   /** Author of a note id we have in relay.events (undefined = unknown). */
   parentAuthorOf(eventId: string): string | undefined;
   /** Short public preview of a note we have (undefined = unknown). */
@@ -269,6 +274,8 @@ export function planNotifications(
       // Content-free by construction: we know only who it is FOR.
       const recipient = tagValue(event, "p");
       if (!recipient) return out;
+      // data = DMPushData (shared-types): the NSE fetches `eventId` from
+      // `relay` over an authenticated socket and decrypts on device.
       out.push({
         recipient,
         type: "dm",
@@ -276,7 +283,7 @@ export function planNotifications(
         body: "new message",
         url: "soot://dm?segment=messages",
         collapseKey: `dm:${recipient}`,
-        data: { eventId: event.id },
+        data: { type: "dm", eventId: event.id, relay: deps.publicRelayUrl ?? "" },
       });
       return out;
     }

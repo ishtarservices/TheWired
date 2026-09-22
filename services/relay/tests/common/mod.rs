@@ -304,15 +304,26 @@ pub fn sign_music_track(identity: &TestIdentity, space_ids: &[&str], slug: &str)
 /// Build an AppState wired to the given pool. `relay_url` matches what
 /// the production server would compute for `ws://localhost:7777`.
 pub fn make_app_state(pool: PgPool) -> (Arc<AppState>, broadcast::Sender<Event>) {
+    make_app_state_with(pool, |_| {})
+}
+
+/// Like [`make_app_state`] but lets a test tweak the config first (ingest
+/// pubkeys, gate mode, rate limits…).
+pub fn make_app_state_with(
+    pool: PgPool,
+    tweak: impl FnOnce(&mut Config),
+) -> (Arc<AppState>, broadcast::Sender<Event>) {
     let (tx, _) = broadcast::channel::<Event>(64);
-    let config = Config {
+    let mut config = Config {
         port: 7777,
         database_url: test_db_url(),
         rust_env: "test".to_string(),
         relay_secret_key: None,
         relay_name: "test-relay".to_string(),
         relay_description: "test".to_string(),
+        ..Config::default()
     };
+    tweak(&mut config);
     let relay_identity = RelayIdentity::new(config.relay_secret_key.clone(), &config.rust_env);
     let state = AppState {
         pool: thewired_relay::db::Db::Pg(pool),
@@ -323,6 +334,7 @@ pub fn make_app_state(pool: PgPool) -> (Arc<AppState>, broadcast::Sender<Event>)
         relay_url: "ws://localhost:7777".to_string(),
         hosted_only: false,
         owner_pubkey: None,
+        ip_conns: std::sync::Mutex::new(Default::default()),
     };
     (Arc::new(state), tx)
 }

@@ -1,7 +1,7 @@
 import type { FastifyPluginAsync } from "fastify";
 import { z } from "zod";
-import { pushService, SUPPRESS_MAX_IDS } from "../services/pushService.js";
-import { validate, nonEmptyString, hexId } from "../lib/validation.js";
+import { pushService } from "../services/pushService.js";
+import { validate, nonEmptyString } from "../lib/validation.js";
 
 // ── Web Push (desktop) ──
 const subscribeBody = z.object({
@@ -38,9 +38,6 @@ const unregisterDeviceBody = z.object({
   token: z.string().min(1).max(512),
 });
 
-const suppressBody = z.object({
-  eventIds: z.array(hexId).min(1).max(SUPPRESS_MAX_IDS),
-});
 
 export const pushRoutes: FastifyPluginAsync = async (server) => {
   server.post("/subscribe", async (request, reply) => {
@@ -92,16 +89,14 @@ export const pushRoutes: FastifyPluginAsync = async (server) => {
     return { data: { removed } };
   });
 
-  /** POST /push/suppress — "don't push me for these event ids" (the DM
-   *  self-wrap). Scoped to the caller's own pubkey by construction. */
+  /** POST /push/suppress — DEPRECATED no-op (docs/DM_WIRE_CONTRACT.md §7.3).
+   *  Self-wraps are now flagged by the relay from the publisher's NIP-42
+   *  identity, so the client no longer has to tell the server which wraps it
+   *  authored. Kept for one release so older mobile builds get a 200 instead
+   *  of a 404; remove afterwards. Still requires auth so it can't be probed. */
   server.post("/suppress", async (request, reply) => {
     const pubkey = (request as any).pubkey;
     if (!pubkey) return reply.status(401).send({ error: "Unauthorized", code: "UNAUTHORIZED" });
-
-    const body = validate(suppressBody, request.body, reply);
-    if (!body) return;
-
-    await pushService.suppressEvents(pubkey, body.eventIds);
-    return { data: { success: true } };
+    return { data: { success: true, deprecated: true } };
   });
 };
