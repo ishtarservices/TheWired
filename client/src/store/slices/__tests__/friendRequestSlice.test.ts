@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { friendRequestSlice, type FriendRequest } from "../friendRequestSlice";
+import { friendRequestSlice, isStaleAfterRemoval, type FriendRequest } from "../friendRequestSlice";
 import { identitySlice } from "../identitySlice";
 import { createTestStore } from "@/__tests__/helpers/createTestStore";
 import { lunaVega, marcusCole, sageNakamura } from "@/__tests__/fixtures/testUsers";
@@ -9,6 +9,8 @@ const {
   acceptFriendRequest,
   declineFriendRequest,
   markOutgoingAccepted,
+  applyAcceptWrap,
+  applyRemoveWrap,
   cancelFriendRequest,
   removeFriend,
   clearRemovedPubkey,
@@ -100,15 +102,31 @@ describe("friendRequestSlice", () => {
     });
     store.dispatch(addFriendRequest(accepted));
 
-    // New cycle: fresh pending request (even with older timestamp, pending replaces resolved)
+    // New cycle: a NEWER pending request replaces the resolved row
     const fresh = makeRequest({
       id: "wrap-2", pubkey: marcusCole.pubkey, direction: "incoming",
-      status: "pending", createdAt: 50,
+      status: "pending", createdAt: 150,
     });
     store.dispatch(addFriendRequest(fresh));
     const reqs = store.getState().friendRequests.requests;
     expect(reqs).toHaveLength(1);
     expect(reqs[0].status).toBe("pending");
+  });
+
+  it("does not let an OLDER replayed request reopen a resolved row", () => {
+    const store = createTestStore();
+    // The accept echo arrived first (newest-first replay) and created the accepted row at t=100
+    store.dispatch(applyAcceptWrap({
+      pubkey: marcusCole.pubkey, direction: "incoming", wrapId: "acc-echo", createdAt: 100,
+    }));
+    // The original request (t=50) arrives afterwards
+    store.dispatch(addFriendRequest(makeRequest({
+      id: "wrap-orig", pubkey: marcusCole.pubkey, direction: "incoming",
+      status: "pending", createdAt: 50,
+    })));
+    const reqs = store.getState().friendRequests.requests;
+    expect(reqs).toHaveLength(1);
+    expect(reqs[0].status).toBe("accepted");
   });
 
   // ─── acceptFriendRequest ───────────────────────
@@ -635,6 +653,143 @@ describe("friendRequestSlice", () => {
       expect(state.followList).toEqual([]);
       expect(state.followListCreatedAt).toBe(0);
       // This is the guard condition: length === 0 && createdAt === 0
+    });
+  });
+
+  // ═══════════════════════════════════════════════
+  // Cross-device sync: self-wrap echoes + sibling guard + removal ordering
+  // ═══════════════════════════════════════════════
+
+  describe("sibling-row guard", () => {
+    it("accepting the incoming row also resolves a pending outgoing row (mutual request)", () => {
+      const store = createTestStore();
+      store.dispatch(addFriendRequest(makeRequest({ id: "out", pubkey: marcusCole.pubkey, direction: "outgoing" })));
+      store.dispatch(addFriendRequest(makeRequest({ id: "in", pubkey: marcusCole.pubkey, direction: "incoming" })));
+      store.dispatch(acceptFriendRequest(marcusCole.pubkey));
+      const reqs = store.getState().friendRequests.requests;
+      expect(reqs).toHaveLength(2);
+      expect(reqs.every((r) => r.status === "accepted")).toBe(true);
+    });
+
+    it("the peer accepting our request also resolves their pending incoming card", () => {
+      const store = createTestStore();
+      store.dispatch(addFriendRequest(makeRequest({ id: "out", pubkey: marcusCole.pubkey, direction: "outgoing" })));
+      store.dispatch(addFriendRequest(makeRequest({ id: "in", pubkey: marcusCole.pubkey, direction: "incoming" })));
+      store.dispatch(markOutgoingAccepted(marcusCole.pubkey));
+      const reqs = store.getState().friendRequests.requests;
+      expect(reqs.filter((r) => r.status === "pending")).toHaveLength(0);
+    });
+
+    it("does not touch other pubkeys' pending rows", () => {
+      const store = createTestStore();
+      store.dispatch(addFriendRequest(makeRequest({ id: "in-m", pubkey: marcusCole.pubkey, direction: "incoming" })));
+      store.dispatch(addFriendRequest(makeRequest({ id: "in-s", pubkey: sageNakamura.pubkey, direction: "incoming" })));
+      store.dispatch(acceptFriendRequest(marcusCole.pubkey));
+      const sage = store.getState().friendRequests.requests.find((r) => r.pubkey === sageNakamura.pubkey);
+      expect(sage?.status).toBe("pending");
+    });
+  });
+
+  describe("applyAcceptWrap (accept echoes)", () => {
+    it("own echo marks the incoming pending row accepted (accepted on another device)", () => {
+      const store = createTestStore();
+      store.dispatch(addFriendRequest(makeRequest({ id: "in", pubkey: marcusCole.pubkey, direction: "incoming", createdAt: 10 })));
+      store.dispatch(applyAcceptWrap({ pubkey: marcusCole.pubkey, direction: "incoming", wrapId: "acc", createdAt: 20 }));
+      const reqs = store.getState().friendRequests.requests;
+      expect(reqs).toHaveLength(1);
+      expect(reqs[0].status).toBe("accepted");
+      expect(reqs[0].id).toBe("in"); // existing row kept, not duplicated
+    });
+
+    it("own echo overrides a decline made on another device", () => {
+      const store = createTestStore();
+      store.dispatch(addFriendRequest(makeRequest({ id: "in", pubkey: marcusCole.pubkey, direction: "incoming" })));
+      store.dispatch(declineFriendRequest(marcusCole.pubkey));
+      store.dispatch(applyAcceptWrap({ pubkey: marcusCole.pubkey, direction: "incoming", wrapId: "acc", createdAt: 20 }));
+      expect(store.getState().friendRequests.requests[0].status).toBe("accepted");
+    });
+
+    it("creates the row already accepted when the accept arrives before the request", () => {
+      const store = createTestStore();
+      store.dispatch(applyAcceptWrap({ pubkey: marcusCole.pubkey, direction: "outgoing", wrapId: "acc", createdAt: 100 }));
+      const reqs = store.getState().friendRequests.requests;
+      expect(reqs).toHaveLength(1);
+      expect(reqs[0]).toMatchObject({ pubkey: marcusCole.pubkey, direction: "outgoing", status: "accepted", createdAt: 100 });
+    });
+
+    it("peer accept resolves the outgoing row and any sibling pending incoming", () => {
+      const store = createTestStore();
+      store.dispatch(addFriendRequest(makeRequest({ id: "out", pubkey: marcusCole.pubkey, direction: "outgoing" })));
+      store.dispatch(addFriendRequest(makeRequest({ id: "in", pubkey: marcusCole.pubkey, direction: "incoming" })));
+      store.dispatch(applyAcceptWrap({ pubkey: marcusCole.pubkey, direction: "outgoing", wrapId: "acc", createdAt: 100 }));
+      expect(store.getState().friendRequests.requests.every((r) => r.status === "accepted")).toBe(true);
+    });
+  });
+
+  describe("applyRemoveWrap (remove echoes) + removal ordering", () => {
+    it("clears rows older than the removal and records the removal time", () => {
+      const store = createTestStore();
+      store.dispatch(addFriendRequest(makeRequest({ id: "in", pubkey: marcusCole.pubkey, direction: "incoming", createdAt: 10 })));
+      store.dispatch(acceptFriendRequest(marcusCole.pubkey));
+      store.dispatch(applyRemoveWrap({ pubkey: marcusCole.pubkey, createdAt: 50 }));
+      const st = store.getState().friendRequests;
+      expect(st.requests).toHaveLength(0);
+      expect(st.removedPubkeys).toContain(marcusCole.pubkey);
+      expect(st.removedAt[marcusCole.pubkey]).toBe(50);
+    });
+
+    it("a replayed OLD removal does not wipe a newer re-friend cycle", () => {
+      const store = createTestStore();
+      // New cycle row at t=200 already present (newest-first replay)
+      store.dispatch(addFriendRequest(makeRequest({ id: "new", pubkey: marcusCole.pubkey, direction: "outgoing", createdAt: 200 })));
+      // Old removal at t=100 arrives afterwards
+      store.dispatch(applyRemoveWrap({ pubkey: marcusCole.pubkey, createdAt: 100 }));
+      const st = store.getState().friendRequests;
+      expect(st.requests).toHaveLength(1);
+      expect(st.requests[0].id).toBe("new");
+      expect(st.removedAt[marcusCole.pubkey]).toBe(100);
+    });
+
+    it("isStaleAfterRemoval: older wraps are stale, newer ones are a new cycle", () => {
+      const store = createTestStore();
+      store.dispatch(applyRemoveWrap({ pubkey: marcusCole.pubkey, createdAt: 100 }));
+      const st = store.getState().friendRequests;
+      expect(isStaleAfterRemoval(st, marcusCole.pubkey, 90)).toBe(true);
+      expect(isStaleAfterRemoval(st, marcusCole.pubkey, 100)).toBe(true);
+      expect(isStaleAfterRemoval(st, marcusCole.pubkey, 101)).toBe(false);
+      expect(isStaleAfterRemoval(st, sageNakamura.pubkey, 1)).toBe(false);
+    });
+
+    it("isStaleAfterRemoval: legacy entries without a timestamp are always stale", () => {
+      const store = createTestStore();
+      store.dispatch(restoreFriendRequestState({ removedPubkeys: [marcusCole.pubkey] }));
+      expect(isStaleAfterRemoval(store.getState().friendRequests, marcusCole.pubkey, 10 ** 12)).toBe(true);
+    });
+
+    it("clearRemovedPubkey also drops the removal timestamp", () => {
+      const store = createTestStore();
+      store.dispatch(applyRemoveWrap({ pubkey: marcusCole.pubkey, createdAt: 100 }));
+      store.dispatch(clearRemovedPubkey(marcusCole.pubkey));
+      const st = store.getState().friendRequests;
+      expect(st.removedPubkeys).not.toContain(marcusCole.pubkey);
+      expect(st.removedAt[marcusCole.pubkey]).toBeUndefined();
+    });
+
+    it("local removeFriend / cancel record a removal time too", () => {
+      const store = createTestStore();
+      store.dispatch(addFriendRequest(makeRequest({ id: "out", pubkey: marcusCole.pubkey, direction: "outgoing" })));
+      store.dispatch(cancelFriendRequest(marcusCole.pubkey));
+      store.dispatch(addFriendRequest(makeRequest({ id: "in", pubkey: sageNakamura.pubkey, direction: "incoming" })));
+      store.dispatch(removeFriend(sageNakamura.pubkey));
+      const st = store.getState().friendRequests;
+      expect(typeof st.removedAt[marcusCole.pubkey]).toBe("number");
+      expect(typeof st.removedAt[sageNakamura.pubkey]).toBe("number");
+    });
+
+    it("restores removedAt alongside the rest of the state", () => {
+      const store = createTestStore();
+      store.dispatch(restoreFriendRequestState({ removedPubkeys: [marcusCole.pubkey], removedAt: { [marcusCole.pubkey]: 7 } }));
+      expect(store.getState().friendRequests.removedAt).toEqual({ [marcusCole.pubkey]: 7 });
     });
   });
 });

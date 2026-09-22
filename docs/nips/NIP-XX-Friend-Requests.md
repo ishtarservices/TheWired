@@ -132,9 +132,11 @@ From a given user's perspective, the friendship state with another user follows 
 If Alice sends a friend request to Bob, and Bob independently sends a friend request to Alice before receiving hers, both clients SHOULD detect the mutual pending state and automatically transition to `friends` without requiring manual acceptance. This provides a seamless experience when two users request each other simultaneously.
 
 Specifically: when processing an incoming `friend_request`, if a `pending_outgoing` request to the same pubkey already exists locally, the client SHOULD immediately:
-1. Transition the state to `friends`.
+1. Transition the state to `friends` (both the outgoing and the new incoming row become accepted).
 2. Publish a `friend_request_accept` to notify the other party.
 3. Update the kind `3` follow list.
+
+The same applies when the local user *sends* a request while an incoming one from that pubkey is pending: the client SHOULD send `friend_request_accept` instead of a second `friend_request`. Both paths are required; a client implementing only the send-side rule leaves the peer stuck in `pending_outgoing` when requests cross in flight.
 
 ### Decline
 
@@ -147,13 +149,34 @@ Because gift wraps use ephemeral keypairs, the sender cannot decrypt their own o
 - Detect mutual pending requests for auto-accept.
 - Display sent requests in the UI.
 
-Clients MUST publish a self-wrap for every friend request operation. Clients SHOULD persist processed wrap IDs locally to avoid re-processing the same event.
+Clients MUST publish a self-wrap for every friend request operation. Both wraps MUST carry the **same rumor** (same rumor id and `created_at`). Clients SHOULD persist processed wrap IDs locally to avoid re-processing the same event.
+
+### Applying Self-Wrap Echoes (Multi-Device Sync)
+
+Friendship state is local to each device; nothing beyond the wraps themselves is stored on relays. A client therefore MUST apply its **own** self-wrap echoes (rumor `pubkey` equals the local user, partner = the non-self `p` tag) exactly as it would apply the operation performed locally:
+
+| Own echo | Effect |
+| --- | --- |
+| `friend_request` | Create (or keep) the *outgoing pending* row for the partner. |
+| `friend_request_accept` | Mark the *incoming* row for the partner accepted (create it accepted if absent). |
+| `friend_request_remove` | Clear the partner's rows and record the removal (see below). |
+
+Without this, an accept or removal performed on one device never reaches the user's other devices, because the peer's side of the exchange alone does not resolve the local row.
+
+### Ordering and Replay
+
+Relays replay every wrap on reconnect, typically newest first, and a new device receives the full history at once. Clients MUST order operations by the **rumor's `created_at`** (the wrap's own timestamp is randomised per NIP-59), never by receive time. Rows SHOULD be stamped with the rumor `created_at` of the wrap that produced them. The following rules keep replays from resurrecting dissolved or already-resolved state:
+
+- **Removal marker.** On `friend_request_remove` (own or peer's), record `removedAt[partner] = rumor.created_at`. Only rows with `created_at <= removedAt` are cleared; newer rows belong to a later cycle and survive.
+- **Stale replay.** A `friend_request` or `friend_request_accept` whose `created_at <= removedAt[partner]` is a replay from before the removal: record its wrap id and drop it. One that is newer starts a new cycle and clears the marker.
+- **Accept before request.** An accept may arrive before the request it resolves. The client MUST create the row already accepted; an older request arriving later MUST NOT reopen it (a pending request never replaces a resolved row with a later `created_at`).
+- **Sibling rows.** When any row for a partner becomes accepted, any pending row for the same partner in the other direction is resolved too, so the UI never shows a stale "accept" card once the pair are friends.
 
 ### Deduplication
 
 Clients SHOULD prevent duplicate requests:
-- If a `pending_outgoing` request to a pubkey already exists, do not send another `friend_request`.
-- If a `friends` state already exists with a pubkey, ignore incoming `friend_request` events from them.
+- If a `pending_outgoing` request to a pubkey already exists, or the pair are already `friends`, do not send another `friend_request`.
+- If a `friends` state already exists with a pubkey and an incoming `friend_request` arrives that is **older** than the row that established the friendship, ignore it (replay). If it is **newer** (the peer re-requested, e.g. after a removal this client never saw), treat it like a mutual request: mark it accepted and reply with `friend_request_accept` so the peer converges.
 
 ### Relay Selection
 
