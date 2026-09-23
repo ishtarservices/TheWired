@@ -1,4 +1,4 @@
-import { createGiftWrappedDM, createSelfWrap } from "./giftWrap";
+import { buildRumor, createGiftWrappedDM, createSelfWrap } from "./giftWrap";
 import { relayManager } from "./relayManager";
 import { getDMRelaysForPublish, getOwnDMRelays } from "./dmRelayList";
 import { store } from "@/store";
@@ -15,13 +15,50 @@ import { addKnownFollower } from "@/store/slices/identitySlice";
 import { followUser, unfollowUser } from "./follow";
 import { BOOTSTRAP_RELAYS } from "./constants";
 
+type FriendWrapType = "friend_request" | "friend_request_accept" | "friend_request_remove";
+
+/**
+ * Build ONE kind-14 rumor tagged `["type", <op>]`, wrap it for the partner and
+ * for ourselves (self-wrap, docs/nips/NIP-XX-Friend-Requests.md), and publish
+ * both. Sharing the rumor gives both wraps the same rumor id and timestamp, and
+ * the returned `created_at` is what the local row is stamped with so it lines up
+ * with the echo other devices (and the peer) will see.
+ */
+async function publishFriendWrap(
+  myPubkey: string,
+  partnerPubkey: string,
+  type: FriendWrapType,
+  content = "",
+): Promise<{ selfWrapId: string; createdAt: number }> {
+  const rumor = await buildRumor(myPubkey, partnerPubkey, content, [["type", type]]);
+  const { wrap: recipientWrap } = await createGiftWrappedDM(content, partnerPubkey, undefined, rumor);
+  const { wrap: selfWrap } = await createSelfWrap(content, partnerPubkey, undefined, rumor);
+
+  // Publish to partner's DM relays (falls back to all write relays)
+  const recipientRelays = await getDMRelaysForPublish(partnerPubkey);
+  const confirmations = await relayManager.publishWithConfirmation(recipientWrap, recipientRelays);
+  const anyAccepted = confirmations.some((r) => r.success);
+
+  // If no relay accepted or we had no specific DM relays, also publish to bootstrap
+  if (!anyAccepted || !recipientRelays) {
+    relayManager.publish(recipientWrap, BOOTSTRAP_RELAYS);
+  }
+
+  // Publish self-wrap to our own DM relays (falls back to all write relays)
+  const ownRelays = getOwnDMRelays();
+  relayManager.publish(selfWrap, ownRelays.length > 0 ? ownRelays : undefined);
+
+  return { selfWrapId: selfWrap.id, createdAt: rumor.created_at };
+}
+
 /**
  * Send a friend request to a user via gift-wrapped DM.
  *
  * Auto-accept: If there's already a pending incoming request from this pubkey,
  * we accept it instead of sending a new outgoing request.
  *
- * Dedup: If there's already a pending outgoing to this pubkey, returns early.
+ * Dedup: If there's already a pending outgoing to this pubkey, or we're already
+ * friends, returns early.
  */
 export async function sendFriendRequest(
   recipientPubkey: string,
@@ -49,45 +86,29 @@ export async function sendFriendRequest(
     return;
   }
 
-  // Dedup: if we already have a pending outgoing to this pubkey, skip
-  const pendingOutgoing = requests.find(
+  // Dedup: already friends, or a request is already out to them — nothing to send
+  const alreadyResolved = requests.some(
     (r) =>
       r.pubkey === recipientPubkey &&
-      r.direction === "outgoing" &&
-      r.status === "pending",
+      (r.status === "accepted" || (r.direction === "outgoing" && r.status === "pending")),
   );
-  if (pendingOutgoing) return;
+  if (alreadyResolved) return;
 
   const content = message ?? "";
-  const extraTags: string[][] = [["type", "friend_request"]];
-
-  // Create gift wrap for recipient
-  const { wrap: recipientWrap } = await createGiftWrappedDM(content, recipientPubkey, extraTags);
-
-  // Create gift wrap for self
-  const { wrap: selfWrap } = await createSelfWrap(content, recipientPubkey, extraTags);
-
-  // Publish to recipient's DM relays (falls back to all write relays)
-  const recipientRelays = await getDMRelaysForPublish(recipientPubkey);
-  const confirmations = await relayManager.publishWithConfirmation(recipientWrap, recipientRelays);
-  const anyAccepted = confirmations.some((r) => r.success);
-
-  // If no relay accepted or we had no specific DM relays, also publish to bootstrap
-  if (!anyAccepted || !recipientRelays) {
-    relayManager.publish(recipientWrap, BOOTSTRAP_RELAYS);
-  }
-
-  // Publish self-wrap to our own DM relays (falls back to all write relays)
-  const ownRelays = getOwnDMRelays();
-  relayManager.publish(selfWrap, ownRelays.length > 0 ? ownRelays : undefined);
+  const { selfWrapId, createdAt } = await publishFriendWrap(
+    myPubkey,
+    recipientPubkey,
+    "friend_request",
+    content,
+  );
 
   // Optimistic local dispatch
   store.dispatch(
     addFriendRequest({
-      id: selfWrap.id,
+      id: selfWrapId,
       pubkey: recipientPubkey,
       message: content,
-      createdAt: Math.round(Date.now() / 1000),
+      createdAt,
       status: "pending",
       direction: "outgoing",
     }),
@@ -111,23 +132,7 @@ export async function acceptFriendRequestAction(
     store.dispatch(clearRemovedPubkey(requesterPubkey));
   }
 
-  const extraTags: string[][] = [["type", "friend_request_accept"]];
-
-  // Create gift wraps for requester and self
-  const { wrap: recipientWrap } = await createGiftWrappedDM("", requesterPubkey, extraTags);
-  const { wrap: selfWrap } = await createSelfWrap("", requesterPubkey, extraTags);
-
-  // Publish to recipient's DM relays (falls back to all write relays)
-  const recipientRelays = await getDMRelaysForPublish(requesterPubkey);
-  const confirmations = await relayManager.publishWithConfirmation(recipientWrap, recipientRelays);
-  const anyAccepted = confirmations.some((r) => r.success);
-  if (!anyAccepted || !recipientRelays) {
-    relayManager.publish(recipientWrap, BOOTSTRAP_RELAYS);
-  }
-
-  // Publish self-wrap to our own DM relays (falls back to all write relays)
-  const ownRelays = getOwnDMRelays();
-  relayManager.publish(selfWrap, ownRelays.length > 0 ? ownRelays : undefined);
+  await publishFriendWrap(myPubkey, requesterPubkey, "friend_request_accept");
 
   // Update local state
   store.dispatch(acceptFriendRequest(requesterPubkey));
@@ -171,22 +176,7 @@ export async function removeFriendAction(pubkey: string): Promise<void> {
 
   // Send remove notification to the other user so their client can sync
   try {
-    const extraTags: string[][] = [["type", "friend_request_remove"]];
-    const { wrap: recipientWrap } = await createGiftWrappedDM("", pubkey, extraTags);
-    const { wrap: selfWrap } = await createSelfWrap("", pubkey, extraTags);
-
-    // Publish to recipient's DM relays (falls back to all write relays)
-    const recipientRelays = await getDMRelaysForPublish(pubkey);
-    const confirmations = await relayManager.publishWithConfirmation(recipientWrap, recipientRelays);
-    const anyAccepted = confirmations.some((r) => r.success);
-
-    if (!anyAccepted || !recipientRelays) {
-      relayManager.publish(recipientWrap, BOOTSTRAP_RELAYS);
-    }
-
-    // Publish self-wrap to our own DM relays (falls back to all write relays)
-    const ownRelays = getOwnDMRelays();
-    relayManager.publish(selfWrap, ownRelays.length > 0 ? ownRelays : undefined);
+    await publishFriendWrap(myPubkey, pubkey, "friend_request_remove");
   } catch (err) {
     console.error("[FriendRequest] Failed to send remove wrap:", err);
     // Still proceed with local removal

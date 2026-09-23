@@ -15,6 +15,7 @@ interface PersistedFriendRequestState {
   requests: FriendRequest[];
   processedWrapIds: string[];
   removedPubkeys?: string[];
+  removedAt?: Record<string, number>;
 }
 
 /** Load persisted friend request state from IndexedDB into Redux */
@@ -28,6 +29,7 @@ export async function loadFriendRequestState(): Promise<void> {
       requests: persisted.requests,
       processedWrapIds: persisted.processedWrapIds,
       removedPubkeys: persisted.removedPubkeys ?? [],
+      removedAt: persisted.removedAt ?? {},
     }),
   );
 }
@@ -51,6 +53,7 @@ export function flushPendingSave(): void {
     requests: state.requests,
     processedWrapIds: state.processedWrapIds.slice(-MAX_PERSISTED_WRAP_IDS),
     removedPubkeys: state.removedPubkeys,
+    removedAt: state.removedAt,
   };
   saveUserState(STATE_KEY, persisted).catch(() => {});
 }
@@ -65,6 +68,7 @@ function scheduleSave(): void {
       requests: state.requests,
       processedWrapIds: state.processedWrapIds.slice(-MAX_PERSISTED_WRAP_IDS),
       removedPubkeys: state.removedPubkeys,
+      removedAt: state.removedAt,
     };
     saveUserState(STATE_KEY, persisted).catch(() => {});
   }, DEBOUNCE_MS);
@@ -77,7 +81,9 @@ export function startFriendRequestPersistence(): () => void {
   const unsubscribe = store.subscribe(() => {
     const s = store.getState().friendRequests;
     const wrapIds = s.processedWrapIds;
-    const fingerprint = `${s.requests.length}:${wrapIds[wrapIds.length - 1] ?? ""}:${s.removedPubkeys.length}`;
+    let accepted = 0;
+    for (const r of s.requests) if (r.status === "accepted") accepted++;
+    const fingerprint = `${s.requests.length}:${accepted}:${wrapIds[wrapIds.length - 1] ?? ""}:${s.removedPubkeys.length}`;
 
     if (fingerprint !== lastFingerprint) {
       lastFingerprint = fingerprint;
