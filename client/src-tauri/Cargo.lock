@@ -2749,6 +2749,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "negentropy"
+version = "0.5.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "81c353b400a5503efdcf398f11a83fb7aa84f59f5d76fc4bf5bbc1e4f5366caa"
+
+[[package]]
 name = "new_debug_unreachable"
 version = "1.0.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -5502,7 +5508,7 @@ dependencies = [
 
 [[package]]
 name = "thewired-relay"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "anyhow",
  "axum",
@@ -5511,6 +5517,7 @@ dependencies = [
  "futures",
  "hex",
  "if-addrs",
+ "negentropy",
  "rand 0.8.5",
  "secp256k1 0.30.0",
  "serde",
