@@ -79,6 +79,7 @@ export function MoveTrackModal({ track, onClose, onBack }: MoveTrackModalProps) 
         spaceId: track.visibility === "space" ? track.spaceId : undefined,
         spaceIds: track.visibility === "space" ? track.spaceIds : undefined,
         channelId: track.visibility === "space" ? track.channelId : undefined,
+        inCatalog: track.inCatalog,
         revisionSummary: revisionSummary || undefined,
       });
       await signAndPublish(trackUnsigned, targetRelays);

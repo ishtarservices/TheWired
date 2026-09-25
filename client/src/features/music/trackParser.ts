@@ -3,6 +3,14 @@ import type { MusicTrack, MusicVisibility } from "@/types/music";
 import type { ImetaVariant } from "@/types/media";
 import { parseImetaTags } from "@/features/media/imetaParser";
 
+/**
+ * `["catalog","none"]` keeps a public track off its author's catalog. Unrelated
+ * to the legacy `visibility:unlisted` (which parseVisibility maps to private).
+ */
+function parseInCatalog(event: NostrEvent): boolean {
+  return !event.tags.some((t) => t[0] === "catalog" && t[1] === "none");
+}
+
 /** Determine visibility from event tags */
 function parseVisibility(event: NostrEvent): MusicVisibility {
   if (event.tags.some((t) => t[0] === "h")) return "space";
@@ -110,6 +118,7 @@ export function parseTrackEvent(event: NostrEvent): MusicTrack {
     channelId,
     visibility,
     sharingDisabled: sharingDisabled || undefined,
+    inCatalog: parseInCatalog(event),
     revisionSummary,
   };
 }
@@ -183,6 +192,8 @@ export async function parsePrivateTrackEvent(
       license: meta.license as string | undefined,
       visibility: "private",
       spaceIds: [],
+      // The catalog tag is cleartext on private events too.
+      inCatalog: parseInCatalog(event),
       revisionSummary: meta.revisionSummary as string | undefined,
     };
   } catch {

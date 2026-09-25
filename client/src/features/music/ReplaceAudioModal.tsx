@@ -125,6 +125,7 @@ export function ReplaceAudioModal({ track, onClose, onBack }: ReplaceAudioModalP
         featuredArtists: track.featuredArtists.length > 0 ? track.featuredArtists : undefined,
         visibility: track.visibility,
         sharingDisabled: track.sharingDisabled,
+        inCatalog: track.inCatalog,
         revisionSummary: revisionSummary || undefined,
       });
 

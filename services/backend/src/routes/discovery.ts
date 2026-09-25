@@ -3,6 +3,7 @@ import type { FastifyPluginAsync } from "fastify";
 import { discoveryService } from "../services/discoveryService.js";
 import { validate, nonEmptyString, limitParam, offsetParam } from "../lib/validation.js";
 import { requirePubkey, requireSpaceCreator } from "../lib/authz.js";
+import { isListedPublicMusic } from "../services/musicVisibility.js";
 
 const spacesQuerySchema = z.object({
   category: z.string().optional(),
@@ -88,17 +89,15 @@ export const discoveryRoutes: FastifyPluginAsync = async (server) => {
     });
 
     // Defensive filter, mirroring /music/browse: the service already restricts
-    // to h_tag/visibility NULL in SQL, but a public discovery rail is exactly
-    // where a missed gate becomes a leak, so re-check the tags themselves.
-    const isPublicEvent = (r: { tags?: string[][] }) => {
-      const tags: string[][] = r?.tags ?? [];
-      return !tags.some((t) => t[0] === "visibility" || t[0] === "h");
-    };
+    // to h_tag/visibility NULL and no `["catalog","none"]` in SQL, but a public
+    // discovery rail is exactly where a missed gate becomes a leak, so re-check
+    // the tags themselves.
+    const isListed = (r: { tags?: string[][] }) => isListedPublicMusic(r?.tags ?? []);
 
     return {
       data: {
-        tracks: results.tracks.filter(isPublicEvent),
-        albums: results.albums.filter(isPublicEvent),
+        tracks: results.tracks.filter(isListed),
+        albums: results.albums.filter(isListed),
       },
     };
   });

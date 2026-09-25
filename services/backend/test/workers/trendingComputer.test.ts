@@ -97,11 +97,14 @@ async function seedEvent(opts: {
   ageSeconds?: number;
   genre?: string;
   hTag?: string | null;
+  /** `["catalog","none"]` — public, but kept off the author's catalog. */
+  unlisted?: boolean;
 }): Promise<string> {
   seq += 1;
   const id = `trend${seq}`.padEnd(64, "0").slice(0, 64);
   const tags: string[][] = [["d", `d${seq}`]];
   if (opts.genre) tags.push(["genre", opts.genre]);
+  if (opts.unlisted) tags.push(["catalog", "none"]);
   await db.execute(sql`
     INSERT INTO relay.events (id, pubkey, created_at, kind, tags, content, sig, h_tag, visibility)
     VALUES (${id}, ${LUNA.pubkey}, ${Math.floor(Date.now() / 1000) - (opts.ageSeconds ?? 60)},
@@ -181,6 +184,18 @@ describe("computeTrendingPeriod", () => {
     const result = await computeTrendingPeriod("24h", redis);
     expect(result.candidates).toBe(0);
     expect(await redis.zcard("trending:music:tracks")).toBe(0);
+  });
+
+  it("excludes catalog:none tracks from trending (public, but off the author's catalog)", async () => {
+    const redis = getRedis();
+    const listed = await seedEvent({ kind: 31683, genre: "Techno" });
+    await seedEvent({ kind: 31683, genre: "Techno", unlisted: true });
+
+    const result = await computeTrendingPeriod("24h", redis);
+    expect(result.candidates).toBe(1);
+
+    expect(await redis.zrevrange("trending:music:tracks", 0, -1)).toEqual([listed]);
+    expect(await redis.zrevrange("trending:music:tracks:genre:techno", 0, -1)).toEqual([listed]);
   });
 
   it("reports no fallback when there is no content at all", async () => {

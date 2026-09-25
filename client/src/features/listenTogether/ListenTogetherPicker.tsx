@@ -372,6 +372,7 @@ function SearchTab({
             imageUrl: hit.image_url,
             createdAt: hit.created_at,
             visibility: "public" as const,
+            inCatalog: true,
           };
           return (
             <TrackRow

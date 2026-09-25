@@ -36,6 +36,15 @@ export interface MusicTrack {
    */
   accessUnknown?: boolean;
   sharingDisabled?: boolean;
+  /**
+   * False when the event carries `["catalog","none"]`: a real, playable, public
+   * track its author keeps OFF their catalog (mobile "audio attached to a
+   * note"). Not a visibility state — it never gates playback; it only hides the
+   * track from the author's shelves (profile, artist page, library, showcase
+   * picker) and from public discovery. Absent tag or any other value = true.
+   * Must be preserved on every republish. See docs/MUSIC_VISIBILITY.md.
+   */
+  inCatalog: boolean;
   revisionSummary?: string;
 }
 

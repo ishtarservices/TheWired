@@ -1,5 +1,6 @@
 import { getMeilisearchClient } from "../lib/meilisearch.js";
 import { escapeMsFilter } from "../lib/meiliFilter.js";
+import { MS_LISTED_FILTER } from "../lib/musicListing.js";
 
 /** Sort fields a people query may order by. Allowlisted — never pass user input through. */
 const PEOPLE_SORT_FIELDS = new Set(["note_count"]);
@@ -92,21 +93,24 @@ export const searchService = {
     const filters: string[] = [];
     if (opts?.genre) filters.push(`genre = "${escapeMsFilter(opts.genre)}"`);
     if (opts?.hashtag) filters.push(`hashtags = "${escapeMsFilter(opts.hashtag)}"`);
-    const filterStr = filters.length > 0 ? filters.join(" AND ") : undefined;
+    const albumFilter = filters.length > 0 ? filters.join(" AND ") : undefined;
+    // Tracks additionally drop `["catalog","none"]` clips: they are indexed
+    // (insights) but never surfaced by search. Albums never carry the tag.
+    const trackFilter = [MS_LISTED_FILTER, ...filters].join(" AND ");
 
     if (opts?.type === "track") {
-      const results = await client.index("tracks").search(query, { limit, filter: filterStr });
+      const results = await client.index("tracks").search(query, { limit, filter: trackFilter });
       return results.hits;
     }
     if (opts?.type === "album") {
-      const results = await client.index("albums").search(query, { limit, filter: filterStr });
+      const results = await client.index("albums").search(query, { limit, filter: albumFilter });
       return results.hits;
     }
 
     // Search both
     const [tracks, albums] = await Promise.all([
-      client.index("tracks").search(query, { limit: Math.ceil(limit / 2), filter: filterStr }),
-      client.index("albums").search(query, { limit: Math.floor(limit / 2), filter: filterStr }),
+      client.index("tracks").search(query, { limit: Math.ceil(limit / 2), filter: trackFilter }),
+      client.index("albums").search(query, { limit: Math.floor(limit / 2), filter: albumFilter }),
     ]);
     return { tracks: tracks.hits, albums: albums.hits };
   },

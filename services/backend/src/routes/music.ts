@@ -14,6 +14,7 @@ import {
   normalizeEvent,
   checkEventVisibility,
   resolveVisibleChildTracks,
+  isListedPublicMusic,
 } from "../services/musicVisibility.js";
 
 const pubkeySlugParams = z.object({
@@ -277,14 +278,9 @@ export const musicRoutes: FastifyPluginAsync = async (server) => {
       limit: query.limit,
       offset: query.offset,
     });
-    // Defensive filter: ensure no private/space content in browse results
-    const isPublicEvent = (r: any) => {
-      const tags: string[][] = r?.tags ?? [];
-      const vis = tags.find((t: string[]) => t[0] === "visibility")?.[1];
-      const hTag = tags.find((t: string[]) => t[0] === "h")?.[1];
-      return !vis && !hTag;
-    };
-    results.tracks = results.tracks.filter(isPublicEvent);
+    // Defensive filter: no private/space/unlisted content in browse results,
+    // even if a Redis trending set or the search index lags the relay.
+    results.tracks = results.tracks.filter((r: any) => isListedPublicMusic(r?.tags ?? []));
     return { data: results };
   });
 
@@ -301,13 +297,7 @@ export const musicRoutes: FastifyPluginAsync = async (server) => {
       offset: query.offset,
     });
     // Defensive filter: ensure no private/space content in album browse results
-    const isPublicEvent = (r: any) => {
-      const tags: string[][] = r?.tags ?? [];
-      const vis = tags.find((t: string[]) => t[0] === "visibility")?.[1];
-      const hTag = tags.find((t: string[]) => t[0] === "h")?.[1];
-      return !vis && !hTag;
-    };
-    results.albums = results.albums.filter(isPublicEvent);
+    results.albums = results.albums.filter((r: any) => isListedPublicMusic(r?.tags ?? []));
     return { data: results };
   });
 

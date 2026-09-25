@@ -18,6 +18,17 @@ function isVisibleTo(
     item.collaborators.includes(viewerPubkey);
 }
 
+/**
+ * The author's own `["catalog","none"]` tracks stay off every author shelf
+ * (profile, artist page, library, showcase picker). Only the OWNER's listing
+ * matters: a featured/artist credit on someone else's listed track is unaffected.
+ */
+function isOwnUnlisted(track: { pubkey: string; inCatalog?: boolean }, ownerPubkey: string): boolean {
+  // Strict `=== false`: a track object built without the field (minimal
+  // listen-together stubs, older fixtures) is listed, never hidden.
+  return track.pubkey === ownerPubkey && track.inCatalog === false;
+}
+
 /** Check if a track is in the user's library (saved or own) */
 function isTrackInLibrary(track: { addressableId: string; pubkey: string } | undefined, librarySet: Set<string>, userPubkey: string | null): boolean {
   if (!track) return false;
@@ -67,7 +78,8 @@ export const selectSavedAlbums = createSelector(
       .filter(Boolean),
 );
 
-/** Saved tracks + own tracks (deduped), for library views like Home/Recently Added/Songs */
+/** Saved tracks + own tracks (deduped), for library views like Home/Recently Added/Songs.
+ *  The viewer's own `catalog:none` clips are excluded (they live in My Music). */
 export const selectLibraryTracks = (pubkey: string | null) =>
   createSelector(selectMusicState, (music) => {
     const saved = music.library.savedTrackIds
@@ -79,7 +91,7 @@ export const selectLibraryTracks = (pubkey: string | null) =>
     const ownExtras = Object.values(music.tracks)
       .filter((t) => t.pubkey === pubkey && !savedSet.has(t.addressableId))
       .sort((a, b) => b.createdAt - a.createdAt);
-    return [...saved, ...ownExtras];
+    return [...saved, ...ownExtras].filter((t) => !isOwnUnlisted(t, pubkey));
   });
 
 /** Saved albums + own albums (deduped) */
@@ -148,6 +160,8 @@ export const selectUserPlaylists = createSelector(
       .filter(Boolean),
 );
 
+/** Every track the user owns — INCLUDING `catalog:none` clips, so My Music is
+ *  the one place on desktop to find an unlisted clip and re-list it. */
 export const selectMyTracks = (pubkey: string) =>
   createSelector(selectMusicState, (music) =>
     Object.values(music.tracks)
@@ -281,7 +295,9 @@ export const selectArtistAlbums = (artistPubkey: string) =>
       .filter((a) => isVisibleTo(a, userPubkey));
   });
 
-/** Tracks where pubkey is owner, artist, or featured artist -- for profile display (no library filter) */
+/** Tracks where pubkey is owner, artist, or featured artist -- for profile display (no library filter).
+ *  The profile owner's own `catalog:none` clips are hidden (even from the owner —
+ *  they are found and re-listed from My Music). */
 export const selectProfileTracks = (pubkey: string) =>
   createSelector(selectMusicState, selectIdentityPubkey, (music, viewerPubkey) => {
     // Start with indexed tracks for this pubkey
@@ -293,6 +309,8 @@ export const selectProfileTracks = (pubkey: string) =>
          indexedIds.has(t.addressableId) ||
          t.artistPubkeys.includes(pubkey) ||
          t.featuredArtists.includes(pubkey)) &&
+        // Catalog listing: the owner keeps this clip off their discography
+        !isOwnUnlisted(t, pubkey) &&
         // Visibility: only show non-public to owner/collaborators
         isVisibleTo(t, viewerPubkey),
     );

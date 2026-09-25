@@ -45,6 +45,7 @@ export function DuplicateTrackModal({ track, onClose }: DuplicateTrackModalProps
         artistPubkeys: track.artistPubkeys.length > 0 ? track.artistPubkeys : undefined,
         featuredArtists: track.featuredArtists.length > 0 ? track.featuredArtists : undefined,
         visibility: "local", // Draft
+        inCatalog: track.inCatalog,
       });
 
       await signAndSaveLocally(unsigned);

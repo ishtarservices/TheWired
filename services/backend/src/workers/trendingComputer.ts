@@ -107,6 +107,7 @@ export async function computeTrendingPeriod(
           AND kind IN (1, 22, 30023, 34236, 31683, 33123)
           AND NOT (tags @> '[["visibility","unlisted"]]'::jsonb)
           AND NOT (tags @> '[["visibility","private"]]'::jsonb)
+          AND NOT (tags @> '[["catalog","none"]]'::jsonb)
           AND h_tag IS NULL
         ORDER BY created_at DESC
         LIMIT 2000`,

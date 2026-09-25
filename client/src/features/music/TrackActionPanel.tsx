@@ -115,6 +115,7 @@ export function TrackActionPanel({
   const downloaded = isDownloaded(track.addressableId);
   const isDownloading = downloading === track.addressableId;
   const sharingDisabled = !!track.sharingDisabled;
+  const inCatalog = track.inCatalog !== false;
   const resolvedArtist = useResolvedArtist(track.artist, track.artistPubkeys);
   // Tip the artist(s), or fall back to the uploader for name-only tracks. Hidden
   // for your own / local-only tracks (no point tipping yourself).
@@ -131,6 +132,7 @@ export function TrackActionPanel({
   const [dmPickerOpen, setDmPickerOpen] = useState(false);
   const [spacePickerOpen, setSpacePickerOpen] = useState(false);
   const [sharingToggling, setSharingToggling] = useState(false);
+  const [listingToggling, setListingToggling] = useState(false);
   const [exporting, setExporting] = useState(false);
 
   // Flash states for async actions
@@ -303,6 +305,34 @@ export function TrackActionPanel({
     }
   };
 
+  const handleToggleListing = async () => {
+    if (!pubkey || listingToggling || !originalEvent) return;
+    setListingToggling(true);
+    try {
+      // Same clone-and-flip pattern as handleToggleSharing: touch ONLY the
+      // catalog tag so imeta hash/size, `h` tags and encrypted content survive.
+      const nextTags = originalEvent.tags.filter((t) => t[0] !== "catalog");
+      if (inCatalog) {
+        // Currently listed → keep it off the catalog.
+        nextTags.push(["catalog", "none"]);
+      }
+
+      const unsigned: UnsignedEvent = {
+        pubkey,
+        kind: originalEvent.kind,
+        created_at: Math.floor(Date.now() / 1000),
+        tags: nextTags,
+        content: originalEvent.content,
+      };
+
+      await signAndPublish(unsigned);
+    } catch {
+      // Silently fail
+    } finally {
+      setListingToggling(false);
+    }
+  };
+
   const handleSaveToggle = () => {
     if (saved) unsaveTrack(track.addressableId);
     else saveTrack(track.addressableId);
@@ -404,6 +434,9 @@ export function TrackActionPanel({
                   isDownloading={isDownloading}
                   sharingDisabled={sharingDisabled}
                   sharingToggling={sharingToggling}
+                  inCatalog={inCatalog}
+                  listingToggling={listingToggling}
+                  onToggleListing={handleToggleListing}
                   exporting={exporting}
                   publishing={publishing}
                   deleting={deleting}

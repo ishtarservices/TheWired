@@ -930,6 +930,7 @@ function ensureTrackAvailable(trackId: string, meta: TrackMeta): void {
       visibility: visibility ?? "public",
       accessUnknown: visibility === undefined,
       spaceIds: [],
+      inCatalog: true,
     }),
   );
 }

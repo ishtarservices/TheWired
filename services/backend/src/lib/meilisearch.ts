@@ -49,7 +49,15 @@ export async function initIndexes(): Promise<void> {
   }
   const tracksIndex = ms.index("tracks");
   await tracksIndex.updateSearchableAttributes(["title", "artist", "genre", "hashtags"]);
-  await tracksIndex.updateFilterableAttributes(["pubkey", "genre", "hashtags", "addressable_id"]);
+  // `unlisted` lets browse/search drop `["catalog","none"]` tracks at query
+  // time while insights keep seeing them (lib/musicListing.ts).
+  await tracksIndex.updateFilterableAttributes([
+    "pubkey",
+    "genre",
+    "hashtags",
+    "addressable_id",
+    "unlisted",
+  ]);
   await tracksIndex.updateSortableAttributes(["created_at"]);
 
   // Albums index (music)
