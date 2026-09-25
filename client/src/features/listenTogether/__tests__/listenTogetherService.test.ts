@@ -59,6 +59,7 @@ function track(id: string, visibility: MusicTrack["visibility"] = "public"): Mus
     createdAt: 0,
     visibility,
     spaceIds: [],
+    inCatalog: true,
   };
 }
 
