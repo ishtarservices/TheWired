@@ -51,8 +51,9 @@ import {
   handleIncomingMessage,
   broadcastSessionToLateJoiner,
   cleanupListenTogether,
+  announceListenTogetherExit,
+  handleParticipantLeft,
 } from "@/features/listenTogether/listenTogetherService";
-import { removeListener } from "@/store/slices/listenTogetherSlice";
 
 /** Singleton LiveKit Room instance */
 let currentRoom: Room | null = null;
@@ -336,12 +337,9 @@ export async function connectToRoom(
     broadcastSessionToLateJoiner();
   });
 
-  // Listen Together: cleanup listener list when participants leave
+  // Listen Together: drop departed listeners; the DJ leaving ends the session
   room.on(RoomEvent.ParticipantDisconnected, (participant: RemoteParticipant) => {
-    const lt = store.getState().listenTogether;
-    if (lt.active) {
-      store.dispatch(removeListener(participant.identity));
-    }
+    handleParticipantLeft(participant.identity);
   });
 
   // Connect
@@ -387,9 +385,12 @@ function participantRecord(participant: RemoteParticipant) {
  * Disconnect from the current LiveKit room.
  */
 export async function disconnectFromRoom(): Promise<void> {
-  if (currentRoom) {
-    await currentRoom.disconnect();
-    currentRoom = null;
+  const room = currentRoom;
+  if (room) {
+    // Listen Together goodbyes need the data channel — send them first.
+    await announceListenTogetherExit();
+    await room.disconnect();
+    if (currentRoom === room) currentRoom = null;
   }
 }
 

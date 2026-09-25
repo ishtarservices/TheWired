@@ -19,6 +19,7 @@ import {
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 export const listenTogetherMiddleware: Middleware<object, any> =
   (storeApi) => (next) => (action) => {
+    const prevPlayer = storeApi.getState().music.player;
     // Let the action through first
     const result = next(action);
 
@@ -45,20 +46,14 @@ export const listenTogetherMiddleware: Middleware<object, any> =
         break;
       }
 
-      case "music/togglePlay": {
-        const p = state.music.player;
-        if (p.isPlaying) {
-          broadcastResume(p.position);
-        } else {
-          broadcastPause(p.position);
-        }
-        break;
-      }
-
+      case "music/togglePlay":
       case "music/setIsPlaying": {
         const p = state.music.player;
         if (p.isPlaying) {
-          broadcastResume(p.position);
+          // Play after the queue ran out restarts the last track (the element
+          // rewinds an ended track itself) — don't send listeners to its end.
+          const ended = p.duration > 0 && p.position >= p.duration - 0.5;
+          broadcastResume(ended ? 0 : p.position);
         } else {
           broadcastPause(p.position);
         }
@@ -66,9 +61,16 @@ export const listenTogetherMiddleware: Middleware<object, any> =
       }
 
       case "music/nextTrack": {
+        const p = storeApi.getState().music.player;
+        const advanced =
+          p.queueIndex !== prevPlayer.queueIndex || p.currentTrackId !== prevPlayer.currentTrackId;
+        if (!advanced && prevPlayer.repeat !== "all") {
+          // End of the queue: everyone stops at the end of the last track
+          // (matches mobile DJs) instead of replaying it from 0.
+          broadcastPause(p.duration || p.position);
+          break;
+        }
         broadcastNext();
-        const updated = storeApi.getState();
-        const p = updated.music.player;
         if (p.currentTrackId) {
           broadcastPlay(p.currentTrackId, 0, p.queue, p.queueIndex);
         }

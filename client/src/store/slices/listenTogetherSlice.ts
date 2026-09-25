@@ -7,6 +7,24 @@ export interface ListenTogetherReaction {
   ts: number;
 }
 
+/** A listener's track suggestion, waiting in the DJ's inbox. */
+export interface ListenTogetherSuggestion {
+  trackId: string;
+  trackMeta: {
+    title: string;
+    artist: string;
+    imageUrl?: string;
+    variants: ImetaVariant[];
+    visibility?: "public" | "space" | "private";
+  };
+  /** Suggester (the sender's participant identity). */
+  from: string;
+  ts: number;
+}
+
+/** Oldest suggestions fall off past this. */
+const MAX_SUGGESTIONS = 20;
+
 /** Stored when a remote DJ starts a session — shown as an invite until accepted */
 export interface PendingInvite {
   djPubkey: string;
@@ -45,6 +63,14 @@ export interface ListenTogetherState {
   pendingInvite: PendingInvite | null;
   /** User dismissed the invite for this session — hide banner but keep metadata */
   dismissed: boolean;
+  /**
+   * DJ whose session was dismissed or left. DJs re-send lt:start to catch up
+   * late joiners; one from this DJ is the same session and stays quiet. Cleared
+   * by that DJ's lt:end or departure, so their next session invites again.
+   */
+  dismissedDJ: string | null;
+  /** Track suggestions from listeners (DJ only; cleared on DJ change). */
+  suggestions: ListenTogetherSuggestion[];
 }
 
 const initialState: ListenTogetherState = {
@@ -64,6 +90,8 @@ const initialState: ListenTogetherState = {
   pickerOpen: false,
   pendingInvite: null,
   dismissed: false,
+  dismissedDJ: null,
+  suggestions: [],
 };
 
 export const listenTogetherSlice = createSlice({
@@ -90,15 +118,17 @@ export const listenTogetherSlice = createSlice({
       state.reactions = [];
       state.pendingInvite = null;
       state.dismissed = false;
+      state.dismissedDJ = null;
+      state.suggestions = [];
     },
 
     endSession() {
       return initialState;
     },
 
+    /** Leaves `dismissed` alone — callers decide whether this is a new session. */
     setPendingInvite(state, action: PayloadAction<PendingInvite>) {
       state.pendingInvite = action.payload;
-      state.dismissed = false;
     },
 
     updatePendingInvite(
@@ -110,18 +140,45 @@ export const listenTogetherSlice = createSlice({
       }
     },
 
+    /**
+     * The inviting DJ handed off before we joined: the invite (and a dismissal
+     * of it) now belongs to the new DJ.
+     */
+    retargetPendingSession(state, action: PayloadAction<string>) {
+      if (state.pendingInvite) state.pendingInvite.djPubkey = action.payload;
+      if (state.dismissedDJ) state.dismissedDJ = action.payload;
+    },
+
     clearPendingInvite(state) {
       state.pendingInvite = null;
     },
 
     setDismissed(state, action: PayloadAction<boolean>) {
       state.dismissed = action.payload;
+      if (!action.payload) state.dismissedDJ = null;
+    },
+
+    /** Hide the invite for `djPubkey`'s current session (dismiss or leave). */
+    dismissSession(state, action: PayloadAction<string | null>) {
+      state.dismissed = true;
+      state.dismissedDJ = action.payload;
     },
 
     setDJ(state, action: PayloadAction<{ pubkey: string; isLocal: boolean }>) {
       state.djPubkey = action.payload.pubkey;
       state.isLocalDJ = action.payload.isLocal;
       state.skipVotes = [];
+      state.suggestions = [];
+    },
+
+    /** Newest first; a re-suggested track moves to the top. */
+    addSuggestion(state, action: PayloadAction<ListenTogetherSuggestion>) {
+      const rest = state.suggestions.filter((s) => s.trackId !== action.payload.trackId);
+      state.suggestions = [action.payload, ...rest].slice(0, MAX_SUGGESTIONS);
+    },
+
+    removeSuggestion(state, action: PayloadAction<string>) {
+      state.suggestions = state.suggestions.filter((s) => s.trackId !== action.payload);
     },
 
     setSharedQueue(
@@ -169,6 +226,10 @@ export const listenTogetherSlice = createSlice({
       }
     },
 
+    removeSkipVote(state, action: PayloadAction<string>) {
+      state.skipVotes = state.skipVotes.filter((p) => p !== action.payload);
+    },
+
     clearSkipVotes(state) {
       state.skipVotes = [];
     },
@@ -198,7 +259,11 @@ export const {
   setPendingInvite,
   updatePendingInvite,
   clearPendingInvite,
+  retargetPendingSession,
   setDismissed,
+  dismissSession,
+  addSuggestion,
+  removeSuggestion,
   setDJ,
   setSharedQueue,
   setCurrentTrack: setLTCurrentTrack,
@@ -207,6 +272,7 @@ export const {
   addListener,
   removeListener,
   addSkipVote,
+  removeSkipVote,
   clearSkipVotes,
   addReaction,
   pruneReactions,

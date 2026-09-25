@@ -14,11 +14,12 @@ export function ListenTogetherInvite() {
   const { profile } = useProfile(djPubkey);
   const djName = profile?.name ?? profile?.display_name ?? djPubkey.slice(0, 8);
 
+  const rawTrackArtist = pendingInvite?.trackMeta?.artist ?? "";
+  const trackArtist = useResolvedArtist(rawTrackArtist);
+
   if (!pendingInvite || dismissed) return null;
 
   const trackTitle = pendingInvite.trackMeta?.title;
-  const rawTrackArtist = pendingInvite.trackMeta?.artist ?? "";
-  const trackArtist = useResolvedArtist(rawTrackArtist);
 
   return (
     <div className="flex items-center gap-3 px-4 py-2.5 bg-primary/8 border-b border-primary/15 animate-fade-in">

@@ -29,6 +29,12 @@ export interface MusicTrack {
   spaceIds: string[];
   channelId?: string;
   visibility: MusicVisibility;
+  /**
+   * Built from a peer's metadata hint (Listen Together) without seeing the
+   * event, and the hint carried no visibility — the player probes
+   * `/music/access` instead of trusting `visibility`.
+   */
+  accessUnknown?: boolean;
   sharingDisabled?: boolean;
   revisionSummary?: string;
 }

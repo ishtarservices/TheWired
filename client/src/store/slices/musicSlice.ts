@@ -523,9 +523,13 @@ export const musicSlice = createSlice({
       state.player.isPlaying = true;
       state.player.playbackError = null;
     },
+    /** Replace the queue; the index follows the current track if it's still in it. */
     setQueue(state, action: PayloadAction<string[]>) {
       state.player.queue = action.payload;
       state.player.originalQueue = action.payload;
+      const current = state.player.currentTrackId;
+      const idx = current ? action.payload.indexOf(current) : -1;
+      if (idx >= 0) state.player.queueIndex = idx;
     },
     nextTrack(state) {
       if (state.player.queue.length === 0) return;
