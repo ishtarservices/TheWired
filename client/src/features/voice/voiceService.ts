@@ -15,6 +15,8 @@ import {
   setCameraEnabled,
   setScreenShareEnabled,
 } from "@/lib/webrtc/livekitClient";
+import { e2eeSupported, E2EEUnsupportedError } from "@/lib/webrtc/e2ee/session";
+import { E2EE_REQUIRED_CODE } from "@/lib/api/voice";
 import { setRemoteAudioOutputMuted } from "@/lib/webrtc/remoteAudio";
 import { describeMediaError } from "@/lib/webrtc/mediaDevices";
 import { publishRoomPresence, clearRoomPresence } from "@/lib/nostr/roomPresence";
@@ -62,14 +64,24 @@ export async function joinVoiceChannel(
     await hangupCall().catch(() => {});
   }
 
+  // Channels are end-to-end encrypted, no plaintext mode. A WebView without
+  // insertable streams / encoded transforms can't run the cryptor; say so
+  // before spending a token (the backend would refuse anyway).
+  if (!e2eeSupported()) {
+    const err = new E2EEUnsupportedError();
+    store.dispatch(setMediaError(describeJoinError(err)));
+    throw err;
+  }
+
   store.dispatch(setConnecting(true));
 
   try {
     // Fetch LiveKit token from backend
     const { token, url, roomName } = await fetchVoiceToken(spaceId, channelId);
 
-    // Connect to LiveKit room
-    await connectToRoom(url, token);
+    // Connect to LiveKit room. Per-sender frame keys are distributed as
+    // kind-20016 envelopes once the roster is known (docs/E2EE_CALLS.md).
+    await connectToRoom(url, token, { e2ee: { kind: "channel", roomName } });
 
     // Enable microphone after connecting. Awaited so the OS permission
     // prompt happens under the "Connecting…" state; failure is surfaced
@@ -102,7 +114,14 @@ export async function joinVoiceChannel(
 /** Readable reason for a failed join (LiveKit unreachable is the common one). */
 function describeJoinError(err: unknown): string {
   const name = (err as { name?: string } | null)?.name ?? "";
+  const code = (err as { code?: string } | null)?.code ?? "";
   const message = (err as { message?: string } | null)?.message ?? String(err);
+  if (name === "E2EEUnsupportedError") {
+    return "Voice channels are end-to-end encrypted, which this device's WebView doesn't support.";
+  }
+  if (code === E2EE_REQUIRED_CODE) {
+    return "Voice channels are end-to-end encrypted. Update The Wired to join.";
+  }
   if (name === "ConnectionError" || /pc connection|connect to|websocket/i.test(message)) {
     return "Could not connect to the voice server. Check that LiveKit is running and reachable (media ports 7881/7882), then try again.";
   }

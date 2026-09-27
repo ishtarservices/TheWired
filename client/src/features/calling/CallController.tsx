@@ -26,7 +26,7 @@ import { CallControls } from "./CallControls";
 import { useCallTiles } from "./useCallTiles";
 import { playCallEnd, startRingback, stopRingback } from "./callRingtone";
 import { setCallScreenShare } from "./callService";
-import { Loader2, Maximize2, Minimize2, Expand, Shrink, Wifi } from "lucide-react";
+import { Loader2, Lock, Maximize2, Minimize2, Expand, Shrink, Wifi } from "lucide-react";
 import type { PipCorner, TileFit } from "@/types/calling";
 
 const WIDTH_KEY = "thewired.call.panelWidth";
@@ -44,6 +44,7 @@ export function CallController() {
   const dispatch = useAppDispatch();
   const activeCall = useAppSelector((s) => s.call.activeCall);
   const panelMode = useAppSelector((s) => s.call.panelMode);
+  const e2eeActive = useAppSelector((s) => s.voice.e2ee.active);
   const ltActive = useAppSelector((s) => s.listenTogether.active);
   const ltPickerOpen = useAppSelector((s) => s.listenTogether.pickerOpen);
   const layoutMode = useAppSelector((s) => s.voice.layout.mode);
@@ -87,7 +88,14 @@ export function CallController() {
 
   const isConnecting = activeCall.state === "connecting" || activeCall.state === "ringing";
   const statusText = activeCall.state === "ringing" ? "Ringing…" : "Connecting…";
-  const timer = <CallTimer startedAt={activeCall.connectedAt ?? activeCall.startedAt} />;
+  const timer = (
+    <span className="inline-flex items-center gap-1">
+      {e2eeActive && (
+        <Lock size={10} className="text-green-400" aria-label="End-to-end encrypted" />
+      )}
+      <CallTimer startedAt={activeCall.connectedAt ?? activeCall.startedAt} />
+    </span>
+  );
 
   // ─── Minimized chip ─────────────────────────────────────────
   if (panelMode === "minimized") {

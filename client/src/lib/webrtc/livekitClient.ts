@@ -12,6 +12,7 @@ import {
   type TrackPublication,
   type Participant,
   type LocalAudioTrack,
+  Encryption_Type,
 } from "livekit-client";
 import {
   getMediaPrefs,
@@ -32,6 +33,8 @@ import {
   setVoiceConnectionState,
   setMediaError,
   disconnectRoom,
+  setE2EEActive,
+  setE2EEError,
 } from "@/store/slices/voiceSlice";
 import {
   attachRemoteAudio,
@@ -41,8 +44,10 @@ import {
 import { describeMediaError } from "./mediaDevices";
 import { playJoinSound, playLeaveSound } from "@/features/calling/callRingtone";
 import { createLogger, shortKey } from "../debug/logger";
+import { createE2EESession, type E2EEContext, type E2EESession } from "./e2ee/session";
 
 const log = createLogger("call");
+const e2eeLog = createLogger("e2ee");
 import {
   LISTEN_TOGETHER_TOPIC,
   decodeLTMessage,
@@ -57,6 +62,22 @@ import {
 
 /** Singleton LiveKit Room instance */
 let currentRoom: Room | null = null;
+/** The E2EE session (worker + key provider) of the current room, if any. */
+let currentE2EE: E2EESession | null = null;
+
+/** Late joiners get the DJ's Listen Together state only after their key
+ *  envelope has had time to land, or the encrypted packet is undecryptable. */
+const LT_LATE_JOINER_KEY_SETTLE_MS = 1500;
+/** One EncryptionError per participant per this window; frames fail per
+ *  packet while a key is in flight and would otherwise flood. */
+const ENCRYPTION_ERROR_DEBOUNCE_MS = 5000;
+/** Channels only: decrypt failures inside this window after a participant
+ *  joins are the expected key-in-flight race (their kind-20016 envelope is
+ *  still crossing the relay), not an error worth a banner. 1:1 calls have
+ *  both keys installed before connect, so there every failure is real — and
+ *  the SDK throttles its error events per minute, so a grace there would
+ *  hide a permanently wrong key for the whole first minute. */
+const ENCRYPTION_ERROR_JOIN_GRACE_MS = 8000;
 
 /**
  * Coarse room lifecycle hooks for feature code that must react to the
@@ -68,6 +89,9 @@ export interface RoomListener {
   onParticipantDisconnected?(identity: string): void;
   /** `clientInitiated` = our own disconnect() (hangup, room switch). */
   onDisconnected?(reason: DisconnectReason | undefined, clientInitiated: boolean): void;
+  /** A REMOTE participant's tracks are (not) end-to-end encrypted. `false`
+   *  in an encrypted room means their client doesn't encrypt (outdated). */
+  onParticipantEncryption?(identity: string, encrypted: boolean): void;
 }
 
 const roomListeners = new Set<RoomListener>();
@@ -89,13 +113,26 @@ export function isLocalIdentity(pubkey: string): boolean {
   return currentRoom?.localParticipant.identity === pubkey;
 }
 
+/** The current room's E2EE session (null = not connected or plaintext). */
+export function getE2EESession(): E2EESession | null {
+  return currentE2EE;
+}
+
+function disposeE2EE(session: E2EESession | null): void {
+  if (!session) return;
+  session.dispose();
+  if (currentE2EE === session) currentE2EE = null;
+}
+
 /**
  * Room options shared by voice channels and 1:1 calls.
  *
  * Audio: LiveKit's defaults are tuned for music (48k + DTX). DTX stops
  * sending during "silence"; combined with noise suppression it clips soft
  * speech onsets and reads as the other person's voice fading in and out.
- * RED (redundant audio) stays on — it hides packet loss on lossy Wi-Fi.
+ * RED (redundant audio) stays on — it hides packet loss on lossy Wi-Fi —
+ * except under frame-level E2EE, where LiveKit's own reference app turns it
+ * off (the cryptor works per Opus frame; RED's redundant copies don't fit).
  *
  * Video: 1080p H.264 capture with 720p/360p simulcast layers; adaptiveStream
  * (device-pixel aware) serves small tiles the small layers and the focused
@@ -105,7 +142,10 @@ export function isLocalIdentity(pubkey: string): boolean {
  * bare deviceId string is an *ideal* constraint, so an unplugged remembered
  * device falls back to the system default instead of failing the join.
  */
-export function buildRoomOptions(prefs: MediaPrefs = getMediaPrefs()): RoomOptions {
+export function buildRoomOptions(
+  prefs: MediaPrefs = getMediaPrefs(),
+  opts: { e2ee?: boolean } = {},
+): RoomOptions {
   return {
     // Subscribe to the simulcast layer that matches the tile in DEVICE
     // pixels. LiveKit's desktop default is density 1, so on a Retina Mac a
@@ -130,7 +170,7 @@ export function buildRoomOptions(prefs: MediaPrefs = getMediaPrefs()): RoomOptio
       : {}),
     publishDefaults: {
       dtx: false,
-      red: true,
+      red: !opts.e2ee,
       audioPreset: { maxBitrate: 48_000 },
       // H.264 is hardware-encoded on both desktop WebViews (WKWebView,
       // WebView2) and cleaner per bit than VP8, which was the default.
@@ -153,20 +193,45 @@ function screenShareEncoding(prefs: MediaPrefs) {
     : ScreenSharePresets.h1080fps15.encoding;
 }
 
+export interface ConnectOptions {
+  /** Frame-level E2EE for this room. Required for every call and channel this
+   *  build joins; the option exists so the wiring stays explicit. Throws
+   *  `E2EEUnsupportedError` before any Room is built when the WebView can't. */
+  e2ee?: E2EEContext;
+}
+
 /**
  * Connect to a LiveKit room and wire up event handlers for Redux state sync.
+ *
+ * E2EE ordering is load-bearing: the session (worker + key provider) must
+ * exist at `new Room()`, `setE2EEEnabled(true)` and the pre-known keys must
+ * precede `connect()` (the encryption type travels in the first publish
+ * request), and the session starts (channels: key fan-out) once the roster
+ * is known after connect.
  */
 export async function connectToRoom(
   serverUrl: string,
   token: string,
+  opts: ConnectOptions = {},
 ): Promise<Room> {
   // Disconnect from any existing room
   if (currentRoom) {
     await currentRoom.disconnect();
     currentRoom = null;
   }
+  disposeE2EE(currentE2EE);
 
-  const room = new Room(buildRoomOptions());
+  const myPubkey = store.getState().identity.pubkey ?? "";
+  const e2ee = opts.e2ee ? createE2EESession(opts.e2ee, myPubkey) : null;
+  currentE2EE = e2ee;
+
+  const room = new Room({
+    ...buildRoomOptions(getMediaPrefs(), { e2ee: !!e2ee }),
+    ...(e2ee ? { encryption: { keyProvider: e2ee.provider, worker: e2ee.worker } } : {}),
+  });
+  /** When each remote joined — decrypt errors right after are key-in-flight. */
+  const joinedAt = new Map<string, number>();
+  const lastEncryptionErrorAt = new Map<string, number>();
 
   /** Mirror a publication's muted flag into the participant record. LiveKit
    *  `setCameraEnabled(false)` MUTES the camera track (it does not unpublish),
@@ -198,15 +263,70 @@ export async function connectToRoom(
   // Wire up room events to Redux
   room.on(RoomEvent.ParticipantConnected, (participant: RemoteParticipant) => {
     log.info(`participant joined ${shortKey(participant.identity)}`);
+    joinedAt.set(participant.identity, Date.now());
     store.dispatch(addParticipant(participantRecord(participant)));
     playJoinSound();
     for (const l of roomListeners) l.onParticipantConnected?.(participant.identity);
+
+    // Listen Together: the DJ re-announces the session to the late joiner.
+    // In an encrypted channel that packet is only decryptable once our key
+    // envelope has reached them — hand the key over first, then announce.
+    if (e2ee && e2ee.ctx.kind === "channel") {
+      void e2ee
+        .onParticipantJoined(participant.identity)
+        .catch((err) => e2eeLog.warn(`key hand-over to ${shortKey(participant.identity)} failed`, err))
+        .then(() => {
+          setTimeout(() => {
+            if (currentRoom === room) broadcastSessionToLateJoiner();
+          }, LT_LATE_JOINER_KEY_SETTLE_MS);
+        });
+    } else {
+      broadcastSessionToLateJoiner();
+    }
   });
 
   room.on(RoomEvent.ParticipantDisconnected, (participant: RemoteParticipant) => {
+    joinedAt.delete(participant.identity);
+    lastEncryptionErrorAt.delete(participant.identity);
+    e2ee?.onParticipantLeft(participant.identity);
     store.dispatch(removeParticipant(participant.identity));
     playLeaveSound();
     for (const l of roomListeners) l.onParticipantDisconnected?.(participant.identity);
+  });
+
+  // Frame-level E2EE status. LiveKit reports the local participant when our
+  // encoder is (de)activated and every remote when one of their tracks is
+  // subscribed, carrying whether that publication is encrypted.
+  room.on(RoomEvent.ParticipantEncryptionStatusChanged, (encrypted: boolean, participant?: Participant) => {
+    if (!participant || participant.identity === room.localParticipant.identity) {
+      e2eeLog.info(`local encryption ${encrypted ? "on" : "off"}`);
+      store.dispatch(setE2EEActive(encrypted));
+      return;
+    }
+    e2eeLog.info(`${shortKey(participant.identity)} publishes ${encrypted ? "encrypted" : "PLAINTEXT"} tracks`);
+    store.dispatch(updateParticipant({ pubkey: participant.identity, encrypted }));
+    for (const l of roomListeners) l.onParticipantEncryption?.(participant.identity, encrypted);
+  });
+
+  const joinGraceMs = e2ee?.ctx.kind === "channel" ? ENCRYPTION_ERROR_JOIN_GRACE_MS : 0;
+  room.on(RoomEvent.EncryptionError, (error: Error, participant?: Participant) => {
+    const who = participant?.identity ?? "local";
+    const now = Date.now();
+    const joined = joinedAt.get(who);
+    if (joined !== undefined && now - joined < joinGraceMs) return;
+    const last = lastEncryptionErrorAt.get(who) ?? 0;
+    if (now - last < ENCRYPTION_ERROR_DEBOUNCE_MS) return;
+    lastEncryptionErrorAt.set(who, now);
+    e2eeLog.warn(`encryption error (${who === "local" ? "local" : shortKey(who)}): ${error.message}`);
+    store.dispatch(
+      setE2EEError(
+        participant
+          ? e2ee?.ctx.kind === "call"
+            ? `Could not decrypt ${shortKey(participant.identity)}'s media — their app derives a different key (update needed).`
+            : `Could not decrypt media from ${shortKey(participant.identity)} — their key may still be on its way.`
+          : `Could not encrypt outgoing media: ${error.message}`,
+      ),
+    );
   });
 
   room.on(RoomEvent.ActiveSpeakersChanged, (speakers: Participant[]) => {
@@ -282,6 +402,7 @@ export async function connectToRoom(
   room.on(RoomEvent.Reconnected, () => {
     log.info("reconnected");
     store.dispatch(setVoiceConnectionState("connected"));
+    void e2ee?.onReconnected().catch((err) => e2eeLog.warn("re-keying after reconnect failed", err));
   });
 
   // Autoplay policy (Tauri WKWebView / Windows WebView2): when playback is
@@ -306,6 +427,7 @@ export async function connectToRoom(
     clearRemoteAudio();
     store.dispatch(disconnectRoom());
     currentRoom = null;
+    disposeE2EE(e2ee);
     // The room singleton is shared between voice channels and 1:1 calls;
     // callService ends the call on a non-client drop via this hook.
     const clientInitiated = reason === DisconnectReason.CLIENT_INITIATED;
@@ -322,8 +444,21 @@ export async function connectToRoom(
   // Listen Together: route data messages with the LT topic
   room.on(
     RoomEvent.DataReceived,
-    (payload: Uint8Array, participant?: RemoteParticipant, _kind?: unknown, topic?: string) => {
+    (
+      payload: Uint8Array,
+      participant?: RemoteParticipant,
+      _kind?: unknown,
+      topic?: string,
+      encryptionType?: Encryption_Type,
+    ) => {
       if (topic !== LISTEN_TOGETHER_TOPIC || !participant) return;
+      // In an encrypted room every data packet is GCM-encrypted with the
+      // sender's key. A plaintext packet did not come from a peer that holds
+      // one (an outdated client, or something injected at the SFU) — ignore.
+      if (e2ee && encryptionType === Encryption_Type.NONE) {
+        e2eeLog.warn(`dropping PLAINTEXT data packet from ${shortKey(participant.identity)}`);
+        return;
+      }
 
       const msg = decodeLTMessage(payload);
       if (msg) {
@@ -332,22 +467,36 @@ export async function connectToRoom(
     },
   );
 
-  // Listen Together: re-broadcast session state to late joiners (DJ only)
-  room.on(RoomEvent.ParticipantConnected, (_participant: RemoteParticipant) => {
-    broadcastSessionToLateJoiner();
-  });
-
   // Listen Together: drop departed listeners; the DJ leaving ends the session
   room.on(RoomEvent.ParticipantDisconnected, (participant: RemoteParticipant) => {
     handleParticipantLeft(participant.identity);
   });
 
-  // Connect
-  log.info(`connecting to ${serverUrl}`);
-  await room.connect(serverUrl, token);
+  log.info(`connecting to ${serverUrl}${e2ee ? " (e2ee)" : ""}`);
+  try {
+    if (e2ee) {
+      // Before connect (see the doc comment): encoder on, pre-known keys in.
+      await room.setE2EEEnabled(true);
+      await e2ee.installInitialKeys();
+    }
+    await room.connect(serverUrl, token);
+  } catch (err) {
+    // Nothing past this point owns the Room or the worker yet — tear both
+    // down here so a bad invite secret can't leave a cryptor worker alive.
+    disposeE2EE(e2ee);
+    void room.disconnect().catch(() => {});
+    throw err;
+  }
   log.info(
     `room connected participants=${room.remoteParticipants.size} canPlaybackAudio=${room.canPlaybackAudio}`,
   );
+  if (e2ee && myPubkey && room.localParticipant.identity !== myPubkey) {
+    // The backend mints identity = pubkey; keys are addressed by pubkey, so a
+    // mismatch would leave our own key under the wrong name.
+    console.error(
+      `[LiveKit] identity mismatch: token identity ${shortKey(room.localParticipant.identity)} != pubkey ${shortKey(myPubkey)}`,
+    );
+  }
 
   // Add existing participants
   for (const participant of room.remoteParticipants.values()) {
@@ -362,6 +511,10 @@ export async function connectToRoom(
   }
 
   currentRoom = room;
+  if (e2ee) {
+    for (const p of room.remoteParticipants.values()) joinedAt.set(p.identity, Date.now());
+    await e2ee.start([...room.remoteParticipants.keys()]);
+  }
   return room;
 }
 
@@ -378,6 +531,9 @@ function participantRecord(participant: RemoteParticipant) {
     connectionQuality: mapConnectionQuality(participant.connectionQuality),
     handRaised: false,
     audioLevel: 0,
+    // Unknown until a track is subscribed (LiveKit's getter is false with no
+    // publications, which would read as "outdated client").
+    encrypted: participant.trackPublications?.size > 0 ? participant.isEncrypted : undefined,
   };
 }
 
@@ -387,11 +543,14 @@ function participantRecord(participant: RemoteParticipant) {
 export async function disconnectFromRoom(): Promise<void> {
   const room = currentRoom;
   if (room) {
-    // Listen Together goodbyes need the data channel — send them first.
+    // Listen Together goodbyes need the data channel — send them first
+    // (under E2EE they are encrypted with our sender key, so the session
+    // must still be alive here; it is disposed by the Disconnected handler).
     await announceListenTogetherExit();
     await room.disconnect();
     if (currentRoom === room) currentRoom = null;
   }
+  disposeE2EE(currentE2EE);
 }
 
 /**

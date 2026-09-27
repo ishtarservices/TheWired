@@ -2,6 +2,8 @@ import { createSlice, type PayloadAction } from "@reduxjs/toolkit";
 import type {
   ActiveCall,
   CallInvite,
+  CallNotice,
+  CallNoticeKind,
   CallState,
   CallType,
   CallPanelMode,
@@ -32,6 +34,8 @@ interface CallSliceState {
   pipCorner: PipCorner;
   /** Local and remote tiles swapped (local on the big stage). */
   swapped: boolean;
+  /** Why the last call attempt could not go ahead (toast; null = none). */
+  notice: CallNotice | null;
 }
 
 const initialState: CallSliceState = {
@@ -42,6 +46,7 @@ const initialState: CallSliceState = {
   panelMode: "floating",
   pipCorner: "br",
   swapped: false,
+  notice: null,
 };
 
 export const callSlice = createSlice({
@@ -59,6 +64,7 @@ export const callSlice = createSlice({
         callType: CallType;
         roomId: string;
         roomSecretKey: string;
+        e2ee: boolean;
       }>,
     ) {
       state.activeCall = {
@@ -82,6 +88,7 @@ export const callSlice = createSlice({
           direction: "incoming",
           roomId: "", // Derived from roomSecretKey by the service
           roomSecretKey: state.incomingCall.roomSecretKey,
+          e2ee: state.incomingCall.caps?.e2ee === true,
           state: "connecting",
           startedAt: Date.now(),
           isMuted: false,
@@ -203,6 +210,10 @@ export const callSlice = createSlice({
       }
     },
 
+    setCallNotice(state, action: PayloadAction<{ kind: CallNoticeKind; pubkey: string } | null>) {
+      state.notice = action.payload ? { ...action.payload, at: Date.now() } : null;
+    },
+
     missedCall(state) {
       if (state.incomingCall) {
         state.callHistory.unshift({
@@ -239,4 +250,5 @@ export const {
   clearCallHistory,
   missedCall,
   addProcessedCallWrapId,
+  setCallNotice,
 } = callSlice.actions;

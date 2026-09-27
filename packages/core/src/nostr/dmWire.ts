@@ -12,15 +12,21 @@
 import type {
   DMControlType,
   DMFileMeta,
+  DMMediaKeyEnvelope,
   DMReceiptStatus,
 } from "@ishtarservices/shared-types";
-import { DM_EXPIRATION_SECONDS, DM_CONTROL_TYPES } from "@ishtarservices/shared-types";
+import {
+  DM_EXPIRATION_SECONDS,
+  DM_CONTROL_TYPES,
+  MEDIA_KEY_INDEX_MAX,
+} from "@ishtarservices/shared-types";
 import {
   KIND_DM_MESSAGE,
   KIND_DM_FILE,
   KIND_REACTION,
   KIND_DM_TYPING,
   KIND_DM_RECEIPT,
+  KIND_DM_MEDIA_KEY,
 } from "../kinds";
 import type { UnwrappedDM } from "../crypto/giftWrap";
 import { participantsOf, roomKeyFromParticipants } from "../crypto/nip17Room";
@@ -71,6 +77,7 @@ export type DMWireEvent =
   | (DMWireBase & { type: "call_invite" | "call_decline" | "call_missed"; content: string })
   | (DMWireBase & { type: "typing" })
   | (DMWireBase & { type: "receipt"; status: DMReceiptStatus; rumorIds: string[] })
+  | (DMWireBase & { type: "media_key"; envelope: DMMediaKeyEnvelope })
   | (DMWireBase & { type: "unknown"; reason: string });
 
 export type DMWireType = DMWireEvent["type"];
@@ -257,6 +264,12 @@ export function parseDMWire(dm: UnwrappedDM, myPubkey: string): DMWireEvent {
       return { ...base, type: "receipt", status, rumorIds };
     }
 
+    case KIND_DM_MEDIA_KEY: {
+      const envelope = parseMediaKeyEnvelope(dm.content);
+      if (!envelope) return unknown("malformed media_key envelope");
+      return { ...base, type: "media_key", envelope };
+    }
+
     default:
       return unknown(`unsupported kind ${dm.kind}`);
   }
@@ -344,6 +357,44 @@ export function controlRumorTags(
   return tags;
 }
 
+/**
+ * Strict decoder for a kind-20016 media-key envelope (JSON string or an
+ * already-parsed value). Null for anything malformed: wrong version, missing
+ * or non-string room, empty or over-long key list, an index outside 0–255,
+ * a key that is not 32 bytes hex, or a non-finite `ts`.
+ */
+export function parseMediaKeyEnvelope(raw: unknown): DMMediaKeyEnvelope | null {
+  let value: unknown = raw;
+  if (typeof raw === "string") {
+    try {
+      value = JSON.parse(raw);
+    } catch {
+      return null;
+    }
+  }
+  if (!value || typeof value !== "object") return null;
+  const o = value as Record<string, unknown>;
+  if (o.v !== 1) return null;
+  if (typeof o.room !== "string" || o.room.length === 0 || o.room.length > 256) return null;
+  if (typeof o.ts !== "number" || !Number.isFinite(o.ts)) return null;
+  if (!Array.isArray(o.keys) || o.keys.length === 0 || o.keys.length > 4) return null;
+  const keys: DMMediaKeyEnvelope["keys"] = [];
+  for (const k of o.keys) {
+    if (!k || typeof k !== "object") return null;
+    const { idx, key } = k as Record<string, unknown>;
+    if (typeof idx !== "number" || !Number.isInteger(idx) || idx < 0 || idx > MEDIA_KEY_INDEX_MAX) return null;
+    if (typeof key !== "string" || !HEX64_RE.test(key)) return null;
+    keys.push({ idx, key: key.toLowerCase() });
+  }
+  return { v: 1, room: o.room, keys, ts: o.ts };
+}
+
+/** Extra tags for a media-key rumor (kind 20016). None today — everything
+ *  is in the JSON content — but kept as the one place to add one. */
+export function mediaKeyRumorTags(): string[][] {
+  return [];
+}
+
 /** Extra tags for a typing rumor (kind 20014). Content should be "". */
 export function typingRumorTags(opts: { roomId?: string } = {}): string[][] {
   return opts.roomId ? [["g", opts.roomId]] : [];
@@ -365,7 +416,7 @@ export function receiptRumorTags(
 /** The seal/wrap `expiration` a rumor class gets, relative to `createdAt`
  *  (§5). `undefined` = no expiration. */
 export function defaultExpirationFor(
-  cls: "typing" | "receipt" | "call" | "message",
+  cls: "typing" | "receipt" | "call" | "message" | "media_key",
   createdAt: number,
   /** Per-conversation disappearing-messages timer, seconds (0/undefined = off). */
   disappearAfter?: number,
@@ -377,6 +428,8 @@ export function defaultExpirationFor(
       return createdAt + DM_EXPIRATION_SECONDS.receipt;
     case "call":
       return createdAt + DM_EXPIRATION_SECONDS.call;
+    case "media_key":
+      return createdAt + DM_EXPIRATION_SECONDS.mediaKey;
     case "message":
       return disappearAfter && disappearAfter > 0 ? createdAt + disappearAfter : undefined;
   }

@@ -5,6 +5,8 @@ export interface LocalTileState {
   muted: boolean;
   videoEnabled: boolean;
   screenSharing: boolean;
+  /** Our own tracks are end-to-end encrypted (voice.e2ee.active). */
+  encrypted?: boolean;
 }
 
 /**
@@ -53,6 +55,7 @@ export function buildTiles(args: {
       hasVideo: local.videoEnabled,
       handRaised: false,
       connectionQuality: "good",
+      encrypted: local.encrypted,
     });
   }
 
@@ -70,6 +73,7 @@ export function buildTiles(args: {
       hasVideo: p.hasVideo,
       handRaised: p.handRaised,
       connectionQuality: p.connectionQuality,
+      encrypted: p.encrypted,
     });
   }
 
@@ -85,6 +89,7 @@ export function buildTiles(args: {
       hasVideo: true,
       handRaised: false,
       connectionQuality: "good",
+      encrypted: local.encrypted,
     });
   }
 
@@ -102,6 +107,7 @@ export function buildTiles(args: {
       hasVideo: true,
       handRaised: false,
       connectionQuality: p.connectionQuality,
+      encrypted: p.encrypted,
     });
   }
 

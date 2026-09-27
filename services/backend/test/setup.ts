@@ -38,6 +38,9 @@ process.env.MEILISEARCH_KEY =
   process.env.TEST_MEILISEARCH_KEY ?? "thewired_dev_key";
 process.env.LOG_LEVEL = "silent";
 process.env.NODE_ENV = "test";
+// The voice E2EE token gate (docs/E2EE_CALLS.md §6) is on by default; pin it
+// so a developer's local env can't silently skip the 409 tests.
+process.env.VOICE_REQUIRE_E2EE = "true";
 
 import { vi, beforeAll, afterAll, beforeEach } from "vitest";
 

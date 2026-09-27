@@ -17,6 +17,29 @@ export interface CallInvite {
   timestamp: number;
   /** Missing on invites from older clients (which expected P2P signaling). */
   transport?: CallTransport;
+  /** Capabilities the caller advertises. `e2ee: true` = the caller will
+   *  frame-encrypt (docs/E2EE_CALLS.md). Missing = outdated caller; such
+   *  invites are declined, never joined in plaintext. */
+  caps?: CallCaps;
+}
+
+export interface CallCaps {
+  e2ee?: boolean;
+}
+
+/** Why a call could not go ahead — shown as a toast (CallNotice). */
+export type CallNoticeKind =
+  /** The peer's client doesn't do encrypted calls (legacy invite, or it
+   *  joined the room without encryption). */
+  | "peer_outdated"
+  /** This device's WebView lacks insertable streams / encoded transforms. */
+  | "unsupported_device";
+
+export interface CallNotice {
+  kind: CallNoticeKind;
+  /** The peer involved (for the "let them know" nudge). */
+  pubkey: string;
+  at: number;
 }
 
 /** How the active-call panel is shown. */
@@ -32,6 +55,9 @@ export interface ActiveCall {
   direction: "incoming" | "outgoing";
   roomId: string;
   roomSecretKey: string;
+  /** Frame-level E2EE is on for this call (always true for calls this build
+   *  starts or answers; kept explicit so the UI never assumes). */
+  e2ee: boolean;
   state: CallState;
   /** When the invite went out / was accepted (ringing starts here). */
   startedAt: number;
@@ -77,6 +103,9 @@ export interface VoiceParticipant {
   connectionQuality: "excellent" | "good" | "poor" | "unknown";
   handRaised: boolean;
   audioLevel: number;
+  /** Their published tracks are end-to-end encrypted. `undefined` until a
+   *  track is subscribed; `false` in an encrypted room = outdated client. */
+  encrypted?: boolean;
 }
 
 /** Voice channel configuration */

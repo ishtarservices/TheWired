@@ -20,7 +20,7 @@ const outgoing = () =>
       partnerPubkey: "a".repeat(64),
       callType: "audio",
       roomId: "room",
-      roomSecretKey: "01".repeat(32),
+      roomSecretKey: "01".repeat(32), e2ee: true,
     }),
   );
 

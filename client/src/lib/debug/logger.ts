@@ -34,6 +34,7 @@ export type LogCategory =
   | "zap"
   | "nwc"
   | "lnurl"
+  | "e2ee" // frame-level E2EE: key install/rotation/envelopes (never key bytes)
   | "nav"   // route changes, navigation timing, current-account context
   | "perf"  // main-thread health (event-loop lag spikes)
   | "latency" // per-message receive latency, by relay (chat delivery timing)
@@ -55,6 +56,7 @@ const CATEGORY_COLORS: Record<LogCategory, string> = {
   zap: "#facc15",
   nwc: "#f59e0b",
   lnurl: "#fde047",
+  e2ee: "#4ade80",
   nav: "#c084fc",
   perf: "#ef4444",
   latency: "#e879f9",

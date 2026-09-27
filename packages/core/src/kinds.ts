@@ -21,6 +21,8 @@ export const KIND_DM_RELAYS = DM_KINDS.DM_RELAYS;
 export const KIND_DM_TYPING = DM_KINDS.TYPING;
 /** Delivered / read receipt rumor (ours). */
 export const KIND_DM_RECEIPT = DM_KINDS.RECEIPT;
+/** Media (frame-E2EE) sender-key envelope, kind 20016 (docs/E2EE_CALLS.md). */
+export const KIND_DM_MEDIA_KEY = DM_KINDS.MEDIA_KEY;
 /** NIP-78 app data (read-state record). */
 export const KIND_APP_DATA = DM_KINDS.APP_DATA;
 
