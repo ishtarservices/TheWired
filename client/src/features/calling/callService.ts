@@ -33,6 +33,7 @@ import {
 import { setMediaError } from "@/store/slices/voiceSlice";
 import { createGiftWrappedDM, createSelfWrap } from "@/lib/nostr/giftWrap";
 import { defaultExpirationFor } from "@ishtarservices/core";
+import { DM_EXPIRATION_SECONDS } from "@ishtarservices/shared-types";
 import { relayManager } from "@/lib/nostr/relayManager";
 import { getDMRelaysForPublish, getOwnDMRelays } from "@/lib/nostr/dmRelayList";
 import { fetchDMVoiceToken } from "@/lib/api/voice";
@@ -57,8 +58,15 @@ const shortId = (id: string | undefined) => (id ? id.slice(0, 8) : "?");
 
 export const CALL_TRANSPORT: CallTransport = "sfu";
 
-/** How long the caller rings before giving up. */
-const RING_TIMEOUT_MS = 30_000;
+/** How long the caller rings before giving up.
+ *
+ *  This MUST NOT undercut the invite's own expiration: the wrap stays valid
+ *  on the relay for DM_EXPIRATION_SECONDS.call, and a callee whose delivery
+ *  lagged (measured at up to ~25s against a mobile peer) would otherwise get
+ *  only the remainder of a shorter window to answer — with the caller giving
+ *  up while its own invite was still live. Derived, not a literal, so the two
+ *  can't drift apart. */
+const RING_TIMEOUT_MS = DM_EXPIRATION_SECONDS.call * 1000;
 /** How long the callee waits for the caller to show up in the room. */
 const CONNECT_TIMEOUT_MS = 30_000;
 
@@ -113,16 +121,27 @@ export async function initiateCall(
   // Call signaling expires on the relay (docs/DM_WIRE_CONTRACT.md §5) — no
   // stale invites replaying on reconnect.
   const callWrapOpts = { expiration: defaultExpirationFor("call", Math.floor(Date.now() / 1000)) };
-  const [recipientResult, selfResult] = await Promise.all([
-    createGiftWrappedDM(invitePayload, partnerPubkey, [["type", "call_invite"]], undefined, callWrapOpts),
-    createSelfWrap(invitePayload, partnerPubkey, [["type", "call_invite"]], undefined, callWrapOpts),
-  ]);
 
-  const partnerRelays = await getDMRelaysForPublish(partnerPubkey);
-  const ownRelays = await getOwnDMRelays();
+  // `startOutgoingCall` is already dispatched, so every exit from here on has
+  // to clear it. A throw that escaped left the UI on "Ringing…" forever with
+  // no invite sent and no ring timer armed (it is set below) — the caller was
+  // told a call was in flight that did not exist.
+  try {
+    const [recipientResult, selfResult] = await Promise.all([
+      createGiftWrappedDM(invitePayload, partnerPubkey, [["type", "call_invite"]], undefined, callWrapOpts),
+      createSelfWrap(invitePayload, partnerPubkey, [["type", "call_invite"]], undefined, callWrapOpts),
+    ]);
 
-  relayManager.publish(recipientResult.wrap, partnerRelays);
-  relayManager.publish(selfResult.wrap, ownRelays);
+    const partnerRelays = await getDMRelaysForPublish(partnerPubkey);
+    const ownRelays = await getOwnDMRelays();
+
+    relayManager.publish(recipientResult.wrap, partnerRelays);
+    relayManager.publish(selfResult.wrap, ownRelays);
+  } catch (err) {
+    warn(`could not send the invite:`, err);
+    store.dispatch(endCall("failed"));
+    throw err;
+  }
 
   // Capture the roomId so the timeout can only ever end THIS call (#43).
   clearTimers();
@@ -145,6 +164,12 @@ export async function initiateCall(
     warn(`could not join call room:`, err);
     store.dispatch(setMediaError(describeMediaError(err)));
     clearTimers();
+    // The invite is already out there and the callee is ringing on it. Tell
+    // them, or they ring for the full expiration against a caller that gave
+    // up seconds in (mobile leaves no trace afterwards, so it just looks like
+    // an ignored call).
+    await sendCallStatus(partnerPubkey, "call_missed");
+    void disconnectFromRoom();
     store.dispatch(endCall("failed"));
     throw err;
   }

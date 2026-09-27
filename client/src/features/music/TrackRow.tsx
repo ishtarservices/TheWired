@@ -130,6 +130,14 @@ export const TrackRow = memo(function TrackRow({
                 LOCAL
               </span>
             )}
+            {isOwner && track.inCatalog === false && (
+              <span
+                title="Not in your catalog — public and playable where it's embedded, but hidden from your profile, library and browse"
+                className="ml-1.5 inline-block rounded bg-card px-1 py-0.5 align-middle text-[10px] text-muted"
+              >
+                Unlisted
+              </span>
+            )}
             {isDownloaded && (
               <span title="Available offline" className="ml-1.5 inline-block align-middle">
                 <HardDriveDownload size={12} className="text-primary/70" />

@@ -23,6 +23,13 @@ interface TrackEventParams {
   visibility?: MusicVisibility;
   revisionSummary?: string;
   sharingDisabled?: boolean;
+  /**
+   * `false` emits `["catalog","none"]` (a public track kept off the author's
+   * catalog). Every caller that rebuilds a track from parsed fields MUST
+   * thread `track.inCatalog` through, or the edit silently re-lists the clip.
+   * Omitted/`true` = listed (no tag).
+   */
+  inCatalog?: boolean;
   spaceId?: string;
   /** Every space the track is shared into (one `h` tag each). When given it
    *  takes precedence over `spaceId`, so an edit does not collapse the set. */
@@ -134,6 +141,9 @@ export function buildTrackEvent(
   if (params.sharingDisabled) {
     tags.push(["sharing", "disabled"]);
   }
+  if (params.inCatalog === false) {
+    tags.push(["catalog", "none"]);
+  }
 
   addVisibilityTags(tags, params);
 
@@ -241,6 +251,11 @@ export async function buildPrivateTrackEvent(
   // collaborators, who can decrypt the track but aren't the owner.
   if (params.sharingDisabled) {
     tags.push(["sharing", "disabled"]);
+  }
+  // Catalog listing is cleartext too (it is not sensitive; it survives a
+  // later switch back to public).
+  if (params.inCatalog === false) {
+    tags.push(["catalog", "none"]);
   }
 
   // Artist identity p-tags (still cleartext so relay can route)

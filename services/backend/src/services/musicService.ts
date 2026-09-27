@@ -12,6 +12,7 @@ import { config } from "../config.js";
 import { getTranscodeQueue } from "../lib/queue.js";
 import { buildMusicSearchDoc } from "../lib/musicSearchDoc.js";
 import { escapeMsFilter } from "../lib/meiliFilter.js";
+import { MS_LISTED_FILTER, isListedPublicMusic } from "../lib/musicListing.js";
 
 const BLOB_DIR = resolve(process.cwd(), config.blobDir);
 const MAX_AUDIO_SIZE = config.maxBlobSize;
@@ -229,7 +230,8 @@ export const musicService = {
         const hashtags = tags.filter((t) => t[0] === "t").map((t) => t[1]);
         const isPublic = !visibility && !hTag;
 
-        // Only index and count public tracks
+        // Index every public track (the doc carries `unlisted` so browse/search
+        // can filter it while insights still enumerate it)...
         if (isPublic) {
           msDocs.push(
             buildMusicSearchDoc(
@@ -237,7 +239,9 @@ export const musicService = {
               31683,
             ),
           );
-
+        }
+        // ...but only count LISTED tracks, so chip counts match what browse returns.
+        if (isListedPublicMusic(tags)) {
           eventIds.push(row.id);
           if (genre) genreCounts.set(genre, (genreCounts.get(genre) ?? 0) + 1);
           for (const tag of hashtags) {
@@ -362,12 +366,12 @@ export const musicService = {
 
     if (params.sort === "plays") {
       // Sort by play count: get all matching event IDs from Meilisearch, then rank by Redis play_count
-      const filters: string[] = [];
+      const filters: string[] = [MS_LISTED_FILTER];
       if (params.genre) filters.push(`genre = "${escapeMsFilter(params.genre)}"`);
       if (params.tag) filters.push(`hashtags = "${escapeMsFilter(params.tag)}"`);
 
       const results = await ms.index("tracks").search("", {
-        filter: filters.length > 0 ? filters.join(" AND ") : undefined,
+        filter: filters.join(" AND "),
         limit: 500, // fetch a large pool to sort by plays
       });
 
@@ -399,13 +403,14 @@ export const musicService = {
       eventIds = await redis.zrevrange(key, offset, offset + limit - 1);
       total = eventIds.length;
     } else {
-      // Meilisearch filtered search — "recent" sort
-      const filters: string[] = [];
+      // Meilisearch filtered search — "recent" sort. `["catalog","none"]`
+      // tracks are in the index (insights need them) but never in browse.
+      const filters: string[] = [MS_LISTED_FILTER];
       if (params.genre) filters.push(`genre = "${escapeMsFilter(params.genre)}"`);
       if (params.tag) filters.push(`hashtags = "${escapeMsFilter(params.tag)}"`);
 
       const results = await ms.index("tracks").search("", {
-        filter: filters.length > 0 ? filters.join(" AND ") : undefined,
+        filter: filters.join(" AND "),
         sort: ["created_at:desc"],
         limit,
         offset,

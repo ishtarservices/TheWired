@@ -40,7 +40,7 @@ describe("searchService.searchMusic filter building", () => {
     await searchService.searchMusic("", { type: "track", genre: 'techno" OR visibility = "private' });
 
     const filter = lastFilter();
-    expect(filter).toBe('genre = "techno OR visibility = private"');
+    expect(filter).toBe('NOT unlisted = true AND genre = "techno OR visibility = private"');
     // One opening + one closing quote — the literal is never broken out of.
     expect(filter!.match(/"/g)).toHaveLength(2);
   });
@@ -48,18 +48,28 @@ describe("searchService.searchMusic filter building", () => {
   it("escapes an injected quote in `hashtag`", async () => {
     await searchService.searchMusic("", { type: "track", hashtag: 'x" OR pubkey = "y' });
 
-    expect(lastFilter()).toBe('hashtags = "x OR pubkey = y"');
+    expect(lastFilter()).toBe('NOT unlisted = true AND hashtags = "x OR pubkey = y"');
   });
 
   it("still builds the ordinary filter unchanged", async () => {
     await searchService.searchMusic("", { type: "track", genre: "Techno", hashtag: "vinyl" });
 
-    expect(lastFilter()).toBe('genre = "Techno" AND hashtags = "vinyl"');
+    expect(lastFilter()).toBe('NOT unlisted = true AND genre = "Techno" AND hashtags = "vinyl"');
   });
 
-  it("passes no filter when neither field is given", async () => {
+  it("always excludes catalog:none tracks, even with no user filter", async () => {
     await searchService.searchMusic("anything", { type: "track" });
 
-    expect(lastFilter()).toBeUndefined();
+    expect(lastFilter()).toBe("NOT unlisted = true");
+  });
+
+  it("does not apply the listing clause to the albums index (albums never carry catalog:none)", async () => {
+    // The mock returns one shared index object for every name, so the last
+    // call is the albums query of the "search both" path.
+    await searchService.searchMusic("anything", { genre: "Techno" });
+
+    const calls = index.search.mock.calls;
+    expect(calls[calls.length - 2][1].filter).toBe('NOT unlisted = true AND genre = "Techno"');
+    expect(calls[calls.length - 1][1].filter).toBe('genre = "Techno"');
   });
 });

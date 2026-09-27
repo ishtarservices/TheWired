@@ -253,8 +253,9 @@ export const discoveryService = {
       sql`, `,
     );
 
-    // Public music only — h_tag/visibility are the relay's own gate columns, so
-    // requiring both NULL is the identical bar to /music/browse's post-filter.
+    // Listed public music only — h_tag/visibility are the relay's own gate
+    // columns and the JSONB containment drops `["catalog","none"]` clips, the
+    // identical bar to /music/browse's post-filter (isListedPublicMusic).
     const rows = (await db.execute(sql`
       SELECT id, pubkey, kind, tags, content, created_at, sig
       FROM relay.events
@@ -262,6 +263,7 @@ export const discoveryService = {
         AND pubkey IN (${pubkeyList})
         AND h_tag IS NULL
         AND visibility IS NULL
+        AND NOT (tags @> '[["catalog","none"]]'::jsonb)
       ORDER BY created_at DESC
       LIMIT ${poolSize}
     `)) as unknown as Array<{

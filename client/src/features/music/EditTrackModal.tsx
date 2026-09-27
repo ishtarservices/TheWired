@@ -4,6 +4,7 @@ import { Modal } from "@/components/ui/Modal";
 import { useAppSelector } from "@/store/hooks";
 import { uploadCoverArt } from "@/lib/api/music";
 import { buildTrackEvent, buildPrivateTrackEvent } from "./musicEventBuilder";
+import { CatalogToggle } from "./CatalogToggle";
 import { signAndPublish, signAndSaveLocally } from "@/lib/nostr/publish";
 import { spacePublishRelays } from "./spacePublish";
 import { selectAudioSource } from "./trackParser";
@@ -50,6 +51,7 @@ export function EditTrackModal({ track, onClose }: EditTrackModalProps) {
   const [channelId, setChannelId] = useState(track.channelId ?? "");
   const [collaborators, setCollaborators] = useState<string[]>(track.collaborators);
   const [allowExport, setAllowExport] = useState(!track.sharingDisabled);
+  const [inCatalog, setInCatalog] = useState(track.inCatalog);
   const { profile: myProfile } = useProfile(pubkey);
   const [coverFile, setCoverFile] = useState<File | null>(null);
   const [revisionSummary, setRevisionSummary] = useState("");
@@ -111,6 +113,9 @@ export function EditTrackModal({ track, onClose }: EditTrackModalProps) {
         channelId: visibility === "space" && channelId ? channelId : undefined,
         revisionSummary: revisionSummary.trim() || undefined,
         sharingDisabled: !allowExport,
+        // Preserve (or flip) `["catalog","none"]`; rebuilding from parsed
+        // fields without it would silently re-list a note-only clip.
+        inCatalog,
       };
 
       const unsigned = visibility === "private"
@@ -231,6 +236,9 @@ export function EditTrackModal({ track, onClose }: EditTrackModalProps) {
 
           {/* Export policy */}
           <ExportToggle value={allowExport} onChange={setAllowExport} />
+
+          {/* Catalog listing (tracks only; albums never carry it) */}
+          <CatalogToggle value={inCatalog} onChange={setInCatalog} />
 
           {/* Cover art */}
           <div>

@@ -26,6 +26,7 @@ function track(over: Partial<MusicTrack> = {}): MusicTrack {
     createdAt: 1000,
     visibility: "public",
     spaceIds: [],
+    inCatalog: true,
     ...over,
   };
 }

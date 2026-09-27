@@ -11,6 +11,9 @@ import {
   requestDJ as requestDJService,
   voteSkip as voteSkipService,
   sendReaction as sendReactionService,
+  suggestTrack as suggestTrackService,
+  acceptSuggestion as acceptSuggestionService,
+  dismissSuggestion as dismissSuggestionService,
 } from "./listenTogetherService";
 
 export function useListenTogether() {
@@ -56,6 +59,14 @@ export function useListenTogether() {
     sendReactionService(emoji);
   }, []);
 
+  const suggestTrack = useCallback((trackId: string) => suggestTrackService(trackId), []);
+  const acceptSuggestion = useCallback((trackId: string) => {
+    acceptSuggestionService(trackId);
+  }, []);
+  const dismissSuggestion = useCallback((trackId: string) => {
+    dismissSuggestionService(trackId);
+  }, []);
+
   const togglePicker = useCallback(() => {
     dispatch(setPickerOpen(!lt.pickerOpen));
   }, [dispatch, lt.pickerOpen]);
@@ -84,6 +95,7 @@ export function useListenTogether() {
     pickerOpen: lt.pickerOpen,
     pendingInvite: lt.pendingInvite,
     dismissed: lt.dismissed,
+    suggestions: lt.suggestions,
     startSession,
     endSession: endSessionCb,
     joinSession: joinSessionCb,
@@ -93,6 +105,9 @@ export function useListenTogether() {
     requestDJ: requestDJCb,
     voteSkip: voteSkipCb,
     react,
+    suggestTrack,
+    acceptSuggestion,
+    dismissSuggestion,
     togglePicker,
     openPicker,
     closePicker,

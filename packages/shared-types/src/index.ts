@@ -5,3 +5,4 @@ export * from "./api.js";
 export * from "./permissions.js";
 export * from "./music.js";
 export * from "./dm.js";
+export * from "./listenTogether.js";

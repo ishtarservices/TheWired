@@ -7,6 +7,8 @@
  * degrading artist filtering).
  */
 
+import { isUnlisted } from "./musicListing.js";
+
 export interface MusicEventLike {
   id: string;
   pubkey: string;
@@ -26,6 +28,13 @@ export interface MusicSearchDoc {
   artist_pubkeys: string[];
   featured_pubkeys: string[];
   created_at: number;
+  /**
+   * `["catalog","none"]` tracks stay IN the index (insights enumerate an
+   * artist's tracks from here, and an unlisted clip's play counts still belong
+   * to its owner) but are filtered out of browse/search at query time with
+   * MS_LISTED_FILTER. Albums never carry the tag, so this is always false there.
+   */
+  unlisted: boolean;
 }
 
 function tagValue(tags: string[][], name: string): string | undefined {
@@ -56,5 +65,6 @@ export function buildMusicSearchDoc(event: MusicEventLike, kind: 31683 | 33123):
     artist_pubkeys: artistPubkeys,
     featured_pubkeys: featuredPubkeys,
     created_at: event.created_at,
+    unlisted: isUnlisted(tags),
   };
 }

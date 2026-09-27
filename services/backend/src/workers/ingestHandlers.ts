@@ -22,6 +22,7 @@ import { proposalService } from "../services/proposalService.js";
 import { eq, and, sql } from "drizzle-orm";
 import { buildMusicSearchDoc } from "../lib/musicSearchDoc.js";
 import { escapeMsFilter } from "../lib/meiliFilter.js";
+import { isListedPublicMusic } from "../lib/musicListing.js";
 
 /**
  * Per-event ingestion context (Decentralized Spaces, M3). The multi-relay
@@ -561,11 +562,14 @@ async function removeStaleMusicDocs(event: NostrEvent, kind: 31683 | 33123) {
 
     await ms.index(index).deleteDocuments(matching.map((h: Record<string, unknown>) => h.id as string));
     for (const h of matching) {
+      // An unlisted (`catalog:none`) doc was indexed but never counted; only
+      // undo counts for docs that were.
+      const wasCounted = await redis.srem("music:counted_events", h.id as string);
+      if (!wasCounted) continue;
       const hGenre = h.genre as string;
       const hTags = (h.hashtags as string[]) ?? [];
       if (hGenre) await redis.zincrby("music:genre_counts", -1, hGenre);
       for (const t of hTags) await redis.zincrby("music:tag_counts", -1, t);
-      await redis.srem("music:counted_events", h.id as string);
     }
     await redis.zremrangebyscore("music:genre_counts", "-inf", "0");
     await redis.zremrangebyscore("music:tag_counts", "-inf", "0");
@@ -585,9 +589,15 @@ async function indexMusicTrack(event: NostrEvent) {
   const dTag = getTagValue(event, "d") ?? "";
   const hashtags = event.tags.filter((t) => t[0] === "t").map((t) => t[1]);
 
+  // Every public track is indexed (the doc carries `unlisted`, so browse/search
+  // filter it while insights still enumerate it)...
   await ms.index("tracks").addDocuments([buildMusicSearchDoc(event, 31683)]);
 
-  const wasNew = await redis.sadd("music:counted_events", event.id);
+  // ...but only LISTED tracks feed the genre/tag chip counts, so the counts
+  // match what /music/browse returns.
+  const wasNew = isListedPublicMusic(event.tags)
+    ? await redis.sadd("music:counted_events", event.id)
+    : 0;
   if (wasNew) {
     const pipeline = redis.pipeline();
     if (genre) pipeline.zincrby("music:genre_counts", 1, genre);

@@ -94,6 +94,8 @@ vi.mock("@/features/listenTogether/listenTogetherService", () => ({
   handleIncomingMessage: vi.fn(),
   broadcastSessionToLateJoiner: vi.fn(),
   cleanupListenTogether: vi.fn(),
+  announceListenTogetherExit: vi.fn(async () => {}),
+  handleParticipantLeft: vi.fn(),
 }));
 
 import { connectToRoom } from "../livekitClient";

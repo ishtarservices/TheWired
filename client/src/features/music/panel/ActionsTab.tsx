@@ -8,6 +8,7 @@ import {
   Upload,
   Trash2,
   ListPlus,
+  ListMusic,
   Download,
   FileDown,
   FolderInput,
@@ -114,6 +115,9 @@ interface ActionsTabProps {
   isDownloading: boolean;
   sharingDisabled: boolean;
   sharingToggling: boolean;
+  /** Listed on the owner's catalog (no `["catalog","none"]` tag). */
+  inCatalog: boolean;
+  listingToggling: boolean;
   exporting: boolean;
   publishing: boolean;
   deleting: boolean;
@@ -131,6 +135,7 @@ interface ActionsTabProps {
   onEditTrack: () => void;
   onMove: () => void;
   onToggleSharing: () => void;
+  onToggleListing: () => void;
   onPublish?: () => void;
   onInsights: () => void;
   onDownload: () => void;
@@ -158,6 +163,8 @@ export function ActionsTab({
   isDownloading,
   sharingDisabled,
   sharingToggling,
+  inCatalog,
+  listingToggling,
   exporting,
   publishing,
   deleting,
@@ -175,6 +182,7 @@ export function ActionsTab({
   onEditTrack,
   onMove,
   onToggleSharing,
+  onToggleListing,
   onPublish,
   onInsights,
   onDownload,
@@ -355,6 +363,21 @@ export function ActionsTab({
               onClick={onToggleSharing}
               active={!sharingDisabled}
               disabled={sharingToggling}
+            />
+          )}
+          {isOwner && !isLocal && (
+            <ActionButton
+              icon={<ListMusic size={14} className={inCatalog ? "text-green-400" : "text-muted"} />}
+              label={
+                listingToggling
+                  ? "Toggling..."
+                  : inCatalog
+                    ? "In catalog: Yes"
+                    : "In catalog: No"
+              }
+              onClick={onToggleListing}
+              active={inCatalog}
+              disabled={listingToggling}
             />
           )}
           {isLocal && onPublish && (

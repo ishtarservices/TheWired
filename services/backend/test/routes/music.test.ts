@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeAll, afterAll } from "vitest";
+import { describe, it, expect, beforeAll, afterAll, afterEach, vi } from "vitest";
 import { createHash } from "crypto";
 import { existsSync } from "fs";
 import { join } from "path";
@@ -12,6 +12,7 @@ import { blobs, blobOwners } from "../../src/db/schema/blobs.js";
 import { spaceMembers } from "../../src/db/schema/members.js";
 import { spaces } from "../../src/db/schema/spaces.js";
 import { config } from "../../src/config.js";
+import { musicService } from "../../src/services/musicService.js";
 
 let server: FastifyInstance;
 
@@ -561,5 +562,38 @@ describe("resolve endpoint visibility enforcement", () => {
       headers: { "x-auth-pubkey": LUNA.pubkey },
     });
     expect(res.statusCode).toBe(200);
+  });
+});
+
+describe("browse route defensive listing filter", () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  function fakeEvent(id: string, tags: string[][]) {
+    return {
+      id: id.padEnd(64, "0"),
+      pubkey: LUNA.pubkey,
+      kind: 31683,
+      tags: [["d", id], ["title", id], ...tags],
+      content: "",
+      created_at: 1_700_000_000,
+      sig: "0".repeat(128),
+    };
+  }
+
+  it("drops a catalog:none track even when the service returns it (lagging index / trending set)", async () => {
+    const listed = fakeEvent("listed", []);
+    const clip = fakeEvent("clip", [["catalog", "none"]]);
+    const spaced = fakeEvent("spaced", [["h", "some-space"]]);
+    const priv = fakeEvent("priv", [["visibility", "private"]]);
+    vi.spyOn(musicService, "browse").mockResolvedValue({
+      tracks: [listed, clip, spaced, priv],
+      total: 4,
+    } as never);
+
+    const res = await server.inject({ method: "GET", url: "/music/browse?sort=trending" });
+    expect(res.statusCode).toBe(200);
+    expect(res.json().data.tracks.map((t: { id: string }) => t.id)).toEqual([listed.id]);
   });
 });

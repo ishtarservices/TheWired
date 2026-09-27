@@ -26,6 +26,62 @@ filter without unpacking JSONB: `h_tags TEXT[]` holds every `h` value in tag
 order and the scalar `h_tag` is `h_tags[1]`, with `h_tag IS NULL ⇔ h_tags = '{}'`
 (so `h_tag IS NULL` still means "not space-scoped").
 
+## Catalog listing (`catalog:none`)
+
+Orthogonal to visibility. A kind-31683 track may carry `["catalog","none"]`,
+meaning: *a real, playable, saveable track its author keeps OFF their catalog;
+it lives in the note it was posted with.* Mobile writes it when a user attaches
+audio to a plain note. The track is **public** (no `visibility` tag, no `h`
+tag) so the note embed can resolve and play it for anyone.
+
+A **listed public** music event is one with no `visibility` tag, no `h` tag,
+and no `["catalog","none"]` tag. That is the bar for every public discovery
+surface and every author-catalog shelf. The single predicate is
+`isListedPublicMusic(tags)` in `services/backend/src/lib/musicListing.ts`
+(re-exported from `services/musicVisibility.ts`); desktop and mobile parsers
+keep their own one-liner (`MusicTrack.inCatalog` on desktop), as they already
+do for `visibility`.
+
+`catalog:none` is **not a visibility state and never gates reads**. It only
+removes the event from "this author's discography" and "public discovery":
+
+| Layer | listed public | `catalog:none` (public, unlisted) |
+|---|---|---|
+| Relay REQ | served | served (it's public; the note embed must resolve) |
+| `/music/resolve/*`, `/music/access`, HLS, blobs, insights, proposals | as today | **unchanged**, as today |
+| `/music/browse`, `/music/browse/albums`, trending sets | included | **excluded** (trending computer, Meilisearch query filter, route re-check) |
+| `/search/music` | indexed + returned | indexed, **filtered out** at query time |
+| `/discovery/spaces/music` | included | **excluded** |
+| Genre/tag counts | counted | not counted |
+| OG track page | full metadata | full metadata (a shared note link should unfurl) |
+| OG catalog page (`fetchPublicCatalogByPubkey`) | listed | **excluded** |
+| Author shelves (mobile + desktop): profile, artist page, library, showcase picker | shown | **hidden**; the owner re-lists it via edit (desktop keeps it in *My Music* with an "Unlisted" label so it can be found) |
+
+Implementation notes:
+
+- **Meilisearch keeps unlisted tracks in the `tracks` index** with an
+  `unlisted: true` field and filters them at query time (`NOT unlisted = true`)
+  rather than excluding them from the index, because
+  `musicService.getArtistSummary` (insights) enumerates an artist's tracks from
+  that index and would otherwise lose the owner's play counts for their own
+  clips. Docs indexed before the field existed have no attribute and still
+  match the `NOT` clause (verified on Meilisearch 1.6), so a deploy does not
+  blank browse/search; already-indexed clips are purged by
+  `POST /music/rebuild-counts` (admin), which also resets genre/tag counts to
+  listed-only.
+- **Postgres surfaces** (trending computer, `getListedSpaceMusic`,
+  `fetchPublicCatalogByPubkey`) add `NOT (tags @> '[["catalog","none"]]'::jsonb)`;
+  the relay's GIN index on `tags` covers it. No relay column.
+- **Republishing must preserve the tag.** Any client that rebuilds a track from
+  parsed fields (desktop edit / replace-audio / move / duplicate) threads
+  `inCatalog` through, or an edit silently re-lists the clip.
+- **Albums (33123) never carry it**; tracks only.
+- This is unrelated to the legacy `["visibility","unlisted"]` state, which is
+  treated as *private* everywhere server-side and which desktop's
+  `parseVisibility` maps to `private`. Do not merge the two concepts: a
+  `visibility:unlisted` track is hidden from everyone but its grantees; a
+  `catalog:none` track is public to everyone, just not catalogued.
+
 ## Multi-space events
 
 Any event — in practice the music kinds 31683/33123/30119/31686 — may carry
@@ -70,18 +126,18 @@ Music p-tags carry a role in the 4th element: `["p", <pubkey>, <relay>, <role>]`
 
 ## The enforcement matrix
 
-| Layer | public | space (`h`) | private/unlisted |
-|---|---|---|---|
-| Relay query (NIP-01 REQ) | served | relay-gated per NIP-29 membership (any listed space) | relay-gated |
-| `GET /music/resolve/*` | 200 | 404 unless member/author | 404 unless author/grantee |
-| Album/playlist **child tracks** | included | dropped unless viewer authorized per child | dropped unless authorized |
-| Browse / search index (Meilisearch, trending) | indexed | **never indexed** (ingest, rebuild, and trending all exclude; a formerly-public version's doc is removed on privatize) | never indexed |
-| Raw blob `GET /<sha>` | 200, immutable cache | 404 without `?tk=` token or authorized NIP-98 pubkey; `no-store` when served | same |
-| HLS `/hls/<sha>/…` (master, playlists, segments) | 200 | 404 without valid `?tk=` | same |
-| `GET /music/access` | `{gated:false}` | token minted for authorized viewers only | same |
-| `GET /music/insights/*` | 200 | 404 unless member/author | 404 unless author/grantee |
-| `GET /music/proposals/:pubkey/:slug` (kind-31685 list) | 200 | 404 unless member/author (same gate as the project itself; a missing project also 404s) | 404 unless author/grantee |
-| OG share pages (`thewired.app/music/*`) | full metadata | generic branded page — **no metadata, indistinguishable from a missing slug** | same |
+| Layer | public | space (`h`) | private/unlisted | public + `catalog:none` |
+|---|---|---|---|---|
+| Relay query (NIP-01 REQ) | served | relay-gated per NIP-29 membership (any listed space) | relay-gated | served |
+| `GET /music/resolve/*` | 200 | 404 unless member/author | 404 unless author/grantee | 200 |
+| Album/playlist **child tracks** | included | dropped unless viewer authorized per child | dropped unless authorized | included |
+| Browse / search index (Meilisearch, trending) | indexed | **never indexed** (ingest, rebuild, and trending all exclude; a formerly-public version's doc is removed on privatize) | never indexed | indexed with `unlisted: true`; **filtered out** of browse/search/trending/listed-space music; not counted in genre/tag chips |
+| Raw blob `GET /<sha>` | 200, immutable cache | 404 without `?tk=` token or authorized NIP-98 pubkey; `no-store` when served | same | 200, immutable cache |
+| HLS `/hls/<sha>/…` (master, playlists, segments) | 200 | 404 without valid `?tk=` | same | 200 |
+| `GET /music/access` | `{gated:false}` | token minted for authorized viewers only | same | `{gated:false}` |
+| `GET /music/insights/*` | 200 | 404 unless member/author | 404 unless author/grantee | 200 |
+| `GET /music/proposals/:pubkey/:slug` (kind-31685 list) | 200 | 404 unless member/author (same gate as the project itself; a missing project also 404s) | 404 unless author/grantee | 200 |
+| OG share pages (`thewired.app/music/*`) | full metadata | generic branded page — **no metadata, indistinguishable from a missing slug** | same | track page: full metadata; **absent from the catalog page** |
 
 ## Blob protection: deterministic per-sha semantics
 

@@ -5,31 +5,41 @@ import {
   endSession,
   setPendingInvite,
   updatePendingInvite,
+  clearPendingInvite,
+  retargetPendingSession,
   setDismissed,
+  dismissSession,
   setDJ,
   setSharedQueue,
   setLTCurrentTrack,
   setLTIsPlaying,
   setLTPosition,
   addSkipVote,
+  removeSkipVote,
   clearSkipVotes,
   addReaction,
   addListener,
   removeListener,
+  addSuggestion,
+  removeSuggestion,
 } from "@/store/slices/listenTogetherSlice";
 import {
   setCurrentTrack,
   setIsPlaying,
-  updatePosition,
   setQueue,
   nextTrack,
   prevTrack,
   addTrack,
+  addToQueue,
 } from "@/store/slices/musicSlice";
+import { capLtQueue } from "@ishtarservices/core";
+import { LT_SYNC_TOLERANCE_S, LT_GOODBYE_TIMEOUT_MS } from "@ishtarservices/shared-types";
 import {
   createLTMessage,
   encodeLTMessage,
   LISTEN_TOGETHER_TOPIC,
+  DJ_ONLY_TYPES,
+  anchorTime,
   type LTMessage,
   type LTStartPayload,
   type LTPlayPayload,
@@ -37,15 +47,24 @@ import {
   type LTSeekPayload,
   type LTQueuePayload,
   type LTTransferDJPayload,
-  type LTRequestDJPayload,
-  type LTVoteSkipPayload,
   type LTReactionPayload,
   type LTJoinPayload,
   type LTLeavePayload,
+  type LTSuggestPayload,
   type TrackMeta,
 } from "./syncProtocol";
-import { getAudio } from "@/features/music/useAudioPlayer";
+import { seekTrackTo } from "@/features/music/useAudioPlayer";
 import type { MusicTrack } from "@/types/music";
+
+/** Heartbeat lt:seek: ignore drift below this (avoids audible skips). */
+const HEARTBEAT_TOLERANCE_S = LT_SYNC_TOLERANCE_S;
+/**
+ * Explicit state changes (resume, pause) re-sync tighter — a seek at that
+ * moment is inaudible, and a gap left there is never corrected by the
+ * heartbeat gate. Mirrors mobile.
+ */
+const STATE_CHANGE_TOLERANCE_S = 0.3;
+const GOODBYE_TIMEOUT_MS = LT_GOODBYE_TIMEOUT_MS;
 
 // ── Guard flag: prevents middleware from re-broadcasting actions
 //    that came from an incoming LT message ─────────────────────────
@@ -57,15 +76,19 @@ export function isApplyingRemote(): boolean {
 
 // ── Broadcast helper ──────────────────────────────────────────────
 
-function broadcast(msg: LTMessage): void {
+function broadcast(msg: LTMessage): Promise<void> {
   const room = getLivekitRoom();
-  if (!room) return;
+  if (!room) return Promise.resolve();
 
   const payload = encodeLTMessage(msg);
-  room.localParticipant.publishData(payload, {
-    reliable: true,
-    topic: LISTEN_TOGETHER_TOPIC,
-  });
+  return room.localParticipant
+    .publishData(payload, {
+      reliable: true,
+      topic: LISTEN_TOGETHER_TOPIC,
+    })
+    .catch((err: unknown) => {
+      console.warn("[listenTogether] publish failed:", err);
+    });
 }
 
 // ── Public API ────────────────────────────────────────────────────
@@ -82,10 +105,6 @@ export async function startListenTogetherSession(
   if (!myPubkey) return;
 
   const musicPlayer = store.getState().music.player;
-  const tracks = store.getState().music.tracks;
-  const currentTrack = musicPlayer.currentTrackId
-    ? tracks[musicPlayer.currentTrackId]
-    : null;
 
   store.dispatch(
     startSession({
@@ -113,17 +132,25 @@ export async function startListenTogetherSession(
     );
   }
 
-  const payload: LTStartPayload = {
+  broadcast(
+    createLTMessage("lt:start", myPubkey, buildStartPayload(myPubkey) as unknown as Record<string, unknown>),
+  );
+}
+
+/** The DJ's full session state, as sent in lt:start. */
+function buildStartPayload(myPubkey: string): LTStartPayload {
+  const musicPlayer = store.getState().music.player;
+  const currentTrack = musicPlayer.currentTrackId
+    ? store.getState().music.tracks[musicPlayer.currentTrackId]
+    : null;
+  return {
     djPubkey: myPubkey,
     trackId: musicPlayer.currentTrackId,
-    queue: musicPlayer.queue,
-    queueIndex: musicPlayer.queueIndex,
+    ...capLtQueue(musicPlayer.queue, musicPlayer.queueIndex),
     position: musicPlayer.position,
     isPlaying: musicPlayer.isPlaying,
     trackMeta: currentTrack ? buildTrackMeta(currentTrack) : null,
   };
-
-  broadcast(createLTMessage("lt:start", myPubkey, payload as unknown as Record<string, unknown>));
 }
 
 /**
@@ -187,13 +214,11 @@ export function joinListenTogetherSession(): void {
         }),
       );
 
-      // Seek to DJ's position with latency compensation
-      const latencySeconds = (Date.now() - invite.ts) / 1000;
-      const compensatedPosition = invite.position + latencySeconds;
-      seekAudioTo(compensatedPosition);
-      if (invite.isPlaying) {
-        store.dispatch(setIsPlaying(true));
-      }
+      // setCurrentTrack starts playback; a paused session loads paused.
+      if (!invite.isPlaying) store.dispatch(setIsPlaying(false));
+      // The track is still loading — park the DJ's position (anchored at
+      // `invite.ts`) so the load starts there instead of at 0:00.
+      seekTrackTo(invite.trackId, invite.position, { at: invite.ts });
     }
   } finally {
     _isApplyingRemote = false;
@@ -224,7 +249,7 @@ export function leaveListenTogetherSession(): void {
 
   store.dispatch(endSession());
   // Mark dismissed so we don't show the invite banner again for this session
-  store.dispatch(setDismissed(true));
+  store.dispatch(dismissSession(lt.djPubkey));
 }
 
 /**
@@ -232,20 +257,58 @@ export function leaveListenTogetherSession(): void {
  * User can still join later via the voice controls.
  */
 export function dismissInvite(): void {
-  store.dispatch(setDismissed(true));
+  const invite = store.getState().listenTogether.pendingInvite;
+  store.dispatch(dismissSession(invite?.djPubkey ?? null));
 }
 
 /**
- * Clean up Listen Together state (called on voice disconnect / call hangup).
+ * Say goodbye before leaving the room: the DJ ends the session (lt:end), a
+ * listener leaves it (lt:leave). Must run while the room is still connected —
+ * from the Disconnected handler there is no transport left. Waits at most
+ * GOODBYE_TIMEOUT_MS so a slow data channel can't hold up a hangup.
+ */
+export async function announceListenTogetherExit(): Promise<void> {
+  const lt = store.getState().listenTogether;
+  const myPubkey = store.getState().identity.pubkey;
+  if (!lt.active || !myPubkey) return;
+
+  const sent = lt.isLocalDJ
+    ? broadcast(createLTMessage("lt:end", myPubkey, {}))
+    : broadcast(
+        createLTMessage("lt:leave", lt.djPubkey ?? "", {
+          pubkey: myPubkey,
+        } satisfies LTLeavePayload as unknown as Record<string, unknown>),
+      );
+  store.dispatch(endSession());
+  await Promise.race([sent, new Promise((r) => setTimeout(r, GOODBYE_TIMEOUT_MS))]);
+}
+
+/**
+ * Reset Listen Together state after the room is gone (voice disconnect / call
+ * hangup). Local only — goodbyes go out in announceListenTogetherExit.
  */
 export function cleanupListenTogether(): void {
-  const lt = store.getState().listenTogether;
-  if (lt.active && lt.isLocalDJ) {
-    endListenTogetherSession();
-  } else if (lt.active) {
-    leaveListenTogetherSession();
-  }
   store.dispatch(endSession());
+}
+
+/**
+ * A participant left the room. If it was the DJ, the session is over — this
+ * is also the only signal when the DJ crashed or lost its connection.
+ */
+export function handleParticipantLeft(identity: string): void {
+  const lt = store.getState().listenTogether;
+  if (lt.active) {
+    if (!lt.isLocalDJ && identity === lt.djPubkey) {
+      store.dispatch(endSession());
+    } else {
+      store.dispatch(removeListener(identity));
+      store.dispatch(removeSkipVote(identity));
+    }
+  } else {
+    if (lt.pendingInvite?.djPubkey === identity) store.dispatch(clearPendingInvite());
+    // Their session is over; a future one should invite again.
+    if (lt.dismissedDJ === identity) store.dispatch(setDismissed(false));
+  }
 }
 
 /**
@@ -259,23 +322,9 @@ export function broadcastSessionToLateJoiner(): void {
   const myPubkey = store.getState().identity.pubkey;
   if (!myPubkey) return;
 
-  const musicPlayer = store.getState().music.player;
-  const tracks = store.getState().music.tracks;
-  const currentTrack = musicPlayer.currentTrackId
-    ? tracks[musicPlayer.currentTrackId]
-    : null;
-
-  const payload: LTStartPayload = {
-    djPubkey: myPubkey,
-    trackId: musicPlayer.currentTrackId,
-    queue: musicPlayer.queue,
-    queueIndex: musicPlayer.queueIndex,
-    position: musicPlayer.position,
-    isPlaying: musicPlayer.isPlaying,
-    trackMeta: currentTrack ? buildTrackMeta(currentTrack) : null,
-  };
-
-  broadcast(createLTMessage("lt:start", myPubkey, payload as unknown as Record<string, unknown>));
+  broadcast(
+    createLTMessage("lt:start", myPubkey, buildStartPayload(myPubkey) as unknown as Record<string, unknown>),
+  );
 }
 
 /**
@@ -351,6 +400,46 @@ export function sendReaction(emoji: string): void {
   store.dispatch(addReaction({ pubkey: myPubkey, emoji, ts: Date.now() }));
 }
 
+/**
+ * Suggest a track to the DJ (listener only). Needs the track's metadata so
+ * the DJ can play it without the event — false when we don't have it.
+ */
+export function suggestTrack(trackId: string): boolean {
+  const lt = store.getState().listenTogether;
+  const myPubkey = store.getState().identity.pubkey;
+  if (!lt.active || lt.isLocalDJ || !myPubkey) return false;
+
+  const track = store.getState().music.tracks[trackId];
+  if (!track || track.variants.length === 0) return false;
+
+  const payload: LTSuggestPayload = { trackId, trackMeta: buildTrackMeta(track) };
+  broadcast(
+    createLTMessage("lt:suggest", lt.djPubkey ?? "", payload as unknown as Record<string, unknown>),
+  );
+  return true;
+}
+
+/**
+ * DJ: queue a listener's suggestion (the middleware broadcasts lt:queue).
+ * Already queued → just clears it from the inbox.
+ */
+export function acceptSuggestion(trackId: string): void {
+  const lt = store.getState().listenTogether;
+  if (!lt.active || !lt.isLocalDJ) return;
+  const suggestion = lt.suggestions.find((s) => s.trackId === trackId);
+  if (!suggestion) return;
+
+  store.dispatch(removeSuggestion(trackId));
+  if (store.getState().music.player.queue.includes(trackId)) return;
+  ensureTrackAvailable(trackId, suggestion.trackMeta);
+  store.dispatch(addToQueue(trackId));
+}
+
+/** DJ: drop a suggestion without queueing it. */
+export function dismissSuggestion(trackId: string): void {
+  store.dispatch(removeSuggestion(trackId));
+}
+
 // ── DJ-side broadcast helpers (called by middleware) ───────────────
 
 export function broadcastPlay(
@@ -368,8 +457,7 @@ export function broadcastPlay(
   const payload: LTPlayPayload = {
     trackId,
     position,
-    queue,
-    queueIndex,
+    ...capLtQueue(queue, queueIndex),
     trackMeta: buildTrackMeta(track),
   };
 
@@ -408,8 +496,7 @@ export function broadcastResume(position: number): void {
   const payload: LTPlayPayload = {
     trackId: lt.currentTrackId,
     position,
-    queue: lt.sharedQueue,
-    queueIndex: lt.sharedQueueIndex,
+    ...capLtQueue(lt.sharedQueue, lt.sharedQueueIndex),
     trackMeta: buildTrackMeta(track),
   };
 
@@ -445,11 +532,43 @@ export function broadcastQueue(queue: string[]): void {
   const myPubkey = store.getState().identity.pubkey;
   if (!myPubkey) return;
 
-  const payload: LTQueuePayload = { queue };
+  const { queue: capped } = capLtQueue(queue, store.getState().music.player.queueIndex);
+  const payload: LTQueuePayload = { queue: capped };
   broadcast(createLTMessage("lt:queue", myPubkey, payload as unknown as Record<string, unknown>));
 }
 
 // ── Incoming message handler ──────────────────────────────────────
+
+/**
+ * The DJ whose controls we honor: the session's DJ once joined, else the DJ
+ * of the invite we're holding (or the session we left — so its lt:end still
+ * lands). null = no session known yet.
+ */
+function currentDJ(): string | null {
+  const lt = store.getState().listenTogether;
+  if (lt.active) return lt.djPubkey;
+  return lt.pendingInvite?.djPubkey ?? lt.dismissedDJ ?? null;
+}
+
+/**
+ * Whether `sender` may send this DJ-only message. `senderPubkey` is the
+ * LiveKit participant identity (bound to the pubkey by the token server);
+ * the envelope's `dj` field is self-reported and never trusted.
+ */
+function isAuthorizedDJMessage(msg: LTMessage, senderPubkey: string): boolean {
+  const lt = store.getState().listenTogether;
+  const dj = currentDJ();
+
+  if (msg.type === "lt:start") {
+    const payload = msg.data as unknown as LTStartPayload;
+    if (payload?.djPubkey !== senderPubkey) return false;
+    // A running session isn't taken over by someone else's lt:start.
+    return !lt.active || dj === senderPubkey;
+  }
+  // A missed lt:start: the first lt:play may open the invite.
+  if (msg.type === "lt:play" && dj === null) return true;
+  return dj !== null && dj === senderPubkey;
+}
 
 export function handleIncomingMessage(
   msg: LTMessage,
@@ -458,21 +577,22 @@ export function handleIncomingMessage(
   const myPubkey = store.getState().identity.pubkey;
   // Ignore our own messages
   if (senderPubkey === myPubkey) return;
+  if (DJ_ONLY_TYPES.has(msg.type) && !isAuthorizedDJMessage(msg, senderPubkey)) return;
 
   _isApplyingRemote = true;
   try {
     switch (msg.type) {
       case "lt:start":
-        handleStart(msg.data as unknown as LTStartPayload, senderPubkey, msg.ts);
+        handleStart(msg.data as unknown as LTStartPayload, msg.ts);
         break;
       case "lt:end":
         handleEnd();
         break;
       case "lt:play":
-        handlePlay(msg);
+        handlePlay(msg, senderPubkey);
         break;
       case "lt:pause":
-        handlePause(msg.data as unknown as LTPausePayload);
+        handlePause(msg);
         break;
       case "lt:seek":
         handleSeek(msg);
@@ -489,20 +609,25 @@ export function handleIncomingMessage(
       case "lt:transfer_dj":
         handleTransferDJ(msg.data as unknown as LTTransferDJPayload);
         break;
+      // Listener messages: the acting pubkey is the sender, whatever the
+      // payload claims (no voting or leaving on someone else's behalf).
       case "lt:request_dj":
-        handleRequestDJ(msg.data as unknown as LTRequestDJPayload);
+        handleRequestDJ(senderPubkey);
         break;
       case "lt:vote_skip":
-        handleVoteSkip(msg.data as unknown as LTVoteSkipPayload);
+        handleVoteSkip(senderPubkey);
         break;
       case "lt:reaction":
-        handleReaction(msg.data as unknown as LTReactionPayload);
+        handleReaction(msg.data as unknown as LTReactionPayload, senderPubkey);
         break;
       case "lt:join":
-        handleJoin(msg.data as unknown as LTJoinPayload);
+        handleJoin(senderPubkey);
         break;
       case "lt:leave":
-        handleLeave(msg.data as unknown as LTLeavePayload);
+        handleLeave(senderPubkey);
+        break;
+      case "lt:suggest":
+        handleSuggest(msg.data as unknown as LTSuggestPayload, senderPubkey);
         break;
     }
   } finally {
@@ -512,7 +637,7 @@ export function handleIncomingMessage(
 
 // ── Internal handlers ─────────────────────────────────────────────
 
-function handleStart(payload: LTStartPayload, _senderPubkey: string, msgTs: number): void {
+function handleStart(payload: LTStartPayload, msgTs: number): void {
   const lt = store.getState().listenTogether;
 
   // If we're already active in this session (e.g. we're the DJ), ignore
@@ -528,10 +653,10 @@ function handleStart(payload: LTStartPayload, _senderPubkey: string, msgTs: numb
     store.getState().call.activeCall?.roomId ??
     "";
 
-  // If user was previously dismissed and DJ restarts, reset dismissed
-  if (lt.dismissed) {
-    store.dispatch(setDismissed(false));
-  }
+  // DJs re-send lt:start whenever someone joins the room. From the DJ whose
+  // session we dismissed, that's the same session — refresh it quietly.
+  const sameDismissedSession = lt.dismissed && lt.dismissedDJ === payload.djPubkey;
+  if (!sameDismissedSession) store.dispatch(setDismissed(false));
 
   // Set as pending invite — user must explicitly accept
   store.dispatch(
@@ -545,7 +670,7 @@ function handleStart(payload: LTStartPayload, _senderPubkey: string, msgTs: numb
       queueIndex: payload.queueIndex,
       position: payload.position,
       isPlaying: payload.isPlaying,
-      ts: msgTs,
+      ts: anchorTime(msgTs),
     }),
   );
 }
@@ -554,9 +679,10 @@ function handleEnd(): void {
   store.dispatch(endSession());
 }
 
-function handlePlay(msg: LTMessage): void {
+function handlePlay(msg: LTMessage, senderPubkey: string): void {
   const lt = store.getState().listenTogether;
   const payload = msg.data as unknown as LTPlayPayload;
+  const at = anchorTime(msg.ts);
 
   // If not in the session, update the pending invite metadata
   if (!lt.active) {
@@ -569,7 +695,7 @@ function handlePlay(msg: LTMessage): void {
           isPlaying: true,
           queue: payload.queue,
           queueIndex: payload.queueIndex,
-          ts: msg.ts,
+          ts: at,
         }),
       );
       // If no invite yet (maybe lt:start was missed), create one
@@ -582,7 +708,7 @@ function handlePlay(msg: LTMessage): void {
           "";
         store.dispatch(
           setPendingInvite({
-            djPubkey: msg.dj,
+            djPubkey: senderPubkey,
             context,
             roomId,
             trackId: payload.trackId,
@@ -591,7 +717,7 @@ function handlePlay(msg: LTMessage): void {
             queueIndex: payload.queueIndex,
             position: payload.position,
             isPlaying: true,
-            ts: msg.ts,
+            ts: at,
           }),
         );
       }
@@ -599,20 +725,23 @@ function handlePlay(msg: LTMessage): void {
     return;
   }
 
-  ensureTrackAvailable(payload.trackId, payload.trackMeta);
+  const sameTrack = store.getState().music.player.currentTrackId === payload.trackId;
 
-  // Latency-compensated position
-  const latencySeconds = (Date.now() - msg.ts) / 1000;
-  const compensatedPosition = payload.position + latencySeconds;
-
-  store.dispatch(
-    setCurrentTrack({
-      trackId: payload.trackId,
-      queue: payload.queue,
-      queueIndex: payload.queueIndex,
-    }),
-  );
-  store.dispatch(setIsPlaying(true));
+  if (sameTrack) {
+    // Resume, or the DJ re-anchoring once its own audio became playable —
+    // a sync, not a reload (reloading would restart a slow listener's load).
+    store.dispatch(setIsPlaying(true));
+  } else {
+    ensureTrackAvailable(payload.trackId, payload.trackMeta);
+    store.dispatch(
+      setCurrentTrack({
+        trackId: payload.trackId,
+        queue: payload.queue,
+        queueIndex: payload.queueIndex,
+      }),
+    );
+    store.dispatch(clearSkipVotes());
+  }
 
   store.dispatch(
     setSharedQueue({ queue: payload.queue, queueIndex: payload.queueIndex }),
@@ -621,45 +750,50 @@ function handlePlay(msg: LTMessage): void {
     setLTCurrentTrack({
       trackId: payload.trackId,
       isPlaying: true,
-      position: compensatedPosition,
+      position: payload.position,
     }),
   );
-  store.dispatch(clearSkipVotes());
 
-  // Seek audio to compensated position after track loads
-  seekAudioTo(compensatedPosition);
+  seekTrackTo(payload.trackId, payload.position, {
+    at,
+    tolerance: sameTrack ? STATE_CHANGE_TOLERANCE_S : undefined,
+  });
 }
 
-function handlePause(payload: LTPausePayload): void {
+function handlePause(msg: LTMessage): void {
   const lt = store.getState().listenTogether;
+  const payload = msg.data as unknown as LTPausePayload;
 
   if (!lt.active) {
-    store.dispatch(updatePendingInvite({ position: payload.position, isPlaying: false }));
+    store.dispatch(
+      updatePendingInvite({ position: payload.position, isPlaying: false, ts: anchorTime(msg.ts) }),
+    );
     return;
   }
 
   store.dispatch(setIsPlaying(false));
   store.dispatch(setLTIsPlaying(false));
   store.dispatch(setLTPosition(payload.position));
-  seekAudioTo(payload.position);
+  const trackId = store.getState().music.player.currentTrackId;
+  if (trackId) seekTrackTo(trackId, payload.position, { tolerance: STATE_CHANGE_TOLERANCE_S });
 }
 
 function handleSeek(msg: LTMessage): void {
   const lt = store.getState().listenTogether;
   const payload = msg.data as unknown as LTSeekPayload;
+  const at = anchorTime(msg.ts);
 
   if (!lt.active) {
-    const latencySeconds = (Date.now() - msg.ts) / 1000;
-    store.dispatch(updatePendingInvite({ position: payload.position + latencySeconds }));
+    store.dispatch(updatePendingInvite({ position: payload.position, ts: at }));
     return;
   }
 
-  const latencySeconds = (Date.now() - msg.ts) / 1000;
-  const compensatedPosition = payload.position + latencySeconds;
-
-  seekAudioTo(compensatedPosition);
-  store.dispatch(updatePosition(compensatedPosition));
-  store.dispatch(setLTPosition(compensatedPosition));
+  // DJs send lt:seek as a periodic heartbeat too — only act on real drift.
+  const trackId = store.getState().music.player.currentTrackId;
+  if (trackId) {
+    seekTrackTo(trackId, payload.position, { at, tolerance: HEARTBEAT_TOLERANCE_S });
+  }
+  store.dispatch(setLTPosition(payload.position));
 }
 
 function handleQueue(payload: LTQueuePayload): void {
@@ -670,13 +804,13 @@ function handleQueue(payload: LTQueuePayload): void {
     return;
   }
 
+  // A long queue arrives windowed (LT_MAX_QUEUE) — re-find the current track
+  // rather than trusting an index into the old list.
+  const currentTrackId = store.getState().music.player.currentTrackId;
+  const found = currentTrackId ? payload.queue.indexOf(currentTrackId) : -1;
+  const queueIndex = found >= 0 ? found : store.getState().listenTogether.sharedQueueIndex;
   store.dispatch(setQueue(payload.queue));
-  store.dispatch(
-    setSharedQueue({
-      queue: payload.queue,
-      queueIndex: store.getState().listenTogether.sharedQueueIndex,
-    }),
-  );
+  store.dispatch(setSharedQueue({ queue: payload.queue, queueIndex }));
 }
 
 function handleNext(): void {
@@ -695,44 +829,60 @@ function handlePrev(): void {
 
 function handleTransferDJ(payload: LTTransferDJPayload): void {
   const myPubkey = store.getState().identity.pubkey;
-  store.dispatch(
-    setDJ({
-      pubkey: payload.targetPubkey,
-      isLocal: payload.targetPubkey === myPubkey,
-    }),
-  );
+  if (!store.getState().listenTogether.active) {
+    // Not joined: our invite / dismissal follows the session to its new DJ,
+    // or we'd join under the old DJ and ignore the new one's controls.
+    store.dispatch(retargetPendingSession(payload.targetPubkey));
+    return;
+  }
+  const isLocal = payload.targetPubkey === myPubkey;
+  store.dispatch(setDJ({ pubkey: payload.targetPubkey, isLocal }));
+  // Announce the takeover with our full state: re-syncs pending invites and
+  // anyone who missed the transfer packet.
+  if (isLocal) broadcastSessionToLateJoiner();
 }
 
-function handleRequestDJ(payload: LTRequestDJPayload): void {
+function handleRequestDJ(requesterPubkey: string): void {
   const lt = store.getState().listenTogether;
   // Auto-accept in DM context (either party can toggle DJ freely)
   if (lt.context === "dm" && lt.isLocalDJ) {
-    transferDJ(payload.requesterPubkey);
+    transferDJ(requesterPubkey);
   }
   // In spaces, request is logged but DJ must explicitly accept (future UI)
 }
 
-function handleVoteSkip(payload: LTVoteSkipPayload): void {
-  store.dispatch(addSkipVote(payload.voterPubkey));
+function handleVoteSkip(voterPubkey: string): void {
+  store.dispatch(addSkipVote(voterPubkey));
   checkSkipThreshold();
 }
 
-function handleReaction(payload: LTReactionPayload): void {
+function handleReaction(payload: LTReactionPayload, senderPubkey: string): void {
+  if (typeof payload?.emoji !== "string") return;
   store.dispatch(
     addReaction({
-      pubkey: payload.senderPubkey,
+      pubkey: senderPubkey,
       emoji: payload.emoji,
       ts: Date.now(),
     }),
   );
 }
 
-function handleJoin(payload: LTJoinPayload): void {
-  store.dispatch(addListener(payload.pubkey));
+function handleJoin(pubkey: string): void {
+  store.dispatch(addListener(pubkey));
 }
 
-function handleLeave(payload: LTLeavePayload): void {
-  store.dispatch(removeListener(payload.pubkey));
+function handleLeave(pubkey: string): void {
+  store.dispatch(removeListener(pubkey));
+  store.dispatch(removeSkipVote(pubkey));
+}
+
+function handleSuggest(payload: LTSuggestPayload, from: string): void {
+  const lt = store.getState().listenTogether;
+  // Only the DJ acts on suggestions.
+  if (!lt.active || !lt.isLocalDJ) return;
+  store.dispatch(
+    addSuggestion({ trackId: payload.trackId, trackMeta: payload.trackMeta, from, ts: Date.now() }),
+  );
 }
 
 // ── Utilities ─────────────────────────────────────────────────────
@@ -743,6 +893,8 @@ function buildTrackMeta(track: MusicTrack): TrackMeta {
     artist: track.artist,
     imageUrl: track.imageUrl,
     variants: track.variants,
+    // "local" (an unpublished upload) is unplayable for anyone else anyway.
+    visibility: track.visibility === "local" ? "private" : track.visibility,
   };
 }
 
@@ -755,6 +907,8 @@ function ensureTrackAvailable(trackId: string, meta: TrackMeta): void {
 
   // Build a minimal MusicTrack from the metadata
   const [, pubkey] = trackId.split(":");
+  // Normalized by the decoder: one of the three wire values, or absent.
+  const visibility = meta.visibility;
   store.dispatch(
     addTrack({
       addressableId: trackId,
@@ -771,20 +925,14 @@ function ensureTrackAvailable(trackId: string, meta: TrackMeta): void {
       variants: meta.variants,
       imageUrl: meta.imageUrl,
       createdAt: Math.floor(Date.now() / 1000),
-      visibility: "public",
+      // Untrusted hint: a wrong one only costs a failed load, never access —
+      // the backend gates the blob either way.
+      visibility: visibility ?? "public",
+      accessUnknown: visibility === undefined,
       spaceIds: [],
+      inCatalog: true,
     }),
   );
-}
-
-function seekAudioTo(position: number): void {
-  // Wait a tick for track to potentially load
-  setTimeout(() => {
-    const audio = getAudio();
-    if (audio.src && isFinite(position) && position >= 0) {
-      audio.currentTime = position;
-    }
-  }, 50);
 }
 
 function checkSkipThreshold(): void {

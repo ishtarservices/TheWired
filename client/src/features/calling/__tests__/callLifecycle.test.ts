@@ -11,6 +11,12 @@
  *    real media" are preserved from the old suite.
  */
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
+import { DM_EXPIRATION_SECONDS } from "@ishtarservices/shared-types";
+
+/** Just past the caller ring timeout, which tracks the wire TTL. */
+const PAST_RING_TIMEOUT_MS = DM_EXPIRATION_SECONDS.call * 1000 + 1_000;
+/** Just past the callee's separate "caller never arrived" timeout (30s). */
+const PAST_CONNECT_TIMEOUT_MS = 31_000;
 
 const h = vi.hoisted(() => {
   type Listener = {
@@ -155,13 +161,29 @@ describe("outgoing call", () => {
     expect(call()!.partnerPubkey).toBe(PARTNER);
   });
 
-  it("ends as failed (and clears the ring timer) if the room cannot be joined", async () => {
+  it("cancels the already-published invite if the room cannot be joined", async () => {
     vi.useFakeTimers();
     h.fetchToken.mockRejectedValueOnce(new Error("no livekit"));
     await expect(initiateCall(PARTNER, "audio")).rejects.toThrow();
     expect(call()).toBeNull();
     expect(store.getState().call.callHistory[0].outcome).toBe("failed");
-    await vi.advanceTimersByTimeAsync(31_000);
+    // The invite went out BEFORE the join, so the callee is ringing on it.
+    // Failing silently left them ringing for the full expiration against a
+    // caller that had already given up.
+    expect(wrapsOfType("call_missed")).toHaveLength(1);
+    // ...and exactly once: the ring timer must not fire a second cancel.
+    await vi.advanceTimersByTimeAsync(PAST_RING_TIMEOUT_MS);
+    expect(wrapsOfType("call_missed")).toHaveLength(1);
+  });
+
+  it("clears the call if the invite itself cannot be built or sent", async () => {
+    h.giftWrap.mockRejectedValueOnce(new Error("no signer"));
+    await expect(initiateCall(PARTNER, "audio")).rejects.toThrow();
+    // `startOutgoingCall` is dispatched before the wraps are built, so a throw
+    // here used to strand the UI on "Ringing..." forever with nothing sent.
+    expect(call()).toBeNull();
+    expect(store.getState().call.callHistory[0].outcome).toBe("failed");
+    // Nothing was published, so there is nothing to cancel.
     expect(wrapsOfType("call_missed")).toHaveLength(0);
   });
 });
@@ -257,7 +279,7 @@ describe("answering", () => {
     seedIncoming("audio");
     store.dispatch(acceptCall());
     await answerCall();
-    await vi.advanceTimersByTimeAsync(31_000);
+    await vi.advanceTimersByTimeAsync(PAST_CONNECT_TIMEOUT_MS);
     expect(call()).toBeNull();
     expect(store.getState().call.callHistory[0].outcome).toBe("failed");
   });
@@ -271,8 +293,8 @@ describe("#43 — ring timer scoping", () => {
     await initiateCall(PARTNER_B, "audio");
     const roomB = call()!.roomId;
 
-    await vi.advanceTimersByTimeAsync(31_000);
-    // Call B's own 30s timer fires too — but only for B, as "missed" of B.
+    await vi.advanceTimersByTimeAsync(PAST_RING_TIMEOUT_MS);
+    // Call B's own ring timer fires too — but only for B, as "missed" of B.
     // The point: A's timer (cleared on hangup) never touched B before that.
     expect(store.getState().call.callHistory[0].partnerPubkey).toBe(PARTNER_B);
     expect(roomB).not.toBe("");
@@ -284,14 +306,14 @@ describe("#43 — ring timer scoping", () => {
     listener().onParticipantConnected?.(PARTNER); // answered
     await hangupCall();
     h.giftWrap.mockClear();
-    await vi.advanceTimersByTimeAsync(31_000);
+    await vi.advanceTimersByTimeAsync(PAST_RING_TIMEOUT_MS);
     expect(wrapsOfType("call_missed")).toHaveLength(0);
   });
 
   it("an unanswered outgoing call still times out to missed", async () => {
     vi.useFakeTimers();
     await initiateCall(PARTNER, "audio");
-    await vi.advanceTimersByTimeAsync(31_000);
+    await vi.advanceTimersByTimeAsync(PAST_RING_TIMEOUT_MS);
     expect(call()).toBeNull();
     expect(store.getState().call.callHistory[0].outcome).toBe("missed");
     expect(wrapsOfType("call_missed")).toHaveLength(1);

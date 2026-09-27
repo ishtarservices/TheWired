@@ -158,6 +158,65 @@ export function getAudio(): HTMLAudioElement {
   return audio;
 }
 
+// ── Deferred start position ──────────────────────────────────────────────────
+// Loading is async (offline cache → access token → HLS discovery), and the load
+// ends by resetting to 0. A seek issued in that window — e.g. a Listen Together
+// listener joining mid-track — is clobbered, so it is parked here and applied
+// once the source is attached.
+interface PendingStart {
+  trackId: string;
+  /** Seconds, valid as of local time `at`. */
+  position: number;
+  at: number;
+  /** false = load paused at `position` (e.g. joining a paused shared session). */
+  playing: boolean;
+}
+let pendingStart: PendingStart | null = null;
+// The track whose source is attached and whose start position has been applied.
+let startedTrackId: string | null = null;
+
+/** `position` projected to now — it only advances while playing. */
+function projectPosition(position: number, at: number, playing: boolean): number {
+  if (!playing) return position;
+  return position + Math.max(0, Date.now() - at) / 1000;
+}
+
+function applyPosition(el: HTMLAudioElement, position: number, at: number, playing: boolean): void {
+  const set = () => {
+    const target = projectPosition(position, at, playing);
+    if (isFinite(target) && target >= 0) el.currentTime = target;
+  };
+  // hls.js ignores a currentTime set before the manifest is parsed.
+  if (el.readyState >= HTMLMediaElement.HAVE_METADATA) set();
+  else el.addEventListener("loadedmetadata", set, { once: true });
+}
+
+/**
+ * Put `trackId` at `position` seconds (valid as of local time `at`): right away
+ * when that track is already loaded, otherwise as soon as its load finishes.
+ * The position advances from `at` only while playing — the player's current
+ * `isPlaying`, so set that first; a track parked while paused loads paused.
+ * With `tolerance`, a loaded track within that many seconds of the target is
+ * left alone, so periodic sync heartbeats don't cause audible skips.
+ */
+export function seekTrackTo(
+  trackId: string,
+  position: number,
+  opts: { at?: number; tolerance?: number } = {},
+): void {
+  const at = opts.at ?? Date.now();
+  const playing = store.getState().music.player.isPlaying;
+  if (startedTrackId === trackId) {
+    pendingStart = null;
+    const el = getAudio();
+    const drift = Math.abs(el.currentTime - projectPosition(position, at, playing));
+    if (opts.tolerance !== undefined && drift < opts.tolerance) return;
+    applyPosition(el, position, at, playing);
+    return;
+  }
+  pendingStart = { trackId, position, at, playing };
+}
+
 // Throttle position updates to ~4Hz
 let lastPositionUpdate = 0;
 
@@ -258,6 +317,7 @@ export function useAudioPlayer() {
   useEffect(() => {
     if (!currentTrack) {
       loadedTrackId = null;
+      startedTrackId = null;
       return;
     }
 
@@ -270,9 +330,15 @@ export function useAudioPlayer() {
 
     const targetId = currentTrack.addressableId;
     loadedTrackId = targetId;
+    startedTrackId = null;
 
     const startPlayback = async () => {
-      el.currentTime = 0;
+      const pending = pendingStart?.trackId === targetId ? pendingStart : null;
+      pendingStart = null;
+      startedTrackId = targetId;
+      if (pending) applyPosition(el, pending.position, pending.at, pending.playing);
+      else el.currentTime = 0;
+      if (pending && !pending.playing) return;
       try {
         await el.play();
         if (loadedTrackId === targetId) reportPlay(currentTrack.addressableId);
@@ -312,10 +378,17 @@ export function useAudioPlayer() {
       let blobUrl = remoteUrl;
       let hlsMasterUrl: string | null = null;
 
-      if (currentTrack.visibility === "private") {
+      // Space (members-only) tracks are gated exactly like private ones. A track
+      // known only from a peer's hint (Listen Together) may be either, so probe:
+      // /music/access answers {gated:false} for a public track.
+      const gated = currentTrack.visibility === "private" || currentTrack.visibility === "space";
+      if (gated || currentTrack.accessUnknown) {
         const access = await resolveMusicAccess(targetId);
         if (loadedTrackId !== targetId) return;
-        if (!access) {
+        if (!access && !gated) {
+          // Probe failed (signed out / backend never saw the event): fall back to
+          // the plain URL — the element's error listener reports a gated 404.
+        } else if (!access) {
           // Not authorized / signed out / network error → show an unavailable state
           // rather than firing a bare 404 that stalls silently.
           dispatch(
@@ -327,7 +400,7 @@ export function useAudioPlayer() {
           );
           return;
         }
-        if (access.gated) {
+        if (access?.gated) {
           blobUrl = access.blobUrl;
           hlsMasterUrl = access.hlsMaster;
         }

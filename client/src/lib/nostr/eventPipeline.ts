@@ -17,6 +17,7 @@ import { getSatoshisAmountFromBolt11 } from "nostr-tools/nip57";
 import { addTrack, indexTrackByArtist, indexTrackByAlbum, indexTrackByArtistName, indexAlbumByArtist, indexAlbumByArtistName, addAlbum, addPlaylist, addAnnotation, removeAnnotation, removeTrack, removeAlbum, removePlaylist } from "../../store/slices/musicSlice";
 import { addDMMessage, editDMMessage, remoteDeleteDMMessage, reactDMMessage, removeDMReaction, setTyping, applyReceipt } from "../../store/slices/dmSlice";
 import { parseDMWire } from "@ishtarservices/core";
+import { DM_EXPIRATION_SECONDS } from "@ishtarservices/shared-types";
 import { queueDeliveredReceipt } from "./dmSignals";
 import { parseTrackEvent, parsePrivateTrackEvent } from "../../features/music/trackParser";
 import { parseAlbumEvent, parsePrivateAlbumEvent } from "../../features/music/albumParser";
@@ -1512,8 +1513,14 @@ function handleFriendRemoveWrap(dm: FriendWrap, myPubkey: string): void {
  * kinds aren't available for E2E-encrypted DMs. Relays keep those wraps forever,
  * so every client reconnect replays them. A call is only valid for seconds, so
  * anything older than this window is stale noise — suppress it.
+ *
+ * Tracks the wire TTL rather than undercutting it. At 60s this gate dropped
+ * call traffic that was still live by the wrap's own `expiration`, so a peer
+ * on the 120s contract could ring (or cancel) inside a window where we stayed
+ * silent — a cross-client asymmetry with no upside, since the relay already
+ * drops anything past the expiration via NIP-40.
  */
-const CALL_WRAP_MAX_AGE_SEC = 60;
+const CALL_WRAP_MAX_AGE_SEC = DM_EXPIRATION_SECONDS.call;
 
 function isCallWrapFresh(createdAt: number | undefined): boolean {
   if (typeof createdAt !== "number") return false;

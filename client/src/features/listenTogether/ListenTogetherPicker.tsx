@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useCallback } from "react";
 import {
   X,
   Search,
@@ -12,6 +12,7 @@ import {
   Headphones,
   Radio,
   Crown,
+  Check,
 } from "lucide-react";
 import { useListenTogether } from "./useListenTogether";
 import { useAudioPlayer } from "@/features/music/useAudioPlayer";
@@ -43,6 +44,7 @@ export function ListenTogetherPicker() {
     joinSession,
     pendingInvite,
     listenerCount,
+    suggestTrack,
   } = useListenTogether();
   const { play, playQueue, addToQueue } = useAudioPlayer();
   const tracks = useAppSelector((s) => s.music.tracks);
@@ -54,6 +56,19 @@ export function ListenTogetherPicker() {
   const activeCall = useAppSelector((s) => s.call.activeCall);
 
   const [tab, setTab] = useState<PickerTab>("library");
+  const [suggested, setSuggested] = useState<ReadonlySet<string>>(() => new Set());
+
+  // DJ queues directly; a listener suggests to the DJ instead.
+  const addOrSuggest = useCallback(
+    (id: string) => {
+      if (isLocalDJ) {
+        addToQueue(id);
+      } else if (suggestTrack(id)) {
+        setSuggested((prev) => new Set(prev).add(id));
+      }
+    },
+    [isLocalDJ, addToQueue, suggestTrack],
+  );
 
   const handleStartSession = () => {
     if (connectedRoom) {
@@ -203,8 +218,9 @@ export function ListenTogetherPicker() {
                 albums={albums}
                 isLocalDJ={isLocalDJ}
                 onPlay={isLocalDJ ? (id: string) => play(id) : undefined}
-                onAddToQueue={isLocalDJ ? (id: string) => addToQueue(id) : undefined}
+                onAddToQueue={addOrSuggest}
                 onPlayQueue={isLocalDJ ? playQueue : undefined}
+                suggested={suggested}
               />
             )}
             {tab === "search" && (
@@ -213,7 +229,8 @@ export function ListenTogetherPicker() {
                 albums={albums}
                 isLocalDJ={isLocalDJ}
                 onPlay={isLocalDJ ? (id: string) => play(id) : undefined}
-                onAddToQueue={isLocalDJ ? (id: string) => addToQueue(id) : undefined}
+                onAddToQueue={addOrSuggest}
+                suggested={suggested}
               />
             )}
             {tab === "queue" && (
@@ -246,6 +263,7 @@ function LibraryTab({
   onPlay,
   onAddToQueue,
   onPlayQueue,
+  suggested,
 }: {
   trackIds: string[];
   tracks: Record<string, MusicTrack>;
@@ -254,6 +272,7 @@ function LibraryTab({
   onPlay?: (id: string) => void;
   onAddToQueue?: (id: string) => void;
   onPlayQueue?: (ids: string[], startIndex?: number) => void;
+  suggested: ReadonlySet<string>;
 }) {
   const available = trackIds.filter((id) => tracks[id]).slice(0, 100);
 
@@ -287,6 +306,7 @@ function LibraryTab({
             onPlay={onPlay ? () => onPlay(id) : undefined}
             onAdd={onAddToQueue ? () => onAddToQueue(id) : undefined}
             actionLabel={isLocalDJ ? undefined : "Suggest"}
+            done={suggested.has(id)}
           />
         );
       })}
@@ -302,12 +322,14 @@ function SearchTab({
   isLocalDJ,
   onPlay,
   onAddToQueue,
+  suggested,
 }: {
   tracks: Record<string, MusicTrack>;
   albums: Record<string, import("@/types/music").MusicAlbum>;
   isLocalDJ: boolean;
   onPlay?: (id: string) => void;
   onAddToQueue?: (id: string) => void;
+  suggested: ReadonlySet<string>;
 }) {
   const { query, setQuery, results, isSearching } = useMusicSearch();
 
@@ -350,6 +372,7 @@ function SearchTab({
             imageUrl: hit.image_url,
             createdAt: hit.created_at,
             visibility: "public" as const,
+            inCatalog: true,
           };
           return (
             <TrackRow
@@ -357,8 +380,14 @@ function SearchTab({
               track={fakeTrack}
               albums={albums}
               onPlay={onPlay ? () => onPlay(hit.addressable_id) : undefined}
-              onAdd={onAddToQueue ? () => onAddToQueue(hit.addressable_id) : undefined}
+              // A listener can only suggest a track it has the media for.
+              onAdd={
+                onAddToQueue && (isLocalDJ || track?.variants.length)
+                  ? () => onAddToQueue(hit.addressable_id)
+                  : undefined
+              }
               actionLabel={isLocalDJ ? undefined : "Suggest"}
+              done={suggested.has(hit.addressable_id)}
             />
           );
         })}
@@ -457,12 +486,15 @@ function TrackRow({
   onPlay,
   onAdd,
   actionLabel,
+  done = false,
 }: {
   track: MusicTrack;
   albums: Record<string, import("@/types/music").MusicAlbum>;
   onPlay?: () => void;
   onAdd?: () => void;
   actionLabel?: string;
+  /** The add/suggest action already happened — show a check instead. */
+  done?: boolean;
 }) {
   const imageUrl = getTrackImage(track, albums);
   const resolvedArtist = useResolvedArtist(track.artist, track.artistPubkeys);
@@ -499,7 +531,12 @@ function TrackRow({
             <Play size={12} fill="currentColor" />
           </button>
         )}
-        {onAdd && (
+        {onAdd && done && (
+          <span className="rounded-full p-1 text-primary" title="Suggested">
+            <Check size={12} />
+          </span>
+        )}
+        {onAdd && !done && (
           <button
             onClick={onAdd}
             className="rounded-full p-1 text-soft hover:text-heading hover:bg-card-hover transition-colors"

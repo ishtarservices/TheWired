@@ -86,11 +86,14 @@ async function seedMusicEvent(opts: {
   hTag?: string | null;
   visibility?: string | null;
   createdAt?: number;
+  /** `["catalog","none"]` — public, but kept off the author's catalog. */
+  unlisted?: boolean;
 }): Promise<string> {
   const id = nextId("music");
   const tags: string[][] = [["d", id.slice(0, 8)], ["title", `Track ${id.slice(0, 6)}`]];
   if (opts.hTag) tags.push(["h", opts.hTag]);
   if (opts.visibility) tags.push(["visibility", opts.visibility]);
+  if (opts.unlisted) tags.push(["catalog", "none"]);
 
   await db.execute(sql`
     INSERT INTO relay.events (id, pubkey, created_at, kind, tags, content, sig, h_tag, visibility)
@@ -258,6 +261,15 @@ describe("GET /discovery/spaces/music", () => {
 
     const { tracks } = (await guestGet("/discovery/spaces/music")).json().data;
     expect(tracks).toEqual([]);
+  });
+
+  it("excludes catalog:none clips — public, but not part of the author's catalog", async () => {
+    await seedSpace("scene-room", { creator: LUNA.pubkey });
+    const listed = await seedMusicEvent({ pubkey: LUNA.pubkey, kind: 31683 });
+    await seedMusicEvent({ pubkey: LUNA.pubkey, kind: 31683, unlisted: true });
+
+    const { tracks } = (await guestGet("/discovery/spaces/music")).json().data;
+    expect(tracks.map((t: { id: string }) => t.id)).toEqual([listed]);
   });
 
   it("excludes authors with no listed space", async () => {

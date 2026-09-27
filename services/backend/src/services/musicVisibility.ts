@@ -9,6 +9,12 @@ import { and, eq, inArray, sql } from "drizzle-orm";
 import { db } from "../db/connection.js";
 import { spaceMembers } from "../db/schema/members.js";
 import { pTagGrantsAccess } from "./blobAccess.js";
+import { isListedPublicMusic } from "../lib/musicListing.js";
+
+// Catalog-listing predicate lives in lib/ (pure) so the search-doc builder can
+// share it; re-exported here because this module is the visibility policy's
+// public face. See docs/MUSIC_VISIBILITY.md §"Catalog listing".
+export { CATALOG_TAG, isUnlisted, isListedPublicMusic } from "../lib/musicListing.js";
 
 export interface RelayEvent {
   id: string;
@@ -174,11 +180,13 @@ export async function resolveVisibleChildTracks(
 }
 
 /**
- * An artist's PUBLIC catalog — latest event per (kind, d-tag) for tracks
- * (31683) and albums (33123), newest first. Private/unlisted and space-scoped
- * rows are excluded at the SQL layer (the indexed columns) and re-checked on
- * the tags, so the share page can never leak a title it shouldn't. Feeds the
- * server-rendered /profile/:pubkey?section=music share page.
+ * An artist's PUBLIC, LISTED catalog — latest event per (kind, d-tag) for
+ * tracks (31683) and albums (33123), newest first. Private/unlisted and
+ * space-scoped rows are excluded at the SQL layer (the indexed columns), as are
+ * `["catalog","none"]` tracks (JSONB containment; a note-only clip is not part
+ * of the author's discography), and every row is re-checked on the tags with
+ * isListedPublicMusic so the share page can never leak a title it shouldn't.
+ * Feeds the server-rendered /profile/:pubkey?section=music share page.
  */
 export async function fetchPublicCatalogByPubkey(
   pubkey: string,
@@ -195,15 +203,11 @@ export async function fetchPublicCatalogByPubkey(
             AND kind IN (31683, 33123)
             AND visibility IS NULL
             AND h_tag IS NULL
+            AND NOT (tags @> '[["catalog","none"]]'::jsonb)
           ORDER BY kind, d_tag, created_at DESC
         ) latest
         ORDER BY created_at DESC
         LIMIT ${limit}`,
   )) as unknown as RelayEvent[];
-  return rows
-    .filter(
-      (row) =>
-        !row.tags.some((t) => t[0] === "visibility") && !row.tags.some((t) => t[0] === "h"),
-    )
-    .map(normalizeEvent);
+  return rows.filter((row) => isListedPublicMusic(row.tags)).map(normalizeEvent);
 }

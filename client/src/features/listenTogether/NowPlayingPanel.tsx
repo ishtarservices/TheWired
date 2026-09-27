@@ -1,3 +1,4 @@
+import { useState } from "react";
 import {
   Play,
   Pause,
@@ -8,6 +9,8 @@ import {
   Crown,
   X,
   LogOut,
+  ArrowLeftRight,
+  ListPlus,
 } from "lucide-react";
 import { useListenTogether } from "./useListenTogether";
 import { useAudioPlayer } from "@/features/music/useAudioPlayer";
@@ -23,6 +26,8 @@ function ResolvedTrackArtist({ track }: { track: MusicTrack }) {
 import { getTrackImage } from "@/features/music/trackImage";
 import { ProgressBar } from "@/features/music/playbackBar/ProgressBar";
 import { ReactionOverlay } from "./ReactionOverlay";
+import { DJTransferModal } from "./DJTransferModal";
+import type { ListenTogetherSuggestion } from "@/store/slices/listenTogetherSlice";
 
 interface NowPlayingPanelProps {
   onClose: () => void;
@@ -53,7 +58,11 @@ export function NowPlayingPanel({ onClose }: NowPlayingPanelProps) {
     voteSkip,
     skipVotes,
     leaveSession,
+    suggestions,
+    acceptSuggestion,
+    dismissSuggestion,
   } = useListenTogether();
+  const [transferOpen, setTransferOpen] = useState(false);
   const { currentTrack, player, togglePlay, next, prev, seek } = useAudioPlayer();
   const albums = useAppSelector((s) => s.music.albums);
   const sharedQueue = useAppSelector((s) => s.listenTogether.sharedQueue);
@@ -125,6 +134,16 @@ export function NowPlayingPanel({ onClose }: NowPlayingPanelProps) {
                 <Users size={10} />
                 {listenerCount} listening
               </span>
+              {isLocalDJ && listenerCount > 1 && (
+                <button
+                  onClick={() => setTransferOpen(true)}
+                  className="flex items-center gap-0.5 text-[10px] text-muted hover:text-heading transition-colors ml-auto"
+                  title="Hand the DJ role to a listener"
+                >
+                  <ArrowLeftRight size={10} />
+                  Hand off
+                </button>
+              )}
               {!isLocalDJ && (
                 <button
                   onClick={leaveSession}
@@ -207,6 +226,21 @@ export function NowPlayingPanel({ onClose }: NowPlayingPanelProps) {
           ))}
         </div>
 
+        {/* Suggestions from listeners (DJ only) */}
+        {isLocalDJ && suggestions.length > 0 && (
+          <div className="mt-3 border-t border-border/30 pt-2">
+            <p className="text-[10px] text-muted uppercase tracking-wider mb-1">Suggestions</p>
+            {suggestions.map((s) => (
+              <SuggestionRow
+                key={s.trackId}
+                suggestion={s}
+                onAccept={() => acceptSuggestion(s.trackId)}
+                onDismiss={() => dismissSuggestion(s.trackId)}
+              />
+            ))}
+          </div>
+        )}
+
         {/* Up next */}
         {upcomingTracks.length > 0 && (
           <div className="mt-3 border-t border-border/30 pt-2">
@@ -224,6 +258,44 @@ export function NowPlayingPanel({ onClose }: NowPlayingPanelProps) {
           </div>
         )}
       </div>
+
+      <DJTransferModal open={transferOpen} onClose={() => setTransferOpen(false)} />
+    </div>
+  );
+}
+
+function SuggestionRow({
+  suggestion,
+  onAccept,
+  onDismiss,
+}: {
+  suggestion: ListenTogetherSuggestion;
+  onAccept: () => void;
+  onDismiss: () => void;
+}) {
+  const { profile } = useProfile(suggestion.from);
+  const fromName = profile?.name ?? profile?.display_name ?? suggestion.from.slice(0, 8);
+
+  return (
+    <div className="flex items-center gap-2 py-0.5">
+      <div className="min-w-0 flex-1">
+        <p className="truncate text-xs text-soft">{suggestion.trackMeta.title}</p>
+        <p className="truncate text-[10px] text-muted">from {fromName}</p>
+      </div>
+      <button
+        onClick={onAccept}
+        className="rounded-full p-1 text-soft hover:text-heading hover:bg-card-hover transition-colors"
+        title="Add to queue"
+      >
+        <ListPlus size={12} />
+      </button>
+      <button
+        onClick={onDismiss}
+        className="rounded-full p-1 text-muted hover:text-heading hover:bg-card-hover transition-colors"
+        title="Dismiss"
+      >
+        <X size={12} />
+      </button>
     </div>
   );
 }
