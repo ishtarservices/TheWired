@@ -126,14 +126,11 @@ transcription or agents are **impossible** on encrypted rooms — by design.
   auto-declines and sees "X's app doesn't support encrypted calls yet" with a
   "Let them know" DM nudge. A partner that joins a call publishing plaintext ends
   the call the same way (fail closed).
-- Backend `VOICE_REQUIRE_E2EE` (**off by default**, opt-in): when `true`,
-  `/voice/token` and `/voice/dm-token` return `409 E2EE_REQUIRED` unless the
-  body has `supportsE2EE: true`, so a plaintext build cannot join any room.
-  It stays off until every shipped client sends the flag — the mobile app
-  (soot) ships voice rooms without E2EE today. Until then a mobile user and a
-  desktop user in the same voice channel cannot hear each other (desktop shows
-  the amber open lock on the mobile tile); 1:1 calls are unaffected because
-  mobile has no call media yet and declines/gets declined cleanly.
+- Backend `VOICE_REQUIRE_E2EE` (**on by default**): `/voice/token` and
+  `/voice/dm-token` return `409 E2EE_REQUIRED` unless the body has
+  `supportsE2EE: true`, so a plaintext build cannot join any room. Every
+  client, including the mobile app, implements the media-key protocol before
+  it ships voice; set the flag to `false` only to bridge a rollout.
 - Unsupported WebViews (no insertable streams / encoded transforms — possibly
   Linux webkit2gtk) are blocked with a clear message rather than joining plaintext.
 
