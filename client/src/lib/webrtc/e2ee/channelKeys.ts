@@ -33,6 +33,13 @@ export const FANOUT_WARN_THRESHOLD = 15;
 /** Long sessions rotate on a timer too, bounding how much media one key
  *  ever protects (SFrame §7.3). Membership changes rotate regardless. */
 export const PERIODIC_ROTATE_MS = 30 * 60 * 1000;
+/** Every key hand-over (start fan-out, join, rotation) is repeated once
+ *  after this delay with a fresh `ts`. Receivers treat envelopes as
+ *  newest-wins and dedupe by wrap id, so the repeat is idempotent; it means
+ *  a single lost envelope on either side (relay hiccup, a receiver busy
+ *  mid-publish — seen live with the mobile app) no longer leaves a
+ *  participant undecryptable until the next rotation. */
+export const RESEND_DELAY_MS = 3000;
 
 const HEX64 = /^[0-9a-f]{64}$/;
 
@@ -67,6 +74,7 @@ export class ChannelKeyManager {
   private rotateTimer: ReturnType<typeof setTimeout> | null = null;
   private switchTimer: ReturnType<typeof setTimeout> | null = null;
   private periodicTimer: ReturnType<typeof setInterval> | null = null;
+  private readonly resendTimers = new Set<ReturnType<typeof setTimeout>>();
   private rotateQueued = false;
   private readonly members = new Set<string>();
   private readonly lastTs = new Map<string, number>();
@@ -103,6 +111,7 @@ export class ChannelKeyManager {
     await this.deps.sink.setSenderKey(this.deps.myPubkey, this.current.key, 0);
     for (const m of initialMembers) if (this.isPeer(m)) this.members.add(m);
     await this.sendTo([...this.members], this.currentKeys());
+    this.scheduleResend([...this.members]);
     this.periodicTimer = setInterval(() => this.scheduleRotate(), PERIODIC_ROTATE_MS);
   }
 
@@ -110,6 +119,7 @@ export class ChannelKeyManager {
     if (this.disposed || !this.isPeer(identity)) return;
     this.members.add(identity);
     await this.sendTo([identity], this.currentKeys());
+    this.scheduleResend([identity]);
   }
 
   onParticipantLeft(identity: string): void {
@@ -149,6 +159,8 @@ export class ChannelKeyManager {
     if (this.rotateTimer) clearTimeout(this.rotateTimer);
     if (this.switchTimer) clearTimeout(this.switchTimer);
     if (this.periodicTimer) clearInterval(this.periodicTimer);
+    for (const t of this.resendTimers) clearTimeout(t);
+    this.resendTimers.clear();
     this.rotateTimer = null;
     this.switchTimer = null;
     this.periodicTimer = null;
@@ -187,6 +199,19 @@ export class ChannelKeyManager {
     });
   }
 
+  /** Repeat the current keys to `recipients` once, RESEND_DELAY_MS later
+   *  (only to those still present). */
+  private scheduleResend(recipients: string[]): void {
+    if (recipients.length === 0) return;
+    const timer = setTimeout(() => {
+      this.resendTimers.delete(timer);
+      if (this.disposed) return;
+      const still = recipients.filter((r) => this.members.has(r));
+      void this.sendTo(still, this.currentKeys());
+    }, RESEND_DELAY_MS);
+    this.resendTimers.add(timer);
+  }
+
   private scheduleRotate(): void {
     if (this.next) {
       // A rotation is already in flight; the leaver may hold `next`. Do it
@@ -212,6 +237,9 @@ export class ChannelKeyManager {
     this.info(`rotating → idx=${this.next.idx} (${this.members.size} recipients)`);
     await this.sendTo([...this.members], [{ idx: this.next.idx, key: bytesToHex(this.next.key) }]);
     if (this.disposed || !this.next) return;
+    // The repeat lands after the encoder switch, so it carries the key that
+    // is by then current — exactly what a receiver that missed it needs.
+    this.scheduleResend([...this.members]);
     this.switchTimer = setTimeout(() => {
       this.switchTimer = null;
       this.switchToNext().catch((err) => this.warn("encoder key switch failed", err));

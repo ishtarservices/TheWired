@@ -89,6 +89,10 @@ Membership of a 1:1 room is fixed, so nothing rotates. Pinned vectors live in
   receivers hold it first. Leave bursts are debounced (500 ms); a leave during a
   rotation queues another one. Long sessions also rotate every 30 min.
 - **Reconnect** → re-install our key locally and re-send it.
+- **Repeat** → every hand-over (start fan-out, join, rotation) is sent a
+  second time 3 s later with a fresh `ts` (idempotent: newest-wins, wrap-id
+  dedupe), so one lost envelope on either side never leaves a participant
+  undecryptable until the next rotation. Mobile does the same.
 - **Receive** → bound to the session's own room name, dropped when `|now − ts| > 120 s`
   or older than the newest seen from that sender; wrap ids are deduped so a relay
   replay never re-installs a key.

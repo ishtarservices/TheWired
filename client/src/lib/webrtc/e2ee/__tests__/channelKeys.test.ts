@@ -12,6 +12,7 @@ import {
   USE_KEY_DELAY_MS,
   ROTATE_DEBOUNCE_MS,
   PERIODIC_ROTATE_MS,
+  RESEND_DELAY_MS,
 } from "../channelKeys";
 
 const ME = "f".repeat(64);
@@ -102,6 +103,52 @@ describe("join", () => {
   });
 });
 
+describe("belt-and-braces re-send", () => {
+  it("repeats the hand-over to a joiner once after RESEND_DELAY_MS with a fresh ts", async () => {
+    const h = harness();
+    await h.mgr.start([A]);
+    h.sends.length = 0;
+    await h.mgr.onParticipantJoined(B);
+    expect(h.sends.map((s) => s.to)).toEqual([B]);
+    h.tick(RESEND_DELAY_MS);
+    await vi.advanceTimersByTimeAsync(RESEND_DELAY_MS);
+    const toB = h.sends.filter((s) => s.to === B);
+    expect(toB).toHaveLength(2);
+    expect(toB[1].env.keys).toEqual(toB[0].env.keys);
+    expect(toB[1].env.ts).toBeGreaterThan(toB[0].env.ts);
+  });
+
+  it("repeats the initial fan-out and the post-rotation key, but not to members who left", async () => {
+    const h = harness();
+    await h.mgr.start([A, B]);
+    await vi.advanceTimersByTimeAsync(RESEND_DELAY_MS);
+    expect(h.sends.map((s) => s.to).sort()).toEqual([A, A, B, B]);
+    h.sends.length = 0;
+    h.mgr.onParticipantLeft(A);
+    await vi.advanceTimersByTimeAsync(ROTATE_DEBOUNCE_MS + RESEND_DELAY_MS);
+    // First: the rotation envelope (idx 1); then, after the 2 s switch, the
+    // repeat carrying the now-current idx 1 — both only to B.
+    expect(h.sends.map((s) => s.to)).toEqual([B, B]);
+    expect(h.sends[0].env.keys.map((k) => k.idx)).toEqual([1]);
+    expect(h.sends[1].env.keys.map((k) => k.idx)).toEqual([1]);
+  });
+
+  it("is cancelled by dispose and skips a joiner who already left", async () => {
+    const h = harness();
+    await h.mgr.start([]);
+    await h.mgr.onParticipantJoined(B);
+    h.mgr.onParticipantLeft(B);
+    h.sends.length = 0;
+    await vi.advanceTimersByTimeAsync(RESEND_DELAY_MS);
+    expect(h.sends).toHaveLength(0);
+    await h.mgr.onParticipantJoined(A);
+    h.mgr.dispose();
+    h.sends.length = 0;
+    await vi.advanceTimersByTimeAsync(RESEND_DELAY_MS);
+    expect(h.sends).toHaveLength(0);
+  });
+});
+
 describe("leave → rotate", () => {
   it("distributes the next key to the remaining members BEFORE switching the encoder", async () => {
     const h = harness();
@@ -157,9 +204,9 @@ describe("leave → rotate", () => {
     expect(h.mgr.currentIndex).toBe(1);
     await vi.advanceTimersByTimeAsync(ROTATE_DEBOUNCE_MS + USE_KEY_DELAY_MS);
     expect(h.mgr.currentIndex).toBe(2);
-    // Only C ever received key 2.
+    // Only C ever received key 2 (the rotation envelope plus its repeat).
     const k2 = h.sends.filter((s) => s.env.keys.some((k) => k.idx === 2));
-    expect(k2.map((s) => s.to)).toEqual([C]);
+    expect([...new Set(k2.map((s) => s.to))]).toEqual([C]);
   });
 
   it("does not rotate when nobody is left", async () => {
