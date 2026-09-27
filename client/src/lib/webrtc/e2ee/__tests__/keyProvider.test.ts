@@ -22,8 +22,15 @@ const h = vi.hoisted(() => {
 
 vi.mock("livekit-client", () => ({
   BaseKeyProvider: h.BaseKeyProvider,
-  createKeyMaterialFromBuffer: async (buf: ArrayBuffer) => ({ material: bytesToHex(new Uint8Array(buf)) }),
 }));
+
+// Cross-SDK contract (see importSenderKeyMaterial): raw bytes go in as
+// PBKDF2 material, never HKDF. The spy returns a recognisable stand-in.
+const importKey = vi.fn(async (_fmt: string, buf: ArrayBuffer, algo: unknown) => ({
+  material: bytesToHex(new Uint8Array(buf)),
+  algo,
+}));
+vi.stubGlobal("crypto", { ...globalThis.crypto, subtle: { importKey }, getRandomValues: (a: Uint8Array) => a });
 
 import { NostrKeyProvider, NOSTR_KEY_PROVIDER_OPTIONS } from "../NostrKeyProvider";
 import { installCallKeys } from "../callKeys";
@@ -53,7 +60,8 @@ describe("NostrKeyProvider", () => {
     const p = new NostrKeyProvider();
     const key = new Uint8Array(32).fill(7);
     await p.setSenderKey(PEER, key, 5);
-    expect(h.set).toEqual([{ key: { material: "07".repeat(32) }, identity: PEER, keyIndex: 5 }]);
+    expect(h.set).toEqual([{ key: { material: "07".repeat(32), algo: "PBKDF2" }, identity: PEER, keyIndex: 5 }]);
+    expect(importKey).toHaveBeenCalledWith("raw", expect.any(ArrayBuffer), "PBKDF2", false, ["deriveBits", "deriveKey"]);
     expect(p.latestIndex(PEER)).toBe(5);
     expect(p.latestIndex(ME)).toBe(-1);
   });
@@ -63,7 +71,7 @@ describe("NostrKeyProvider", () => {
     const big = new Uint8Array(64).fill(1);
     big.set(new Uint8Array(32).fill(9), 16);
     await p.setSenderKey(PEER, big.subarray(16, 48), 0);
-    expect(h.set[0].key).toEqual({ material: "09".repeat(32) });
+    expect(h.set[0].key).toEqual({ material: "09".repeat(32), algo: "PBKDF2" });
   });
 
   it("rejects wrong key sizes and indices", async () => {
@@ -84,8 +92,8 @@ describe("installCallKeys", () => {
     expect(mine).not.toBe(theirs);
     expect(h.set).toEqual(
       expect.arrayContaining([
-        { key: { material: mine }, identity: ME, keyIndex: 0 },
-        { key: { material: theirs }, identity: PEER, keyIndex: 0 },
+        { key: { material: mine, algo: "PBKDF2" }, identity: ME, keyIndex: 0 },
+        { key: { material: theirs, algo: "PBKDF2" }, identity: PEER, keyIndex: 0 },
       ]),
     );
     expect(h.set).toHaveLength(2);

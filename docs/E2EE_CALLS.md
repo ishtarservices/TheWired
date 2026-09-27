@@ -26,6 +26,16 @@ see §6 for how outdated clients are handled.
   Key index is one byte (0–255). Subclass: `client/src/lib/webrtc/e2ee/NostrKeyProvider.ts`
   with `{ sharedKey:false, keyringSize:256, ratchetWindowSize:0, failureTolerance:-1 }` —
   we never ratchet locally; fresh keys are distributed explicitly.
+- **Key material → AES key, the cross-SDK contract.** The 32 key bytes (derived
+  for calls, random for channels) are fed to every SDK as raw key material and
+  each derives the AES-GCM-128 key with **PBKDF2-SHA256, salt =
+  `LKFrameEncryptionKey` (the ratchet salt), 100000 iterations** — what the
+  native FrameCryptor (iOS/Android/RN/Flutter) and the Go SDK do. On the JS side
+  this means importing the bytes as **PBKDF2** material
+  (`importSenderKeyMaterial`), not the SDK's `createKeyMaterialFromBuffer`,
+  which imports HKDF material and derives a different key: the first
+  desktop↔mobile call decrypted nothing (`InvalidKey` on every frame) until this
+  was aligned.
 - Worker: `livekit-client/e2ee-worker` (Vite `?worker` import in `e2eeWorker.ts`, its
   own chunk). Chromium WebView2 uses `createEncodedStreams`, WKWebView uses
   `RTCRtpScriptTransform`; both are inside the SDK worker. `isE2EESupported()`

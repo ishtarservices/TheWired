@@ -71,8 +71,12 @@ const LT_LATE_JOINER_KEY_SETTLE_MS = 1500;
 /** One EncryptionError per participant per this window; frames fail per
  *  packet while a key is in flight and would otherwise flood. */
 const ENCRYPTION_ERROR_DEBOUNCE_MS = 5000;
-/** Decrypt failures inside this window after a participant joins are the
- *  expected key-in-flight race, not an error worth a banner. */
+/** Channels only: decrypt failures inside this window after a participant
+ *  joins are the expected key-in-flight race (their kind-20016 envelope is
+ *  still crossing the relay), not an error worth a banner. 1:1 calls have
+ *  both keys installed before connect, so there every failure is real — and
+ *  the SDK throttles its error events per minute, so a grace there would
+ *  hide a permanently wrong key for the whole first minute. */
 const ENCRYPTION_ERROR_JOIN_GRACE_MS = 8000;
 
 /**
@@ -304,11 +308,12 @@ export async function connectToRoom(
     for (const l of roomListeners) l.onParticipantEncryption?.(participant.identity, encrypted);
   });
 
+  const joinGraceMs = e2ee?.ctx.kind === "channel" ? ENCRYPTION_ERROR_JOIN_GRACE_MS : 0;
   room.on(RoomEvent.EncryptionError, (error: Error, participant?: Participant) => {
     const who = participant?.identity ?? "local";
     const now = Date.now();
     const joined = joinedAt.get(who);
-    if (joined !== undefined && now - joined < ENCRYPTION_ERROR_JOIN_GRACE_MS) return;
+    if (joined !== undefined && now - joined < joinGraceMs) return;
     const last = lastEncryptionErrorAt.get(who) ?? 0;
     if (now - last < ENCRYPTION_ERROR_DEBOUNCE_MS) return;
     lastEncryptionErrorAt.set(who, now);
@@ -316,7 +321,9 @@ export async function connectToRoom(
     store.dispatch(
       setE2EEError(
         participant
-          ? `Could not decrypt media from ${shortKey(participant.identity)} — their key may still be on its way.`
+          ? e2ee?.ctx.kind === "call"
+            ? `Could not decrypt ${shortKey(participant.identity)}'s media — their app derives a different key (update needed).`
+            : `Could not decrypt media from ${shortKey(participant.identity)} — their key may still be on its way.`
           : `Could not encrypt outgoing media: ${error.message}`,
       ),
     );

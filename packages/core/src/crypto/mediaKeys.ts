@@ -8,10 +8,13 @@
 // keys (SFrame / RFC 9605: one base key per sender) with zero extra
 // signaling. Key index is 0 and never rotates — membership is fixed.
 //
-// The derived 32 bytes are the LiveKit key MATERIAL (imported as HKDF
-// material; the SDK derives the AES-GCM key from it with its ratchet salt),
-// which is what `ExternalE2EEKeyProvider.setKey(ArrayBuffer)` and the native
-// SDKs' `setKey(bytes)` expect. See docs/E2EE_CALLS.md.
+// The derived 32 bytes are the LiveKit key MATERIAL. Every SDK must derive
+// the AES-GCM key from them the same way: PBKDF2-SHA256 with the ratchet
+// salt ("LKFrameEncryptionKey", 100000 iterations, 128-bit) — what the native
+// FrameCryptor and the Go SDK do with raw key bytes. On the JS side that
+// means importing the bytes as PBKDF2 material (NOT the SDK's HKDF
+// `createKeyMaterialFromBuffer`, which derives a different key and fails
+// every cross-SDK frame with InvalidKey). See docs/E2EE_CALLS.md §2.
 import { hkdf } from "@noble/hashes/hkdf";
 import { sha256 } from "@noble/hashes/sha256";
 import { hexToBytes, utf8ToBytes } from "@noble/hashes/utils";

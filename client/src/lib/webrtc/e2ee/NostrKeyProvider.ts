@@ -1,4 +1,4 @@
-import { BaseKeyProvider, createKeyMaterialFromBuffer, type KeyProviderOptions } from "livekit-client";
+import { BaseKeyProvider, type KeyProviderOptions } from "livekit-client";
 
 /**
  * LiveKit key-provider options for per-sender keys (docs/E2EE_CALLS.md):
@@ -19,6 +19,20 @@ export const NOSTR_KEY_PROVIDER_OPTIONS: Partial<KeyProviderOptions> = {
   ratchetWindowSize: 0,
   failureTolerance: -1,
 };
+
+/**
+ * Import 32 raw key bytes as the material LiveKit derives the AES-GCM key
+ * from. Cross-SDK contract: the NATIVE FrameCryptor (iOS/Android/RN/Flutter)
+ * and the Go SDK run PBKDF2-SHA256 over the raw key bytes with the ratchet
+ * salt ("LKFrameEncryptionKey", 100000 iterations, 128-bit output); the JS
+ * worker does the same only when the material is imported as PBKDF2. The
+ * SDK's `createKeyMaterialFromBuffer` imports HKDF material instead, which
+ * derives a DIFFERENT key — a desktop↔mobile call then fails every frame
+ * with InvalidKey. Both sides must feed the same 32 bytes through this path.
+ */
+export async function importSenderKeyMaterial(buffer: ArrayBuffer): Promise<CryptoKey> {
+  return crypto.subtle.importKey("raw", buffer, "PBKDF2", false, ["deriveBits", "deriveKey"]);
+}
 
 /**
  * Key provider whose identities are Nostr pubkeys (the backend mints the
@@ -46,7 +60,7 @@ export class NostrKeyProvider extends BaseKeyProvider {
     // caller's view may be a slice of a larger allocation.
     const buffer = new ArrayBuffer(32);
     new Uint8Array(buffer).set(keyBytes);
-    const material = await createKeyMaterialFromBuffer(buffer);
+    const material = await importSenderKeyMaterial(buffer);
     this.onSetEncryptionKey(material, identity, keyIndex);
     this.latest.set(identity, keyIndex);
   }

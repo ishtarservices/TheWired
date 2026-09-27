@@ -134,6 +134,14 @@ vi.mock("@/features/listenTogether/listenTogetherService", () => ({
   handleParticipantLeft: vi.fn(),
 }));
 
+// jsdom's ArrayBuffer is a different realm from Node's webcrypto, so the real
+// crypto.subtle.importKey rejects it here; production runs in one realm.
+const realCrypto = globalThis.crypto;
+vi.stubGlobal("crypto", {
+  getRandomValues: (a: Uint8Array) => realCrypto.getRandomValues(a),
+  randomUUID: () => realCrypto.randomUUID(),
+  subtle: { importKey: async (_f: string, _b: ArrayBuffer, algo: unknown) => ({ algo }) },
+});
 import { connectToRoom, addRoomListener, getE2EESession, disconnectFromRoom } from "../livekitClient";
 import { store, resetAll } from "@/store";
 import { login } from "@/store/slices/identitySlice";
@@ -295,10 +303,11 @@ describe("E2EE", () => {
     off();
   });
 
-  it("EncryptionError is debounced per participant and suppressed right after they join", async () => {
+  it("in a channel, EncryptionError is debounced per participant and suppressed right after they join", async () => {
     vi.useFakeTimers();
     try {
-      await connectToRoom("wss://x", "token", { e2ee: CALL_CTX });
+      h.state.lastRoom = null;
+      await connectToRoom("wss://x", "token", { e2ee: { kind: "channel", roomName: "s:c" } });
       room().emit("participantConnected", { identity: REMOTE, isMicrophoneEnabled: true, trackPublications: new Map() });
       room().emit("encryptionError", new Error("missing key"), remote);
       expect(store.getState().voice.e2ee.error).toBeNull(); // join grace
@@ -314,6 +323,13 @@ describe("E2EE", () => {
     } finally {
       vi.useRealTimers();
     }
+  });
+
+  it("in a 1:1 call a decrypt failure is reported on the first frame (keys were pre-installed, no grace)", async () => {
+    await connectToRoom("wss://x", "token", { e2ee: CALL_CTX });
+    room().emit("participantConnected", { identity: REMOTE, isMicrophoneEnabled: true, trackPublications: new Map() });
+    room().emit("encryptionError", new Error("InvalidKey"), remote);
+    expect(store.getState().voice.e2ee.error).toMatch(/derives a different key/);
   });
 
   it("drops PLAINTEXT data packets in an encrypted room, accepts GCM ones", async () => {

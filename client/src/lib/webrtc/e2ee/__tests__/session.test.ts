@@ -30,6 +30,14 @@ vi.mock("../e2eeWorker", () => ({
   },
 }));
 
+// jsdom's ArrayBuffer is a different realm from Node's webcrypto, so the real
+// crypto.subtle.importKey rejects it here; production runs in one realm.
+const realCrypto = globalThis.crypto;
+vi.stubGlobal("crypto", {
+  getRandomValues: (a: Uint8Array) => realCrypto.getRandomValues(a),
+  randomUUID: () => realCrypto.randomUUID(),
+  subtle: { importKey: async (_f: string, _b: ArrayBuffer, algo: unknown) => ({ algo }) },
+});
 import { createE2EESession, E2EEUnsupportedError, e2eeSupported } from "../session";
 import { deliverMediaKey, resetMediaKeyInbox } from "../mediaKeyInbox";
 import { USE_KEY_DELAY_MS, ROTATE_DEBOUNCE_MS } from "../channelKeys";
