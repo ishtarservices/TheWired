@@ -14,6 +14,7 @@ export function useCallTiles(): MediaTileModel[] {
   const activeCall = useAppSelector((s) => s.call.activeCall);
   const participants = useAppSelector((s) => s.voice.participants);
   const activeSpeakers = useAppSelector((s) => s.voice.activeSpeakers);
+  const encrypted = useAppSelector((s) => s.voice.e2ee.active);
   const orderRef = useRef<string[]>([]);
 
   const isMuted = activeCall?.isMuted ?? false;
@@ -25,12 +26,12 @@ export function useCallTiles(): MediaTileModel[] {
     orderRef.current = updateParticipantOrder(orderRef.current, participants);
     return buildTiles({
       myPubkey,
-      local: { muted: isMuted, videoEnabled: isVideoEnabled, screenSharing: isScreenSharing },
+      local: { muted: isMuted, videoEnabled: isVideoEnabled, screenSharing: isScreenSharing, encrypted },
       participants,
       order: orderRef.current,
       activeSpeakers,
     });
     // activeCall identity is not a dep on purpose — only its media flags matter.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [myPubkey, !!activeCall, isMuted, isVideoEnabled, isScreenSharing, participants, activeSpeakers]);
+  }, [myPubkey, !!activeCall, isMuted, isVideoEnabled, isScreenSharing, encrypted, participants, activeSpeakers]);
 }

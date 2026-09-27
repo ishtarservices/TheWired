@@ -38,9 +38,10 @@ import { addKnownFollower } from "../../store/slices/identitySlice";
 import { acceptFriendRequestAction } from "./friendRequest";
 import { followUser } from "./follow";
 import { setIncomingCall, missedCall, endCall, addProcessedCallWrapId } from "../../store/slices/callSlice";
+import { deliverMediaKey } from "../webrtc/e2ee/mediaKeyInbox";
 import { addEmojiSet, setUserEmojis, setSpaceEmojiSets } from "../../store/slices/emojiSlice";
 import { parseEmojiSetEvent, parseUserEmojiListEvent } from "../../features/emoji/emojiSetParser";
-import type { CallType, CallTransport } from "../../types/calling";
+import type { CallType, CallTransport, CallCaps } from "../../types/calling";
 import { scheduleMemberSync } from "../../store/thunks/spaceMembers";
 import {
   applyNativeGroupEvent,
@@ -1237,6 +1238,11 @@ async function handleGiftWrap(event: NostrEvent): Promise<void> {
       case "call_missed":
         handleCallMissedWrap(dm, myPubkey);
         return;
+      case "media_key":
+        // Frame-E2EE sender key for a LiveKit room we are in (docs/E2EE_CALLS.md).
+        // Never rendered; the active E2EE session picks it up (or nobody does).
+        if (dm.sender !== myPubkey) deliverMediaKey(dm.sender, w.envelope, dm.wrapId);
+        return;
       case "edit":
         dispatch(
           editDMMessage({
@@ -1552,18 +1558,23 @@ function handleCallInviteWrap(
     const payload = JSON.parse(dm.content) as {
       roomSecretKey: string;
       callType: CallType;
-      callerName: string;
+      callerName?: string;
       transport?: CallTransport;
+      caps?: CallCaps;
     };
 
     callLog.info(
-      `incoming invite from=${shortKey(dm.sender)} type=${payload.callType} transport=${payload.transport ?? "legacy"}`,
+      `incoming invite from=${shortKey(dm.sender)} type=${payload.callType} transport=${payload.transport ?? "legacy"} e2ee=${payload.caps?.e2ee === true}`,
     );
-    if (payload.transport !== "sfu") {
-      // Older clients expected P2P (kind:25050) signaling, which this build
-      // no longer speaks. Ring anyway — the caller may also have updated —
-      // but say so in the log so a "connecting forever" report is explainable.
-      callLog.warn(`invite from ${shortKey(dm.sender)} has no sfu transport — legacy caller?`);
+    if (payload.caps?.e2ee !== true) {
+      // The caller will not frame-encrypt (older desktop build, or a mobile
+      // build without media). Calls are E2EE-only: don't ring, decline so
+      // their ringing stops, and show who needs to update.
+      callLog.warn(`invite from ${shortKey(dm.sender)} has no e2ee capability — declining`);
+      void import("../../features/calling/callService")
+        .then((m) => m.declineLegacyInvite(dm.sender))
+        .catch((err) => console.warn("[call] could not decline legacy invite:", err));
+      return;
     }
 
     dispatch(
@@ -1571,9 +1582,10 @@ function handleCallInviteWrap(
         callerPubkey: dm.sender,
         roomSecretKey: payload.roomSecretKey,
         callType: payload.callType,
-        callerName: payload.callerName,
+        callerName: payload.callerName ?? dm.sender,
         timestamp: Date.now(),
         transport: payload.transport,
+        caps: { e2ee: true },
       }),
     );
   } catch {

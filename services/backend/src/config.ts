@@ -27,6 +27,13 @@ export const config = {
   livekitUrl: process.env.LIVEKIT_URL ?? "ws://localhost:7880",
   livekitApiKey: process.env.LIVEKIT_API_KEY ?? "devkey",
   livekitApiSecret: process.env.LIVEKIT_API_SECRET ?? "secret",
+  /** Voice/video rooms are frame-level end-to-end encrypted on desktop
+   *  (docs/E2EE_CALLS.md). When "true", `/voice/token` and `/voice/dm-token`
+   *  refuse a client that does not send `supportsE2EE: true` — a plaintext
+   *  build in an encrypted room hears noise and is heard by nobody. Off by
+   *  default because the mobile app ships voice rooms without E2EE yet; flip
+   *  it on once every shipped client sends the flag. */
+  voiceRequireE2EE: process.env.VOICE_REQUIRE_E2EE === "true",
   gifApiKey: process.env.GIF_API_KEY ?? "",
   gifClientKey: process.env.GIF_CLIENT_KEY ?? "thewired_v1",
   /** Comma-separated hex pubkeys that can approve/reject listing requests and bypass thresholds */

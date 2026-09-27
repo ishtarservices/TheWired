@@ -55,12 +55,13 @@ Rumor `content` for kind 14 is plain text (markdown-ish, client renders). Rumor 
 | 14 + `["type","dm_edit"]` | edit | ✅ | same | yes | `["e", originalRumorId]`, content = new text. Advisory window **24 h** (client-side UI only; receivers apply any edit from the original author) |
 | 14 + `["type","dm_delete"]` | delete for everyone | ✅ | same | yes | `["e", originalRumorId]`, content `""`. Best-effort |
 | 14 + `["type","friend_request"]` / `friend_request_accept` / `friend_request_remove` | friend graph | ✅ | same | yes | unchanged, see `docs/nips/NIP-XX-Friend-Requests.md` |
-| 14 + `["type","call_invite"]` / `call_decline` / `call_missed` | call signaling | ✅ | same | invite: yes; others: no | content = JSON payload (unchanged). **Wrap + seal MUST carry `expiration = created_at + 120`** (replaces the 60-s staleness heuristic; receivers still ignore invites older than 120 s) |
+| 14 + `["type","call_invite"]` / `call_decline` / `call_missed` | call signaling | ✅ | same | invite: yes; others: no | content = JSON payload `{ roomSecretKey, callType, callerName?, transport:"sfu", caps:{ e2ee:true } }`. **Wrap + seal MUST carry `expiration = created_at + 120`** (replaces the 60-s staleness heuristic; receivers still ignore invites older than 120 s). `caps.e2ee: true` = the caller frame-encrypts with keys derived from `roomSecretKey` (docs/E2EE_CALLS.md §4.1); an invite without it is **declined, never joined**. `call_decline` content is `""` for a human decline, or optional JSON `{ "reason": "e2ee_required" }` when the callee's client refused automatically because the invite carried no `caps.e2ee` (so an older caller can show "encrypted calls need the newer app"; receivers that don't parse it still see a plain decline) |
+| 20016 | media key | ✅ | — | **no** | Frame-E2EE sender key for a LiveKit voice/video room (docs/E2EE_CALLS.md §4.1). Content JSON `{ v:1, room:"<spaceId>:<channelId>", keys:[{ idx:0–255, key:<64 hex> }], ts:<sender unix ms> }`, ≤ 4 keys. Sent only to the room's co-participants (their pubkey = LiveKit identity) on join, on every rotation, and after a reconnect. Wrap + seal `expiration = created_at + 120`. Receivers bind `room` to the room they are in, drop `|now − ts| > 120 s` and anything older than the newest from that sender |
 | 20014 | typing | ✅ (behind toggle) | — | **no** | content `""`, tags `["p", peer]` (+ `["g", roomId]` in rooms). Wrap + seal `expiration = created_at + 30`. Send at most one per 5 s while the composer has focus; only to friends. Receivers show "typing" for 6 s after the newest one |
 | 20015 | receipt | ✅ (behind toggle) | — | **no** | tags: one `["e", rumorId]` per acknowledged message (≤ 50), `["status", "delivered" \| "read"]`, `["p", peer]`. Wrap + seal `expiration = created_at + 7·86400`. Only to friends. `delivered` is sent once on unwrap, `read` once when viewed |
 | 444 | Marmot welcome | phase 2 | — | — | §10; core will accept it in the kind set when phase 2 lands |
 
-Accepted rumor kinds in `unwrapGiftWrap` (`DM_RUMOR_KINDS` in core): `[14, 15, 7, 20014, 20015]`. Everything else throws `unsupported rumor kind`.
+Accepted rumor kinds in `unwrapGiftWrap` (`DM_RUMOR_KINDS` in core): `[14, 15, 7, 20014, 20015, 20016]`. Everything else throws `unsupported rumor kind`.
 
 Why non-14 kinds for typing/receipts: Amethyst/0xchat render every kind-14 rumor as a message, including ones with a `type` tag; they ignore rumor kinds they don't know. Plaintext ephemeral kinds (20001-style) were rejected because they publish "A is typing to B" in the clear.
 
@@ -127,6 +128,7 @@ Unchanged from `NIP17_GROUP_ROOMS.md`; restated so it is in one place:
 | `call_invite`, `call_decline`, `call_missed` | `created_at + 120` |
 | typing (20014) | `created_at + 30` |
 | receipt (20015) | `created_at + 7·86400` |
+| media key (20016) | `created_at + 120` |
 
 Clients MUST ignore expired events on receipt and delete local copies of disappearing messages at expiry. The relay drops expired events on ingest, never serves them, and sweeps them every 5 min (§7.4). Do not send `expiration` to relays that do not list NIP 40 (our relay does; damus/nos.lol do).
 
@@ -244,5 +246,6 @@ Plan: (1) on login publish a 30443 with a signing key distinct from the nsec (ke
 | Marmot | §10 plan only |
 
 ## 12. Change log
+- **1.1.0 (2026-09-25)** — frame-level E2EE for calls and channels (docs/E2EE_CALLS.md): `caps.e2ee` on `call_invite` (invites without it are declined), new rumor kind **20016 media key** (per-sender LiveKit keys for channels, 120-s expiry, no self-wrap), `DM_RUMOR_KINDS` gains 20016, `DM_EXPIRATION_SECONDS.mediaKey`. Backend `/voice/token` + `/voice/dm-token` require `supportsE2EE: true` (409 `E2EE_REQUIRED` otherwise). shared-types/core 0.4.0.
 - **1.0.1 (2026-09-21)** — clarified the stable `auth-required:` prefix and strfry's `negentropy disabled` NOTICE (§7.1, §7.5). No wire change.
 - **1.0.0 (2026-09-21)** — initial contract: seal verification + rumor-id recompute, kinds 15/7/20014/20015, `e` replies, expiration table, read-state v2 with merge + tombstones, relay AUTH gate / NIP-40 / NIP-77 / rate limits, `self_published` replaces `/push/suppress`, NSE contract, Marmot kinds corrected to 30443/444/445.

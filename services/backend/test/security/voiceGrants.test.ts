@@ -71,7 +71,7 @@ describe("PROBE #75 — voice token publish grants", () => {
     const res = await server.inject({
       method: "POST", url: "/voice/token",
       headers: { "x-auth-pubkey": MARCUS.pubkey },
-      payload: { spaceId: "voice-space", channelId },
+      payload: { spaceId: "voice-space", channelId, supportsE2EE: true },
     });
     expect(res.statusCode).toBe(200);
     expect(captured.grants.canPublish).toBe(false);
@@ -88,12 +88,24 @@ describe("PROBE #75 — voice token publish grants", () => {
     const res = await server.inject({
       method: "POST", url: "/voice/token",
       headers: { "x-auth-pubkey": MARCUS.pubkey },
-      payload: { spaceId: "voice-space", channelId },
+      payload: { spaceId: "voice-space", channelId, supportsE2EE: true },
     });
     expect(res.statusCode).toBe(200);
     expect(captured.grants.canPublishSources).toContain("microphone");
     expect(captured.grants.canPublishSources).not.toContain("camera");
     expect(captured.grants.canPublish).toBe(true);
+  });
+
+  it("a client that does not advertise E2EE support gets 409 before any grant is computed", async () => {
+    const channelId = await setupVoiceSpace();
+    const res = await server.inject({
+      method: "POST", url: "/voice/token",
+      headers: { "x-auth-pubkey": LUNA.pubkey },
+      payload: { spaceId: "voice-space", channelId },
+    });
+    expect(res.statusCode).toBe(409);
+    expect(res.json().code).toBe("E2EE_REQUIRED");
+    expect(captured.grants).toBeNull();
   });
 
   it("CONNECT denied → 403, no token", async () => {
@@ -102,7 +114,7 @@ describe("PROBE #75 — voice token publish grants", () => {
     const res = await server.inject({
       method: "POST", url: "/voice/token",
       headers: { "x-auth-pubkey": MARCUS.pubkey },
-      payload: { spaceId: "voice-space", channelId },
+      payload: { spaceId: "voice-space", channelId, supportsE2EE: true },
     });
     expect(res.statusCode).toBe(403);
   });
@@ -112,7 +124,7 @@ describe("PROBE #75 — voice token publish grants", () => {
     const res = await server.inject({
       method: "POST", url: "/voice/token",
       headers: { "x-auth-pubkey": LUNA.pubkey },
-      payload: { spaceId: "voice-space", channelId },
+      payload: { spaceId: "voice-space", channelId, supportsE2EE: true },
     });
     expect(res.statusCode).toBe(200);
     expect(captured.grants.canPublishSources).toEqual(

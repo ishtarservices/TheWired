@@ -38,6 +38,9 @@ process.env.MEILISEARCH_KEY =
   process.env.TEST_MEILISEARCH_KEY ?? "thewired_dev_key";
 process.env.LOG_LEVEL = "silent";
 process.env.NODE_ENV = "test";
+// Exercise the voice E2EE token gate (docs/E2EE_CALLS.md §6) in tests; it is
+// opt-in in production until every shipped client sends `supportsE2EE`.
+process.env.VOICE_REQUIRE_E2EE = "true";
 
 import { vi, beforeAll, afterAll, beforeEach } from "vitest";
 

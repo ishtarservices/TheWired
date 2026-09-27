@@ -14,6 +14,7 @@ export function useVoiceTiles(): MediaTileModel[] {
   const localState = useAppSelector((s) => s.voice.localState);
   const participants = useAppSelector((s) => s.voice.participants);
   const activeSpeakers = useAppSelector((s) => s.voice.activeSpeakers);
+  const encrypted = useAppSelector((s) => s.voice.e2ee.active);
 
   // Insertion order guard: Redux keeps string-key order, but pin it down
   // explicitly so a future change to the participant store can't reorder.
@@ -23,10 +24,10 @@ export function useVoiceTiles(): MediaTileModel[] {
     orderRef.current = updateParticipantOrder(orderRef.current, participants);
     return buildTiles({
       myPubkey,
-      local: localState,
+      local: { ...localState, encrypted },
       participants,
       order: orderRef.current,
       activeSpeakers,
     });
-  }, [myPubkey, localState, participants, activeSpeakers]);
+  }, [myPubkey, localState, encrypted, participants, activeSpeakers]);
 }
