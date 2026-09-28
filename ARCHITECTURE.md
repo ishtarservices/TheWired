@@ -1135,7 +1135,11 @@ Two independent real-time paths:
 - `callService.ts` owns the flow via `livekitClient.addRoomListener`; `CallController` renders the
   floating / expanded / minimized panel on the same `MediaStage`; `IncomingCallBanner` is non-blocking
 - P2P (kind:25050) was removed: no TURN, no renegotiation, and 15–30s of "Connecting…" before fallback.
-  The room secret is retained for frame-level E2EE (docs/E2EE_CALLS.md)
+- **Frame-level E2EE, mandatory** (docs/E2EE_CALLS.md): per-sender AES-GCM keys via `NostrKeyProvider`
+  (`lib/webrtc/e2ee/`). 1:1 calls derive both keys from the invite's room secret with HKDF (zero
+  signaling); channels distribute random sender keys as kind-20016 gift-wrapped envelopes and rotate on
+  leave. The invite carries `caps: { e2ee: true }`; invites without it are declined. The backend refuses
+  tokens to clients that don't send `supportsE2EE: true` (`VOICE_REQUIRE_E2EE`). Lock badges on tiles.
 
 ## 7.10 Discover Subsystem
 
@@ -1489,7 +1493,8 @@ Per-user recommendations based on listening history, genre preferences, and soci
 ### Phase 5: Voice, Video & Calls -- COMPLETE
 
 - LiveKit SFU for space voice/video channels (`voice`/`video` channel types, token service, keep-alive)
-- 1:1 DM WebRTC calls with NIP-17 signaling (offer/answer + ICE buffering, 640x360 default)
+- 1:1 DM calls over the same SFU (`dm:<roomId>`) with NIP-17 invite/decline/missed signaling; the old
+  P2P offer/answer path was removed. Frame-level E2EE for calls and channels (docs/E2EE_CALLS.md)
 - Screen share, pre-join device picker, voice status bar, participant tiles
 
 ### Phase 6: Blossom Blob Storage -- COMPLETE

@@ -1,6 +1,8 @@
 import { useState, type ReactNode } from "react";
 import {
   Hand,
+  Lock,
+  LockOpen,
   Maximize2,
   Minimize2,
   Mic,
@@ -14,6 +16,7 @@ import {
   EyeOff,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { useAppSelector } from "@/store/hooks";
 import { Avatar } from "@/components/ui/Avatar";
 import { useProfile } from "@/features/profile/useProfile";
 import { useLiveKitTrack } from "@/features/voice/useLiveKitTrack";
@@ -62,6 +65,20 @@ export function MediaTile({
   const showVideo = tile.hasVideo && !isLocalShare;
 
   const track = useLiveKitTrack(tile.pubkey, tile.source, tile.isLocal);
+  // Lock = this participant's media is end-to-end encrypted. In an encrypted
+  // room a participant reporting plaintext is on an outdated client — amber
+  // open lock, so the "why can't I hear them" is visible on the tile.
+  const roomEncrypted = useAppSelector((s) => s.voice.e2ee.active);
+  const lock =
+    tile.encrypted === true ? (
+      <Lock size={compact ? 9 : 11} className="text-green-400" aria-label="End-to-end encrypted" />
+    ) : tile.encrypted === false && roomEncrypted ? (
+      <LockOpen
+        size={compact ? 9 : 11}
+        className="text-amber-400"
+        aria-label="Not end-to-end encrypted — their app needs an update"
+      />
+    ) : null;
 
   return (
     <div
@@ -105,6 +122,7 @@ export function MediaTile({
           {tile.isLocal && !isShare ? " (You)" : ""}
         </span>
         <span className="ml-auto flex items-center gap-1">
+          {lock}
           {tile.handRaised && <Hand size={10} className="text-amber-400" />}
           {isPinned && <Pin size={10} className="text-primary" />}
           {!isShare &&

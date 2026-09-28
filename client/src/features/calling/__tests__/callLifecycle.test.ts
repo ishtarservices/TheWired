@@ -9,6 +9,11 @@
  *    not subscribed to signals yet) → the callee rang for 60s.
  *  - #37 decline ordering, #43 stale ring-timer scoping, C4 "controls drive
  *    real media" are preserved from the old suite.
+ *
+ * E2EE (docs/E2EE_CALLS.md): every call is encrypted. The invite advertises
+ * `caps.e2ee`, the room is joined with the derived-key context, a legacy
+ * invite is declined instead of answered, an unsupported WebView refuses to
+ * call, and a partner publishing plaintext ends the call.
  */
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { DM_EXPIRATION_SECONDS } from "@ishtarservices/shared-types";
@@ -23,11 +28,13 @@ const h = vi.hoisted(() => {
     onParticipantConnected?(identity: string): void;
     onParticipantDisconnected?(identity: string): void;
     onDisconnected?(reason: unknown, clientInitiated: boolean): void;
+    onParticipantEncryption?(identity: string, encrypted: boolean): void;
   };
   return {
     listeners: [] as Listener[],
     remoteParticipants: new Map<string, unknown>(),
-    connectRoom: vi.fn(async (_url: string, _token: string) => ({})),
+    connectRoom: vi.fn(async (_url: string, _token: string, _opts?: unknown) => ({})),
+    e2eeSupported: true,
     disconnectRoom: vi.fn(async () => {}),
     micEnabled: vi.fn(async (_e: boolean) => {}),
     camEnabled: vi.fn(async (_e: boolean) => {}),
@@ -39,8 +46,17 @@ const h = vi.hoisted(() => {
   };
 });
 
+vi.mock("@/lib/webrtc/e2ee/session", () => ({
+  e2eeSupported: () => h.e2eeSupported,
+  E2EEUnsupportedError: class E2EEUnsupportedError extends Error {
+    constructor() {
+      super("End-to-end encrypted calls aren't supported on this device");
+      this.name = "E2EEUnsupportedError";
+    }
+  },
+}));
 vi.mock("@/lib/webrtc/livekitClient", () => ({
-  connectToRoom: (...a: [string, string]) => h.connectRoom(...a),
+  connectToRoom: (...a: [string, string, unknown]) => h.connectRoom(...a),
   disconnectFromRoom: () => h.disconnectRoom(),
   setMicrophoneEnabled: (e: boolean) => h.micEnabled(e),
   setCameraEnabled: (e: boolean) => h.camEnabled(e),
@@ -79,6 +95,7 @@ import {
   hangupCall,
   setCallMuted,
   setCallVideoEnabled,
+  declineLegacyInvite,
 } from "../callService";
 import { store, resetAll } from "@/store";
 import { login } from "@/store/slices/identitySlice";
@@ -97,7 +114,7 @@ const call = () => store.getState().call.activeCall;
 const wrapsOfType = (type: string) =>
   h.giftWrap.mock.calls.filter((c) => (c[2] as string[][])?.some((t) => t[0] === "type" && t[1] === type));
 
-function seedIncoming(callType: "audio" | "video" = "audio") {
+function seedIncoming(callType: "audio" | "video" = "audio", caps: { e2ee?: boolean } = { e2ee: true }) {
   store.dispatch(
     setIncomingCall({
       callerPubkey: PARTNER,
@@ -106,14 +123,20 @@ function seedIncoming(callType: "audio" | "video" = "audio") {
       callerName: "partner",
       timestamp: Date.now(),
       transport: "sfu",
+      caps,
     }),
   );
 }
+
+const E2EE_CTX = (roomId: string) => ({
+  e2ee: { kind: "call", roomId, roomSecretKeyHex: expect.stringMatching(/^[0-9a-f]{64}$/), peerPubkey: PARTNER },
+});
 
 beforeEach(() => {
   store.dispatch(resetAll());
   store.dispatch(login({ pubkey: ME, signerType: "nip07" }));
   h.remoteParticipants.clear();
+  h.e2eeSupported = true;
   for (const fn of [h.connectRoom, h.disconnectRoom, h.micEnabled, h.camEnabled, h.screenEnabled, h.fetchToken, h.giftWrap, h.selfWrap, h.publish]) {
     fn.mockClear();
   }
@@ -138,9 +161,14 @@ describe("outgoing call", () => {
     expect(payload.transport).toBe("sfu");
     expect(payload.roomSecretKey).toHaveLength(64);
     expect(payload.callType).toBe("video");
+    expect(payload.caps).toEqual({ e2ee: true });
+    expect(c.e2ee).toBe(true);
 
     expect(h.fetchToken).toHaveBeenCalledWith(PARTNER, c.roomId);
-    expect(h.connectRoom).toHaveBeenCalledWith("wss://x", "t");
+    expect(h.connectRoom).toHaveBeenCalledWith("wss://x", "t", E2EE_CTX(c.roomId));
+    expect((h.connectRoom.mock.calls[0][2] as { e2ee: { roomSecretKeyHex: string } }).e2ee.roomSecretKeyHex).toBe(
+      c.roomSecretKey,
+    );
     expect(h.micEnabled).toHaveBeenCalledWith(true);
     expect(h.camEnabled).toHaveBeenCalledWith(true);
   });
@@ -341,5 +369,81 @@ describe("C4 — call controls drive real media", () => {
   it("controls are no-ops with no active call", async () => {
     await setCallMuted(true);
     expect(h.micEnabled).not.toHaveBeenCalled();
+  });
+});
+
+describe("E2EE", () => {
+  it("answering joins the room with the derived-key context from the invite secret", async () => {
+    seedIncoming("audio");
+    store.dispatch(acceptCall());
+    expect(call()!.e2ee).toBe(true);
+    await answerCall();
+    const roomId = call()!.roomId;
+    expect(h.connectRoom).toHaveBeenCalledWith("wss://x", "t", E2EE_CTX(roomId));
+    expect((h.connectRoom.mock.calls[0][2] as { e2ee: { roomSecretKeyHex: string } }).e2ee.roomSecretKeyHex).toBe(SECRET);
+  });
+
+  it("a legacy invite that reached activeCall is declined, never joined in plaintext", async () => {
+    seedIncoming("audio", {});
+    store.dispatch(acceptCall());
+    expect(call()!.e2ee).toBe(false);
+    await expect(answerCall()).rejects.toThrow(/end-to-end/i);
+    expect(h.connectRoom).not.toHaveBeenCalled();
+    expect(h.fetchToken).not.toHaveBeenCalled();
+    expect(wrapsOfType("call_decline")).toHaveLength(1);
+    // A human-style decline stays content-free; only the pipeline's
+    // automatic legacy-invite refusal carries a reason.
+    expect(wrapsOfType("call_decline")[0][0]).toBe("");
+    expect(call()).toBeNull();
+    expect(store.getState().call.callHistory[0].outcome).toBe("failed");
+    expect(store.getState().call.notice).toMatchObject({ kind: "peer_outdated", pubkey: PARTNER });
+  });
+
+  it("an unsupported WebView refuses to place a call and says so", async () => {
+    h.e2eeSupported = false;
+    await expect(initiateCall(PARTNER, "audio")).rejects.toThrow(/supported on this device/);
+    expect(call()).toBeNull();
+    expect(wrapsOfType("call_invite")).toHaveLength(0);
+    expect(store.getState().call.notice).toMatchObject({ kind: "unsupported_device", pubkey: PARTNER });
+  });
+
+  it("an unsupported WebView declines an incoming call instead of answering it", async () => {
+    h.e2eeSupported = false;
+    seedIncoming("audio");
+    store.dispatch(acceptCall());
+    await expect(answerCall()).rejects.toThrow();
+    expect(h.connectRoom).not.toHaveBeenCalled();
+    expect(wrapsOfType("call_decline")).toHaveLength(1);
+    expect(store.getState().call.notice).toMatchObject({ kind: "unsupported_device" });
+  });
+
+  it("a partner whose tracks arrive unencrypted ends the call as failed (fail closed)", async () => {
+    await initiateCall(PARTNER, "audio");
+    listener().onParticipantConnected?.(PARTNER);
+    expect(call()!.state).toBe("active");
+    h.giftWrap.mockClear();
+    listener().onParticipantEncryption?.(PARTNER, false);
+    await vi.waitFor(() => expect(call()).toBeNull());
+    expect(store.getState().call.callHistory[0].outcome).toBe("failed");
+    expect(store.getState().call.notice).toMatchObject({ kind: "peer_outdated", pubkey: PARTNER });
+    // Leaving the room IS the hangup; no gift wrap goes out for it.
+    expect(wrapsOfType("call_missed")).toHaveLength(0);
+    expect(h.disconnectRoom).toHaveBeenCalled();
+  });
+
+  it("an encrypted partner (or a stranger's status) does not touch the call", async () => {
+    await initiateCall(PARTNER, "audio");
+    listener().onParticipantConnected?.(PARTNER);
+    listener().onParticipantEncryption?.(PARTNER, true);
+    listener().onParticipantEncryption?.(STRANGER, false);
+    expect(call()!.state).toBe("active");
+  });
+
+  it("declineLegacyInvite sends call_decline with reason e2ee_required and raises the outdated-peer notice", async () => {
+    await declineLegacyInvite(PARTNER);
+    const declines = wrapsOfType("call_decline");
+    expect(declines).toHaveLength(1);
+    expect(JSON.parse(declines[0][0] as string)).toEqual({ reason: "e2ee_required" });
+    expect(store.getState().call.notice).toMatchObject({ kind: "peer_outdated", pubkey: PARTNER });
   });
 });

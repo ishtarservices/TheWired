@@ -9,6 +9,7 @@ export * from "./crypto/nip44";
 export * from "./crypto/giftWrap";
 export * from "./crypto/nip17Room";
 export * from "./crypto/fileCrypto";
+export * from "./crypto/mediaKeys";
 export * from "./nostr/dmWire";
 export * from "./nostr/dmReadState";
 export * from "./nostr/negentropy";

@@ -24,6 +24,9 @@ export const DM_KINDS = {
   TYPING: 20014,
   /** Delivered / read receipt rumor (ours; wrap expires in 7 d, no self-wrap). */
   RECEIPT: 20015,
+  /** Media (frame-E2EE) sender-key envelope for LiveKit voice/video rooms
+   *  (ours; wrap expires in 120 s, no self-wrap). docs/E2EE_CALLS.md */
+  MEDIA_KEY: 20016,
   /** NIP-78 app data — the read-state record lives here. */
   APP_DATA: 30078,
 } as const;
@@ -35,6 +38,7 @@ export const DM_RUMOR_KINDS: readonly number[] = [
   DM_KINDS.REACTION,
   DM_KINDS.TYPING,
   DM_KINDS.RECEIPT,
+  DM_KINDS.MEDIA_KEY,
 ];
 
 /** Values of the `["type", …]` tag on kind-14 control rumors. `dm_reaction`
@@ -69,7 +73,60 @@ export const DM_EXPIRATION_SECONDS = {
   typing: 30,
   receipt: 7 * 24 * 3600,
   call: 120,
+  mediaKey: 120,
 } as const;
+
+// ─── Frame-level E2EE for LiveKit rooms (docs/E2EE_CALLS.md) ───────────
+
+/**
+ * Optional JSON content of a `call_decline` rumor. Empty content (the
+ * historical form) = a human declined. `e2ee_required` = the callee's client
+ * refused automatically because the invite carried no `caps.e2ee` — callers
+ * on older builds can then say "encrypted calls need the newer app" instead
+ * of "declined".
+ */
+export interface CallDeclinePayload {
+  reason?: "e2ee_required" | "declined";
+}
+
+/** Capabilities a caller advertises in the `call_invite` JSON payload. */
+export interface CallInviteCaps {
+  /** The caller frame-encrypts (per-sender keys derived from
+   *  `roomSecretKey`); a callee that can't must decline. */
+  e2ee?: boolean;
+}
+
+/** One sender key at one index. `key` is the 32-byte LiveKit key material,
+ *  hex (imported as HKDF material by every LiveKit SDK). */
+export interface DMMediaKey {
+  /** LiveKit key index, 0–255 (wraps). */
+  idx: number;
+  /** 64 hex chars. */
+  key: string;
+}
+
+/**
+ * Kind-20016 rumor content (JSON): the sender's CURRENT (and, mid-rotation,
+ * next) frame-encryption keys for one LiveKit room. Sent NIP-44 gift-wrapped
+ * to each co-participant's pubkey — the LiveKit identity — on join, and to
+ * everyone on rotation. Receivers bind it to the room they are in and drop
+ * anything stale by `ts`.
+ */
+export interface DMMediaKeyEnvelope {
+  v: 1;
+  /** LiveKit room name (`<spaceId>:<channelId>`; never used for 1:1 calls,
+   *  whose keys are derived from the invite secret). */
+  room: string;
+  keys: DMMediaKey[];
+  /** Sender clock, unix milliseconds. Newer replaces older per sender. */
+  ts: number;
+}
+
+/** Largest |now − ts| a media-key envelope is accepted with (clock skew +
+ *  relay latency). Matches its wrap expiration. */
+export const MEDIA_KEY_MAX_SKEW_MS = DM_EXPIRATION_SECONDS.mediaKey * 1000;
+/** LiveKit key indices are one byte. */
+export const MEDIA_KEY_INDEX_MAX = 255;
 
 /** Advisory edit window shown by clients (receivers apply any edit from the
  *  original author regardless). */

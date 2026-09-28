@@ -14,6 +14,12 @@
 // participant identity (bound to the pubkey by the token server), never from
 // the self-reported envelope `dj` or payload pubkeys. LT_DJ_ONLY_TYPES are
 // honored only from the current DJ.
+//
+// Encryption: rooms are frame-level end-to-end encrypted (docs/E2EE_CALLS.md),
+// and LiveKit encrypts every data packet with the sender's media key too. A
+// client that speaks this contract MUST also run the media-key protocol
+// (derived keys for 1:1 calls, kind-20016 envelopes for channels), or its
+// packets are undecryptable and plaintext packets are dropped by receivers.
 
 /** LiveKit data-packet topic. */
 export const LT_TOPIC = "listen-together";
