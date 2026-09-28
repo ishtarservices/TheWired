@@ -86,11 +86,14 @@ services:
       RELAY_WRAP_AUTH_GATE: ${RELAY_WRAP_AUTH_GATE:-warn}
       RELAY_WRAP_RETENTION_DAYS: ${RELAY_WRAP_RETENTION_DAYS:-0}
       RELAY_TRUST_PROXY: "1"
+      # Abuse caps (docs/DM_WIRE_CONTRACT.md §7): messages per 10 s window per
+      # connection and concurrent sockets per client IP. 0 disables either one —
+      # forwarded here so the .env rollback lever actually reaches the relay.
+      RELAY_RATE_MAX_MSGS: ${RELAY_RATE_MAX_MSGS:-300}
+      RELAY_MAX_CONNS_PER_IP: ${RELAY_MAX_CONNS_PER_IP:-32}
       RUST_ENV: production
       RUST_LOG: ${RUST_LOG:-info,thewired_relay=info}
       LOG_FORMAT: json
-      # Public URL the relay advertises (NIP-11 / NIP-42 challenge URL).
-      RELAY_URL: ${RELAY_URL:-wss://relay.thewired.app}
     depends_on:
       postgres:
         condition: service_healthy
@@ -160,6 +163,12 @@ services:
       IOS_APP_URL: ${IOS_APP_URL:-}
       ANDROID_APP_URL: ${ANDROID_APP_URL:-}
       DESKTOP_APP_URL: ${DESKTOP_APP_URL:-}
+      # Voice/video E2EE token gate (docs/E2EE_CALLS.md §6). On by default: the
+      # LiveKit token routes refuse clients that don't send supportsE2EE=true
+      # (409 E2EE_REQUIRED). "false" only to bridge a client that can't encrypt yet.
+      VOICE_REQUIRE_E2EE: ${VOICE_REQUIRE_E2EE:-true}
+      # Optional Expo push access token for the mobile app's notifications.
+      EXPO_ACCESS_TOKEN: ${EXPO_ACCESS_TOKEN:-}
     volumes:
       - blobdata:/app/services/backend/blobs
     depends_on:
