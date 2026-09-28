@@ -52,8 +52,9 @@ describe("PeopleSegment", () => {
     expect(screen.getByText("With handles")).toBeInTheDocument();
     // The header said it — no per-row verification mark in browse.
     expect(screen.queryByTestId("verifier")).not.toBeInTheDocument();
-    // Hydrates kind-0s so the profile page opens warm.
-    expect(profileCache.warmPubkeys).toHaveBeenCalledWith([PK("a")]);
+    // Hydrates kind-0s so the profile page opens warm. This runs in a passive
+    // effect after the results commit, so poll rather than assert synchronously.
+    await waitFor(() => expect(profileCache.warmPubkeys).toHaveBeenCalledWith([PK("a")]));
   });
 
   it("shows the bio instead of a handle that just repeats the name, and no why-line at zero notes", async () => {
