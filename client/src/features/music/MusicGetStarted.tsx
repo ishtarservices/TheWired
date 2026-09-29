@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Upload, Disc3, Compass, Bookmark } from "lucide-react";
+import { Upload, Disc3, Compass } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useAppDispatch, useAppSelector } from "@/store/hooks";
 import { setMusicView } from "@/store/slices/musicSlice";
@@ -75,7 +75,7 @@ export function MusicGetStarted({ variant = "page" }: { variant?: "page" | "bann
         <h2 className="text-2xl font-semibold text-heading">Your music lives here</h2>
         <p className="mx-auto mt-2 max-w-md text-sm text-soft">
           Upload tracks, group them into projects, and share them with the people and spaces
-          you choose. Everything you save from others lands here too.
+          you choose.
         </p>
 
         {pubkey ? (
@@ -98,20 +98,14 @@ export function MusicGetStarted({ variant = "page" }: { variant?: "page" | "bann
           <p className="mt-8 text-sm text-muted">Sign in to upload your own music.</p>
         )}
 
-        <div className="mt-6 flex flex-wrap items-center justify-center gap-x-5 gap-y-2 text-sm">
-          <button
-            type="button"
-            onClick={explore}
-            className="flex items-center gap-1.5 text-soft transition-colors hover:text-heading"
-          >
-            <Compass size={15} />
-            Browse what others are making
-          </button>
-          <span className="flex items-center gap-1.5 text-muted">
-            <Bookmark size={15} />
-            Saved tracks and albums collect here
-          </span>
-        </div>
+        <button
+          type="button"
+          onClick={explore}
+          className="mx-auto mt-6 flex items-center gap-1.5 text-sm text-soft transition-colors hover:text-heading"
+        >
+          <Compass size={15} />
+          Browse what others are making
+        </button>
         {modals}
       </div>
     </div>
