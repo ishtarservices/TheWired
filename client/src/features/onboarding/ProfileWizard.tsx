@@ -463,6 +463,18 @@ function WelcomeStep({
   const [downloaded, setDownloaded] = useState(false);
   const [acknowledged, setAcknowledged] = useState(!canBackupNsec);
 
+  // Ticking "I've saved my secret key" is the user's backup confirmation.
+  // Record it in the keystore so it can stop relying on the plaintext
+  // fallback file (see keystore.rs `keystore_mark_backed_up`). Best-effort.
+  useEffect(() => {
+    if (!canBackupNsec || !acknowledged) return;
+    void import("@/lib/nostr/tauriSigner")
+      .then(({ TauriSigner }) => TauriSigner.markBackedUp())
+      .catch(() => {
+        /* status banner in Settings will still offer the confirm */
+      });
+  }, [canBackupNsec, acknowledged]);
+
   const revealNsec = useCallback(async () => {
     if (nsec) {
       setNsecVisible(true);

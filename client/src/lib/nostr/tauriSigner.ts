@@ -8,6 +8,16 @@ interface SignedEventResult {
   sig: string;
 }
 
+/** Backup state of the active keystore account (see keystore.rs `BackupStatus`). */
+export interface KeyBackupStatus {
+  /** The user confirmed they hold a backup of this key (or imported it). */
+  backedUp: boolean;
+  /** A plaintext fallback copy of the key currently exists on disk. */
+  fallbackPresent: boolean;
+  /** Signed CI build — the only kind that ever drops the fallback file. */
+  signedRelease: boolean;
+}
+
 export class TauriSigner implements NostrSigner {
   async getPublicKey(): Promise<string> {
     return invoke<string>("keystore_get_public_key");
@@ -99,5 +109,19 @@ export class TauriSigner implements NostrSigner {
   /** Delete a secret stored via setSecret. */
   static async deleteSecret(key: string): Promise<void> {
     await invoke("keystore_delete_secret", { key });
+  }
+
+  /** Backup state of the active account. */
+  static async backupStatus(): Promise<KeyBackupStatus> {
+    return invoke<KeyBackupStatus>("keystore_backup_status");
+  }
+
+  /**
+   * Record that the user confirmed a backup of the active key. On a signed
+   * release build with a verified keychain copy this also removes the
+   * plaintext fallback file. Returns the resulting status.
+   */
+  static async markBackedUp(): Promise<KeyBackupStatus> {
+    return invoke<KeyBackupStatus>("keystore_mark_backed_up");
   }
 }

@@ -9,6 +9,8 @@ import {
   setSecretPersistEnabled,
 } from "@/lib/nostr/secretStore";
 import { resetAll } from "@/store";
+import { useKeyBackupStatus } from "./useKeyBackupStatus";
+import { KeyBackupNotice } from "./KeyBackupNotice";
 import { setSwitchingAccount } from "@/store/slices/identitySlice";
 import { useAppDispatch } from "@/store/hooks";
 
@@ -134,6 +136,8 @@ function SecretKeySection() {
   const [nsec, setNsec] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [revealedOnce, setRevealedOnce] = useState(false);
+  const backup = useKeyBackupStatus(IS_TAURI && signerType === "tauri_keystore");
 
   const clearSecret = useCallback(() => {
     setSecretHex(null);
@@ -181,6 +185,7 @@ function SecretKeySection() {
       const signer = new TauriSigner();
       const hex = await signer.getSecretKey();
       setSecretHex(hex);
+      setRevealedOnce(true);
 
       const { nsecEncode } = await import("nostr-tools/nip19");
       const hexBytes = new Uint8Array(hex.match(/.{2}/g)!.map((b) => parseInt(b, 16)));
@@ -206,6 +211,15 @@ function SecretKeySection() {
           </p>
         </div>
       </div>
+
+      {backup.status && (
+        <KeyBackupNotice
+          status={backup.status}
+          canConfirm={revealedOnce}
+          onConfirm={() => void backup.markBackedUp()}
+        />
+      )}
+      {backup.error && <p className="text-xs text-red-400">{backup.error}</p>}
 
       {secretHex ? (
         <div className="space-y-2">
