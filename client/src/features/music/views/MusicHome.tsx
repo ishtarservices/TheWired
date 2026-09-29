@@ -20,6 +20,7 @@ import { parseAlbumEvent } from "../albumParser";
 import { TrackCard } from "../TrackCard";
 import { AlbumCard } from "../AlbumCard";
 import { GenreCard } from "../GenreCard";
+import { MusicGetStarted } from "../MusicGetStarted";
 
 export function MusicHome() {
   const { scrollPaddingClass } = usePlaybackBarSpacing();
@@ -104,17 +105,12 @@ export function MusicHome() {
   const hasContent =
     displayTracks.length > 0 || displayAlbums.length > 0 || trendingAlbums.length > 0;
 
+  // Nothing of the viewer's own (uploaded or saved): the home either IS the
+  // invitation, or carries it as a strip above the trending content.
+  const libraryEmpty = libraryTracks.length === 0 && libraryAlbums.length === 0;
+
   if (!hasContent) {
-    return (
-      <div className="flex flex-1 items-center justify-center">
-        <div className="text-center">
-          <h2 className="text-lg font-semibold text-heading">Music</h2>
-          <p className="mt-1 text-sm text-soft">
-            Upload tracks or save music to build your library.
-          </p>
-        </div>
-      </div>
-    );
+    return <MusicGetStarted />;
   }
 
   const trackAddrIds = displayTracks.map((t) => t.addressableId);
@@ -133,6 +129,8 @@ export function MusicHome() {
 
   return (
     <div className={`flex-1 overflow-y-auto p-6 ${scrollPaddingClass}`}>
+      {libraryEmpty && <MusicGetStarted variant="banner" />}
+
       {/* Browse by Genre */}
       {exploreGenres.length > 0 && (
         <section className="mb-8">
