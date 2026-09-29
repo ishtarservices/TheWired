@@ -48,7 +48,10 @@ tauri-plugin-dialog = "2"
 tiny_http = "0.12"
 http = "1"
 zeroize = "1"
-rfd = "0.16"
+# Native fatal-error dialog (lib.rs). No default features: rfd's defaults enable
+# `xdg-portal`, tauri-plugin-dialog enables `gtk3`, Cargo unifies the two and
+# rfd's build script refuses both at once on Linux.
+rfd = { version = "0.16", default-features = false, features = ["gtk3"] }
 
 # macOS: native keychain with Touch ID biometric access control
 [target.'cfg(target_os = "macos")'.dependencies]
