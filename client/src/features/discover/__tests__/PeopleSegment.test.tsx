@@ -120,7 +120,10 @@ describe("PeopleSegment", () => {
     act(() => {
       store.dispatch(setFollowList({ follows: [PK("f")], createdAt: 1 }));
     });
-    expect(screen.getByRole("button", { name: "Follow" })).toBeEnabled();
+    // The row's store subscription is registered in a passive effect after
+    // the results commit; on a slow runner that can trail the dispatch above,
+    // so poll for the re-render rather than asserting synchronously.
+    await waitFor(() => expect(screen.getByRole("button", { name: "Follow" })).toBeEnabled());
     screen.getByRole("button", { name: "Follow" }).click();
     await waitFor(() => expect(followUser).toHaveBeenCalledWith(PK("a")));
   });
