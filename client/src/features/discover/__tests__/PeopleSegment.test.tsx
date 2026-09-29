@@ -52,8 +52,9 @@ describe("PeopleSegment", () => {
     expect(screen.getByText("With handles")).toBeInTheDocument();
     // The header said it — no per-row verification mark in browse.
     expect(screen.queryByTestId("verifier")).not.toBeInTheDocument();
-    // Hydrates kind-0s so the profile page opens warm.
-    expect(profileCache.warmPubkeys).toHaveBeenCalledWith([PK("a")]);
+    // Hydrates kind-0s so the profile page opens warm. This runs in a passive
+    // effect after the results commit, so poll rather than assert synchronously.
+    await waitFor(() => expect(profileCache.warmPubkeys).toHaveBeenCalledWith([PK("a")]));
   });
 
   it("shows the bio instead of a handle that just repeats the name, and no why-line at zero notes", async () => {
@@ -119,7 +120,10 @@ describe("PeopleSegment", () => {
     act(() => {
       store.dispatch(setFollowList({ follows: [PK("f")], createdAt: 1 }));
     });
-    expect(screen.getByRole("button", { name: "Follow" })).toBeEnabled();
+    // The row's store subscription is registered in a passive effect after
+    // the results commit; on a slow runner that can trail the dispatch above,
+    // so poll for the re-render rather than asserting synchronously.
+    await waitFor(() => expect(screen.getByRole("button", { name: "Follow" })).toBeEnabled());
     screen.getByRole("button", { name: "Follow" }).click();
     await waitFor(() => expect(followUser).toHaveBeenCalledWith(PK("a")));
   });

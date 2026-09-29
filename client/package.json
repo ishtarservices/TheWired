@@ -49,6 +49,7 @@
     "music-metadata": "^11.12.3",
     "nanoid": "^5.1.6",
     "nostr-tools": "^2.23.1",
+    "qrcode.react": "^4.2.0",
     "react": "^19.2.4",
     "react-dom": "^19.2.4",
     "react-markdown": "^9.1.0",

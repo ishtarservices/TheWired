@@ -36,6 +36,17 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           TAG="${{ steps.meta.outputs.tag }}"
+          # A manual run reuses the version in tauri.conf.json. If that tag is
+          # already a PUBLISHED release, the upload steps below would --clobber
+          # its assets with new builds — refuse instead of silently replacing
+          # what users already downloaded. Bump the version (or delete the
+          # draft) first.
+          if [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
+            if gh release view "$TAG" --json isDraft --jq .isDraft 2>/dev/null | grep -qx false; then
+              echo "::error::$TAG is already a published release; refusing to overwrite its assets"
+              exit 1
+            fi
+          fi
           gh release view "$TAG" > /dev/null 2>&1 || \
             gh release create "$TAG" \
               --draft \

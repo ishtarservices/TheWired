@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, lazy, Suspense } from "react";
 import { Copy, Eye, EyeOff, AlertTriangle, Trash2, LogOut, Shield, Key } from "lucide-react";
 import { Button } from "@/components/ui/Button";
 import { Spinner } from "@/components/ui/Spinner";
@@ -15,6 +15,26 @@ import { useAppDispatch } from "@/store/hooks";
 const AUTO_HIDE_MS = 30_000;
 
 const IS_TAURI = typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
+
+// Code-split: qrcode.react only loads when the user asks for the QR view.
+const SecretKeyQr = lazy(() =>
+  import("./SecretKeyQr").then((m) => ({ default: m.SecretKeyQr })),
+);
+
+/**
+ * Best-effort screen-capture protection while a secret is on screen (macOS +
+ * Windows honour it; elsewhere it is a no-op). Requires the
+ * `core:window:allow-set-content-protected` capability.
+ */
+async function setWindowContentProtected(on: boolean): Promise<void> {
+  if (!IS_TAURI) return;
+  try {
+    const { getCurrentWindow } = await import("@tauri-apps/api/window");
+    await getCurrentWindow().setContentProtected(on);
+  } catch (err) {
+    console.warn("[security] window content protection unavailable", err);
+  }
+}
 
 function truncate(str: string, start = 12, end = 8): string {
   if (str.length <= start + end + 3) return str;
@@ -127,6 +147,21 @@ function SecretKeySection() {
     return () => clearTimeout(timer);
   }, [secretHex, clearSecret]);
 
+  // Exclude the window from screenshots / screen sharing while the secret is visible.
+  useEffect(() => {
+    if (!secretHex) return;
+    let active = true;
+    void (async () => {
+      // Skip the "on" call if the secret was already hidden before we got here.
+      if (!active) return;
+      await setWindowContentProtected(true);
+    })();
+    return () => {
+      active = false;
+      void setWindowContentProtected(false);
+    };
+  }, [secretHex]);
+
   if (signerType === "nip07") {
     return (
       <div className="space-y-2">
@@ -166,6 +201,8 @@ function SecretKeySection() {
           <AlertTriangle size={14} className="mt-0.5 shrink-0 text-yellow-500" />
           <p className="text-xs text-yellow-400">
             Never share your secret key. Anyone with this key has full control of your identity.
+            While it is revealed, this window is hidden from screenshots and screen sharing where
+            the OS supports it.
           </p>
         </div>
       </div>
@@ -186,6 +223,14 @@ function SecretKeySection() {
                 <code className="text-xs text-soft">{truncate(nsec, 14, 8)}</code>
                 <CopyButton text={nsec} label="nsec" />
               </div>
+            </div>
+          )}
+          {nsec && (
+            <div>
+              <div className="mb-1 text-xs text-muted">Sign in on another device</div>
+              <Suspense fallback={<Spinner size="sm" />}>
+                <SecretKeyQr nsec={nsec} />
+              </Suspense>
             </div>
           )}
           <button
