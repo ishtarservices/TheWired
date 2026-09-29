@@ -15,6 +15,9 @@ export interface MediaTileModel {
   hasVideo: boolean;
   handRaised: boolean;
   connectionQuality: "excellent" | "good" | "poor" | "unknown";
+  /** Frame-level E2EE: true = encrypted, false = plaintext in an encrypted
+   *  room (outdated client), undefined = not known yet / room not encrypted. */
+  encrypted?: boolean;
 }
 
 export const tileId = (pubkey: string, source: TileSource): string => `${pubkey}:${source}`;

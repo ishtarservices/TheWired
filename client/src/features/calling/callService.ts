@@ -3,8 +3,11 @@
  *
  * A call is a private LiveKit room named `dm:<roomId>`, where roomId is the
  * pubkey of a fresh secret key that travels to the callee inside the
- * NIP-17 `call_invite` gift wrap (the secret is kept for the planned
- * frame-level E2EE key derivation — see docs/E2EE_CALLS.md).
+ * NIP-17 `call_invite` gift wrap. Both peers derive their frame-level E2EE
+ * sender keys from that secret (docs/E2EE_CALLS.md) — the SFU only ever
+ * forwards ciphertext. Encryption is mandatory: an invite without
+ * `caps.e2ee` (outdated caller) is declined, and a peer that joins the room
+ * publishing plaintext ends the call.
  *
  * Flow:
  *   caller  → invite gift wrap + joins the room immediately   (ringing)
@@ -29,11 +32,12 @@ import {
   rejectCall as rejectCallAction,
   toggleCallMute,
   toggleCallVideo,
+  setCallNotice,
 } from "@/store/slices/callSlice";
 import { setMediaError } from "@/store/slices/voiceSlice";
 import { createGiftWrappedDM, createSelfWrap } from "@/lib/nostr/giftWrap";
 import { defaultExpirationFor } from "@ishtarservices/core";
-import { DM_EXPIRATION_SECONDS } from "@ishtarservices/shared-types";
+import { DM_EXPIRATION_SECONDS, type CallDeclinePayload } from "@ishtarservices/shared-types";
 import { relayManager } from "@/lib/nostr/relayManager";
 import { getDMRelaysForPublish, getOwnDMRelays } from "@/lib/nostr/dmRelayList";
 import { fetchDMVoiceToken } from "@/lib/api/voice";
@@ -46,6 +50,7 @@ import {
   addRoomListener,
   getLivekitRoom,
 } from "@/lib/webrtc/livekitClient";
+import { e2eeSupported, E2EEUnsupportedError } from "@/lib/webrtc/e2ee/session";
 import { describeMediaError } from "@/lib/webrtc/mediaDevices";
 import { createLogger } from "@/lib/debug/logger";
 import type { CallType, CallTransport } from "@/types/calling";
@@ -95,6 +100,10 @@ export async function initiateCall(
   const myPubkey = store.getState().identity.pubkey;
   if (!myPubkey) throw new Error("Not logged in");
   if (store.getState().call.activeCall) throw new Error("Already in a call");
+  if (!e2eeSupported()) {
+    store.dispatch(setCallNotice({ kind: "unsupported_device", pubkey: partnerPubkey }));
+    throw new E2EEUnsupportedError();
+  }
 
   const secretKey = generateSecretKey();
   const roomId = getPublicKey(secretKey);
@@ -108,6 +117,7 @@ export async function initiateCall(
       callType,
       roomId,
       roomSecretKey: roomSecretKeyHex,
+      e2ee: true,
     }),
   );
 
@@ -116,6 +126,9 @@ export async function initiateCall(
     callType,
     callerName: myPubkey,
     transport: CALL_TRANSPORT,
+    // Authenticated (it rides inside the sealed rumor): the callee knows we
+    // will frame-encrypt, and nothing on the path can strip the flag.
+    caps: { e2ee: true },
   });
 
   // Call signaling expires on the relay (docs/DM_WIRE_CONTRACT.md §5) — no
@@ -190,6 +203,19 @@ export async function answerCall(): Promise<void> {
 
   log(`answer caller=${shortId(callerPubkey)} type=${callType} room=${shortId(roomId)}`);
 
+  // Never join in plaintext. `activeCall.e2ee` is false only for a legacy
+  // invite that slipped past the pipeline's auto-decline; an unsupported
+  // WebView can't run the cryptor at all. Decline so the caller stops ringing.
+  if (!activeCall.e2ee || !e2eeSupported()) {
+    const kind = activeCall.e2ee ? "unsupported_device" : "peer_outdated";
+    warn(`cannot answer encrypted call: ${kind}`);
+    store.dispatch(setCallNotice({ kind, pubkey: callerPubkey }));
+    clearTimers();
+    store.dispatch(endCall("failed"));
+    await sendCallStatus(callerPubkey, "call_decline");
+    throw new E2EEUnsupportedError();
+  }
+
   store.dispatch(setCallRoomId(roomId));
   store.dispatch(setCallState("connecting"));
 
@@ -257,10 +283,19 @@ export async function hangupCall(
   store.dispatch(endCall(outcome));
 }
 
-/** Fetch a token, join the call room, publish local media. */
+/** Fetch a token, join the call room (encrypted), publish local media. */
 async function joinCallRoom(partnerPubkey: string, roomId: string): Promise<void> {
+  const call = store.getState().call.activeCall;
+  if (!call || call.roomId !== roomId) throw new Error("Call ended before joining");
   const { token, url } = await fetchDMVoiceToken(partnerPubkey, roomId);
-  await connectToRoom(url, token);
+  await connectToRoom(url, token, {
+    e2ee: {
+      kind: "call",
+      roomId,
+      roomSecretKeyHex: call.roomSecretKey,
+      peerPubkey: partnerPubkey,
+    },
+  });
 
   // Hung up while the token/connect round-trips were in flight — don't
   // leave an orphaned room connection behind.
@@ -333,15 +368,40 @@ addRoomListener({
       store.dispatch(endCall("failed"));
     }
   },
+  // Fail closed: a partner whose tracks arrive unencrypted is running a
+  // client without E2EE. We would hear nothing (their plaintext fails our
+  // decryptor) and they would hear noise — end it and say why.
+  onParticipantEncryption(identity, encrypted) {
+    const call = store.getState().call.activeCall;
+    if (!call || identity !== call.partnerPubkey || encrypted) return;
+    warn(`partner ${shortId(identity)} publishes plaintext → ending call`);
+    store.dispatch(setCallNotice({ kind: "peer_outdated", pubkey: identity }));
+    void hangupCall({ notifyPeer: false, outcome: "failed" });
+  },
 });
+
+/**
+ * An invite from a client that does not advertise `caps.e2ee` (older desktop
+ * build, or a mobile build without media). We never ring for it: decline so
+ * the caller stops ringing, and tell the user why (with a nudge to update).
+ */
+export async function declineLegacyInvite(callerPubkey: string): Promise<void> {
+  log(`legacy (non-e2ee) invite from ${shortId(callerPubkey)} → declining`);
+  store.dispatch(setCallNotice({ kind: "peer_outdated", pubkey: callerPubkey }));
+  // The reason lets the caller's (older) client distinguish this automatic
+  // refusal from a human decline (docs/DM_WIRE_CONTRACT.md §2).
+  const payload: CallDeclinePayload = { reason: "e2ee_required" };
+  await sendCallStatus(callerPubkey, "call_decline", JSON.stringify(payload));
+}
 
 /** Send a call status notification via gift wrap. */
 async function sendCallStatus(
   partnerPubkey: string,
   type: "call_decline" | "call_missed",
+  content = "",
 ): Promise<void> {
   try {
-    const { wrap } = await createGiftWrappedDM("", partnerPubkey, [["type", type]], undefined, {
+    const { wrap } = await createGiftWrappedDM(content, partnerPubkey, [["type", type]], undefined, {
       expiration: defaultExpirationFor("call", Math.floor(Date.now() / 1000)),
     });
     const relays = await getDMRelaysForPublish(partnerPubkey);

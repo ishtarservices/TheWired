@@ -8,11 +8,42 @@ import { spaceMembers } from "../db/schema/members.js";
 import { spaceChannels } from "../db/schema/channels.js";
 import { eq, and } from "drizzle-orm";
 import { config } from "../config.js";
+import { getRedis } from "../lib/redis.js";
 import { validate, hexId, nonEmptyString } from "../lib/validation.js";
+
+/** How long a `dm:<roomId>` stays bound to its two parties (≥ the token TTL). */
+const DM_ROOM_BINDING_TTL_S = 3600;
+
+/**
+ * Bind a 1:1 call room to the two pubkeys of the first mint, and reject any
+ * third party afterwards. The roomId is only a pubkey the caller chose, so
+ * without this anyone who learns it could mint a token for the room (and,
+ * with `maxParticipants: 2`, take the callee's seat — a DoS; under E2EE they
+ * would only ever receive ciphertext). Returns false when `pubkey` is not one
+ * of the bound pair. Redis failures fail OPEN (the E2EE layer is the real
+ * confidentiality guard; this is hygiene).
+ */
+async function bindDmRoom(roomId: string, pubkey: string, partnerPubkey: string): Promise<boolean> {
+  const key = `voice:dm:${roomId}`;
+  const pair = [pubkey, partnerPubkey].sort().join(",");
+  try {
+    const redis = getRedis();
+    const created = await redis.set(key, pair, "EX", DM_ROOM_BINDING_TTL_S, "NX");
+    if (created === "OK") return true;
+    const existing = await redis.get(key);
+    if (existing === null) return true;
+    return existing.split(",").includes(pubkey);
+  } catch (err) {
+    console.warn("[voice] dm room binding unavailable:", err);
+    return true;
+  }
+}
 
 const tokenBody = z.object({
   spaceId: nonEmptyString,
   channelId: nonEmptyString,
+  /** The client will frame-encrypt in the room (docs/E2EE_CALLS.md). */
+  supportsE2EE: z.boolean().optional(),
 });
 
 const kickBody = z.object({
@@ -35,7 +66,17 @@ const roomsParams = z.object({
 const dmTokenBody = z.object({
   partnerPubkey: hexId,
   roomId: nonEmptyString,
+  supportsE2EE: z.boolean().optional(),
 });
+
+/** Rooms are E2EE-only: a client that can't encrypt must not get a token. */
+function e2eeRequiredError() {
+  return {
+    error: "Voice and video are end-to-end encrypted. Update The Wired to join.",
+    code: "E2EE_REQUIRED",
+    statusCode: 409,
+  };
+}
 
 export const voiceRoutes: FastifyPluginAsync = async (server) => {
   /**
@@ -44,7 +85,7 @@ export const voiceRoutes: FastifyPluginAsync = async (server) => {
    * Auth: NIP-98 via X-Auth-Pubkey
    */
   server.post<{
-    Body: { spaceId: string; channelId: string };
+    Body: { spaceId: string; channelId: string; supportsE2EE?: boolean };
   }>("/token", async (request, reply) => {
     const pubkey = (request as any).pubkey as string | undefined;
     if (!pubkey) {
@@ -55,6 +96,9 @@ export const voiceRoutes: FastifyPluginAsync = async (server) => {
     if (!body) return;
 
     const { spaceId, channelId } = body;
+    if (config.voiceRequireE2EE && body.supportsE2EE !== true) {
+      return reply.status(409).send(e2eeRequiredError());
+    }
 
     // Check membership
     const membership = await db
@@ -266,7 +310,7 @@ export const voiceRoutes: FastifyPluginAsync = async (server) => {
    * Body: { partnerPubkey, roomId }
    */
   server.post<{
-    Body: { partnerPubkey: string; roomId: string };
+    Body: { partnerPubkey: string; roomId: string; supportsE2EE?: boolean };
   }>("/dm-token", async (request, reply) => {
     const pubkey = (request as any).pubkey as string | undefined;
     if (!pubkey) {
@@ -281,6 +325,12 @@ export const voiceRoutes: FastifyPluginAsync = async (server) => {
     if (partnerPubkey === pubkey) {
       return reply.status(400).send({ error: "Cannot call yourself", code: "BAD_REQUEST" });
     }
+    if (config.voiceRequireE2EE && body.supportsE2EE !== true) {
+      return reply.status(409).send(e2eeRequiredError());
+    }
+    if (!(await bindDmRoom(roomId, pubkey, partnerPubkey))) {
+      return reply.status(403).send({ error: "Not a party to this call", code: "FORBIDDEN" });
+    }
 
     const roomName = `dm:${roomId}`;
 
@@ -294,7 +344,9 @@ export const voiceRoutes: FastifyPluginAsync = async (server) => {
         canPublish: true,
         canPublishData: true,
         canSubscribe: true,
-        canPublishSources: ["microphone", "camera", "screen_share"],
+        // screen_share_audio: Windows (WebView2) captures system audio with
+        // the share; without the grant LiveKit rejects the audio track.
+        canPublishSources: ["microphone", "camera", "screen_share", "screen_share_audio"],
       },
       3600, // 1 hour TTL for DM calls
     );

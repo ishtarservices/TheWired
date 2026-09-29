@@ -11,6 +11,7 @@ import { WalletProvider } from "../features/wallet/WalletProvider";
 import { AIProvider } from "../features/ai/AIProvider";
 import { CallController } from "../features/calling/CallController";
 import { IncomingCallBanner } from "../features/calling/IncomingCallBanner";
+import { CallNotice } from "../features/calling/CallNotice";
 import { useAppSelector } from "../store/hooks";
 import { useExternalLinkHandler } from "../hooks/useExternalLinkHandler";
 import { useCallShortcuts } from "../hooks/useCallShortcuts";
@@ -23,6 +24,7 @@ export function Layout() {
   const hasTrack = useAppSelector((s) => !!s.music?.player.currentTrackId);
   const hasActiveCall = useAppSelector((s) => !!s.call.activeCall);
   const hasIncomingCall = useAppSelector((s) => !!s.call.incomingCall);
+  const hasCallNotice = useAppSelector((s) => !!s.call.notice);
 
   return (
     <WalletProvider>
@@ -42,6 +44,7 @@ export function Layout() {
         {hasTrack && <FloatingPlaybackBar />}
         {hasActiveCall && <CallController />}
         {hasIncomingCall && <IncomingCallBanner />}
+        {hasCallNotice && !hasIncomingCall && <CallNotice />}
         <ScreenSharePill />
         <NotificationToastStack />
       </div>

@@ -1,6 +1,6 @@
-import { AlertTriangle, RefreshCw, Volume2, WifiOff, X } from "lucide-react";
+import { AlertTriangle, RefreshCw, ShieldAlert, Volume2, WifiOff, X } from "lucide-react";
 import { useAppDispatch, useAppSelector } from "@/store/hooks";
-import { setMediaError } from "@/store/slices/voiceSlice";
+import { setMediaError, setE2EEError } from "@/store/slices/voiceSlice";
 import { getLivekitRoom } from "@/lib/webrtc/livekitClient";
 import { retryMicrophone } from "./voiceService";
 
@@ -10,14 +10,16 @@ import { retryMicrophone } from "./voiceService";
  * - autoplay blocked → "Enable audio" (WebView2 / WKWebView need a gesture)
  * - transport reconnecting → LiveKit is re-establishing the connection
  * - media error → mic/camera could not be acquired (denied, busy, missing)
+ * - e2ee error → a frame could not be encrypted/decrypted (debounced)
  */
 export function VoiceBanners() {
   const dispatch = useAppDispatch();
   const audioBlocked = useAppSelector((s) => s.voice.audioPlaybackBlocked);
   const reconnecting = useAppSelector((s) => s.voice.connectionState === "reconnecting");
   const mediaError = useAppSelector((s) => s.voice.mediaError);
+  const e2eeError = useAppSelector((s) => s.voice.e2ee.error);
 
-  if (!audioBlocked && !reconnecting && !mediaError) return null;
+  if (!audioBlocked && !reconnecting && !mediaError && !e2eeError) return null;
 
   return (
     <div className="flex flex-col items-center gap-1 px-4 py-1">
@@ -59,6 +61,25 @@ export function VoiceBanners() {
           <button
             onClick={() => dispatch(setMediaError(null))}
             className="shrink-0 rounded-full p-0.5 hover:bg-red-500/20 transition-colors"
+            title="Dismiss"
+          >
+            <X size={12} />
+          </button>
+        </div>
+      )}
+
+      {e2eeError && (
+        <div
+          role="status"
+          className="flex max-w-full items-center gap-2 rounded-xl bg-amber-500/10 px-3 py-1.5 text-xs text-amber-400"
+        >
+          <ShieldAlert size={14} className="shrink-0" />
+          <span className="min-w-0 truncate" title={e2eeError}>
+            {e2eeError}
+          </span>
+          <button
+            onClick={() => dispatch(setE2EEError(null))}
+            className="shrink-0 rounded-full p-0.5 hover:bg-amber-500/20 transition-colors"
             title="Dismiss"
           >
             <X size={12} />

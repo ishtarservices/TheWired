@@ -1,156 +1,172 @@
-# E2EE for Voice/Video — Design
+# E2EE for Voice/Video — Design & Implementation
 
-Status: **design** (not implemented). Tracks the beta-user ask: *"Does the
-LiveKit stack have encryption to the SFU on? What about E2EE?"*
+Status: **implemented** (desktop 1:1 calls + space voice/video channels; backend
+gate; shared contracts for mobile). Answers the beta-user ask: *"Does the LiveKit
+stack have encryption to the SFU on? What about E2EE?"*
 
-## 1. What we have today (the honest answer)
+## 1. What is encrypted where
 
 | Path | Transport encryption | Server-blind (E2EE) |
 |---|---|---|
-| Client ↔ SFU media (voice channels, 1:1 "Relayed") | ✅ always — WebRTC mandates DTLS-SRTP | ❌ the SFU decrypts SRTP and re-encrypts per subscriber; it sees plaintext frames |
-| LiveKit signaling WS | ✅ wss in prod (Caddy) | n/a |
-| 1:1 calls (SFU-first since the call overhaul; the P2P path was removed) | ✅ DTLS-SRTP to the SFU | ❌ same as channels — **Phase 1 below closes this** |
-| Call invites (room secret) | ✅ NIP-17 gift wrap | ✅ |
+| Client ↔ SFU media (channels, 1:1 calls) | ✅ always — WebRTC mandates DTLS-SRTP | ✅ **frame-level**: AES-GCM per encoded frame inside a Web Worker; the SFU forwards ciphertext |
+| LiveKit data channel (Listen Together sync) | ✅ | ✅ each packet is GCM-encrypted with the sender's media key |
+| LiveKit signaling WS | ✅ wss in prod (Caddy) | n/a — the SFU still sees *who* is in the room, join/leave times, speaking activity, track on/off, frame sizes |
+| Call invites (room secret) + media-key envelopes | ✅ NIP-17 gift wrap | ✅ |
 
-> Update: 1:1 calls now always run through LiveKit (`dm:<roomId>`); the
-> invite still carries `roomSecretKey`, so Phase 1 applies unchanged and is
-> now the path to E2EE for every call, not just the fallback.
+"Encryption to the SFU" was always on by protocol. What changed: the SFU (and
+whoever operates it) can no longer read media. There is **no plaintext mode** —
+see §6 for how outdated clients are handled.
 
-So "encryption to the SFU" is already on by protocol. The gap is that the SFU
-itself (and whoever operates it) can read media frames. LiveKit's frame-level
-E2EE (insertable streams: AES-GCM per frame inside a Web Worker, SFU forwards
-ciphertext) closes that — the work below.
+## 2. Building blocks (livekit-client 2.17.3)
 
-## 2. What the installed SDK gives us (livekit-client 2.17.3, verified)
+- `RoomOptions.encryption: { keyProvider, worker }` (the older `e2ee` field is
+  deprecated; `encryption` is what also enables data-channel encryption).
+- `BaseKeyProvider` in **per-participant** mode: keys are looked up by LiveKit
+  identity, which the backend mints as the participant's **Nostr pubkey**.
+  Key index is one byte (0–255). Subclass: `client/src/lib/webrtc/e2ee/NostrKeyProvider.ts`
+  with `{ sharedKey:false, keyringSize:256, ratchetWindowSize:0, failureTolerance:-1 }` —
+  we never ratchet locally; fresh keys are distributed explicitly.
+- **Key material → AES key, the cross-SDK contract.** The 32 key bytes (derived
+  for calls, random for channels) are fed to every SDK as raw key material and
+  each derives the AES-GCM-128 key with **PBKDF2-SHA256, salt =
+  `LKFrameEncryptionKey` (the ratchet salt), 100000 iterations** — what the
+  native FrameCryptor (iOS/Android/RN/Flutter) and the Go SDK do. On the JS side
+  this means importing the bytes as **PBKDF2** material
+  (`importSenderKeyMaterial`), not the SDK's `createKeyMaterialFromBuffer`,
+  which imports HKDF material and derives a different key: the first
+  desktop↔mobile call decrypted nothing (`InvalidKey` on every frame) until this
+  was aligned.
+- Worker: `livekit-client/e2ee-worker` (Vite `?worker` import in `e2eeWorker.ts`, its
+  own chunk). Chromium WebView2 uses `createEncodedStreams`, WKWebView uses
+  `RTCRtpScriptTransform`; both are inside the SDK worker. `isE2EESupported()`
+  gates everything; an unsupported WebView cannot call or join channels.
+- Frame format (SDK): codec headers stay in the clear (VP8 10/3 bytes, H.264
+  NALU-aware, Opus 1 byte) so the SFU can still do simulcast layer selection;
+  trailer = `IV | ivLen | keyIndex`. Audio RED is off under E2EE (LiveKit's own
+  reference app does the same); video stays H.264 (AV1/VP9 unsupported by the cryptor).
+- Nothing is needed on the LiveKit server. The backend only gates token minting.
 
-- `RoomOptions.e2ee: { keyProvider, worker }` + `room.setE2EEEnabled(bool)` +
-  `room.isE2EEEnabled`.
-- `ExternalE2EEKeyProvider` — single shared key for the room. `setKey(string)`
-  → PBKDF2; `setKey(ArrayBuffer)` → HKDF (we always have key *bytes*, use this).
-- `BaseKeyProvider` — subclassable, supports **per-participant keys**
-  (`onSetEncryptionKey(key, participantIdentity?, keyIndex?)`) and ratcheting
-  (`ratchetKey`, `onKeyRatcheted`, `ratchetWindowSize` auto-ratchet on decrypt
-  failure).
-- Worker shipped at `livekit-client/e2ee-worker` (Vite: `?worker` import — keep
-  it inside the `lib/webrtc/` boundary so the planned lazy-load of the LiveKit
-  SDK still excludes it from the main bundle).
-- `isE2EESupported()` capability check; events
-  `ParticipantEncryptionStatusChanged` and `EncryptionError`.
-- Nothing is needed server-side — E2EE is transparent to the SFU.
+## 3. Structural advantage: identity = pubkey
 
-WebView support: WebView2/Chromium (Windows) uses `createEncodedStreams`;
-WKWebView (macOS, Safari ≥15.4) uses `RTCRtpScriptTransform` — both covered by
-the SDK worker. Linux webkit2gtk is the open question → always gate on
-`isE2EESupported()` and degrade gracefully.
+Because the LiveKit identity **is** the Nostr pubkey, NIP-44 + the signer give
+an authenticated, encrypted pairwise channel to every participant. A key envelope
+is sealed (signed) by its sender and encrypted to the recipient's pubkey. A
+malicious backend/SFU can mint a token with a spoofed identity and join a room,
+but without the nsec it cannot decrypt anyone's key envelope, and its own
+"key" reaches nobody: compromised infrastructure can DoS a room, not listen to it.
 
-## 3. Our structural advantage: identity = pubkey
+## 4. Design (as implemented)
 
-The LiveKit participant identity **is** the Nostr pubkey (verified in the
-backend token mint and in live logs). NIP-44 + the signer abstraction gives us
-an authenticated, encrypted pairwise channel to any participant. That makes
-key distribution a solved problem we already ship — no new crypto, no PKI.
+### 4.1 Per-sender keys, two key sources
 
-A useful corollary for the threat model: key envelopes are NIP-44-encrypted
-**to pubkeys**, not to LiveKit identities-as-claimed. A malicious backend/SFU
-can mint a token with a spoofed identity and join the room, but without the
-corresponding nsec it cannot decrypt the key envelope. Compromised
-infrastructure can DoS a call; it cannot listen to one.
+Every participant encrypts with its **own** key (SFrame/RFC 9605 model; Element
+Call and Jitsi do the same). Receivers install one key per sender.
 
-## 4. Design
-
-### Phase 1 — 1:1 SFU ("Relayed") calls · size S
-
-The invite already distributes a secret the server never sees:
-`roomSecretKey` travels inside the NIP-17 gift wrap, and only its *pubkey*
-(the roomId) is visible on the wire. Both peers can therefore derive the frame
-key with **zero additional signaling**:
+**1:1 DM calls — derived, zero signaling** (`packages/core/src/crypto/mediaKeys.ts`):
 
 ```
-frameKey = HKDF-SHA256(ikm = roomSecretKey bytes,
-                       salt = "thewired-e2ee",
-                       info = "lk-frame-v1:" + roomId,  L = 32 bytes)
+senderKey(pk) = HKDF-SHA256(ikm  = roomSecretKey bytes,
+                            salt = "thewired-e2ee-v1",
+                            info = "lk:" + roomId + ":" + pk,   L = 32)
 ```
 
-- `lib/webrtc/e2ee.ts` (new): create the worker + an `ExternalE2EEKeyProvider`,
-  `setKey(frameKey /* ArrayBuffer → HKDF path */)`.
-- `connectToRoom(url, token, e2ee?)` gains an optional e2ee param;
-  `handleP2PFailure` / `upgradeToSfuForListenTogether` pass it for calls.
-- **Capability negotiation** (old clients would hear garbage): add
-  `caps: { e2ee: true }` to the `call_invite` payload; callee echoes support in
-  the `connect` signal's (NIP-44-encrypted) data. Both sides support it → SFU
-  fallback connects encrypted. Either side missing it → plaintext SFU exactly
-  as today. Deriving from the invite payload means downgrade requires forging
-  the gift wrap — which the infrastructure can't do.
-- Note: P2P mode needs nothing — it is already E2E. This phase makes the
-  *fallback* as private as the primary path.
+Both peers hold `roomSecretKey` (from the invite); each installs its own key
+under its own identity and the peer's under theirs, index 0, before `connect()`.
+Membership of a 1:1 room is fixed, so nothing rotates. Pinned vectors live in
+`mediaKeys.test.ts` — the same function ships to mobile via `@ishtarservices/core`.
 
-### Phase 2 — voice/video channels, shared key · size M
+**Space voice/video channels — distributed sender keys** (`channelKeys.ts`):
 
-Channels have no pre-shared secret and dynamic membership, so a key must be
-distributed and rotated.
+- On join each participant generates a random 32-byte key (index 0), installs it,
+  and sends it to every co-participant as a **kind-20016 `media_key` envelope**
+  (docs/DM_WIRE_CONTRACT.md §2): NIP-17 gift wrap to the recipient's pubkey via
+  their kind-10050 inbox relays (APP_RELAY fallback), no self-wrap, wrap + seal
+  `expiration = created_at + 120`. Content:
+  `{ v:1, room:"<spaceId>:<channelId>", keys:[{ idx, key:<64 hex> }], ts:<sender ms> }`.
+- **Join** → send the current key (and the next one if a rotation is in flight) to the joiner.
+- **Leave** → rotate: new random key at `(idx+1) mod 256`, sent to everyone still
+  present, then the local encoder switches after `USE_KEY_DELAY_MS` (2 s) so
+  receivers hold it first. Leave bursts are debounced (500 ms); a leave during a
+  rotation queues another one. Long sessions also rotate every 30 min.
+- **Reconnect** → re-install our key locally and re-send it.
+- **Repeat** → every hand-over (start fan-out, join, rotation) is sent a
+  second time 3 s later with a fresh `ts` (idempotent: newest-wins, wrap-id
+  dedupe), so one lost envelope on either side never leaves a participant
+  undecryptable until the next rotation. Mobile does the same.
+- **Receive** → bound to the session's own room name, dropped when `|now − ts| > 120 s`
+  or older than the newest seen from that sender; wrap ids are deduped so a relay
+  replay never re-installs a key.
 
-- **Key**: random 32 bytes, `keyIndex` starts at 0.
-- **Envelope**: `{ roomRef, keyIndex, key }` NIP-44-encrypted per recipient
-  pubkey, sent over the **LiveKit reliable data channel** (in-band: no relay
-  round-trip, arrives exactly when the participant is present; the SFU sees
-  ciphertext only). Topic `e2ee-key`. A relay gift-wrap fallback can come later
-  for resilience; not in v1.
-- **Coordinator** (`lib/webrtc/e2eeKeyCoordinator.ts`): deterministic owner =
-  lowest pubkey among connected participants (no election protocol; everyone
-  can compute it from the participant list). Owner generates the key, wraps it
-  to each `ParticipantConnected`, and **rotates** (keyIndex+1, redistribute) on
-  `ParticipantDisconnected` so leavers can't decrypt future frames. Owner
-  leaves → next-lowest pubkey notices it is now owner and rotates immediately.
-- Joiners get only the current key — past frames (older keyIndex) stay sealed.
-- Per-channel setting `e2ee: required | off` in channel config (creator-set,
-  backend-stored). `required` + unsupported WebView → block join with a clear
-  message rather than silently degrading.
+Why Nostr and not the LiveKit data channel: with `encryption` on, data packets
+are encrypted with the sender's key — the channel cannot bootstrap its own keys.
+Why kind 20016 and not kind 14 + type tag: Amethyst/0xchat render every kind-14
+rumor as a message (same reason 20014/20015 exist).
 
-### Phase 3 — per-sender keys + hardening · size M
+### 4.2 Wiring (`client/src/lib/webrtc/livekitClient.ts`)
 
-Shared-key mode trusts every member with one secret and makes rotation a
-single-owner job. The durable design is Megolm-style **per-sender keys**:
+Order is load-bearing: `createE2EESession()` (throws `E2EEUnsupportedError` before
+any Room exists) → `new Room({ encryption })` → `room.setE2EEEnabled(true)` →
+pre-known keys (calls) → `connect()` → `session.start(roster)` (channels: fan-out).
+`ParticipantConnected/Disconnected/Reconnected` are forwarded to the session;
+`Disconnected` disposes it (worker terminated). `ParticipantEncryptionStatusChanged`
+→ `voice.e2ee.active` (local) / `participant.encrypted` (remote); `EncryptionError`
+→ debounced banner (5 s per participant, suppressed 8 s after a join — the
+key-in-flight race). Data packets with `encryptionType === NONE` are ignored in an
+encrypted room. Listen Together's late-joiner re-announce waits 1.5 s after the
+key hand-over so the joiner can decrypt it.
 
-- Custom `NostrKeyProvider extends BaseKeyProvider`; each *publisher* generates
-  their own sender key, wraps it to every other member (on join, and re-keyed
-  on any membership change). Decryption looks keys up by participant identity
-  — exactly what the worker's per-participant mode does.
-- No owner, no handoff, leave-rotation is each sender's local action.
-- Wire up `EncryptionError` → auto-`ratchetKey` retry → UI banner if it
-  persists; `ratchetWindowSize` ~16 to ride out re-key races.
-- Lock badge in `ParticipantTile`/`CallController` from
-  `ParticipantEncryptionStatusChanged` + `room.isE2EEEnabled`.
+### 4.3 UI
+Lock on every `MediaTile` and in the `CallController` header; amber open lock on a
+participant whose tracks are plaintext in an encrypted room; `VoiceBanners` shows
+encryption errors; `CallNotice` toast explains a refused call (outdated peer, with a
+one-click DM nudge; or an unsupported device).
 
-### Phase 4 — adjacent gaps · size S
+## 5. Threat model — what this does and does not protect
 
-- LiveKit E2EE covers **media frames only**. Data-channel traffic (Listen
-  Together sync today) still transits the SFU readable — wrap LT payloads in
-  NIP-44 to room members or accept-and-document (it's music metadata).
-- Server-side recording/egress/HLS is fundamentally incompatible with E2EE —
-  document that an encrypted room can never be recorded by infra (a feature,
-  but say it out loud).
-- Metadata is not hidden: who is in the room, when, speaking activity, and
-  track on/off remain visible to the SFU. E2EE protects *content*.
+Protects media **content** from the SFU, the backend, relays and the network.
 
-## 5. What this does NOT protect against
+Does not hide: who is in a room, when, who is speaking, track on/off, frame
+sizes/timing. Does not defend against a compromised **client** (keys live in the
+worker; the app sees plaintext) or a dishonest roster: the backend mints tokens,
+so it controls who is *listed*; E2EE ensures an unauthorized participant gets
+ciphertext, and `/voice/dm-token` additionally binds a `dm:<roomId>` to its first
+two parties (403 for anyone else). Server-side recording, egress, HLS,
+transcription or agents are **impossible** on encrypted rooms — by design.
 
-- A compromised **client** (keys live in the worker; the app sees plaintext).
-- Membership manipulation: the backend controls token minting, so it controls
-  *who is listed*; E2EE ensures unauthorized members get ciphertext, not that
-  the roster is honest. Roster signing could come later via NIP-29 membership
-  events.
-- Traffic analysis (frame sizes/timing).
+## 6. Rollout: mandatory, with a gate and an update path
 
-## 6. Effort & order
+- The `call_invite` payload carries `caps: { e2ee: true }` (authenticated: it rides
+  inside the sealed rumor). An invite **without** it is never rung: the callee
+  auto-declines and sees "X's app doesn't support encrypted calls yet" with a
+  "Let them know" DM nudge. A partner that joins a call publishing plaintext ends
+  the call the same way (fail closed).
+- Backend `VOICE_REQUIRE_E2EE` (**on by default**): `/voice/token` and
+  `/voice/dm-token` return `409 E2EE_REQUIRED` unless the body has
+  `supportsE2EE: true`, so a plaintext build cannot join any room. Every
+  client, including the mobile app, implements the media-key protocol before
+  it ships voice; set the flag to `false` only to bridge a rollout.
+- Unsupported WebViews (no insertable streams / encoded transforms — possibly
+  Linux webkit2gtk) are blocked with a clear message rather than joining plaintext.
 
-| Phase | Scope | Size | Ships the user-visible claim |
-|---|---|---|---|
-| 1 | 1:1 SFU calls (HKDF from invite secret) | S (~1–2 days) | "1:1 calls are E2EE in both modes" |
-| 2 | Channels, shared key + rotation | M | "E2EE voice channels (opt-in)" |
-| 3 | Per-sender keys, badges, required-mode | M | "E2EE by default" |
-| 4 | LT data channel, docs | S | — |
+## 7. Mobile (soot)
 
-Phase 1 first: smallest diff, reuses the existing invite secret, and converts
-the most privacy-sensitive surface (1:1 calls) to fully E2E in both transport
-modes. Recommended after the current beta call-stack soak, per the public
-reply already given to the user.
+Contract-only today (soot has no media stack yet). To interoperate it must:
+derive call keys with `deriveCallSenderKey` from `@ishtarservices/core`; send
+`caps: { e2ee: true }` on invites and decline invites without it; speak kind-20016
+envelopes with the same rotation policy; use `@livekit/react-native`'s
+`RNE2EEManager` + `RNKeyProvider` in per-participant mode, passing the raw 32-byte
+key material so the native HKDF path matches `createKeyMaterialFromBuffer`.
+First interop checkpoint: a desktop ↔ RN encrypted 1:1 call.
+
+## 8. Verification
+
+Unit: `packages/core` (vectors, envelope parser), `client/src/lib/webrtc/e2ee/__tests__`
+(provider, call keys, rotation state machine, inbox, session), `livekitClient.test.ts`
+(ordering, events, plaintext-packet drop), `callLifecycle.test.ts`, `voiceService.test.ts`,
+`callInviteE2EE.test.ts`, backend `voiceDmToken.test.ts` / `voiceGrants.test.ts`.
+
+Manual: two-machine call — lock badges on both tiles, `room.isE2EEEnabled` true,
+LiveKit server logs show `encryption: GCM` on tracks; macOS ↔ Windows
+(WKWebView `RTCRtpScriptTransform` ↔ WebView2 `createEncodedStreams`); a channel
+with three clients where one leaves → key index bump in `wiredDebug.enable("e2ee")`
+logs and audio continues.

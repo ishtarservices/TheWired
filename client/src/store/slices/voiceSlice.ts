@@ -54,6 +54,10 @@ interface VoiceState {
   mediaError: string | null;
   /** Stage layout (grid / focus, pin, fit) for the connected room. */
   layout: VoiceLayoutState;
+  /** Frame-level end-to-end encryption for the connected room. `active` =
+   *  our own tracks are being encrypted (LiveKit ParticipantEncryptionStatus
+   *  for the local participant); `error` = last decrypt/encrypt failure. */
+  e2ee: { active: boolean; error: string | null };
 }
 
 const initialState: VoiceState = {
@@ -75,6 +79,7 @@ const initialState: VoiceState = {
   connectionState: "connected",
   mediaError: null,
   layout: initialLayout(),
+  e2ee: { active: false, error: null },
 };
 
 /** Drop layout references to tiles that no longer exist. */
@@ -116,6 +121,7 @@ export const voiceSlice = createSlice({
       state.serverUrl = null;
       state.connectionState = "connected";
       state.mediaError = null;
+      state.e2ee = { active: false, error: null };
       // Keep the auto-focus preference across rooms; everything else is per-room.
       state.layout = { ...initialLayout(), autoFocusSpeaker: state.layout.autoFocusSpeaker };
       state.localState = {
@@ -230,6 +236,15 @@ export const voiceSlice = createSlice({
       state.mediaError = action.payload;
     },
 
+    setE2EEActive(state, action: PayloadAction<boolean>) {
+      state.e2ee.active = action.payload;
+      if (action.payload) state.e2ee.error = null;
+    },
+
+    setE2EEError(state, action: PayloadAction<string | null>) {
+      state.e2ee.error = action.payload;
+    },
+
     // ─── Stage layout ───────────────────────────────────────────
     setLayoutMode(state, action: PayloadAction<LayoutMode>) {
       state.layout.mode = action.payload;
@@ -287,6 +302,8 @@ export const {
   setAudioPlaybackBlocked,
   setVoiceConnectionState,
   setMediaError,
+  setE2EEActive,
+  setE2EEError,
   setLayoutMode,
   focusTile,
   pinTile,
