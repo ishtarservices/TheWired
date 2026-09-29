@@ -3,9 +3,40 @@ use rand::rngs::OsRng;
 use secp256k1::{Secp256k1, SecretKey};
 use sha2::{Digest, Sha256};
 use std::collections::HashMap;
+use std::path::{Path, PathBuf};
 use std::sync::Mutex;
+use zeroize::Zeroizing;
 
 const SERVICE_NAME: &str = "app.thewired.desktop";
+
+/// Set by the release workflow (`WIRED_SIGNED_RELEASE=1`) for CI-built, signed
+/// bundles. Only such builds may drop the plaintext identity-key fallback file.
+/// On macOS, Data Protection keychain items are bound to the app's code
+/// signature, so an ad-hoc/dev build that dropped the file would lose the key
+/// on the next rebuild. Windows Credential Manager and Linux Secret Service are
+/// not signature-bound, but one rule for every platform keeps this predictable.
+const SIGNED_RELEASE_BUILD: bool = option_env!("WIRED_SIGNED_RELEASE").is_some();
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum FallbackPolicy {
+    /// (Re)write the plaintext fallback file — the keychain alone can't be trusted yet.
+    Keep,
+    /// Delete the plaintext fallback file — the keychain copy is proven and the user holds a backup.
+    Drop,
+}
+
+/// Decide whether an identity key's plaintext fallback file may be dropped.
+/// ALL of these must hold, otherwise we keep the file (never risk key loss):
+/// - `keychain_verified`: the keychain copy was read back and matched;
+/// - `backed_up`: the user confirmed a backup (or imported the key, which proves they hold it);
+/// - `signed_release`: this is a signed CI build (see `SIGNED_RELEASE_BUILD`).
+fn fallback_policy(keychain_verified: bool, backed_up: bool, signed_release: bool) -> FallbackPolicy {
+    if keychain_verified && backed_up && signed_release {
+        FallbackPolicy::Drop
+    } else {
+        FallbackPolicy::Keep
+    }
+}
 
 /// Instance suffix for dev builds with multiple instances (namespaces keychain
 /// accounts AND the embedded-relay data dir so concurrent dev instances don't
@@ -348,9 +379,11 @@ mod platform {
 
 // ─── Account list persistence ───────────────────────────────────────────
 
-fn account_list_path() -> Option<std::path::PathBuf> {
+/// `<platform app-data root>/app.thewired.desktop` — home of the account list,
+/// fallback key files, transport-secret fallbacks and backup-ack markers.
+fn app_data_dir() -> Option<PathBuf> {
     let home = std::env::var("HOME").ok()?;
-    let mut dir = std::path::PathBuf::from(home);
+    let mut dir = PathBuf::from(home);
     #[cfg(target_os = "macos")]
     dir.push("Library/Application Support");
     #[cfg(target_os = "linux")]
@@ -358,8 +391,11 @@ fn account_list_path() -> Option<std::path::PathBuf> {
     #[cfg(target_os = "windows")]
     dir.push("AppData/Roaming");
     dir.push(SERVICE_NAME);
-    dir.push(format!("account_list{}.json", instance_suffix()));
     Some(dir)
+}
+
+fn account_list_path() -> Option<PathBuf> {
+    Some(app_data_dir()?.join(format!("account_list{}.json", instance_suffix())))
 }
 
 fn load_account_list() -> Vec<String> {
@@ -447,40 +483,60 @@ fn compute_pubkey(sk: &SecretKey) -> String {
 }
 
 fn invalidate_cache() {
-    if let Ok(mut cache) = CACHED_SECRETS.lock() {
-        *cache = None;
+    let mut cache = get_cache();
+    if let Some(map) = cache.as_mut() {
+        for (_, sk) in map.iter_mut() {
+            sk.non_secure_erase();
+        }
     }
+    *cache = None;
 }
 
 /// File-based fallback path for a specific account's secret key.
-fn fallback_key_path_for(pubkey: &str) -> Option<std::path::PathBuf> {
-    let home = std::env::var("HOME").ok()?;
-    let mut dir = std::path::PathBuf::from(home);
-    #[cfg(target_os = "macos")]
-    dir.push("Library/Application Support");
-    #[cfg(target_os = "linux")]
-    dir.push(".local/share");
-    #[cfg(target_os = "windows")]
-    dir.push("AppData/Roaming");
-    dir.push(SERVICE_NAME);
-    dir.push(format!("{}.key", get_key_account_for(pubkey)));
-    Some(dir)
+fn fallback_key_path_in(dir: &Path, pubkey: &str) -> PathBuf {
+    dir.join(format!("{}.key", get_key_account_for(pubkey)))
+}
+
+fn fallback_key_path_for(pubkey: &str) -> Option<PathBuf> {
+    Some(fallback_key_path_in(&app_data_dir()?, pubkey))
+}
+
+/// Marker file recording that the user confirmed they hold a backup of this
+/// key (onboarding checkbox, Settings "I've saved my key", or an import — which
+/// proves possession). Its presence is one of the three conditions for dropping
+/// the plaintext fallback (see `fallback_policy`).
+fn backup_ack_path_in(dir: &Path, pubkey: &str) -> PathBuf {
+    dir.join(format!("nostr_backup_ack_{}{}", pubkey, instance_suffix()))
+}
+
+fn backup_ack_path_for(pubkey: &str) -> Option<PathBuf> {
+    Some(backup_ack_path_in(&app_data_dir()?, pubkey))
+}
+
+fn is_backed_up(pubkey: &str) -> bool {
+    backup_ack_path_for(pubkey).map(|p| p.exists()).unwrap_or(false)
+}
+
+fn write_backup_ack(pubkey: &str) {
+    if let Some(path) = backup_ack_path_for(pubkey) {
+        if let Some(parent) = path.parent() {
+            let _ = std::fs::create_dir_all(parent);
+        }
+        if let Err(e) = std::fs::write(&path, b"") {
+            log::warn!("Failed to write backup-ack marker: {e}");
+        }
+    }
+}
+
+fn delete_backup_ack(pubkey: &str) {
+    if let Some(path) = backup_ack_path_for(pubkey) {
+        let _ = std::fs::remove_file(path);
+    }
 }
 
 /// Legacy fallback path (single-key era)
-fn legacy_fallback_key_path() -> Option<std::path::PathBuf> {
-    let home = std::env::var("HOME").ok()?;
-    let mut dir = std::path::PathBuf::from(home);
-    #[cfg(target_os = "macos")]
-    dir.push("Library/Application Support");
-    #[cfg(target_os = "linux")]
-    dir.push(".local/share");
-    #[cfg(target_os = "windows")]
-    dir.push("AppData/Roaming");
-    dir.push(SERVICE_NAME);
-    let account = get_legacy_key_account();
-    dir.push(format!("{account}.key"));
-    Some(dir)
+fn legacy_fallback_key_path() -> Option<PathBuf> {
+    Some(app_data_dir()?.join(format!("{}.key", get_legacy_key_account())))
 }
 
 fn read_fallback_key_for(pubkey: &str) -> Option<SecretKey> {
@@ -522,16 +578,102 @@ fn harden_perms(path: &std::path::Path) {
     }
 }
 
+/// Write a secret file that is owner-only from the moment it exists. On Unix
+/// the file is created with mode 0600 (no umask window); `harden_perms` then
+/// also tightens the parent directory. Truncates any existing file.
+fn write_private(path: &Path, contents: &[u8]) -> std::io::Result<()> {
+    use std::io::Write;
+    if let Some(parent) = path.parent() {
+        let _ = std::fs::create_dir_all(parent);
+    }
+    let mut opts = std::fs::OpenOptions::new();
+    opts.write(true).create(true).truncate(true);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::OpenOptionsExt;
+        opts.mode(0o600);
+    }
+    let mut f = opts.open(path)?;
+    f.write_all(contents)?;
+    f.sync_all()?;
+    harden_perms(path);
+    Ok(())
+}
+
+/// One-time-per-launch sweep: tighten every `*.key` / `*.secret` file in the
+/// app data dir (and the dir itself) to owner-only. Files written before
+/// `harden_perms` existed were left at the umask default (0644). Permissions
+/// only — never touches contents, never deletes.
+pub(crate) fn harden_existing_files(dir: &Path) {
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let Ok(entries) = std::fs::read_dir(dir) else { return };
+        let _ = std::fs::set_permissions(dir, std::fs::Permissions::from_mode(0o700));
+        for entry in entries.flatten() {
+            let path = entry.path();
+            let is_secret = matches!(
+                path.extension().and_then(|e| e.to_str()),
+                Some("key") | Some("secret")
+            );
+            if is_secret && path.is_file() {
+                let _ = std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o600));
+            }
+        }
+    }
+    #[cfg(not(unix))]
+    {
+        let _ = dir;
+    }
+}
+
+pub(crate) fn harden_on_startup() {
+    if let Some(dir) = app_data_dir() {
+        harden_existing_files(&dir);
+    }
+}
+
 fn write_fallback_key_for(pubkey: &str, hex_str: &str) {
     if let Some(path) = fallback_key_path_for(pubkey) {
-        if let Some(parent) = path.parent() {
-            let _ = std::fs::create_dir_all(parent);
-        }
-        if let Err(e) = std::fs::write(&path, hex_str) {
+        if let Err(e) = write_private(&path, hex_str.as_bytes()) {
             log::warn!("Failed to write fallback key file: {e}");
-            return;
         }
-        harden_perms(&path);
+    }
+}
+
+/// Does a keychain copy of this account's key read back identical to `expected`?
+/// Checks the Data Protection keychain first, then the legacy keychain. On macOS
+/// this can prompt (Touch ID / keychain password), so callers only invoke it when
+/// the answer could actually change the fallback decision.
+fn keychain_key_roundtrips(key_account: &str, expected: &[u8]) -> bool {
+    if let Ok(Some(read)) = platform::read_key(SERVICE_NAME, key_account) {
+        return read.as_slice() == expected;
+    }
+    matches!(platform::read_legacy_key(SERVICE_NAME, key_account), Ok(Some(read)) if read.as_slice() == expected)
+}
+
+/// Verify the keychain copy ONLY if a positive answer could lead to dropping
+/// the fallback (signed build + backed up). Otherwise skip the (possibly
+/// prompting) read and report unverified, which keeps the file.
+fn verify_if_droppable(pubkey: &str, key_account: &str, hex_str: &str) -> bool {
+    if !(SIGNED_RELEASE_BUILD && is_backed_up(pubkey)) {
+        return false;
+    }
+    keychain_key_roundtrips(key_account, hex_str.as_bytes())
+}
+
+/// Apply `fallback_policy` for this account: drop the plaintext file when the
+/// keychain copy is proven, the user holds a backup and this is a signed build;
+/// otherwise (re)write it so the key can never be lost.
+fn settle_fallback(pubkey: &str, hex_str: &str, keychain_verified: bool) {
+    match fallback_policy(keychain_verified, is_backed_up(pubkey), SIGNED_RELEASE_BUILD) {
+        FallbackPolicy::Drop => {
+            if fallback_key_path_for(pubkey).map(|p| p.exists()).unwrap_or(false) {
+                log::info!("keychain verified + backup confirmed: dropping plaintext fallback for {}", &pubkey[..12.min(pubkey.len())]);
+            }
+            delete_fallback_key_for(pubkey);
+        }
+        FallbackPolicy::Keep => write_fallback_key_for(pubkey, hex_str),
     }
 }
 
@@ -548,30 +690,15 @@ fn delete_legacy_fallback_key() {
 }
 
 /// File-based fallback path for a generic secret (mirrors the per-account key fallback files).
-fn secret_fallback_path(key: &str) -> Option<std::path::PathBuf> {
-    let home = std::env::var("HOME").ok()?;
-    let mut dir = std::path::PathBuf::from(home);
-    #[cfg(target_os = "macos")]
-    dir.push("Library/Application Support");
-    #[cfg(target_os = "linux")]
-    dir.push(".local/share");
-    #[cfg(target_os = "windows")]
-    dir.push("AppData/Roaming");
-    dir.push(SERVICE_NAME);
-    dir.push(format!("{}.secret", get_secret_account_for(key)));
-    Some(dir)
+fn secret_fallback_path(key: &str) -> Option<PathBuf> {
+    Some(app_data_dir()?.join(format!("{}.secret", get_secret_account_for(key))))
 }
 
 fn write_secret_fallback(key: &str, value: &str) {
     if let Some(path) = secret_fallback_path(key) {
-        if let Some(parent) = path.parent() {
-            let _ = std::fs::create_dir_all(parent);
-        }
-        if let Err(e) = std::fs::write(&path, value) {
+        if let Err(e) = write_private(&path, value.as_bytes()) {
             log::warn!("Failed to write secret fallback file: {e}");
-            return;
         }
-        harden_perms(&path);
     }
 }
 
@@ -598,12 +725,12 @@ fn migrate_legacy_key() -> Option<String> {
     let legacy_marker = get_legacy_marker_account();
 
     // Try to read from legacy keychain locations
-    let hex_str = if let Ok(Some(data)) = platform::read_key(SERVICE_NAME, &legacy_account) {
-        String::from_utf8(data).ok()?
+    let hex_str: Zeroizing<String> = if let Ok(Some(data)) = platform::read_key(SERVICE_NAME, &legacy_account) {
+        Zeroizing::new(String::from_utf8(data).ok()?)
     } else if let Ok(Some(data)) = platform::read_legacy_key(SERVICE_NAME, &legacy_account) {
-        String::from_utf8(data).ok()?
+        Zeroizing::new(String::from_utf8(data).ok()?)
     } else if let Some(sk) = read_legacy_fallback_key() {
-        hex::encode(sk.secret_bytes())
+        Zeroizing::new(hex::encode(sk.secret_bytes()))
     } else {
         return None;
     };
@@ -615,7 +742,8 @@ fn migrate_legacy_key() -> Option<String> {
     let new_key_account = get_key_account_for(&pubkey);
     let new_marker_account = get_marker_account_for(&pubkey);
     let _ = platform::store_key(SERVICE_NAME, &new_key_account, &new_marker_account, hex_str.as_bytes());
-    write_fallback_key_for(&pubkey, &hex_str);
+    // Unverified migration: keep the file.
+    settle_fallback(&pubkey, &hex_str, false);
 
     // Add to account list
     add_to_account_list(&pubkey);
@@ -654,28 +782,34 @@ fn load_account_key(pubkey: &str) -> Result<SecretKey, String> {
     let key_account = get_key_account_for(pubkey);
     let marker_account = get_marker_account_for(pubkey);
 
-    // Try keychain
+    // Try keychain. A successful read IS the verification: the keychain copy
+    // demonstrably round-trips, so the fallback may be dropped if the other
+    // two policy conditions hold.
     if let Some(data) = platform::read_key(SERVICE_NAME, &key_account)? {
-        let hex_str = String::from_utf8(data).map_err(|e| format!("Invalid key data: {e}"))?;
+        let hex_str = Zeroizing::new(String::from_utf8(data).map_err(|e| format!("Invalid key data: {e}"))?);
         let sk = parse_hex_secret_key(&hex_str)?;
         let mut cache = get_cache();
         let map = cache.get_or_insert_with(HashMap::new);
         map.insert(pubkey.to_string(), sk);
-        write_fallback_key_for(pubkey, &hex_str);
+        settle_fallback(pubkey, &hex_str, true);
         return Ok(sk);
     }
 
     // Try legacy keychain for this account
     if let Some(data) = platform::read_legacy_key(SERVICE_NAME, &key_account)? {
-        let hex_str = String::from_utf8(data).map_err(|e| format!("Invalid key data: {e}"))?;
+        let hex_str = Zeroizing::new(String::from_utf8(data).map_err(|e| format!("Invalid key data: {e}"))?);
         let sk = parse_hex_secret_key(&hex_str)?;
-        // Migrate to modern storage
-        let _ = platform::store_key(SERVICE_NAME, &key_account, &marker_account, hex_str.as_bytes());
-        let _ = platform::delete_legacy_key(SERVICE_NAME, &key_account);
+        // Migrate to modern storage. The legacy item is deleted below, so the
+        // NEW item must round-trip before the file can go.
+        let stored = platform::store_key(SERVICE_NAME, &key_account, &marker_account, hex_str.as_bytes()).is_ok();
+        let verified = stored && verify_if_droppable(pubkey, &key_account, &hex_str);
+        if stored {
+            let _ = platform::delete_legacy_key(SERVICE_NAME, &key_account);
+        }
         let mut cache = get_cache();
         let map = cache.get_or_insert_with(HashMap::new);
         map.insert(pubkey.to_string(), sk);
-        write_fallback_key_for(pubkey, &hex_str);
+        settle_fallback(pubkey, &hex_str, verified);
         return Ok(sk);
     }
 
@@ -684,17 +818,21 @@ fn load_account_key(pubkey: &str) -> Result<SecretKey, String> {
         let mut cache = get_cache();
         let map = cache.get_or_insert_with(HashMap::new);
         map.insert(pubkey.to_string(), sk);
-        // Try to re-store in keychain
-        let hex_str = hex::encode(sk.secret_bytes());
-        let _ = platform::store_key(SERVICE_NAME, &key_account, &marker_account, hex_str.as_bytes());
+        // Try to re-store in keychain; only trust it once it reads back.
+        let hex_str = Zeroizing::new(hex::encode(sk.secret_bytes()));
+        let stored = platform::store_key(SERVICE_NAME, &key_account, &marker_account, hex_str.as_bytes()).is_ok();
+        let verified = stored && verify_if_droppable(pubkey, &key_account, &hex_str);
+        settle_fallback(pubkey, &hex_str, verified);
         return Ok(sk);
     }
 
     Err(format!("No key found for account {}", &pubkey[..12.min(pubkey.len())]))
 }
 
-/// Get the active account's secret key, or generate/migrate as needed.
-fn get_active_secret_key(generate: bool) -> Result<SecretKey, String> {
+/// Get the active account's secret key (migrating legacy storage or falling
+/// back to the first listed account). NEVER generates: minting an identity as a
+/// side effect of a read produced orphan keys on disk. Use `keystore_generate_key`.
+fn get_active_secret_key() -> Result<SecretKey, String> {
     // If we have an active pubkey, load that specific key
     {
         let active = get_active();
@@ -716,54 +854,16 @@ fn get_active_secret_key(generate: bool) -> Result<SecretKey, String> {
         return load_account_key(first);
     }
 
-    // No key found anywhere — generate if requested
-    if !generate {
-        return Err("No key found".to_string());
-    }
-
-    let secp = Secp256k1::new();
-    let (sk, _) = secp.generate_keypair(&mut OsRng);
-    let hex_str = hex::encode(sk.secret_bytes());
-    let pubkey = compute_pubkey(&sk);
-
-    // Cache immediately
-    {
-        let mut cache = get_cache();
-        let map = cache.get_or_insert_with(HashMap::new);
-        map.insert(pubkey.clone(), sk);
-    }
-    {
-        let mut active = get_active();
-        *active = Some(pubkey.clone());
-    }
-
-    // Persist to keychain
-    let key_account = get_key_account_for(&pubkey);
-    let marker_account = get_marker_account_for(&pubkey);
-    if let Err(e) = platform::store_key(
-        SERVICE_NAME,
-        &key_account,
-        &marker_account,
-        hex_str.as_bytes(),
-    ) {
-        log::error!("Failed to persist generated key to keychain: {e}");
-    }
-
-    // Always write fallback file
-    write_fallback_key_for(&pubkey, &hex_str);
-
-    // Add to account list
-    add_to_account_list(&pubkey);
-
-    Ok(sk)
+    Err("No key found".to_string())
 }
 
 // ─── Tauri commands ──────────────────────────────────────────────────────
 
-/// Get the public key from the stored private key, or generate a new keypair
+/// Get the public key of the active stored private key. Errors when no key
+/// exists — it never generates one (see `keystore_generate_key`).
 #[tauri::command]
 pub fn keystore_get_public_key() -> Result<String, String> {
-    let sk = get_active_secret_key(true)?;
+    let sk = get_active_secret_key()?;
     Ok(compute_pubkey(&sk))
 }
 
@@ -773,7 +873,7 @@ pub fn keystore_get_public_key() -> Result<String, String> {
 pub fn keystore_generate_key() -> Result<String, String> {
     let secp = Secp256k1::new();
     let (sk, _) = secp.generate_keypair(&mut OsRng);
-    let hex_str = hex::encode(sk.secret_bytes());
+    let hex_str = Zeroizing::new(hex::encode(sk.secret_bytes()));
     let pubkey = compute_pubkey(&sk);
 
     // Cache immediately
@@ -799,7 +899,10 @@ pub fn keystore_generate_key() -> Result<String, String> {
         log::error!("Failed to persist generated key to keychain: {e}");
     }
 
-    write_fallback_key_for(&pubkey, &hex_str);
+    // A brand-new key has no backup yet, so the policy always keeps the file
+    // until the user confirms one (`keystore_mark_backed_up`).
+    delete_backup_ack(&pubkey);
+    settle_fallback(&pubkey, &hex_str, false);
     add_to_account_list(&pubkey);
 
     Ok(pubkey)
@@ -816,7 +919,7 @@ pub fn keystore_clear_active() -> Result<(), String> {
 /// Sign a Nostr event (compute id + schnorr signature)
 #[tauri::command]
 pub fn keystore_sign_event(serialized_event: String) -> Result<SignedEventResult, String> {
-    let sk = get_active_secret_key(false)?;
+    let sk = get_active_secret_key()?;
 
     // #116 — bind the signature to the active identity. The canonical NIP-01
     // serialization is [0, pubkey, created_at, kind, tags, content]; index 1 is
@@ -841,11 +944,92 @@ pub fn keystore_sign_event(serialized_event: String) -> Result<SignedEventResult
     })
 }
 
-/// Return the hex-encoded secret key (errors if no key exists)
+/// Return the hex-encoded secret key for display/export (Settings reveal,
+/// onboarding backup, QR). This is the ONE command that hands the raw key to
+/// the webview, so it is gated by a native OS confirm dialog that injected
+/// script cannot click through, and on macOS it re-reads the Data Protection
+/// keychain item (USER_PRESENCE → fresh Touch ID / passcode) instead of the
+/// in-memory cache when that item exists. Async so the blocking dialog runs off
+/// the main thread.
 #[tauri::command]
-pub fn keystore_get_secret_key() -> Result<String, String> {
-    let sk = get_active_secret_key(false)?;
+pub async fn keystore_get_secret_key(app: tauri::AppHandle) -> Result<String, String> {
+    use tauri_plugin_dialog::{DialogExt, MessageDialogButtons, MessageDialogKind};
+
+    let confirmed = app
+        .dialog()
+        .message(
+            "The Wired is about to show your secret key (nsec). Anyone who sees it has full control of your identity.\n\nOnly continue if you just asked for this in Settings or during setup.",
+        )
+        .title("Reveal secret key?")
+        .kind(MessageDialogKind::Warning)
+        .buttons(MessageDialogButtons::OkCancelCustom("Reveal".into(), "Cancel".into()))
+        .blocking_show();
+    if !confirmed {
+        return Err("Secret key reveal cancelled".to_string());
+    }
+
+    let sk = fresh_active_secret_key()?;
+    log::warn!("secret key exported to the UI for {}", &compute_pubkey(&sk)[..12]);
     Ok(hex::encode(sk.secret_bytes()))
+}
+
+/// Like `get_active_secret_key`, but prefers a fresh Data Protection keychain
+/// read over the cache so biometric-protected items re-prompt. Falls back to
+/// the normal path when the item isn't in that keychain (legacy tier, other OS).
+fn fresh_active_secret_key() -> Result<SecretKey, String> {
+    let active = get_active().clone();
+    if let Some(pk) = active {
+        let key_account = get_key_account_for(&pk);
+        if let Ok(Some(data)) = platform::read_key(SERVICE_NAME, &key_account) {
+            let hex_str = Zeroizing::new(String::from_utf8(data).map_err(|e| format!("Invalid key data: {e}"))?);
+            let sk = parse_hex_secret_key(&hex_str)?;
+            if compute_pubkey(&sk) == pk {
+                return Ok(sk);
+            }
+        }
+    }
+    get_active_secret_key()
+}
+
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct BackupStatus {
+    /// The user confirmed a backup of the active key (or imported it).
+    pub backed_up: bool,
+    /// A plaintext fallback file for the active key currently exists on disk.
+    pub fallback_present: bool,
+    /// Signed CI build: the only kind allowed to drop the fallback file.
+    pub signed_release: bool,
+}
+
+fn backup_status_for(pubkey: &str) -> BackupStatus {
+    BackupStatus {
+        backed_up: is_backed_up(pubkey),
+        fallback_present: fallback_key_path_for(pubkey).map(|p| p.exists()).unwrap_or(false),
+        signed_release: SIGNED_RELEASE_BUILD,
+    }
+}
+
+/// Backup state of the active account (drives the Settings "back up your key" banner).
+#[tauri::command]
+pub fn keystore_backup_status() -> Result<BackupStatus, String> {
+    let active = get_active().clone().ok_or_else(|| "No active account".to_string())?;
+    Ok(backup_status_for(&active))
+}
+
+/// The user confirmed they hold a backup of the active key. Records the marker
+/// and, if the keychain copy verifiably round-trips on a signed build, drops
+/// the plaintext fallback file. Returns the resulting status.
+#[tauri::command]
+pub fn keystore_mark_backed_up() -> Result<BackupStatus, String> {
+    let active = get_active().clone().ok_or_else(|| "No active account".to_string())?;
+    write_backup_ack(&active);
+    let sk = load_account_key(&active)?;
+    let hex_str = Zeroizing::new(hex::encode(sk.secret_bytes()));
+    let key_account = get_key_account_for(&active);
+    let verified = verify_if_droppable(&active, &key_account, &hex_str);
+    settle_fallback(&active, &hex_str, verified);
+    Ok(backup_status_for(&active))
 }
 
 /// Check if a private key exists in the keystore.
@@ -924,7 +1108,8 @@ pub fn keystore_has_key() -> Result<bool, String> {
 /// Import a hex-encoded secret key into the keystore with biometric protection
 #[tauri::command]
 pub fn keystore_import_key(secret_hex: String) -> Result<String, String> {
-    let secret_bytes = hex::decode(&secret_hex).map_err(|e| format!("Invalid hex: {e}"))?;
+    let secret_hex = Zeroizing::new(secret_hex);
+    let secret_bytes = Zeroizing::new(hex::decode(&*secret_hex).map_err(|e| format!("Invalid hex: {e}"))?);
     let sk =
         SecretKey::from_slice(&secret_bytes).map_err(|e| format!("Invalid secret key: {e}"))?;
     let pubkey = compute_pubkey(&sk);
@@ -933,7 +1118,10 @@ pub fn keystore_import_key(secret_hex: String) -> Result<String, String> {
     let marker_account = get_marker_account_for(&pubkey);
 
     platform::store_key(SERVICE_NAME, &key_account, &marker_account, secret_hex.as_bytes())?;
-    write_fallback_key_for(&pubkey, &secret_hex);
+    // The user just typed/scanned this key, so they demonstrably hold a copy.
+    write_backup_ack(&pubkey);
+    let verified = verify_if_droppable(&pubkey, &key_account, &secret_hex);
+    settle_fallback(&pubkey, &secret_hex, verified);
 
     // Update cache and set active
     {
@@ -982,13 +1170,16 @@ pub fn keystore_delete_key(pubkey: Option<String>) -> Result<(), String> {
     platform::delete_items(SERVICE_NAME, &key_account, &marker_account)?;
     let _ = platform::delete_legacy_key(SERVICE_NAME, &key_account);
     delete_fallback_key_for(&target);
+    delete_backup_ack(&target);
     remove_from_account_list(&target);
 
-    // Remove from cache
+    // Remove from cache and scrub the bytes
     {
         let mut cache = get_cache();
         if let Some(map) = cache.as_mut() {
-            map.remove(&target);
+            if let Some(mut sk) = map.remove(&target) {
+                sk.non_secure_erase();
+            }
         }
     }
 
@@ -1027,7 +1218,7 @@ pub fn keystore_nip44_encrypt(
     recipient_pubkey: String,
     plaintext: String,
 ) -> Result<String, String> {
-    let sk = get_active_secret_key(false)?;
+    let sk = get_active_secret_key()?;
     let pubkey = crate::nip44::xonly_to_pubkey(&recipient_pubkey)?;
     let conversation_key = crate::nip44::get_conversation_key(&sk, &pubkey)?;
     crate::nip44::encrypt(&plaintext, &conversation_key)
@@ -1039,7 +1230,7 @@ pub fn keystore_nip44_decrypt(
     sender_pubkey: String,
     ciphertext: String,
 ) -> Result<String, String> {
-    let sk = get_active_secret_key(false)?;
+    let sk = get_active_secret_key()?;
     let pubkey = crate::nip44::xonly_to_pubkey(&sender_pubkey)?;
     let conversation_key = crate::nip44::get_conversation_key(&sk, &pubkey)?;
     crate::nip44::decrypt(&ciphertext, &conversation_key)
@@ -1146,6 +1337,91 @@ mod sign_guard_tests {
     fn rejects_malformed_event() {
         assert!(assert_event_pubkey("not json", ACTIVE).is_err());
         assert!(assert_event_pubkey("[0]", ACTIVE).is_err());
+    }
+}
+
+#[cfg(test)]
+mod fallback_policy_tests {
+    use super::*;
+
+    #[test]
+    fn drops_only_when_all_three_hold() {
+        assert_eq!(fallback_policy(true, true, true), FallbackPolicy::Drop);
+        assert_eq!(fallback_policy(false, true, true), FallbackPolicy::Keep);
+        assert_eq!(fallback_policy(true, false, true), FallbackPolicy::Keep);
+        assert_eq!(fallback_policy(true, true, false), FallbackPolicy::Keep);
+        assert_eq!(fallback_policy(false, false, false), FallbackPolicy::Keep);
+    }
+
+    #[test]
+    fn dev_and_local_builds_are_never_signed_release() {
+        // The test binary is never built by the release workflow.
+        assert!(!SIGNED_RELEASE_BUILD);
+    }
+
+    #[test]
+    fn fallback_and_ack_paths_are_per_account_and_instance() {
+        let dir = Path::new("/tmp/x");
+        let a = fallback_key_path_in(dir, "aa");
+        let b = fallback_key_path_in(dir, "bb");
+        assert_ne!(a, b);
+        assert!(a.to_string_lossy().ends_with("nostr_pk_aa.key") || a.to_string_lossy().contains("nostr_pk_aa_"));
+        let ack = backup_ack_path_in(dir, "aa");
+        assert!(ack.to_string_lossy().contains("nostr_backup_ack_aa"));
+        assert_ne!(ack, a);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn write_private_creates_owner_only_files() {
+        use std::os::unix::fs::PermissionsExt;
+        let dir = std::env::temp_dir().join(format!("wired_keystore_test_{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let path = dir.join("k.key");
+        write_private(&path, b"secret").unwrap();
+        assert_eq!(std::fs::read(&path).unwrap(), b"secret");
+        assert_eq!(std::fs::metadata(&path).unwrap().permissions().mode() & 0o777, 0o600);
+        assert_eq!(std::fs::metadata(&dir).unwrap().permissions().mode() & 0o777, 0o700);
+        // Overwrite truncates and stays private.
+        write_private(&path, b"x").unwrap();
+        assert_eq!(std::fs::read(&path).unwrap(), b"x");
+        assert_eq!(std::fs::metadata(&path).unwrap().permissions().mode() & 0o777, 0o600);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn harden_sweep_tightens_secret_files_only_and_keeps_contents() {
+        use std::os::unix::fs::PermissionsExt;
+        let dir = std::env::temp_dir().join(format!("wired_harden_test_{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::set_permissions(&dir, std::fs::Permissions::from_mode(0o755)).unwrap();
+        let key = dir.join("nostr_pk_abc.key");
+        let secret = dir.join("nostr_secret_nwc.secret");
+        let list = dir.join("account_list.json");
+        for (p, body) in [(&key, "deadbeef"), (&secret, "nwc://x"), (&list, "[]")] {
+            std::fs::write(p, body).unwrap();
+            std::fs::set_permissions(p, std::fs::Permissions::from_mode(0o644)).unwrap();
+        }
+
+        harden_existing_files(&dir);
+
+        assert_eq!(std::fs::metadata(&dir).unwrap().permissions().mode() & 0o777, 0o700);
+        assert_eq!(std::fs::metadata(&key).unwrap().permissions().mode() & 0o777, 0o600);
+        assert_eq!(std::fs::metadata(&secret).unwrap().permissions().mode() & 0o777, 0o600);
+        // Non-secret files are left alone.
+        assert_eq!(std::fs::metadata(&list).unwrap().permissions().mode() & 0o777, 0o644);
+        // Contents untouched, nothing deleted.
+        assert_eq!(std::fs::read_to_string(&key).unwrap(), "deadbeef");
+        assert_eq!(std::fs::read_to_string(&secret).unwrap(), "nwc://x");
+        assert_eq!(std::fs::read_dir(&dir).unwrap().count(), 3);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn harden_sweep_on_missing_dir_is_a_noop() {
+        harden_existing_files(Path::new("/definitely/not/here/wired"));
     }
 }
 

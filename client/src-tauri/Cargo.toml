@@ -32,7 +32,6 @@ tauri-plugin-http = "2.5.7"
 tauri-plugin-fs = "2"
 tauri-plugin-updater = "2"
 tauri-plugin-process = "2"
-tauri-plugin-localhost = "2"
 
 # Embedded NIP-29 relay engine (Decentralized Spaces M6). The SAME relay crate
 # that runs the production Postgres server, compiled with its `embedded` feature
@@ -45,6 +44,11 @@ tokio = { version = "1", features = ["process", "io-util", "time", "sync", "rt"]
 reqwest = { version = "0.12", default-features = false, features = ["rustls-tls"] }
 flate2 = "1"
 tar = "0.4"
+tauri-plugin-dialog = "2"
+tiny_http = "0.12"
+http = "1"
+zeroize = "1"
+rfd = "0.16"
 
 # macOS: native keychain with Touch ID biometric access control
 [target.'cfg(target_os = "macos")'.dependencies]

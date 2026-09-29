@@ -1,5 +1,7 @@
 mod cloudflared;
 mod keystore;
+#[cfg(not(dev))]
+mod localhost;
 mod nip44;
 mod relay;
 mod tunnel;
@@ -14,15 +16,33 @@ pub fn run() {
         .plugin(tauri_plugin_http::init())
         .plugin(tauri_plugin_fs::init())
         .plugin(tauri_plugin_updater::Builder::new().build())
-        .plugin(tauri_plugin_process::init());
+        .plugin(tauri_plugin_process::init())
+        // Native dialogs are used from Rust only (secret-key reveal confirm,
+        // startup errors). Deliberately NOT granted to the webview in
+        // capabilities/*.json, so injected script cannot drive them.
+        .plugin(tauri_plugin_dialog::init());
 
     // In production builds, serve from http://localhost:14420 instead of tauri://localhost
     // so that third-party iframes (YouTube embeds) get a valid HTTP Referer header.
     // Fixed port so localStorage/IndexedDB persist across launches (storage is origin-scoped).
+    // The port is bound BEFORE the window is pointed at it (see localhost.rs).
     #[cfg(not(dev))]
-    {
-        builder = builder.plugin(tauri_plugin_localhost::Builder::new(14420).build());
-    }
+    let asset_listeners = match localhost::bind() {
+        Ok(l) => l,
+        Err(e) => {
+            log::error!("refusing to start: {e}");
+            rfd::MessageDialog::new()
+                .set_level(rfd::MessageLevel::Error)
+                .set_title("The Wired can't start")
+                .set_description(format!(
+                    "Another program is using local port {}, which The Wired needs to show its interface safely.\n\n{}\n\nClose that program and open The Wired again.",
+                    localhost::PORT, e
+                ))
+                .set_buttons(rfd::MessageButtons::Ok)
+                .show();
+            std::process::exit(1);
+        }
+    };
 
     builder
         .setup(move |app| {
@@ -34,13 +54,19 @@ pub fn run() {
                 )?;
             }
 
-            // In production, navigate to the localhost URL for IPC access
+            // Tighten any secret files left at umask-default permissions by
+            // older builds (permissions only; never touches contents).
+            keystore::harden_on_startup();
+
+            // In production, serve the bundle on the port we already own and
+            // navigate to it for IPC access.
             #[cfg(not(dev))]
             {
                 use tauri::Manager;
+                localhost::serve(app.handle(), asset_listeners);
                 let main_window = app.get_webview_window("main")
                     .expect("main window not found");
-                let url: tauri::Url = "http://localhost:14420".parse().unwrap();
+                let url: tauri::Url = format!("http://localhost:{}", localhost::PORT).parse().unwrap();
                 let _ = main_window.navigate(url);
             }
 
@@ -62,6 +88,8 @@ pub fn run() {
             keystore::keystore_set_secret,
             keystore::keystore_get_secret,
             keystore::keystore_delete_secret,
+            keystore::keystore_backup_status,
+            keystore::keystore_mark_backed_up,
             relay::relay_start,
             relay::relay_stop,
             relay::relay_status,

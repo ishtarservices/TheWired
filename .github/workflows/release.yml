@@ -136,6 +136,11 @@ jobs:
           APPLE_ID: ${{ secrets.APPLE_ID }}
           APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          # Marks this as a signed CI build: the ONLY kind allowed to drop the
+          # plaintext identity-key fallback file once the keychain copy is
+          # verified and the user confirmed a backup (client/src-tauri/src/keystore.rs).
+          # Local `tauri build`s are ad-hoc signed and must keep the file.
+          WIRED_SIGNED_RELEASE: "1"
         working-directory: client
         run: pnpm tauri build ${{ matrix.args }}
 
