@@ -37,6 +37,7 @@ import {
 } from "lucide-react";
 import { npubEncode } from "nostr-tools/nip19";
 import { Avatar } from "../../components/ui/Avatar";
+import { MediaLightbox } from "../../components/ui/MediaLightbox";
 import { Spinner } from "../../components/ui/Spinner";
 import { useProfile } from "./useProfile";
 import { initialProfileTab } from "./profileSection";
@@ -87,6 +88,7 @@ export function ProfilePage({ pubkey }: ProfilePageProps) {
   // `?section=music` is the mobile app's shared-catalog link — it beats the
   // remembered view for this first render (profileSection.ts).
   const [searchParams] = useSearchParams();
+  const [lightboxSrc, setLightboxSrc] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState<Tab>(() =>
     initialProfileTab(searchParams.get("section"), readProfileView(pubkey)?.activeTab as ProfileTab | undefined),
   );
@@ -328,14 +330,24 @@ export function ProfilePage({ pubkey }: ProfilePageProps) {
 
   return (
     <div ref={containerRef} className={`flex min-h-0 flex-1 flex-col overflow-y-auto ${scrollPaddingClass}`}>
+      {lightboxSrc && (
+        <MediaLightbox src={lightboxSrc} alt={displayName} onClose={() => setLightboxSrc(null)} />
+      )}
       {/* Banner */}
       <div className="relative h-40 shrink-0 overflow-hidden bg-linear-to-r from-primary/40 to-primary-soft/15">
         {profile?.banner && (
-          <img
-            src={profile.banner}
-            alt="banner"
-            className="h-full w-full object-cover"
-          />
+          <button
+            type="button"
+            onClick={() => setLightboxSrc(profile.banner!)}
+            className="block h-full w-full cursor-zoom-in"
+            title="View banner"
+          >
+            <img
+              src={profile.banner}
+              alt="banner"
+              className="h-full w-full object-cover"
+            />
+          </button>
         )}
         <button
           onClick={() => navigate("/")}
@@ -349,7 +361,19 @@ export function ProfilePage({ pubkey }: ProfilePageProps) {
       {/* Profile info */}
       <div className="relative z-10 px-6 pb-4">
         <div className="-mt-12 mb-4 flex items-end justify-between">
-          <Avatar src={profile?.picture} alt={displayName} size="lg" className="h-24 w-24 border-4 border-background ring-2 ring-primary/20" />
+          {profile?.picture ? (
+            <button
+              type="button"
+              onClick={() => setLightboxSrc(profile.picture!)}
+              className="cursor-zoom-in rounded-full transition-opacity hover:opacity-90"
+              title="View profile picture"
+              data-testid="profile-avatar-button"
+            >
+              <Avatar src={profile.picture} alt={displayName} size="lg" className="h-24 w-24 border-4 border-background ring-2 ring-primary/20" />
+            </button>
+          ) : (
+            <Avatar src={null} alt={displayName} size="lg" className="h-24 w-24 border-4 border-background ring-2 ring-primary/20" />
+          )}
 
           {/* Action buttons */}
           {!isMe && (

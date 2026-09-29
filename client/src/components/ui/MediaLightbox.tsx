@@ -54,6 +54,11 @@ export function MediaLightbox(props: MediaLightboxProps) {
 
   const src = list[Math.min(index, list.length - 1)];
   const isGallery = list.length > 1;
+  // An image with no intrinsic size (an SVG sized in percentages, as avatar
+  // generators emit) collapses to 0×0 under max-width/max-height alone. When
+  // that happens, give it a square to fill instead of showing nothing.
+  const [needsSize, setNeedsSize] = useState(false);
+  useEffect(() => setNeedsSize(false), [src]);
 
   const resetView = useCallback(() => {
     setZoom(1);
@@ -221,7 +226,12 @@ export function MediaLightbox(props: MediaLightboxProps) {
         <img
           src={src}
           alt={alt ?? ""}
-          className="max-h-[90vh] max-w-[90vw] object-contain select-none transition-transform duration-150"
+          onLoad={(e) => {
+            if (e.currentTarget.getBoundingClientRect().width < 2) setNeedsSize(true);
+          }}
+          className={`max-h-[90vh] max-w-[90vw] object-contain select-none transition-transform duration-150 ${
+            needsSize ? "h-[min(70vh,70vw)] w-[min(70vh,70vw)]" : ""
+          }`}
           style={{
             transform: `scale(${zoom}) translate(${translate.x / zoom}px, ${translate.y / zoom}px)`,
           }}

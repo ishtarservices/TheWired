@@ -1,5 +1,6 @@
 import { useEffect, useLayoutEffect, useRef, useCallback, useState, useMemo } from "react";
 import { useProfile } from "@/features/profile/useProfile";
+import { useUserPopover } from "@/features/profile/UserPopoverContext";
 import { Avatar } from "@/components/ui/Avatar";
 import { DMMessage } from "./DMMessage";
 import { DMInput } from "./DMInput";
@@ -62,6 +63,8 @@ export function DMConversation({ partnerPubkey, onBack }: DMConversationProps) {
   const dispatch = useAppDispatch();
   const messages = useDMConversation(partnerPubkey);
   const { profile } = useProfile(partnerPubkey);
+  const { openUserPopover } = useUserPopover();
+  const headerAvatarRef = useRef<HTMLButtonElement>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
   const dividerRef = useRef<HTMLDivElement>(null);
   const hasScrolledToUnread = useRef(false);
@@ -362,7 +365,18 @@ export function DMConversation({ partnerPubkey, onBack }: DMConversationProps) {
             <Users size={15} />
           </div>
         ) : (
-          <Avatar src={profile?.picture} alt={displayName} size="sm" />
+          <button
+            ref={headerAvatarRef}
+            type="button"
+            onClick={() => {
+              if (headerAvatarRef.current) openUserPopover(partnerPubkey, headerAvatarRef.current);
+            }}
+            className="shrink-0 rounded-full transition-opacity hover:opacity-80"
+            title={displayName}
+            data-testid="dm-header-avatar"
+          >
+            <Avatar src={profile?.picture} alt={displayName} size="sm" />
+          </button>
         )}
         <div className="min-w-0 flex-1">
           <div className="text-sm font-semibold text-heading truncate">
