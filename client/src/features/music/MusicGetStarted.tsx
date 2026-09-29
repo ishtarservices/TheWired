@@ -72,14 +72,8 @@ export function MusicGetStarted({ variant = "page" }: { variant?: "page" | "bann
   return (
     <div className="flex flex-1 items-center justify-center overflow-y-auto p-6">
       <div className="w-full max-w-2xl text-center">
-        <h2 className="text-2xl font-semibold text-heading">Your music lives here</h2>
-        <p className="mx-auto mt-2 max-w-md text-sm text-soft">
-          Upload tracks, group them into projects, and share them with the people and spaces
-          you choose.
-        </p>
-
         {pubkey ? (
-          <div className="mt-8 grid gap-3 sm:grid-cols-2">
+          <div className="grid gap-3 sm:grid-cols-2">
             <DoorCard
               icon={<Upload size={22} />}
               title="Upload a track"
@@ -95,7 +89,7 @@ export function MusicGetStarted({ variant = "page" }: { variant?: "page" | "bann
             />
           </div>
         ) : (
-          <p className="mt-8 text-sm text-muted">Sign in to upload your own music.</p>
+          <p className="text-sm text-muted">Sign in to upload your own music.</p>
         )}
 
         <button
