@@ -8,6 +8,8 @@ import type { FastifyInstance } from "fastify";
 import { buildTestServer, closeTestServer } from "../helpers/testServer.js";
 import { db } from "../../src/db/connection.js";
 import { cachedProfiles } from "../../src/db/schema/profiles.js";
+import { spaces } from "../../src/db/schema/spaces.js";
+import { nip19 } from "nostr-tools";
 import {
   ensureRelayEventsTable,
   insertMusicEvent,
@@ -219,5 +221,39 @@ describe("GET /profile/:pubkey — OG share page", () => {
     const res = await server.inject({ method: "GET", url: `/profile/${"a".repeat(64)}` });
     expect(res.statusCode).toBe(200);
     expect(res.payload).toContain("aaaaaaaa…aaaa");
+  });
+});
+
+describe("share pages for the other universal-link paths", () => {
+  it("a listed space shows its name; an unlisted one is indistinguishable from a missing one", async () => {
+    await db.insert(spaces).values([
+      { id: "wk-listed", name: "Basement Tapes", about: "noise", hostRelay: "wss://r.test", listed: true, createdAt: Date.now() },
+      { id: "wk-hidden", name: "Secret Club", about: "shh", hostRelay: "wss://r.test", listed: false, createdAt: Date.now() },
+    ]);
+    const listed = await server.inject({ method: "GET", url: "/space/wk-listed/channel/general" });
+    expect(listed.statusCode).toBe(200);
+    expect(listed.payload).toContain("<title>Basement Tapes</title>");
+    expect(listed.payload).toContain("https://thewired.app/space/wk-listed/channel/general");
+
+    const hidden = await server.inject({ method: "GET", url: "/space/wk-hidden" });
+    const missing = await server.inject({ method: "GET", url: "/space/nope" });
+    expect(hidden.payload).not.toContain("Secret Club");
+    expect(hidden.payload.replace(/wk-hidden/g, "X")).toBe(missing.payload.replace(/nope/g, "X"));
+  });
+
+  it("notes, articles, DMs and invites get the generic page instead of a 404", async () => {
+    for (const url of ["/note/abc", "/article/naddr1xyz", "/dm/room", "/invite/CODE"]) {
+      const res = await server.inject({ method: "GET", url, headers: { "user-agent": "iPhone" } });
+      expect(res.statusCode, url).toBe(200);
+      expect(res.payload).toContain("Get soot");
+    }
+  });
+
+  it("a bare npub renders the public profile; other entities are generic", async () => {
+    await db.insert(cachedProfiles).values({ pubkey: LUNA.pubkey, name: "luna", fetchedAt: Date.now() });
+    const res = await server.inject({ method: "GET", url: `/e/${nip19.npubEncode(LUNA.pubkey)}` });
+    expect(res.payload).toContain("<title>luna</title>");
+    const other = await server.inject({ method: "GET", url: "/e/nevent1notreal" });
+    expect(other.payload).toContain("<title>The Wired</title>");
   });
 });
