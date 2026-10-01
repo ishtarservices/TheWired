@@ -36,8 +36,20 @@ export const config = {
   voiceRequireE2EE: process.env.VOICE_REQUIRE_E2EE !== "false",
   gifApiKey: process.env.GIF_API_KEY ?? "",
   gifClientKey: process.env.GIF_CLIENT_KEY ?? "thewired_v1",
-  /** Comma-separated hex pubkeys that can approve/reject listing requests and bypass thresholds */
-  adminPubkeys: (process.env.ADMIN_PUBKEYS ?? "").split(",").filter(Boolean),
+  /** Comma-separated hex pubkeys of platform admins: approve/reject listing
+   *  requests, bypass thresholds, review reports (`requireAdmin`), and receive
+   *  the new-report push on every device they registered. */
+  adminPubkeys: (process.env.ADMIN_PUBKEYS ?? "")
+    .split(",")
+    .map((s) => s.trim().toLowerCase())
+    .filter(Boolean),
+  /** Discord/Slack-compatible incoming webhook POSTed on every new report —
+   *  the written record, and the backup when admin push is off. Empty = off. */
+  reportWebhookUrl: process.env.REPORT_WEBHOOK_URL ?? "",
+  /** HMAC key for app.reports.reporter_ip_hash (guest reports). Falls back to
+   *  MEDIA_TOKEN_SECRET so no new secret is required; the hash only has to be
+   *  stable, not secret from the operator. */
+  reportIpSalt: process.env.REPORT_IP_SALT || process.env.MEDIA_TOKEN_SECRET || "dev-report-ip-salt",
   /** Minimum member count for a space to request listing (admin bypass available) */
   minListingMembers: parseInt(process.env.MIN_LISTING_MEMBERS ?? "5", 10),
   /** Decentralized Spaces ingestion (M3): how a newly-registered relay is handled.

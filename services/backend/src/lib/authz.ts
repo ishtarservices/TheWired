@@ -43,9 +43,21 @@ export async function requireSpace(spaceId: string, reply: FastifyReply): Promis
   return space;
 }
 
-/** True if the pubkey is a configured platform admin. */
-function isPlatformAdmin(pubkey: string): boolean {
+/** True if the pubkey is a configured platform admin (`ADMIN_PUBKEYS`). */
+export function isPlatformAdmin(pubkey: string): boolean {
   return config.adminPubkeys?.includes(pubkey) ?? false;
+}
+
+/** 401 when anonymous, 403 unless the verified pubkey is in `ADMIN_PUBKEYS`.
+ *  Returns the admin's pubkey or null (already replied). */
+export function requireAdmin(request: FastifyRequest, reply: FastifyReply): string | null {
+  const pubkey = requirePubkey(request, reply);
+  if (!pubkey) return null;
+  if (!isPlatformAdmin(pubkey)) {
+    reply.status(403).send({ error: "Admin only", code: "FORBIDDEN" });
+    return null;
+  }
+  return pubkey;
 }
 
 /**

@@ -13,6 +13,7 @@ import { getTranscodeQueue } from "../lib/queue.js";
 import { buildMusicSearchDoc } from "../lib/musicSearchDoc.js";
 import { escapeMsFilter } from "../lib/meiliFilter.js";
 import { MS_LISTED_FILTER, isListedPublicMusic } from "../lib/musicListing.js";
+import { suspensionService } from "./suspensionService.js";
 
 const BLOB_DIR = resolve(process.cwd(), config.blobDir);
 const MAX_AUDIO_SIZE = config.maxBlobSize;
@@ -207,6 +208,7 @@ export const musicService = {
     const tagCounts = new Map<string, number>();
     const eventIds: string[] = [];
     const BATCH = 200;
+    const suspended = await suspensionService.suspendedSet();
 
     // --- Reindex tracks (kind:31683) from relay.events ---
     let lastId = "";
@@ -223,6 +225,7 @@ export const musicService = {
 
       const msDocs = [];
       for (const row of rows) {
+        if (suspended.has(row.pubkey)) continue; // hidden while suspended
         const tags = row.tags;
         const genre = tags.find((t) => t[0] === "genre")?.[1] ?? "";
         const visibility = tags.find((t) => t[0] === "visibility")?.[1];
@@ -273,6 +276,7 @@ export const musicService = {
 
       const msDocs = [];
       for (const row of rows) {
+        if (suspended.has(row.pubkey)) continue; // hidden while suspended
         const tags = row.tags;
         const genre = tags.find((t) => t[0] === "genre")?.[1] ?? "";
         const visibility = tags.find((t) => t[0] === "visibility")?.[1];
@@ -441,7 +445,10 @@ export const musicService = {
     }[];
 
     // Normalize PG bigint → JS number for created_at, preserve order from Meilisearch/Redis
-    const normalized = rows.map((r) => ({ ...r, created_at: Number(r.created_at) }));
+    const normalized = await suspensionService.withoutSuspended(
+      rows.map((r) => ({ ...r, created_at: Number(r.created_at) })),
+      (r) => r.pubkey,
+    );
     const byId = new Map(normalized.map((r) => [r.id, r]));
     const events = eventIds.map((id) => byId.get(id)).filter(Boolean);
 
@@ -504,7 +511,10 @@ export const musicService = {
       sig: string;
     }[];
 
-    const normalized = rows.map((r) => ({ ...r, created_at: Number(r.created_at) }));
+    const normalized = await suspensionService.withoutSuspended(
+      rows.map((r) => ({ ...r, created_at: Number(r.created_at) })),
+      (r) => r.pubkey,
+    );
     const byId = new Map(normalized.map((r) => [r.id, r]));
     const events = eventIds.map((id) => byId.get(id)).filter(Boolean);
 

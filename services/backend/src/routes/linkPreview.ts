@@ -5,6 +5,7 @@ import {
   fetchLatestByAddressableId,
   fetchPublicCatalogByPubkey,
 } from "../services/musicVisibility.js";
+import { suspensionService } from "../services/suspensionService.js";
 
 /**
  * Server-rendered share pages with OpenGraph metadata for web share links
@@ -198,7 +199,10 @@ export const linkPreviewRoutes: FastifyPluginAsync = async (server) => {
         return sendPreview(request, reply, genericMeta(canonicalPath));
       }
 
-      const event = await fetchLatestByAddressableId(`${kind}:${pubkey}:${slug}`);
+      // A suspended account's releases get the generic page (suspend_pubkey).
+      const event = (await suspensionService.isSuspended(pubkey))
+        ? null
+        : await fetchLatestByAddressableId(`${kind}:${pubkey}:${slug}`);
       const isPublic =
         event != null &&
         !tagValue(event.tags, "visibility") &&
@@ -227,7 +231,7 @@ export const linkPreviewRoutes: FastifyPluginAsync = async (server) => {
       const { pubkey } = request.params;
       const section = (request.query as { section?: string }).section;
       const canonicalPath = `/profile/${pubkey}${section === "music" ? "?section=music" : ""}`;
-      if (!/^[0-9a-f]{64}$/.test(pubkey)) {
+      if (!/^[0-9a-f]{64}$/.test(pubkey) || (await suspensionService.isSuspended(pubkey))) {
         return sendPreview(request, reply, genericMeta(canonicalPath));
       }
 

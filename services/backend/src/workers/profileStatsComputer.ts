@@ -2,6 +2,7 @@ import { db } from "../db/connection.js";
 import { sql } from "drizzle-orm";
 import { getMeilisearchClient } from "../lib/meilisearch.js";
 import { startLockedInterval } from "../lib/workerLock.js";
+import { suspensionService } from "../services/suspensionService.js";
 
 const INTERVAL_MS = 30 * 60 * 1000; // 30 minutes
 /** Meilisearch document batch size — keeps a single HTTP body reasonable. */
@@ -38,7 +39,7 @@ export async function computeProfileStats(): Promise<{ profiles: number }> {
   // no recent notes still belongs in the has_nip05 filter, at note_count 0.
   // Public top-level notes only: space-scoped (h_tag) and unlisted/private posts
   // must not make someone look prolific on a public browse list.
-  const rows = (await db.execute(sql`
+  const allRows = (await db.execute(sql`
     SELECT
       p.pubkey,
       COALESCE(n.note_count, 0)::int AS note_count,
@@ -54,6 +55,9 @@ export async function computeProfileStats(): Promise<{ profiles: number }> {
       GROUP BY pubkey
     ) n ON n.pubkey = p.pubkey
   `)) as unknown as ProfileStatsRow[];
+  // A suspended account's profile document was purged from search; a partial
+  // update here would re-create it (updateDocuments upserts).
+  const rows = await suspensionService.withoutSuspended(allRows, (r) => r.pubkey);
 
   if (rows.length === 0) return { profiles: 0 };
 

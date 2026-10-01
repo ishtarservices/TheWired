@@ -84,6 +84,20 @@ function wrapsReq(): string {
   ]);
 }
 
+/** Reports (kind 1984) are served only to their author and the ingest role
+ *  (relay nostr/report_gate.rs), so like wraps they wait for the AUTH OK.
+ *  They look back an hour past the shared cursor: a report published while the
+ *  ingester was reconnecting must still reach the queue, and a replay is
+ *  absorbed by app.reports.report_event_id being unique. */
+export const REPORT_LOOKBACK_SEC = 3600;
+
+function reportsReq(since: number): string {
+  return JSON.stringify(["REQ", "ingester-reports", { kinds: [1984], since: since - REPORT_LOOKBACK_SEC }]);
+}
+
+/** The REQs the relay serves only to an authenticated ingest-role socket. */
+const GATED_SUBS = new Set(["ingester-wraps", "ingester-reports"]);
+
 /** Tunables (env-overridable so tests can shrink intervals/caps). */
 function tunables() {
   return {
@@ -104,9 +118,11 @@ interface Conn {
   pendingAuthId?: string;
   /** Own relay only: NIP-42 completed on this socket. */
   authed: boolean;
-  /** Own relay only: the wraps REQ was CLOSED auth-required and must be re-sent
-   *  once AUTH completes. */
-  wrapsPendingAuth: boolean;
+  /** Own relay only: the gated REQs (wraps, reports) wait for AUTH to
+   *  complete — never sent yet, or CLOSED auth-required. */
+  gatedPendingAuth: Set<string>;
+  /** Own relay only: the cursor the reports REQ starts from. */
+  reportsSince: number;
   reconnectTimer: ReturnType<typeof setTimeout> | null;
   backoffMs: number;
   maxSeen: number;
@@ -169,7 +185,8 @@ export function startRelayIngester(): { stop: () => void } {
       windowStart: Date.now(),
       windowCount: 0,
       authed: false,
-      wrapsPendingAuth: false,
+      gatedPendingAuth: new Set(),
+      reportsSince: 0,
     };
   }
 
@@ -206,8 +223,9 @@ export function startRelayIngester(): { stop: () => void } {
       conn.backoffMs = cfg.reconnectBaseMs;
       conn.authed = false;
       conn.pendingAuthId = undefined;
-      conn.wrapsPendingAuth = false;
+      conn.gatedPendingAuth.clear();
       const since = await getSince(url);
+      conn.reportsSince = since;
 
       if (isOwn(url)) {
         // Behavior-preserving: identical to the original single-relay ingester.
@@ -222,14 +240,16 @@ export function startRelayIngester(): { stop: () => void } {
         // 1059 (NIP-59 gift wraps) is ingested for ONE reason: a content-free
         // "new message" push to the `p` recipient. Never indexed. Separate REQ:
         // wraps backdate created_at, so the shared cursor would drop them.
-        // The relay serves wraps only to an authenticated ingest-role socket
-        // (docs/DM_WIRE_CONTRACT.md §7.1–7.2): with a key configured the REQ
-        // waits for the AUTH OK (see the message handler); without one it is
-        // sent now (dev, or a relay whose gate is off/warn).
+        // 1984 (NIP-56 reports) go to the moderation queue (app.reports).
+        // The relay serves both only to an authenticated ingest-role socket
+        // (docs/DM_WIRE_CONTRACT.md §7.1–7.2, relay report_gate): with a key
+        // configured the REQs wait for the AUTH OK (see the message handler);
+        // without one they are sent now (dev, or a relay whose gates are off).
         if (ingestSecretKeyBytes()) {
-          conn.wrapsPendingAuth = true;
+          conn.gatedPendingAuth = new Set(GATED_SUBS);
         } else {
           ws.send(wrapsReq());
+          ws.send(reportsReq(since));
         }
         return;
       }
@@ -279,10 +299,14 @@ export function startRelayIngester(): { stop: () => void } {
     });
   }
 
+  function sendGated(conn: Conn, ws: WebSocket, subId: string): void {
+    ws.send(subId === "ingester-reports" ? reportsReq(conn.reportsSince) : wrapsReq());
+  }
+
   /** NIP-42 on the own relay: answer AUTH challenges with the ingest key,
-   *  send the wraps REQ once the AUTH is acknowledged, and re-send it when
-   *  the relay CLOSED it as auth-required. Returns true when the frame was a
-   *  control frame (not an EVENT). */
+   *  send the gated REQs (wraps, reports) once the AUTH is acknowledged, and
+   *  re-send one when the relay CLOSED it as auth-required. Returns true when
+   *  the frame was a control frame (not an EVENT). */
   function handleOwnRelayControl(conn: Conn, ws: WebSocket, msg: unknown[]): boolean {
     const type = msg[0];
     if (type === "AUTH" && typeof msg[1] === "string") {
@@ -297,24 +321,24 @@ export function startRelayIngester(): { stop: () => void } {
       conn.pendingAuthId = undefined;
       if (msg[2] === true) {
         conn.authed = true;
-        if (conn.wrapsPendingAuth) {
-          conn.wrapsPendingAuth = false;
-          ws.send(wrapsReq());
+        for (const subId of GATED_SUBS) {
+          if (conn.gatedPendingAuth.delete(subId)) sendGated(conn, ws, subId);
         }
       } else {
         console.warn(`[ingester] relay rejected ingest AUTH: ${String(msg[3] ?? "")}`);
       }
       return true;
     }
-    if (type === "CLOSED" && msg[1] === "ingester-wraps") {
+    if (type === "CLOSED" && typeof msg[1] === "string" && GATED_SUBS.has(msg[1])) {
+      const subId = msg[1];
       const reason = String(msg[2] ?? "");
       if (reason.startsWith("auth-required")) {
         // Sent before AUTH completed: retry after the OK (or immediately if
         // we are already authenticated on this socket).
-        if (conn.authed) ws.send(wrapsReq());
-        else conn.wrapsPendingAuth = true;
+        if (conn.authed) sendGated(conn, ws, subId);
+        else conn.gatedPendingAuth.add(subId);
       } else {
-        console.warn(`[ingester] wraps subscription closed: ${reason}`);
+        console.warn(`[ingester] ${subId} subscription closed: ${reason}`);
       }
       return true;
     }

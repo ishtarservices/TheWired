@@ -1,5 +1,7 @@
 import { describe, it, expect, vi } from "vitest";
 import { cloudflareTunnelService } from "../../src/services/cloudflareTunnelService.js";
+import { db } from "../../src/db/connection.js";
+import { relayTunnels } from "../../src/db/schema/relays.js";
 
 /**
  * Pure-guard tests for named-tunnel provisioning (Decentralized Spaces, M7).
@@ -55,5 +57,24 @@ describe("cloudflareTunnelService", () => {
     expect(fetchSpy).toHaveBeenCalled();
     configuredSpy.mockRestore();
     fetchSpy.mockRestore();
+  });
+});
+
+describe("cloudflareTunnelService.deprovision (account deletion)", () => {
+  it("skips a tunnel already gone on Cloudflare instead of failing the deletion", async () => {
+    const owner = "c".repeat(64);
+    await db.insert(relayTunnels).values({ ownerPubkey: owner, tunnelId: "gone", hostname: "x.relay.test" });
+    const configuredSpy = vi.spyOn(cloudflareTunnelService, "configured").mockReturnValue(true);
+    const calls: string[] = [];
+    const fetchSpy = vi.spyOn(globalThis, "fetch").mockImplementation(async (input, init) => {
+      calls.push(`${init?.method ?? "GET"} ${String(input)}`);
+      // Every lookup finds nothing: no live tunnel, no CNAME.
+      return new Response(JSON.stringify({ success: true, result: [] }), { status: 200 });
+    });
+    expect(await cloudflareTunnelService.deprovision(owner)).toBe(1);
+    expect(calls.some((c) => c.startsWith("DELETE"))).toBe(false);
+    expect(await db.select().from(relayTunnels)).toHaveLength(0);
+    fetchSpy.mockRestore();
+    configuredSpy.mockRestore();
   });
 });

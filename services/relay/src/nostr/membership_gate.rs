@@ -23,7 +23,7 @@
 //! NIP-29 management kinds (and a few related ones) are exempt because they
 //! either have their own auth checks (admin-only kinds 9000/9001/9005/9007/9008)
 //! or are *explicitly* valid from non-members (9021 join request, 9022 leave,
-//! 5 NIP-09 self-deletion).
+//! 5 NIP-09 self-deletion, 1984 NIP-56 report).
 
 use crate::nostr::event::Event;
 
@@ -56,6 +56,7 @@ pub fn requires_h_membership_check(kind: i32) -> bool {
         | 9008 // NIP-29 delete group
         | 9021 // NIP-29 join request (from non-member by definition)
         | 9022 // NIP-29 leave request
+        | 1984 // NIP-56 report: anyone may report content in any space
     )
 }
 
@@ -183,6 +184,11 @@ mod tests {
                 "kind {kind} must skip membership check (handled separately)"
             );
         }
+    }
+
+    #[test]
+    fn reports_are_exempt_so_non_members_can_report_space_content() {
+        assert!(!requires_h_membership_check(1984));
     }
 
     // ── evaluate_publish_gate ───────────────────────────────────────────

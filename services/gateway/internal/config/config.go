@@ -18,6 +18,9 @@ type Config struct {
 	RateLimitRead   int // per-pubkey reads per minute
 	RateLimitWrite  int // per-pubkey writes per minute
 	RateLimitSearch int // per-pubkey searches per minute
+	// POST /api/reports, per hour: guests by IP, signed-in callers by pubkey.
+	RateLimitReportAnon int
+	RateLimitReport     int
 
 	// On a Redis outage: "open" (default) lets requests through so a cache blip
 	// can't 503 the whole API; "closed" returns 503 (abuse-proof, lower
@@ -56,6 +59,9 @@ func Load() *Config {
 		RateLimitRead:   getEnvInt("RATE_LIMIT_READ_PER_MIN", 100),
 		RateLimitWrite:  getEnvInt("RATE_LIMIT_WRITE_PER_MIN", 30),
 		RateLimitSearch: getEnvInt("RATE_LIMIT_SEARCH_PER_MIN", 10),
+
+		RateLimitReportAnon: getEnvInt("RATE_LIMIT_REPORT_ANON_PER_HOUR", 5),
+		RateLimitReport:     getEnvInt("RATE_LIMIT_REPORT_PER_HOUR", 30),
 
 		RateLimitFailMode: getEnv("RATE_LIMIT_FAIL_MODE", "open"),
 		AuthFailPerMin:    getEnvInt("RATE_LIMIT_AUTH_FAIL_PER_MIN", 60),

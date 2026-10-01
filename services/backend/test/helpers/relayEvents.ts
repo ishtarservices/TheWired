@@ -28,6 +28,15 @@ export async function ensureRelayEventsTable(): Promise<void> {
   // DM wire contract v1 (relay migration 005): NIP-40 expiry + self-wrap flag.
   await db.execute(sql`ALTER TABLE relay.events ADD COLUMN IF NOT EXISTS expires_at BIGINT`);
   await db.execute(sql`ALTER TABLE relay.events ADD COLUMN IF NOT EXISTS self_published BOOLEAN NOT NULL DEFAULT FALSE`);
+  // Relay migration 003: indexed p/e tag arrays (account deletion purges
+  // wraps by p_tags).
+  await db.execute(sql`ALTER TABLE relay.events ADD COLUMN IF NOT EXISTS p_tags TEXT[]`);
+  await db.execute(sql`ALTER TABLE relay.events ADD COLUMN IF NOT EXISTS e_tags TEXT[]`);
+}
+
+/** Empty the relay moderation tables (not truncated by the global setup). */
+export async function resetRelayModeration(): Promise<void> {
+  await db.execute(sql`TRUNCATE relay.suspended_pubkeys, relay.tombstones`);
 }
 
 export interface MusicEventOpts {
@@ -100,4 +109,38 @@ export async function insertMusicEvent(opts: MusicEventOpts): Promise<string> {
 /** Remove every relay.events row whose d_tag starts with the given prefix. */
 export async function deleteRelayEventsBySlugPrefix(prefix: string): Promise<void> {
   await db.execute(sql`DELETE FROM relay.events WHERE d_tag LIKE ${prefix + "%"}`);
+}
+
+export interface SignedLike {
+  id: string;
+  pubkey: string;
+  created_at: number;
+  kind: number;
+  tags: string[][];
+  content: string;
+  sig: string;
+}
+
+/** Insert any event the way the relay stores it (tag columns populated). */
+export async function insertRelayEvent(ev: SignedLike): Promise<void> {
+  const values = (name: string) => ev.tags.filter((t) => t[0] === name && t[1]).map((t) => t[1]);
+  const arr = (vs: string[]) =>
+    vs.length === 0 ? sql`'{}'::text[]` : sql`ARRAY[${sql.join(vs.map((v) => sql`${v}`), sql`, `)}]::text[]`;
+  const h = values("h");
+  await db.execute(
+    sql`INSERT INTO relay.events
+          (id, pubkey, kind, tags, content, created_at, sig, d_tag, h_tag, h_tags, visibility, p_tags, e_tags)
+        VALUES (${ev.id}, ${ev.pubkey}, ${ev.kind}, ${JSON.stringify(ev.tags)}::jsonb, ${ev.content},
+                ${ev.created_at}, ${ev.sig}, ${values("d")[0] ?? null}, ${h[0] ?? null}, ${arr(h)},
+                ${values("visibility")[0] ?? null}, ${arr(values("p"))}, ${arr(values("e"))})
+        ON CONFLICT (id) DO NOTHING`,
+  );
+}
+
+/** Remove relay.events rows by author (test cleanup). */
+export async function deleteRelayEventsByPubkey(pubkeys: string[]): Promise<void> {
+  if (pubkeys.length === 0) return;
+  await db.execute(
+    sql`DELETE FROM relay.events WHERE pubkey IN (${sql.join(pubkeys.map((p) => sql`${p}`), sql`, `)})`,
+  );
 }

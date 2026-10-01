@@ -2,6 +2,7 @@ import { createHash } from "node:crypto";
 import { db } from "../db/connection.js";
 import { relayTunnels } from "../db/schema/relays.js";
 import { config } from "../config.js";
+import { eq } from "drizzle-orm";
 
 /**
  * Provisions per-user *named* Cloudflare tunnels for self-hosted embedded relays
@@ -135,6 +136,18 @@ async function upsertDnsCname(hostname: string, target: string): Promise<void> {
   }
 }
 
+async function deleteDnsCname(hostname: string): Promise<void> {
+  const zone = config.cloudflareZoneId;
+  const existing = await cf(
+    `/zones/${zone}/dns_records?type=CNAME&name=${encodeURIComponent(hostname)}`,
+  );
+  if (Array.isArray(existing)) {
+    for (const record of existing) {
+      await cf(`/zones/${zone}/dns_records/${record.id}`, { method: "DELETE" });
+    }
+  }
+}
+
 export const cloudflareTunnelService = {
   /** Whether the platform has the Cloudflare credentials to provision tunnels. */
   configured(): boolean {
@@ -200,5 +213,32 @@ export const cloudflareTunnelService = {
       const message = err instanceof Error ? err.message : "tunnel provisioning failed";
       return { ok: false, error: message, code: "CLOUDFLARE_ERROR", status: 502 };
     }
+  },
+
+  /**
+   * Tear down a user's named tunnel (account deletion): the Cloudflare tunnel,
+   * its CNAME, then the routing row. Returns the rows removed. The tunnel is
+   * looked up by name like `provision` does, so one already gone on
+   * Cloudflare's side is skipped instead of failing the deletion forever.
+   * Throws only when Cloudflare refuses a live tunnel, leaving the row so a
+   * retry can finish the job.
+   */
+  async deprovision(ownerPubkey: string): Promise<number> {
+    const [row] = await db
+      .select()
+      .from(relayTunnels)
+      .where(eq(relayTunnels.ownerPubkey, ownerPubkey))
+      .limit(1);
+    if (!row) return 0;
+    if (this.configured()) {
+      const live = await findTunnelByName(`wired-${deriveSubdomain(ownerPubkey)}`);
+      if (live) await deleteTunnel(live.id);
+      await deleteDnsCname(row.hostname);
+    }
+    const removed = await db
+      .delete(relayTunnels)
+      .where(eq(relayTunnels.ownerPubkey, ownerPubkey))
+      .returning({ ownerPubkey: relayTunnels.ownerPubkey });
+    return removed.length;
   },
 };

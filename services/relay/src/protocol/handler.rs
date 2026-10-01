@@ -8,6 +8,8 @@ use crate::nostr::filter::Filter;
 use crate::nostr::membership_gate::{
     distinct_h_tags, evaluate_publish_gate, PublishVerdict, SpaceMembership,
 };
+use crate::nostr::moderation_gate;
+use crate::nostr::report_gate;
 use crate::nostr::verify::verify_event;
 use crate::nostr::wrap_gate::{self, ReadCtx, WrapAuthGate};
 use crate::protocol::subscription::SubscriptionManager;
@@ -17,13 +19,15 @@ use crate::server::AppState;
 const NEG_FRAME_SIZE_LIMIT: u64 = 60_000;
 
 /// The read context of a connection: who it is, whether it may read every
-/// gift wrap (ingest role, or a gate mode other than `enforce`), and "now".
+/// gift wrap (ingest role, or a gate mode other than `enforce`), every report
+/// (ingest role, or the report gate off), and "now".
 pub fn read_ctx<'a>(state: &'a AppState, authed_pubkey: &'a Option<String>) -> ReadCtx<'a> {
     let authed = authed_pubkey.as_deref();
     let ingest = authed.is_some_and(|pk| state.config.is_ingest(pk));
     ReadCtx {
         authed,
         serve_all_wraps: ingest || state.config.wrap_auth_gate != WrapAuthGate::Enforce,
+        serve_all_reports: ingest || !state.config.report_read_gate,
         now: wrap_gate::unix_now(),
     }
 }
@@ -167,6 +171,36 @@ async fn handle_event(
             r#"["OK","{}",false,"restricted: kind {} is relay-generated"]"#,
             event.id, event.kind
         )];
+    }
+
+    // Operator moderation (App Store 1.2): an event the operator removed is
+    // never stored again, and a suspended account may only delete its own
+    // content. Checked before every kind-specific path, NIP-29 ops included.
+    // Fails closed like the membership gate: a lookup error rejects the write.
+    match state.pool.moderation_state(&event.id, &event.pubkey).await {
+        Ok((tombstoned, suspended)) => {
+            if let Some(reason) = moderation_gate::block_reason(event.kind, tombstoned, suspended) {
+                tracing::info!(
+                    event_id = log_prefix(&event.id),
+                    pubkey = log_prefix(&event.pubkey),
+                    kind = event.kind,
+                    reason,
+                    "Rejected publish: operator moderation",
+                );
+                return vec![format!(r#"["OK","{}",false,"{}"]"#, event.id, reason)];
+            }
+        }
+        Err(e) => {
+            tracing::error!(
+                error = %e,
+                event_id = log_prefix(&event.id),
+                "Moderation lookup failed; rejecting publish",
+            );
+            return vec![format!(
+                r#"["OK","{}",false,"error: could not check moderation state"]"#,
+                event.id
+            )];
+        }
     }
 
     // #115 — music events (31683/33123/30119) must carry the structural tags the
@@ -471,6 +505,19 @@ async fn handle_req(
             WrapAuthGate::Off => {}
         }
     }
+
+    // NIP-56: a report names its reporter, so it is served only to its author
+    // (or the ingest role). An anonymous REQ that explicitly asks for kind
+    // 1984 is told to AUTH; one that merely could match gets them excluded.
+    if authed_pubkey.is_none()
+        && state.config.report_read_gate
+        && report_gate::filters_want_reports(&filters)
+    {
+        return vec![format!(
+            r#"["CLOSED","{}","auth-required: reports are served only to their author"]"#,
+            sub_id
+        )];
+    }
     let ctx = read_ctx(state, authed_pubkey);
 
     // Query stored events for each filter, merge with id-dedup, newest-first.
@@ -543,6 +590,15 @@ async fn handle_neg_open(
     {
         return vec![format!(
             r#"["NEG-ERR","{}","blocked: auth-required: gift wraps are served only to their recipient"]"#,
+            sub_id
+        )];
+    }
+    if authed_pubkey.is_none()
+        && state.config.report_read_gate
+        && report_gate::filters_want_reports(std::slice::from_ref(&filter))
+    {
+        return vec![format!(
+            r#"["NEG-ERR","{}","blocked: auth-required: reports are served only to their author"]"#,
             sub_id
         )];
     }

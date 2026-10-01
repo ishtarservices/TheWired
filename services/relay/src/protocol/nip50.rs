@@ -1,6 +1,7 @@
 use sqlx::{PgPool, Postgres};
 
 use crate::nostr::event::Event;
+use crate::nostr::report_gate::KIND_REPORT;
 use crate::nostr::wrap_gate::{ReadCtx, KIND_GIFT_WRAP};
 
 /// Execute a NIP-50 full-text search query, applying the same visibility gating
@@ -16,7 +17,9 @@ pub async fn search_events(
 }
 
 /// Search under a full read context. Gift wraps are never searchable (their
-/// content is ciphertext) and expired events are never served (NIP-40).
+/// content is ciphertext), nor are reports (their content is the reporter's
+/// note; the author reads their own by REQ), and expired events are never
+/// served (NIP-40).
 pub async fn search_events_ctx(
     pool: &PgPool,
     query: &str,
@@ -37,7 +40,7 @@ pub async fn search_events_ctx(
         "SELECT id, pubkey, created_at, kind, tags, content, sig \
          FROM relay.events \
          WHERE search_tsv @@ plainto_tsquery('english', $1){visibility} \
-           AND kind <> {KIND_GIFT_WRAP} \
+           AND kind <> {KIND_GIFT_WRAP} AND kind <> {KIND_REPORT} \
            AND (expires_at IS NULL OR expires_at > $3) \
          ORDER BY ts_rank(search_tsv, plainto_tsquery('english', $1)) DESC \
          LIMIT $2"

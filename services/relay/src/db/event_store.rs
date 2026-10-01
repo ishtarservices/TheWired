@@ -3,6 +3,7 @@ use sqlx::{PgPool, Postgres};
 
 use crate::nostr::event::Event;
 use crate::nostr::filter::Filter;
+use crate::nostr::report_gate::KIND_REPORT;
 use crate::nostr::wrap_gate::{event_expiration, ReadCtx, KIND_GIFT_WRAP};
 
 /// Upper bound on ids a single NIP-77 reconciliation may cover.
@@ -256,6 +257,8 @@ fn build_conditions(filter: &Filter, ctx: &ReadCtx<'_>) -> (Vec<String>, Vec<Bin
     // - Gift wraps (kind 1059): only to the authenticated p-tagged recipient
     //   (docs/DM_WIRE_CONTRACT.md §7.1) unless the connection holds the
     //   ingest role / the gate is not enforced.
+    // - Reports (kind 1984): only to their authenticated author, unless the
+    //   connection holds the ingest role (nostr::report_gate).
     match ctx.authed {
         Some(pk) => {
             param_counter += 1;
@@ -287,6 +290,9 @@ fn build_conditions(filter: &Filter, ctx: &ReadCtx<'_>) -> (Vec<String>, Vec<Bin
                     "(kind <> {KIND_GIFT_WRAP} OR ${auth_param}[1] = ANY(p_tags))"
                 ));
             }
+            if !ctx.serve_all_reports {
+                conditions.push(format!("(kind <> {KIND_REPORT} OR pubkey = ${auth_param}[1])"));
+            }
         }
         None => {
             // Unauthenticated: only public events (no visibility tag, no h_tag)
@@ -294,6 +300,9 @@ fn build_conditions(filter: &Filter, ctx: &ReadCtx<'_>) -> (Vec<String>, Vec<Bin
             conditions.push("h_tag IS NULL".to_string());
             if !ctx.serve_all_wraps {
                 conditions.push(format!("kind <> {KIND_GIFT_WRAP}"));
+            }
+            if !ctx.serve_all_reports {
+                conditions.push(format!("kind <> {KIND_REPORT}"));
             }
         }
     }

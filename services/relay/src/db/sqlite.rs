@@ -15,6 +15,7 @@ use sqlx::{QueryBuilder, Sqlite, SqlitePool};
 
 use crate::nostr::event::Event;
 use crate::nostr::filter::Filter;
+use crate::nostr::report_gate::KIND_REPORT;
 use crate::nostr::wrap_gate::{event_expiration, ReadCtx, KIND_GIFT_WRAP};
 
 /// Hard cap on rows per query (matches the Postgres store / strfry).
@@ -403,6 +404,18 @@ fn push_visibility_gate(qb: &mut QueryBuilder<Sqlite>, ctx: &ReadCtx<'_>) {
             }
         }
     }
+    if !ctx.serve_all_reports {
+        match ctx.authed {
+            Some(pk) => {
+                qb.push(format!(" AND (kind <> {KIND_REPORT} OR pubkey = "))
+                    .push_bind(pk.to_string())
+                    .push(")");
+            }
+            None => {
+                qb.push(format!(" AND kind <> {KIND_REPORT}"));
+            }
+        }
+    }
     match ctx.authed {
         Some(pk) => {
             // private/unlisted: author or p-tagged collaborator
@@ -486,7 +499,7 @@ pub async fn search_events_ctx(
          FROM events_fts f JOIN events e ON e.rowid = f.rowid WHERE events_fts MATCH ",
     );
     qb.push_bind(query.to_string());
-    qb.push(format!(" AND e.kind <> {KIND_GIFT_WRAP} AND (e.expires_at IS NULL OR e.expires_at > "))
+    qb.push(format!(" AND e.kind <> {KIND_GIFT_WRAP} AND e.kind <> {KIND_REPORT} AND (e.expires_at IS NULL OR e.expires_at > "))
         .push_bind(ctx.now)
         .push(")");
     match ctx.authed {

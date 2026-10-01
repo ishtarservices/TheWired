@@ -85,6 +85,9 @@ services:
       RELAY_INGEST_PUBKEYS: ${RELAY_INGEST_PUBKEYS:-}
       RELAY_WRAP_AUTH_GATE: ${RELAY_WRAP_AUTH_GATE:-warn}
       RELAY_WRAP_RETENTION_DAYS: ${RELAY_WRAP_RETENTION_DAYS:-0}
+      # Kind-1984 reports are served only to their author and the ingest role
+      # (App Store 1.2). "off" only as an emergency lever.
+      RELAY_REPORT_READ_GATE: ${RELAY_REPORT_READ_GATE:-on}
       RELAY_TRUST_PROXY: "1"
       # Abuse caps (docs/DM_WIRE_CONTRACT.md §7): messages per 10 s window per
       # connection and concurrent sockets per client IP. 0 disables either one —
@@ -128,7 +131,14 @@ services:
       # http://localhost is the packaged desktop app's origin (tauri-plugin-localhost).
       ALLOWED_ORIGINS: ${ALLOWED_ORIGINS:-https://thewired.app,tauri://localhost,http://localhost}
       PUBLIC_URL: ${PUBLIC_URL:-https://api.thewired.app}
+      # Platform admins: review reports (GET/POST /api/admin/*) and get a push
+      # on every new report on each device they registered.
       ADMIN_PUBKEYS: ${ADMIN_PUBKEYS:-}
+      # Discord/Slack incoming webhook posted on every new report (the written
+      # record + backup when push is off). Empty = off.
+      REPORT_WEBHOOK_URL: ${REPORT_WEBHOOK_URL:-}
+      # HMAC key for guest reporters' IP hashes; falls back to MEDIA_TOKEN_SECRET.
+      REPORT_IP_SALT: ${REPORT_IP_SALT:-}
       LIVEKIT_URL: ${LIVEKIT_URL:-ws://livekit:7880}
       # No defaults: the LiveKit signaling endpoint is public, so a deployment
       # that silently kept "devkey/secret" would let anyone mint room tokens.
@@ -200,6 +210,9 @@ services:
       BACKEND_URL: http://backend:3002
       REDIS_URL: redis://redis:6379
       ALLOWED_ORIGINS: ${ALLOWED_ORIGINS:-https://thewired.app,tauri://localhost,http://localhost}
+      # POST /api/reports per hour: guests by IP, signed-in callers by pubkey.
+      RATE_LIMIT_REPORT_ANON_PER_HOUR: ${RATE_LIMIT_REPORT_ANON_PER_HOUR:-5}
+      RATE_LIMIT_REPORT_PER_HOUR: ${RATE_LIMIT_REPORT_PER_HOUR:-30}
     depends_on:
       backend:
         condition: service_started

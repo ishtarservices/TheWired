@@ -1,6 +1,7 @@
 import { getMeilisearchClient } from "../lib/meilisearch.js";
 import { escapeMsFilter } from "../lib/meiliFilter.js";
 import { MS_LISTED_FILTER } from "../lib/musicListing.js";
+import { suspensionService } from "./suspensionService.js";
 
 /** Sort fields a people query may order by. Allowlisted — never pass user input through. */
 const PEOPLE_SORT_FIELDS = new Set(["note_count"]);
@@ -39,7 +40,7 @@ export const searchService = {
       limit: opts.limit ?? 20,
       filter: filters.length > 0 ? filters.join(" AND ") : undefined,
     });
-    return results.hits;
+    return suspensionService.withoutSuspended(results.hits, (h) => h.pubkey as string | undefined);
   },
 
   /**
@@ -78,9 +79,11 @@ export const searchService = {
       sort: sort ? [sort] : undefined,
     });
 
+    const people = await suspensionService.withoutSuspended(results.hits as PersonHit[], (h) => h.pubkey);
     return {
-      people: results.hits as PersonHit[],
-      total: results.estimatedTotalHits ?? results.hits.length,
+      people,
+      // Hidden suspended accounts must not count toward the total either.
+      total: Math.max(0, (results.estimatedTotalHits ?? results.hits.length) - (results.hits.length - people.length)),
     };
   },
 
@@ -98,13 +101,15 @@ export const searchService = {
     // (insights) but never surfaced by search. Albums never carry the tag.
     const trackFilter = [MS_LISTED_FILTER, ...filters].join(" AND ");
 
+    const visible = (hits: Record<string, unknown>[]) =>
+      suspensionService.withoutSuspended(hits, (h) => h.pubkey as string | undefined);
     if (opts?.type === "track") {
       const results = await client.index("tracks").search(query, { limit, filter: trackFilter });
-      return results.hits;
+      return visible(results.hits);
     }
     if (opts?.type === "album") {
       const results = await client.index("albums").search(query, { limit, filter: albumFilter });
-      return results.hits;
+      return visible(results.hits);
     }
 
     // Search both
@@ -112,6 +117,6 @@ export const searchService = {
       client.index("tracks").search(query, { limit: Math.ceil(limit / 2), filter: trackFilter }),
       client.index("albums").search(query, { limit: Math.floor(limit / 2), filter: albumFilter }),
     ]);
-    return { tracks: tracks.hits, albums: albums.hits };
+    return { tracks: await visible(tracks.hits), albums: await visible(albums.hits) };
   },
 };

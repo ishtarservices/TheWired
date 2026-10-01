@@ -22,9 +22,11 @@ func main() {
 	cfg := config.Load()
 
 	limits := ratelimit.Limits{
-		ReadPerMin:   cfg.RateLimitRead,
-		WritePerMin:  cfg.RateLimitWrite,
-		SearchPerMin: cfg.RateLimitSearch,
+		ReadPerMin:        cfg.RateLimitRead,
+		WritePerMin:       cfg.RateLimitWrite,
+		SearchPerMin:      cfg.RateLimitSearch,
+		ReportAnonPerHour: cfg.RateLimitReportAnon,
+		ReportPerHour:     cfg.RateLimitReport,
 	}
 	limiter, err := ratelimit.NewLimiter(cfg.RedisURL, limits)
 	if err != nil {

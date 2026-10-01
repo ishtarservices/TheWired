@@ -33,6 +33,9 @@ import { onboardingRoutes } from "./routes/onboarding.js";
 import { nip05Routes, nip05ApiRoutes } from "./routes/nip05.js";
 import { wellKnownRoutes } from "./routes/wellKnown.js";
 import { linkPreviewRoutes } from "./routes/linkPreview.js";
+import { reportsRoutes } from "./routes/reports.js";
+import { adminRoutes } from "./routes/admin.js";
+import { accountRoutes } from "./routes/account.js";
 import { authContext } from "./middleware/authContext.js";
 import { errorHandler } from "./middleware/errorHandler.js";
 
@@ -111,6 +114,11 @@ export async function createServer() {
   await server.register(onboardingRoutes, { prefix: "/spaces" });
   await server.register(nip05Routes);
   await server.register(nip05ApiRoutes, { prefix: "/nip05" });
+  // App Store submission: user reports (1.2), the admin review surface, and
+  // account deletion (5.1.1(v)).
+  await server.register(reportsRoutes, { prefix: "/reports" });
+  await server.register(adminRoutes, { prefix: "/admin" });
+  await server.register(accountRoutes, { prefix: "/account" });
   // thewired.app web-root paths (proxied by Caddy): universal-links association
   // files + server-rendered OG share pages for /music/* and /profile/* links.
   await server.register(wellKnownRoutes);
