@@ -25,8 +25,10 @@ export interface TranscodeResult {
   durationSec: number | null;
 }
 
-/** Probe a source file's duration in seconds via ffprobe. Null on any failure —
- *  duration is metadata, never worth failing a transcode over. */
+/** Probe a source file's duration in seconds via ffprobe. Null on any failure
+ *  (no ffprobe on PATH, unreadable file, timeout) — duration is metadata, never
+ *  worth failing a transcode or an upload over. The upload route calls this
+ *  inline, hence the timeout. */
 export async function probeDurationSec(inputPath: string): Promise<number | null> {
   try {
     const { stdout } = await execFileAsync("ffprobe", [
@@ -34,7 +36,7 @@ export async function probeDurationSec(inputPath: string): Promise<number | null
       "-show_entries", "format=duration",
       "-of", "default=noprint_wrappers=1:nokey=1",
       inputPath,
-    ]);
+    ], { timeout: 15_000 });
     const dur = parseFloat(stdout.trim());
     return Number.isFinite(dur) && dur > 0 ? dur : null;
   } catch {
