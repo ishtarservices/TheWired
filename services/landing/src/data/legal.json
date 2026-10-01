@@ -1,0 +1,162 @@
+{
+  "termsVersion": "2026-09-29",
+  "operator": {
+    "name": "[operator legal name]",
+    "jurisdiction": "[governing jurisdiction]",
+    "minimumAge": 17
+  },
+  "documents": {
+    "terms": {
+      "id": "terms",
+      "title": "terms of service",
+      "updated": "2026-09-29",
+      "sections": [
+        {
+          "heading": "the agreement",
+          "body": [
+            "These terms are an agreement between you and [operator legal name] (\"we\"), the operator of the soot app and the servers it uses by default. By creating an identity, signing in with a key, or browsing without an account, you agree to them and to the community guidelines. If you do not agree, do not use soot.",
+            "You must be at least 17 years old to use soot."
+          ]
+        },
+        {
+          "heading": "what soot is",
+          "body": [
+            "soot is a client for Nostr, an open network. Your account is a key pair that you hold. We do not have your secret key, cannot reset it and cannot recover it. Keep a backup.",
+            "soot shows content from our own relay and servers and from relays run by other people. We moderate what our servers carry. We do not control other relays, and what they hold is governed by their operators."
+          ]
+        },
+        {
+          "heading": "your content",
+          "body": [
+            "You own what you post. You give us a non-exclusive, worldwide, royalty-free licence to store, transmit, transcode and display it so the service can work, for as long as it remains on our servers.",
+            "Posts you publish are public and are copied to relays we do not run. Deleting them sends a deletion request; relays and people who already hold a copy may keep it."
+          ]
+        },
+        {
+          "heading": "music and media you upload",
+          "body": [
+            "You may only upload music, artwork and other media that you made or that you have the rights to distribute. By uploading you confirm that you hold those rights, including the rights in any samples, and that the upload does not infringe anyone's copyright, trademark, privacy or publicity rights.",
+            "You are responsible for what you upload. We remove uploads when we receive a valid claim, and we close the accounts of people who infringe repeatedly."
+          ]
+        },
+        {
+          "heading": "no tolerance for objectionable content or abuse",
+          "body": [
+            "There is no tolerance on soot for objectionable content or abusive users. The community guidelines say what that covers. We remove content that breaks them from our servers and we remove the people who post it, and we act on reports within 24 hours.",
+            "You can report any post, message, track, profile or voice participant from inside the app, and you can block anyone. Blocking hides that person from you immediately."
+          ]
+        },
+        {
+          "heading": "copyright claims",
+          "body": [
+            "If you believe something on soot infringes your copyright, write to copyright@thewired.app with: what the work is; where it appears in soot (a link, or the track and artist name); your contact details; a statement that you believe in good faith the use is not authorised; a statement, under penalty of perjury, that the notice is accurate and that you are the owner or act for the owner; and your signature, typed or otherwise.",
+            "If your upload was removed by mistake you can send a counter-notice to the same address. We will pass it to the person who made the claim."
+          ]
+        },
+        {
+          "heading": "tips",
+          "body": [
+            "Zaps are voluntary tips sent from your own Lightning wallet to another person. They buy nothing: no content, feature or access is unlocked by tipping. We never hold your funds, we take no fee, and we cannot reverse a payment."
+          ]
+        },
+        {
+          "heading": "the assistant",
+          "body": [
+            "Navi uses an AI provider that you choose and connect with your own key. What you send to it goes from your device to that provider under their terms. soot asks before anything is sent."
+          ]
+        },
+        {
+          "heading": "deleting your account",
+          "body": [
+            "You can delete your account in settings, under account & security. That blanks your profile, asks relays to erase what you published, and removes your key and data from the device. For anything held on our servers you can also write to privacy@thewired.app."
+          ]
+        },
+        {
+          "heading": "ending access",
+          "body": [
+            "We may remove content from our servers or stop serving an account that breaks these terms or the guidelines, with or without notice. You can stop using soot at any time."
+          ]
+        },
+        {
+          "heading": "no warranty, limited liability",
+          "body": [
+            "soot is provided as it is. To the extent the law allows, we give no warranties, and we are not liable for indirect or consequential loss, for lost keys or funds, or for content posted by other people."
+          ]
+        },
+        {
+          "heading": "changes and law",
+          "body": [
+            "We may change these terms. When the meaning changes we will ask you to agree again. These terms are governed by the law of [governing jurisdiction].",
+            "Questions: support@thewired.app."
+          ]
+        }
+      ]
+    },
+    "guidelines": {
+      "id": "guidelines",
+      "title": "community guidelines",
+      "updated": "2026-09-29",
+      "sections": [
+        {
+          "heading": "the short version",
+          "body": [
+            "soot is for music and the people around it. Post what is yours, leave people alone when they ask, and do not use the place to hurt anyone."
+          ]
+        },
+        {
+          "heading": "not allowed",
+          "body": [
+            "Sexual content involving minors, or anything that sexualises them. We report it to the authorities.",
+            "Threats, harassment, stalking, and encouraging others to harm themselves or anyone else.",
+            "Hate directed at people for their race, ethnicity, religion, gender, sexual orientation, disability or origin.",
+            "Sexually explicit media that is not marked as sensitive, and any sexual media shared without the consent of the people in it.",
+            "Content that promotes or organises violence or terrorism, or that is illegal where it is posted.",
+            "Other people's private information.",
+            "Spam, scams, malware and impersonation.",
+            "Music or media you do not have the rights to."
+          ]
+        },
+        {
+          "heading": "what happens",
+          "body": [
+            "Reports are read by a person. We act within 24 hours: the content comes off our servers and the account that posted it is removed from them. Serious or repeated abuse is permanent.",
+            "Spaces have their own moderators, who can set stricter rules. They cannot set looser ones."
+          ]
+        },
+        {
+          "heading": "reporting and blocking",
+          "body": [
+            "Press and hold any post, message, track or person to report or block. Blocking is immediate and private.",
+            "You can also write to abuse@thewired.app."
+          ]
+        }
+      ]
+    }
+  },
+  "contacts": [
+    {
+      "kind": "support",
+      "label": "support",
+      "purpose": "help with the app or your account",
+      "address": "support@thewired.app"
+    },
+    {
+      "kind": "abuse",
+      "label": "report abuse",
+      "purpose": "harassment, illegal or harmful content",
+      "address": "abuse@thewired.app"
+    },
+    {
+      "kind": "copyright",
+      "label": "copyright takedown",
+      "purpose": "music or media posted without the rights",
+      "address": "copyright@thewired.app"
+    },
+    {
+      "kind": "privacy",
+      "label": "privacy",
+      "purpose": "your data and deletion requests",
+      "address": "privacy@thewired.app"
+    }
+  ]
+}

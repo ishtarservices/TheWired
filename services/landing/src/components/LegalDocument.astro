@@ -1,0 +1,37 @@
+---
+/**
+ * Renders one soot legal document from src/data/legal.json. That file is
+ * generated from the app's in-app legal text — change the text in the app,
+ * not here. Strings are output as-is; contact addresses inside the text
+ * become mail links.
+ */
+import legal from "../data/legal.json";
+
+interface Props {
+  id: "terms" | "guidelines";
+}
+
+type Section = { heading: string; body: string[] };
+const doc = (legal.documents as Record<string, { sections: Section[] }>)[Astro.props.id];
+const addresses = legal.contacts.map((c) => c.address);
+
+/** Split a paragraph around the contact addresses it mentions. */
+function parts(text: string): Array<{ mail?: string; text: string }> {
+  const pattern = new RegExp(`(${addresses.map((a) => a.replace(/[.@]/g, "\\$&")).join("|")})`, "g");
+  return text
+    .split(pattern)
+    .filter((t) => t.length > 0)
+    .map((t) => (addresses.includes(t) ? { mail: t, text: t } : { text: t }));
+}
+---
+
+{doc.sections.map((section) => (
+  <section>
+    <h2>{section.heading}</h2>
+    {section.body.map((paragraph) => (
+      <p>
+        {parts(paragraph).map((p) => (p.mail ? <a href={`mailto:${p.mail}`}>{p.text}</a> : p.text))}
+      </p>
+    ))}
+  </section>
+))}

@@ -1,0 +1,43 @@
+---
+/**
+ * Support page — the App Store "support URL" (soot.win/support redirects
+ * here). Contact addresses come from the app's own contact list via
+ * legal.json, so the app and the site always list the same inboxes.
+ */
+import LegalLayout from "../layouts/LegalLayout.astro";
+import legal from "../data/legal.json";
+---
+
+<LegalLayout
+  title="support"
+  description="How to reach a person about soot: support, abuse, copyright and privacy."
+  path="/support"
+>
+  <section>
+    <h2>write to us</h2>
+    <ul>
+      {legal.contacts.map((c) => (
+        <li>
+          <a href={`mailto:${c.address}`}>{c.address}</a> — {c.purpose}
+        </li>
+      ))}
+    </ul>
+    <p>Abuse and copyright reports are read by a person and answered within 24 hours.</p>
+  </section>
+
+  <section>
+    <h2>before you write</h2>
+    <p>
+      <strong>Lost your key?</strong> We never have it, so we cannot recover it or reset your account. If you saved a
+      backup, sign in with it; otherwise you will need a new identity.
+    </p>
+    <p>
+      <strong>Something abusive?</strong> Press and hold the post, message, track or person in soot to report or block
+      it. Blocking is immediate and private.
+    </p>
+    <p>
+      <strong>Deleting your account?</strong> Settings, then account &amp; security. What it removes is in the{" "}
+      <a href="/privacy">privacy policy</a>.
+    </p>
+  </section>
+</LegalLayout>

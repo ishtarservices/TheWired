@@ -1,0 +1,172 @@
+---
+/**
+ * Privacy policy for soot and The Wired's servers.
+ *
+ * DRAFT — not legal advice. Counsel must review before publication, and the
+ * bracketed placeholders must be filled: the operator name and jurisdiction
+ * come from the app's legal text via legal.json; [log retention] must match
+ * the servers' log rotation.
+ *
+ * Every claim here describes what the code actually stores — keep it in step
+ * with services/backend (schema + workers) and services/relay when they change.
+ */
+import LegalLayout from "../layouts/LegalLayout.astro";
+import legal from "../data/legal.json";
+
+const UPDATED = "2026-10-01";
+const operator = legal.operator.name;
+const contact = Object.fromEntries(legal.contacts.map((c) => [c.kind, c.address]));
+---
+
+<LegalLayout
+  title="privacy policy"
+  description="What soot and The Wired's servers keep about you, who else sees it, and how to delete it."
+  path="/privacy"
+  updated={UPDATED}
+>
+  <section>
+    <h2>who we are</h2>
+    <p>
+      {operator} ("we") runs the soot app's default servers at thewired.app: a Nostr relay, an API, a search
+      index, a media store for uploads, and a voice server. This policy covers those servers and the app. It does
+      not cover relays or services run by other people, even when soot connects to them.
+    </p>
+  </section>
+
+  <section>
+    <h2>your account is a key pair</h2>
+    <p>
+      There is no email, phone number or password. Your account is a key pair created on your device; the public
+      half identifies you, and the secret half never leaves your device (or the signer you chose). We cannot see it,
+      reset it or recover it.
+    </p>
+  </section>
+
+  <section>
+    <h2>what our servers keep</h2>
+    <ul>
+      <li>
+        <strong>Your public key</strong>, which ties everything below to your account.
+      </li>
+      <li>
+        <strong>A copy of your public profile</strong> (name, picture, bio, verified handle, Lightning address,
+        website), so names and pictures load quickly. It is the same profile you publish to everyone.
+      </li>
+      <li>
+        <strong>What you publish to our relay</strong>: posts, replies, reactions, space chat, articles, music
+        releases and playlists. Public posts are public. Posts in a space are served only to its members.
+      </li>
+      <li>
+        <strong>Direct messages, encrypted.</strong> Messages are end-to-end encrypted on your device before they are
+        sent. Our relay stores only the encrypted envelope and can see whose inbox it is for — that is how we send a
+        "new message" notification, which carries no sender and no text. We cannot read your messages.
+      </li>
+      <li>
+        <strong>Push notification details</strong>: your device's push token, bound to your public key, with the
+        platform, app version and language, and your notification settings (muted spaces, people you chose to be
+        alerted about). Devices that have not been seen for 90 days are removed.
+      </li>
+      <li>
+        <strong>Spaces</strong>: which spaces you belong to, your roles there, invites you created and answers you gave
+        to a space's onboarding questions.
+      </li>
+      <li>
+        <strong>Uploads</strong>: the audio, artwork and other files you upload, with their size, type, a content hash,
+        the upload time and the account that uploaded them, plus the streaming versions we make of your audio.
+      </li>
+      <li>
+        <strong>Plays</strong>: when you play a track we count it and remember that you listened (per track, with the
+        last time and a count), and keep your last 500 plays to build recommendations.
+      </li>
+      <li>
+        <strong>Searches</strong>: your search terms are sent to our search index to answer you and, like every
+        request, appear in our server logs. GIF searches are passed on to our GIF provider (Klipy) by our server,
+        so Klipy sees the search terms but not your device or account.
+      </li>
+      <li>
+        <strong>Reports</strong>: when you report something we keep your public key (or, if you were not signed in, a
+        one-way hash of your IP address), what you reported (by id — never the text of a message), the reason, your
+        note, and what we decided.
+      </li>
+      <li>
+        <strong>Server logs</strong>: request paths and times, and the IP address of each connection to our relay,
+        for security and abuse prevention. They are kept for [log retention].
+      </li>
+      <li>
+        <strong>Voice and video</strong>: calls and voice rooms pass through our voice server end-to-end encrypted. We
+        see who is in a room while it is open; we do not record or store calls.
+      </li>
+    </ul>
+  </section>
+
+  <section>
+    <h2>what goes beyond our servers</h2>
+    <ul>
+      <li>
+        <strong>Other relays.</strong> Nostr is an open network. What you post is also sent to other public relays,
+        and anyone can copy it from there. We do not run those relays and cannot delete what they hold.
+      </li>
+      <li>
+        <strong>Push delivery.</strong> Notifications reach your phone through Expo's push service and Apple's or
+        Google's. They process the token and the notification text; message notifications carry no content.
+      </li>
+      <li>
+        <strong>The assistant.</strong> Navi talks to the AI provider you choose, with your own key, directly from your
+        device under that provider's terms. Nothing you send to Navi passes through our servers, and soot asks before
+        anything is sent.
+      </li>
+      <li>
+        <strong>Tips.</strong> Zaps go from your Lightning wallet to the recipient's. We never hold funds or see your
+        wallet's balance.
+      </li>
+      <li>
+        <strong>Email.</strong> Mail you send to our addresses is forwarded through Cloudflare's email routing.
+      </li>
+    </ul>
+    <p>We do not sell your data, show ads, or use third-party analytics or tracking.</p>
+  </section>
+
+  <section>
+    <h2>how long we keep it</h2>
+    <p>
+      We keep data for as long as your account exists, except where noted above. Our databases are backed up daily,
+      and backups age out on a rotation of 7 daily, 4 weekly and 3 monthly copies, so deleted data can survive in a
+      backup for up to about three months before it is gone for good.
+    </p>
+  </section>
+
+  <section>
+    <h2>deleting your account</h2>
+    <p>
+      In soot, go to settings, then account &amp; security, and delete your account. Our servers then remove your push
+      details and notification settings, your profile copy and verified handle, your space memberships, your music,
+      uploads and play history, and everything you published to our relay, including messages addressed to you.
+      Spaces you created are deleted or handed to their remaining moderators, as you choose. The app also asks every
+      other relay to erase what you published — a request they may or may not honour — and removes your key and
+      data from the device.
+    </p>
+    <p>
+      We keep a record that you asked (the signed request), moderation records such as reports and bans in spaces
+      that still exist, and reports you filed, with your key removed from them.
+    </p>
+    <p>
+      For anything else — a copy of what we hold, a correction, or a question about this policy — write to{" "}
+      <a href={`mailto:${contact.privacy}`}>{contact.privacy}</a>.
+    </p>
+  </section>
+
+  <section>
+    <h2>children</h2>
+    <p>soot is not for anyone under {legal.operator.minimumAge}.</p>
+  </section>
+
+  <section>
+    <h2>changes and contact</h2>
+    <p>
+      If this policy changes in a way that matters, we will say so in the app. Privacy:{" "}
+      <a href={`mailto:${contact.privacy}`}>{contact.privacy}</a>. Everything else:{" "}
+      <a href={`mailto:${contact.support}`}>{contact.support}</a>. This policy is governed by the law of{" "}
+      {legal.operator.jurisdiction}.
+    </p>
+  </section>
+</LegalLayout>

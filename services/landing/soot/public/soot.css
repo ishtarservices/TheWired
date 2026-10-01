@@ -1,0 +1,210 @@
+/* soot.win — the app's own design tokens. Bone canvas: the cat is
+   black and is never recoloured, so the lockup sits on bone, not soot.
+   Flat and matte: no gradients, shadows or glows. One ember spark. */
+
+@font-face {
+  font-family: "Nunito";
+  src: url("/fonts/nunito-800.woff2") format("woff2");
+  font-weight: 800;
+  font-display: swap;
+}
+@font-face {
+  font-family: "Nunito Sans";
+  src: url("/fonts/nunito-sans-400.woff2") format("woff2");
+  font-weight: 400;
+  font-display: swap;
+}
+@font-face {
+  font-family: "Nunito Sans";
+  src: url("/fonts/nunito-sans-700.woff2") format("woff2");
+  font-weight: 700;
+  font-display: swap;
+}
+@font-face {
+  font-family: "JetBrains Mono";
+  src: url("/fonts/jetbrains-mono.woff2") format("woff2");
+  font-weight: 400;
+  font-display: swap;
+}
+
+:root {
+  --soot: #0f0e0d;
+  --bone: #f4f1ea;
+  --ash: #8a8680;
+  --ember: #ff4d00;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  margin: 0;
+  min-height: 100%;
+}
+
+body {
+  position: relative;
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+  background: var(--bone);
+  color: var(--soot);
+  font-family: "Nunito Sans", system-ui, sans-serif;
+  font-size: 17px;
+  line-height: 1.5;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* risograph grain — the in-app tile at the bone opacity (3.5%) */
+body::before {
+  content: "";
+  position: fixed;
+  inset: 0;
+  background: url("/img/grain.png") repeat;
+  background-size: 128px 128px;
+  opacity: 0.035;
+  pointer-events: none;
+}
+
+main {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 28px;
+  padding: 64px 20px 32px;
+  text-align: center;
+}
+
+h1 {
+  margin: 0;
+  line-height: 0;
+}
+
+h1 img {
+  width: min(480px, 78vw);
+  height: auto;
+}
+
+.line {
+  margin: 0;
+  font-family: "Nunito", system-ui, sans-serif;
+  font-weight: 800;
+  font-size: clamp(20px, 4.4vw, 26px);
+  letter-spacing: -0.01em;
+}
+
+.stores {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 12px;
+  min-height: 52px;
+  align-items: center;
+}
+
+/* primary is the inversion: soot fill, bone type — never ember */
+.store {
+  display: inline-block;
+  min-width: 168px;
+  padding: 14px 26px;
+  border-radius: 999px;
+  background: var(--soot);
+  color: var(--bone);
+  font-weight: 700;
+  font-size: 16px;
+  text-decoration: none;
+}
+.store:hover,
+.store:focus-visible {
+  background: #2a2826;
+}
+.store:focus-visible {
+  outline: 2px solid var(--soot);
+  outline-offset: 3px;
+}
+
+.meta {
+  margin: 0;
+  font-family: "JetBrains Mono", ui-monospace, monospace;
+  font-size: 13px;
+  color: var(--ash);
+}
+
+/* the one ember on the page: a spark, never a fill */
+.spark {
+  display: inline-block;
+  width: 7px;
+  height: 7px;
+  margin-right: 9px;
+  border-radius: 50%;
+  background: var(--ember);
+  vertical-align: 1px;
+}
+
+/* the lurker — two eyes, pupils off-centre and looking the same way */
+.lurker {
+  position: absolute;
+  right: clamp(16px, 6vw, 72px);
+  top: clamp(16px, 5vh, 48px);
+  line-height: 0;
+}
+.lurker circle {
+  fill: var(--soot);
+}
+.lurker .pupil {
+  fill: var(--bone);
+}
+
+footer {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+  padding: 28px 20px 40px;
+  text-align: center;
+}
+
+footer nav {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 8px 22px;
+  font-size: 15px;
+}
+
+footer a {
+  color: inherit;
+  text-underline-offset: 3px;
+}
+
+footer nav a {
+  text-decoration: none;
+}
+footer nav a:hover {
+  text-decoration: underline;
+}
+
+footer .meta a {
+  color: var(--ash);
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .lurker svg {
+    animation: blink 4.32s infinite;
+    transform-origin: center;
+  }
+  @keyframes blink {
+    0%,
+    95%,
+    100% {
+      transform: scaleY(1);
+    }
+    97.5% {
+      transform: scaleY(0.08);
+    }
+  }
+}
