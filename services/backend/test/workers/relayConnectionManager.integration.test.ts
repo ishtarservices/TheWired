@@ -81,7 +81,7 @@ async function waitFor(predicate: () => Promise<boolean>, timeoutMs = 4000): Pro
   return false;
 }
 
-let stopFn: (() => void) | null = null;
+let stopFn: (() => Promise<void>) | null = null;
 
 beforeEach(() => {
   process.env.INGEST_RECONNECT_MS = "10000"; // keep the (absent) own-relay quiet
@@ -89,8 +89,8 @@ beforeEach(() => {
   process.env.INGEST_RATE_WINDOW_MS = "10000";
 });
 
-afterEach(() => {
-  stopFn?.();
+afterEach(async () => {
+  await stopFn?.();
   stopFn = null;
   delete process.env.INGEST_RECONNECT_MS;
   delete process.env.INGEST_RATE_MAX;
