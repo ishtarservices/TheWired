@@ -1,0 +1,87 @@
+---
+/**
+ * Plain-HTML layout for the legal and support pages: no JavaScript, no
+ * islands — these must read the same in a no-JS browser, App Review's
+ * crawler, and a screen reader. soot links here from its About screen.
+ */
+import legal from "../data/legal.json";
+
+interface Props {
+  title: string;
+  description: string;
+  path: string;
+  updated?: string;
+}
+
+const { title, description, path, updated } = Astro.props;
+const links = [
+  { href: "/terms", label: "terms" },
+  { href: "/community-guidelines", label: "community guidelines" },
+  { href: "/privacy", label: "privacy" },
+  { href: "/support", label: "support" },
+];
+---
+
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="description" content={description} />
+    <link rel="canonical" href={`https://thewired.app${path}`} />
+    <link rel="icon" type="image/png" href="/logo.png" />
+    <title>{`${title} — soot · The Wired`}</title>
+  </head>
+  <body class="bg-background text-body">
+    <main class="mx-auto max-w-2xl px-5 py-14 sm:py-20">
+      <a href="/" class="text-xs uppercase tracking-[0.2em] text-muted hover:text-heading">The Wired</a>
+      <h1 class="mt-6 text-3xl font-light text-heading sm:text-4xl">{title}</h1>
+      {updated && <p class="mt-2 font-mono text-xs text-muted">updated {updated}</p>}
+      <div class="legal mt-10">
+        <slot />
+      </div>
+    </main>
+    <footer class="border-t border-surface-hover">
+      <nav class="mx-auto flex max-w-2xl flex-wrap gap-x-6 gap-y-2 px-5 py-8 text-sm" aria-label="legal">
+        {links.map((l) => (
+          <a href={l.href} aria-current={l.href === path ? "page" : undefined} class="text-muted hover:text-heading">
+            {l.label}
+          </a>
+        ))}
+      </nav>
+      <p class="mx-auto max-w-2xl px-5 pb-10 text-xs text-muted">
+        {legal.contacts.map((c, i) => (
+          <>
+            {i > 0 && " · "}
+            <a href={`mailto:${c.address}`} class="hover:text-heading">{c.address}</a>
+          </>
+        ))}
+      </p>
+    </footer>
+  </body>
+</html>
+
+<style is:global>
+  @import "../styles/global.css";
+
+  .legal h2 {
+    margin-top: 2.5rem;
+    font-size: 1.05rem;
+    font-weight: 500;
+    color: var(--color-heading);
+  }
+  .legal p,
+  .legal li {
+    margin-top: 0.85rem;
+    line-height: 1.75;
+  }
+  .legal ul {
+    list-style: disc;
+    padding-left: 1.25rem;
+  }
+  .legal a {
+    color: var(--color-heading);
+    text-decoration: underline;
+    text-underline-offset: 3px;
+  }
+</style>

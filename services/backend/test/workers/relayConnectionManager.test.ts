@@ -59,7 +59,7 @@ function reqFrames(ws: MockWebSocket): unknown[][] {
   return ws.sent.map((s) => JSON.parse(s)).filter((m) => m[0] === "REQ");
 }
 
-let stopFn: (() => void) | null = null;
+let stopFn: (() => Promise<void>) | null = null;
 
 async function startManager() {
   const { startRelayIngester } = await import("../../src/workers/relayConnectionManager.js");
@@ -100,8 +100,10 @@ beforeEach(() => {
   process.env.INGEST_RATE_WINDOW_MS = "10000";
 });
 
-afterEach(() => {
-  stopFn?.();
+afterEach(async () => {
+  // Awaited: a reconcile still querying when the next test's global TRUNCATE
+  // runs deadlocks with it.
+  await stopFn?.();
   stopFn = null;
   delete process.env.INGEST_REFRESH_MS;
   delete process.env.INGEST_RECONNECT_MS;
@@ -179,12 +181,12 @@ describe("relay manager — NIP-42 ingest role (own relay)", () => {
   // A fixed test key; its pubkey is what an operator would put in the relay's
   // RELAY_INGEST_PUBKEYS.
   const SK = "7".repeat(64);
-  let savedKey: string;
-  let savedPublic: string;
+  // Captured once, not per test: if an earlier hook throws, this beforeEach is
+  // skipped but the afterEach still runs, and must not restore undefined.
+  const savedKey = config.ingestSecretKey;
+  const savedPublic = config.publicRelayUrl;
 
   beforeEach(() => {
-    savedKey = config.ingestSecretKey;
-    savedPublic = config.publicRelayUrl;
     (config as { ingestSecretKey: string }).ingestSecretKey = SK;
     (config as { publicRelayUrl: string }).publicRelayUrl = "wss://relay.public.test";
   });

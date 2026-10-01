@@ -136,3 +136,86 @@ func TestIsBlossomPath(t *testing.T) {
 		}
 	}
 }
+
+// An encoded "/" inside a path segment (a music d-tag like "ep/1", sent as
+// "ep%2F1" by encodeURIComponent) must reach the backend still encoded —
+// otherwise the segment splits and DELETE /music/track/:pubkey/:slug 404s.
+func TestRouter_PreservesEncodedSlash(t *testing.T) {
+	var gotURI, gotPath string
+	backend := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotURI = r.RequestURI
+		gotPath = r.URL.Path
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer backend.Close()
+
+	handler := NewRouter(backend.URL).Handler()
+	pk := "56f03c035bf7d75b1120f2e0688a76ae3cd8e027d31b97ea97e171b3d33be4c5"
+
+	tests := []struct {
+		method, in, wantURI, wantPath string
+	}{
+		{"DELETE", "/api/music/track/" + pk + "/ep%2F1", "/music/track/" + pk + "/ep%2F1", "/music/track/" + pk + "/ep/1"},
+		{"GET", "/api/music/resolve/album/" + pk + "/a%2Fb%2Fc?x=1", "/music/resolve/album/" + pk + "/a%2Fb%2Fc?x=1", "/music/resolve/album/" + pk + "/a/b/c"},
+		{"GET", "/api/music/access/" + pk + "/%2Flead", "/music/access/" + pk + "/%2Flead", "/music/access/" + pk + "//lead"},
+		// Other escapes keep round-tripping, plain paths stay plain.
+		{"GET", "/api/invites/a%20b", "/invites/a%20b", "/invites/a b"},
+		{"GET", "/api/spaces/seed1/members?limit=5", "/spaces/seed1/members?limit=5", "/spaces/seed1/members"},
+		{"GET", "/api", "/", "/"},
+	}
+	for _, tt := range tests {
+		gotURI, gotPath = "", ""
+		req := httptest.NewRequest(tt.method, "http://gateway"+tt.in, nil)
+		handler.ServeHTTP(httptest.NewRecorder(), req)
+		if gotURI != tt.wantURI {
+			t.Errorf("%s %s: backend request URI %q, want %q", tt.method, tt.in, gotURI, tt.wantURI)
+		}
+		if gotPath != tt.wantPath {
+			t.Errorf("%s %s: backend decoded path %q, want %q", tt.method, tt.in, gotPath, tt.wantPath)
+		}
+	}
+}
+
+// Through a real ServeMux "/api/" mount (as cmd/gateway wires it) the encoded
+// slash is neither redirected nor decoded on the way to the backend.
+func TestRouter_EncodedSlashThroughServeMux(t *testing.T) {
+	var gotURI string
+	backend := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotURI = r.RequestURI
+		w.WriteHeader(http.StatusNoContent)
+	}))
+	defer backend.Close()
+
+	mux := http.NewServeMux()
+	mux.Handle("/api/", NewRouter(backend.URL).Handler())
+	gw := httptest.NewServer(mux)
+	defer gw.Close()
+
+	req, _ := http.NewRequest("DELETE", gw.URL+"/api/music/album/abc/x%2F%2Fy", nil)
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp.Body.Close()
+	if resp.StatusCode != http.StatusNoContent {
+		t.Fatalf("status %d, want 204 (no redirect)", resp.StatusCode)
+	}
+	if gotURI != "/music/album/abc/x%2F%2Fy" {
+		t.Errorf("backend request URI %q, want /music/album/abc/x%%2F%%2Fy", gotURI)
+	}
+}
+
+func TestNewBlossomHandler_PreservesEncoding(t *testing.T) {
+	var gotURI string
+	backend := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotURI = r.RequestURI
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer backend.Close()
+
+	req := httptest.NewRequest("GET", "http://gateway/list/a%2Fb", nil)
+	NewBlossomHandler(backend.URL).ServeHTTP(httptest.NewRecorder(), req)
+	if gotURI != "/list/a%2Fb" {
+		t.Errorf("backend request URI %q, want /list/a%%2Fb", gotURI)
+	}
+}

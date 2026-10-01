@@ -1,0 +1,14 @@
+---
+import LegalLayout from "../layouts/LegalLayout.astro";
+import LegalDocument from "../components/LegalDocument.astro";
+import legal from "../data/legal.json";
+---
+
+<LegalLayout
+  title={legal.documents.guidelines.title}
+  description="What is and is not allowed on soot, and what happens when you report something."
+  path="/community-guidelines"
+  updated={legal.documents.guidelines.updated}
+>
+  <LegalDocument id="guidelines" />
+</LegalLayout>

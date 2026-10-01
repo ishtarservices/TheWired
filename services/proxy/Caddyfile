@@ -10,6 +10,12 @@ livekit.thewired.app {
 }
 
 thewired.app {
+	# The handles below reach the backend directly, not through the gateway. Only
+	# the gateway may set these (after NIP-98 verification), so strip any a
+	# client sends — the backend reads X-Auth-Pubkey as the caller's identity.
+	request_header -X-Auth-Pubkey
+	request_header -X-Client-Ip
+
 	# NIP-05 identity verification — must be served from the root domain
 	handle /.well-known/nostr.json {
 		header Access-Control-Allow-Origin "*"
@@ -25,17 +31,46 @@ thewired.app {
 		reverse_proxy backend:3002
 	}
 
-	# Server-rendered OG share pages for music + profile web links. On devices
-	# with the app installed these paths open in-app via universal links.
-	handle /music/* {
+	# Server-rendered OG share pages for every path soot claims as a universal
+	# link (backend routes/wellKnown.ts). With the app installed these open
+	# in-app; without it the visitor gets a "get soot" page, never a 404.
+	# Read-only: the API lives on api.thewired.app, behind the gateway.
+	@share {
+		path /music/* /profile/* /space/* /note/* /article/* /dm/* /invite/*
+		method GET HEAD
+	}
+	handle @share {
 		reverse_proxy backend:3002
 	}
-	handle /profile/* {
+	# Bare nostr entities at the root (thewired.app/npub1…): rewritten to the
+	# backend's /e/<entity>, which keeps the original path as the canonical URL.
+	@entity {
+		path_regexp entity ^/((?:npub1|nprofile1|nevent1|naddr1|note1)[0-9a-z]+)$
+		method GET HEAD
+	}
+	handle @entity {
+		rewrite * /e/{re.entity.1}
 		reverse_proxy backend:3002
 	}
 
-	# Landing page
+	# Landing page, incl. /terms, /community-guidelines, /privacy, /support
 	handle {
 		reverse_proxy landing:8080
 	}
+}
+
+# soot's own domains. soot.win is canonical; getsoot.app and the www names
+# redirect to it. The legal and support pages live on thewired.app (one copy,
+# generated from the app's own text) — the soot paths redirect there, so the
+# App Store privacy and support URLs can sit on the app's domain.
+soot.win {
+	redir /privacy https://thewired.app/privacy
+	redir /terms https://thewired.app/terms
+	redir /community-guidelines https://thewired.app/community-guidelines
+	redir /support https://thewired.app/support
+	reverse_proxy landing:8080
+}
+
+www.soot.win, getsoot.app, www.getsoot.app {
+	redir https://soot.win{uri} permanent
 }

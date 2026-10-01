@@ -1,0 +1,78 @@
+<!doctype html>
+<html lang="en">
+  <!--
+    soot.win — one job: send people to the right store. Static, no JavaScript.
+    This file is a Caddy template (the landing container's Caddyfile enables
+    `templates` for the soot hosts): the store buttons appear only when
+    IOS_APP_URL / ANDROID_APP_URL are set in the container's environment, so
+    the links go live without a rebuild (IOS_APP_ID, the numeric App Store
+    id, adds Safari's smart app banner). Design: bone canvas (the cat is
+    black and is never recoloured), grain, lowercase, one ember.
+  -->
+  {{- $ios := env "IOS_APP_URL" -}}
+  {{- $android := env "ANDROID_APP_URL" -}}
+  {{- $iosId := env "IOS_APP_ID" -}}
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>soot — music from the shadows</title>
+    <meta name="description" content="a decentralized home for underground music. no labels." />
+    <meta name="theme-color" content="#F4F1EA" />
+    <link rel="canonical" href="https://soot.win/" />
+    <link rel="icon" type="image/png" href="/favicon.png" />
+    <meta property="og:title" content="soot" />
+    <meta property="og:description" content="a decentralized home for underground music. no labels." />
+    <meta property="og:type" content="website" />
+    <meta property="og:url" content="https://soot.win/" />
+    <meta property="og:image" content="https://soot.win/img/og.png" />
+    <meta name="twitter:card" content="summary_large_image" />
+    {{- if $iosId }}
+    <meta name="apple-itunes-app" content="app-id={{ $iosId }}" />
+    {{- end }}
+    <link rel="preload" href="/fonts/nunito-sans-400.woff2" as="font" type="font/woff2" crossorigin />
+    <link rel="stylesheet" href="/soot.css" />
+  </head>
+  <body>
+    <main>
+      <h1><img src="/img/soot.png" alt="soot" width="480" height="334" /></h1>
+      <p class="line">music from the shadows. no labels.</p>
+
+      <nav class="stores" aria-label="get soot">
+        {{- if $ios }}
+        <a class="store" href="{{ $ios }}">app store</a>
+        {{- end }}
+        {{- if $android }}
+        <a class="store" href="{{ $android }}">google play</a>
+        {{- end }}
+        {{- if not (or $ios $android) }}
+        <p class="meta"><span class="spark" aria-hidden="true"></span>on the app store soon.</p>
+        {{- end }}
+      </nav>
+    </main>
+
+    <div class="lurker" aria-hidden="true">
+      <svg viewBox="0 0 74 28" width="74" height="28">
+        <circle cx="14" cy="14" r="14" />
+        <circle class="pupil" cx="11.48" cy="17.08" r="5.32" />
+        <circle cx="60" cy="14" r="14" />
+        <circle class="pupil" cx="57.48" cy="17.08" r="5.32" />
+      </svg>
+    </div>
+
+    <footer>
+      <nav aria-label="legal">
+        <a href="/terms">terms</a>
+        <a href="/community-guidelines">community guidelines</a>
+        <a href="/privacy">privacy</a>
+        <a href="/support">support</a>
+      </nav>
+      <p class="meta">
+        <a href="mailto:support@thewired.app">support@thewired.app</a> ·
+        <a href="mailto:abuse@thewired.app">abuse@thewired.app</a> ·
+        <a href="mailto:copyright@thewired.app">copyright@thewired.app</a> ·
+        <a href="mailto:privacy@thewired.app">privacy@thewired.app</a>
+      </p>
+      <p class="meta">a nostr client. run by <a href="https://thewired.app">the wired</a>.</p>
+    </footer>
+  </body>
+</html>

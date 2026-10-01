@@ -14,24 +14,12 @@ import { buildMusicSearchDoc } from "../lib/musicSearchDoc.js";
 import { escapeMsFilter } from "../lib/meiliFilter.js";
 import { MS_LISTED_FILTER, isListedPublicMusic } from "../lib/musicListing.js";
 import { suspensionService } from "./suspensionService.js";
+import { canonicalAudioType } from "../lib/audioMime.js";
+import { probeDurationSec } from "../lib/transcode.js";
 
 const BLOB_DIR = resolve(process.cwd(), config.blobDir);
 const MAX_AUDIO_SIZE = config.maxBlobSize;
 const MAX_COVER_SIZE = 10 * 1024 * 1024; // 10MB
-
-const ALLOWED_AUDIO_TYPES = new Set([
-  "audio/mpeg",
-  "audio/mp3",
-  "audio/ogg",
-  "audio/flac",
-  "audio/wav",
-  "audio/x-wav",
-  "audio/aac",
-  "audio/mp4",
-  "audio/webm",
-  "audio/aiff",
-  "audio/x-aiff",
-]);
 
 const ALLOWED_IMAGE_TYPES = new Set([
   "image/jpeg",
@@ -40,8 +28,28 @@ const ALLOWED_IMAGE_TYPES = new Set([
   "image/gif",
 ]);
 
+/** A client-side upload problem. Carries the HTTP status + code the global
+ *  error handler answers with (a plain Error would surface as a 500). */
+export class UploadRejectedError extends Error {
+  constructor(
+    message: string,
+    readonly statusCode: number,
+    readonly code: string,
+  ) {
+    super(message);
+    this.name = "UploadRejectedError";
+  }
+}
+
 async function ensureDir(dir: string) {
   await mkdir(dir, { recursive: true });
+}
+
+/** Whole seconds — `music_uploads.duration` is BIGINT, so a fractional value
+ *  (a browser's 213.4 s) must be rounded before the insert, not after. */
+function wholeSeconds(sec: number | null | undefined): number | undefined {
+  if (sec == null || !Number.isFinite(sec) || sec <= 0) return undefined;
+  return Math.max(1, Math.round(sec));
 }
 
 export const musicService = {
@@ -50,8 +58,15 @@ export const musicService = {
     pubkey: string,
     clientDuration?: number,
   ) {
-    if (!ALLOWED_AUDIO_TYPES.has(file.mimetype)) {
-      throw new Error(`Invalid audio type: ${file.mimetype}`);
+    const mimeType = canonicalAudioType(file.mimetype);
+    if (!mimeType) {
+      // Drain the part so the multipart parser can finish the request cleanly.
+      file.file.resume();
+      throw new UploadRejectedError(
+        `Unsupported audio type: ${file.mimetype || "(none)"}`,
+        400,
+        "INVALID_AUDIO_TYPE",
+      );
     }
 
     await ensureDir(BLOB_DIR);
@@ -70,7 +85,7 @@ export const musicService = {
       if (size > MAX_AUDIO_SIZE) {
         writeStream.destroy();
         await unlink(tempPath).catch(() => {});
-        throw new Error("File too large (max 100MB)");
+        throw new UploadRejectedError("File too large (max 100MB)", 413, "FILE_TOO_LARGE");
       }
       hash.update(chunk as Buffer);
       writeStream.write(chunk);
@@ -93,8 +108,13 @@ export const musicService = {
     const url = `${config.publicUrl}/${sha256}`;
     const uploaded = Math.floor(Date.now() / 1000);
 
+    // Duration: ffprobe ground truth when it can read the file (mobile clients
+    // send none — expo's native multipart carries no probed length), else the
+    // client's claim. Stored and returned in whole seconds (BIGINT column).
+    const duration = wholeSeconds((await probeDurationSec(storagePath)) ?? clientDuration);
+
     // Insert into blobs table (dedup-safe)
-    await db.insert(blobs).values({ sha256, size, type: file.mimetype, uploaded }).onConflictDoNothing();
+    await db.insert(blobs).values({ sha256, size, type: mimeType, uploaded }).onConflictDoNothing();
     await db.insert(blobOwners).values({ sha256, pubkey }).onConflictDoNothing();
 
     // Insert into music_uploads for music-specific metadata
@@ -106,9 +126,9 @@ export const musicService = {
       storagePath,
       url,
       sha256,
-      mimeType: file.mimetype,
+      mimeType,
       fileSize: size,
-      duration: clientDuration ?? null,
+      duration: duration ?? null,
     });
 
     // Enqueue transcode job if the pipeline is enabled. `jobId: sha256` dedupes:
@@ -117,7 +137,7 @@ export const musicService = {
       try {
         await getTranscodeQueue().add(
           "transcode",
-          { sha256, mimeType: file.mimetype, storagePath },
+          { sha256, mimeType, storagePath },
           { jobId: sha256 },
         );
       } catch (err) {
@@ -129,8 +149,8 @@ export const musicService = {
       url,
       sha256,
       size,
-      mimeType: file.mimetype,
-      duration: clientDuration,
+      mimeType,
+      duration,
     };
   },
 
@@ -139,7 +159,12 @@ export const musicService = {
     pubkey: string,
   ) {
     if (!ALLOWED_IMAGE_TYPES.has(file.mimetype)) {
-      throw new Error(`Invalid image type: ${file.mimetype}`);
+      file.file.resume();
+      throw new UploadRejectedError(
+        `Unsupported image type: ${file.mimetype || "(none)"}`,
+        400,
+        "INVALID_IMAGE_TYPE",
+      );
     }
 
     await ensureDir(BLOB_DIR);
@@ -157,7 +182,7 @@ export const musicService = {
       if (size > MAX_COVER_SIZE) {
         writeStream.destroy();
         await unlink(tempPath).catch(() => {});
-        throw new Error("Image too large (max 10MB)");
+        throw new UploadRejectedError("Image too large (max 10MB)", 413, "FILE_TOO_LARGE");
       }
       hash.update(chunk as Buffer);
       writeStream.write(chunk);

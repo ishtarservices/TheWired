@@ -1,9 +1,25 @@
 :8080 {
-	root * /srv
-	file_server
 	encode gzip
 
 	header Cache-Control "public, max-age=3600"
 	header /fonts/* Cache-Control "public, max-age=31536000, immutable"
 	header /_astro/* Cache-Control "public, max-age=31536000, immutable"
+
+	# soot's landing page (soot.win; the edge redirects getsoot.app here).
+	# A separate static root, and index.html is a Caddy template: the store
+	# buttons read IOS_APP_URL / ANDROID_APP_URL / IOS_APP_ID from this
+	# container's environment, so they go live without a rebuild.
+	@soot host soot.win www.soot.win getsoot.app www.getsoot.app soot.localhost
+	handle @soot {
+		root * /srv-soot
+		templates
+		file_server
+	}
+
+	# thewired.app — the Astro build, incl. /terms, /community-guidelines,
+	# /privacy and /support.
+	handle {
+		root * /srv
+		file_server
+	}
 }

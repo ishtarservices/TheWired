@@ -212,8 +212,10 @@ export const musicRoutes: FastifyPluginAsync = async (server) => {
       return reply.status(400).send({ error: "No file uploaded", code: "NO_FILE" });
     }
 
-    // Optional `duration` multipart field (seconds). Multipart fields are only
-    // visible if the client appended them BEFORE the file part.
+    // Optional `duration` multipart field (seconds) — a fallback only: the
+    // service probes the stored file with ffprobe and prefers that. Multipart
+    // fields are only visible if the client appended them BEFORE the file part.
+    // An unsupported mime answers 400 INVALID_AUDIO_TYPE (UploadRejectedError).
     const durationField = data.fields?.duration as { value?: unknown } | undefined;
     const parsedDuration = Number(durationField?.value);
     const clientDuration =

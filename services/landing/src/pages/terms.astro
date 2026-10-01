@@ -1,0 +1,14 @@
+---
+import LegalLayout from "../layouts/LegalLayout.astro";
+import LegalDocument from "../components/LegalDocument.astro";
+import legal from "../data/legal.json";
+---
+
+<LegalLayout
+  title={legal.documents.terms.title}
+  description="The terms of service for soot and the servers it uses."
+  path="/terms"
+  updated={legal.documents.terms.updated}
+>
+  <LegalDocument id="terms" />
+</LegalLayout>

@@ -130,12 +130,15 @@ interface Conn {
   windowCount: number;
 }
 
-export function startRelayIngester(): { stop: () => void } {
+export function startRelayIngester(): { stop: () => Promise<void> } {
   const redis = getRedis();
   const cfg = tunables();
   const connections = new Map<string, Conn>();
   let stopped = false;
   let refreshTimer: ReturnType<typeof setInterval> | null = null;
+  // The reconcile in flight, if any: stop() waits for it so no query outlives
+  // the manager, and a slow query doesn't stack another reconcile behind it.
+  let refreshing: Promise<void> | null = null;
 
   const isOwn = (url: string) => url === config.relayUrl;
 
@@ -381,6 +384,8 @@ export function startRelayIngester(): { stop: () => void } {
       console.error("[ingester] refresh query failed:", (err as Error).message);
       return;
     }
+    // Stopped while the query ran: open nothing.
+    if (stopped) return;
 
     // Enforce the global cap on distinct external relays.
     if (desired.size > config.maxIngestRelays) {
@@ -422,14 +427,21 @@ export function startRelayIngester(): { stop: () => void } {
   connections.set(config.relayUrl, newConn(new Set()));
   open(config.relayUrl);
   // Then reconcile external relays now and on an interval.
-  void refresh();
-  refreshTimer = setInterval(() => void refresh(), cfg.refreshIntervalMs);
+  const scheduleRefresh = () => {
+    if (refreshing) return;
+    refreshing = refresh().finally(() => {
+      refreshing = null;
+    });
+  };
+  scheduleRefresh();
+  refreshTimer = setInterval(scheduleRefresh, cfg.refreshIntervalMs);
 
   return {
-    stop: () => {
+    stop: async () => {
       stopped = true;
       if (refreshTimer) clearInterval(refreshTimer);
       for (const url of [...connections.keys()]) closeConnection(url);
+      await refreshing;
       console.log("[ingester] Stopped");
     },
   };
