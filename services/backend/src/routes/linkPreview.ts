@@ -1,5 +1,9 @@
 import type { FastifyPluginAsync } from "fastify";
+import { and, eq } from "drizzle-orm";
+import { nip19 } from "nostr-tools";
 import { config } from "../config.js";
+import { db } from "../db/connection.js";
+import { spaces } from "../db/schema/spaces.js";
 import { profileCacheService } from "../services/profileCacheService.js";
 import {
   fetchLatestByAddressableId,
@@ -173,10 +177,10 @@ function sendPreview(
     .send(renderPreviewPage(meta, platformFromUserAgent(request.headers["user-agent"])));
 }
 
-function genericMeta(canonicalPath: string): PreviewMeta {
+function genericMeta(canonicalPath: string, description = "Music on The Wired"): PreviewMeta {
   return {
     title: "The Wired",
-    description: "Music on The Wired",
+    description,
     imageUrl: null,
     ogType: "website",
     canonicalPath,
@@ -280,4 +284,79 @@ export const linkPreviewRoutes: FastifyPluginAsync = async (server) => {
       });
     },
   );
+
+  // The other universal-link paths soot claims (routes/wellKnown.ts). With the
+  // app installed iOS/Android open them in-app; without it the visitor lands
+  // here instead of a 404. Only a LISTED space shows its name — notes,
+  // articles, DMs and invites always get the generic page (no metadata leak,
+  // no existence oracle).
+  server.get<{ Params: { "*": string } }>("/space/*", async (request, reply) => {
+    const canonicalPath = pathOf(request.url);
+    const spaceId = request.params["*"].split("/")[0] ?? "";
+    const [space] = spaceId
+      ? await db
+          .select({ name: spaces.name, about: spaces.about, picture: spaces.picture })
+          .from(spaces)
+          .where(and(eq(spaces.id, spaceId), eq(spaces.listed, true)))
+          .limit(1)
+      : [];
+    if (!space) return sendPreview(request, reply, genericMeta(canonicalPath, "A space on The Wired"));
+    return sendPreview(request, reply, {
+      title: space.name,
+      description: space.about?.slice(0, 200) || "A space on The Wired",
+      imageUrl: safeImageUrl(space.picture),
+      ogType: "website",
+      canonicalPath,
+    });
+  });
+
+  for (const [prefix, description] of [
+    ["/note/*", "A post on The Wired"],
+    ["/article/*", "An article on The Wired"],
+    ["/dm/*", "Messages on The Wired"],
+    ["/invite/*", "You're invited to a space on The Wired"],
+  ] as const) {
+    server.get(prefix, async (request, reply) =>
+      sendPreview(request, reply, genericMeta(pathOf(request.url), description)),
+    );
+  }
+
+  // Bare nostr entities at the web root (thewired.app/npub1…). The edge
+  // rewrites them to /e/<entity> so the backend needs no root catch-all
+  // (Blossom owns /<sha256>); the canonical URL stays the original path. A
+  // profile entity renders the public profile; anything else is generic.
+  server.get<{ Params: { entity: string } }>("/e/:entity", async (request, reply) => {
+    const { entity } = request.params;
+    const canonicalPath = `/${encodeURIComponent(entity)}`;
+    const pubkey = profileEntityPubkey(entity);
+    if (!pubkey || (await suspensionService.isSuspended(pubkey))) {
+      return sendPreview(request, reply, genericMeta(canonicalPath, "On The Wired"));
+    }
+    const profile = await profileCacheService.getProfile(pubkey);
+    const name = profile?.displayName || profile?.name || `${pubkey.slice(0, 8)}…${pubkey.slice(-4)}`;
+    return sendPreview(request, reply, {
+      title: name,
+      description: `${name} on The Wired`,
+      imageUrl: safeImageUrl(profile?.picture),
+      ogType: "profile",
+      canonicalPath,
+    });
+  });
 };
+
+/** The request path without its query string. */
+function pathOf(url: string): string {
+  return url.split("?")[0];
+}
+
+/** The pubkey an npub / nprofile names, or null. */
+function profileEntityPubkey(entity: string): string | null {
+  try {
+    const decoded = nip19.decode(entity);
+    if (decoded.type === "npub") return decoded.data;
+    if (decoded.type === "nprofile") return decoded.data.pubkey;
+  } catch {
+    // not a valid entity
+  }
+  return null;
+}
