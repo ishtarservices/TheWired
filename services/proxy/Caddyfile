@@ -10,6 +10,12 @@ livekit.thewired.app {
 }
 
 thewired.app {
+	# The handles below reach the backend directly, not through the gateway. Only
+	# the gateway may set these (after NIP-98 verification), so strip any a
+	# client sends — the backend reads X-Auth-Pubkey as the caller's identity.
+	request_header -X-Auth-Pubkey
+	request_header -X-Client-Ip
+
 	# NIP-05 identity verification — must be served from the root domain
 	handle /.well-known/nostr.json {
 		header Access-Control-Allow-Origin "*"
@@ -28,13 +34,20 @@ thewired.app {
 	# Server-rendered OG share pages for every path soot claims as a universal
 	# link (backend routes/wellKnown.ts). With the app installed these open
 	# in-app; without it the visitor gets a "get soot" page, never a 404.
-	@share path /music/* /profile/* /space/* /note/* /article/* /dm/* /invite/*
+	# Read-only: the API lives on api.thewired.app, behind the gateway.
+	@share {
+		path /music/* /profile/* /space/* /note/* /article/* /dm/* /invite/*
+		method GET HEAD
+	}
 	handle @share {
 		reverse_proxy backend:3002
 	}
 	# Bare nostr entities at the root (thewired.app/npub1…): rewritten to the
 	# backend's /e/<entity>, which keeps the original path as the canonical URL.
-	@entity path_regexp entity ^/((?:npub1|nprofile1|nevent1|naddr1|note1)[0-9a-z]+)$
+	@entity {
+		path_regexp entity ^/((?:npub1|nprofile1|nevent1|naddr1|note1)[0-9a-z]+)$
+		method GET HEAD
+	}
 	handle @entity {
 		rewrite * /e/{re.entity.1}
 		reverse_proxy backend:3002
