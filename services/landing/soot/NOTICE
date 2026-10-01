@@ -1,0 +1,12 @@
+soot brand assets
+
+The soot name, logo and artwork in this directory (public/img/ and
+public/favicon.png) are the soot project's brand assets. They are NOT
+licensed under this repository's MIT license: all rights reserved. Do not
+reuse them in other projects or forks.
+
+The fonts in public/fonts/ are licensed under the SIL Open Font License 1.1;
+see the OFL-*.txt file beside each one.
+
+The page's code (public/index.html, public/soot.css) is covered by the
+repository's MIT license like the rest of this repo.

@@ -279,6 +279,13 @@ services:
 
   landing:
     image: ghcr.io/ishtarservices/thewired-landing:latest
+    # The soot.win page reads these at request time (Caddy templates): each
+    # store button appears once its URL is set. IOS_APP_ID is the numeric App
+    # Store id, for Safari's smart app banner.
+    environment:
+      IOS_APP_URL: ${IOS_APP_URL:-}
+      ANDROID_APP_URL: ${ANDROID_APP_URL:-}
+      IOS_APP_ID: ${IOS_APP_ID:-}
     healthcheck:
       test: ["CMD", "wget", "--spider", "-q", "http://localhost:8080"]
       interval: 10s
