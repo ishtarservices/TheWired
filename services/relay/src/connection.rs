@@ -9,6 +9,7 @@ use tokio::sync::broadcast;
 use tokio::sync::Mutex;
 
 use crate::nostr::event::Event;
+use crate::nostr::report_gate;
 use crate::nostr::wrap_gate::{self, ReadCtx, WrapAuthGate};
 use crate::protocol::handler;
 use crate::protocol::nip42;
@@ -63,7 +64,8 @@ const MAX_MESSAGE_SIZE: usize = 128 * 1024;
 /// Visibility check for broadcast events (no per-broadcast DB query), with
 /// the DM wire contract's gift-wrap gate and NIP-40 expiration applied:
 ///   0. Expired events are never forwarded; a kind-1059 wrap goes only to
-///      its authenticated recipient (or the ingest role / non-enforcing gate).
+///      its authenticated recipient (or the ingest role / non-enforcing gate);
+///      a kind-1984 report only to its authenticated author (or the ingest role).
 /// Then the ordinary rules:
 /// Order:
 ///   1. Public events (no visibility, no h-tag) → visible to everyone.
@@ -94,6 +96,9 @@ fn is_event_visible_to_ctx(
         return false;
     }
     if !wrap_gate::wrap_visible(event, ctx) {
+        return false;
+    }
+    if !report_gate::report_visible(event, ctx) {
         return false;
     }
     let authed_owned: Option<String> = ctx.authed.map(str::to_string);
@@ -509,7 +514,19 @@ mod tests {
         assert!(!is_event_visible_to(&evt, &None, &empty_set()));
         assert!(is_event_visible_to(&evt, &Some("bob".into()), &empty_set()));
         assert!(!is_event_visible_to(&evt, &Some("carol".into()), &empty_set()));
-        let ingest = ReadCtx { authed: Some("backend"), serve_all_wraps: true, now: 0 };
+        let ingest = ReadCtx { authed: Some("backend"), serve_all_wraps: true, serve_all_reports: true, now: 0 };
+        assert!(is_event_visible_to_ctx(&evt, &ingest, &empty_set()));
+    }
+
+    /// NIP-56: a live report reaches only its authenticated author or the
+    /// ingest role — never the account it reports, never anonymous sockets.
+    #[test]
+    fn report_only_to_its_author_or_ingest() {
+        let evt = event_with(1984, "alice", vec![vec!["p".into(), "mallory".into(), "spam".into()]]);
+        assert!(!is_event_visible_to(&evt, &None, &empty_set()));
+        assert!(is_event_visible_to(&evt, &Some("alice".into()), &empty_set()));
+        assert!(!is_event_visible_to(&evt, &Some("mallory".into()), &empty_set()));
+        let ingest = ReadCtx { authed: Some("backend"), serve_all_wraps: true, serve_all_reports: true, now: 0 };
         assert!(is_event_visible_to_ctx(&evt, &ingest, &empty_set()));
     }
 
@@ -517,8 +534,8 @@ mod tests {
     #[test]
     fn expired_events_are_never_broadcast() {
         let evt = event_with(1, "alice", vec![vec!["expiration".into(), "100".into()]]);
-        let live = ReadCtx { authed: None, serve_all_wraps: false, now: 99 };
-        let dead = ReadCtx { authed: None, serve_all_wraps: false, now: 100 };
+        let live = ReadCtx { authed: None, serve_all_wraps: false, serve_all_reports: false, now: 99 };
+        let dead = ReadCtx { authed: None, serve_all_wraps: false, serve_all_reports: false, now: 100 };
         assert!(is_event_visible_to_ctx(&evt, &live, &empty_set()));
         assert!(!is_event_visible_to_ctx(&evt, &dead, &empty_set()));
     }

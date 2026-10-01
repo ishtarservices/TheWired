@@ -47,15 +47,20 @@ pub struct ReadCtx<'a> {
     /// backend push planner, which only ever learns the `p` tag it already
     /// sees today), or a gate mode other than `Enforce`.
     pub serve_all_wraps: bool,
+    /// True when the connection may read EVERY kind-1984 report: the ingest
+    /// role (the backend files them into the moderation queue), or the report
+    /// gate turned off. Independent of the wrap gate mode — production runs
+    /// wraps in `warn`, and reports must not leak with them (`report_gate`).
+    pub serve_all_reports: bool,
     /// Unix seconds "now" for NIP-40 checks.
     pub now: i64,
 }
 
 impl<'a> ReadCtx<'a> {
     /// The plain, pre-contract context (used by callers that predate the
-    /// gate and by tests): no ingest role, gate enforced, wall-clock now.
+    /// gate and by tests): no ingest role, gates enforced, wall-clock now.
     pub fn plain(authed: Option<&'a str>) -> Self {
-        ReadCtx { authed, serve_all_wraps: false, now: unix_now() }
+        ReadCtx { authed, serve_all_wraps: false, serve_all_reports: false, now: unix_now() }
     }
 }
 
@@ -149,11 +154,11 @@ mod tests {
     fn wrap_only_visible_to_its_recipient() {
         let bob = "b".repeat(64);
         let w = wrap(&bob, vec![]);
-        let anon = ReadCtx { authed: None, serve_all_wraps: false, now: 0 };
-        let as_bob = ReadCtx { authed: Some(&bob), serve_all_wraps: false, now: 0 };
+        let anon = ReadCtx { authed: None, serve_all_wraps: false, serve_all_reports: false, now: 0 };
+        let as_bob = ReadCtx { authed: Some(&bob), serve_all_wraps: false, serve_all_reports: false, now: 0 };
         let stranger = "c".repeat(64);
-        let as_stranger = ReadCtx { authed: Some(&stranger), serve_all_wraps: false, now: 0 };
-        let ingest = ReadCtx { authed: Some(&stranger), serve_all_wraps: true, now: 0 };
+        let as_stranger = ReadCtx { authed: Some(&stranger), serve_all_wraps: false, serve_all_reports: false, now: 0 };
+        let ingest = ReadCtx { authed: Some(&stranger), serve_all_wraps: true, serve_all_reports: true, now: 0 };
         assert!(!wrap_visible(&w, &anon));
         assert!(wrap_visible(&w, &as_bob));
         assert!(!wrap_visible(&w, &as_stranger));
@@ -164,7 +169,7 @@ mod tests {
     fn non_wraps_are_not_gated_here() {
         let mut e = wrap(&"b".repeat(64), vec![]);
         e.kind = 1;
-        assert!(wrap_visible(&e, &ReadCtx { authed: None, serve_all_wraps: false, now: 0 }));
+        assert!(wrap_visible(&e, &ReadCtx { authed: None, serve_all_wraps: false, serve_all_reports: false, now: 0 }));
     }
 
     #[test]

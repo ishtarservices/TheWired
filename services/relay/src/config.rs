@@ -19,6 +19,10 @@ pub struct Config {
     /// Server-side retention for kind-1059 by `first_seen`, in days.
     /// `RELAY_WRAP_RETENTION_DAYS`; 0 = keep forever (default).
     pub wrap_retention_days: u32,
+    /// Serve kind-1984 reports only to their author and the ingest role
+    /// (`nostr::report_gate`). `RELAY_REPORT_READ_GATE` = on (default) | off;
+    /// `off` is for local dev without an ingest key.
+    pub report_read_gate: bool,
 
     // ── Rate limits (always on; the Caddy proxy routes the relay around the
     //    gateway, so nothing else limits WebSocket traffic) ──
@@ -45,6 +49,7 @@ impl Default for Config {
             ingest_pubkeys: Vec::new(),
             wrap_auth_gate: WrapAuthGate::Enforce,
             wrap_retention_days: 0,
+            report_read_gate: true,
             rate_max_msgs: 300,
             rate_window_secs: 10,
             max_conns_per_ip: 32,
@@ -87,6 +92,14 @@ impl Config {
                 &std::env::var("RELAY_WRAP_AUTH_GATE").unwrap_or_else(|_| "enforce".into()),
             ),
             wrap_retention_days: env_or("RELAY_WRAP_RETENTION_DAYS", d.wrap_retention_days),
+            report_read_gate: !matches!(
+                std::env::var("RELAY_REPORT_READ_GATE")
+                    .unwrap_or_default()
+                    .trim()
+                    .to_ascii_lowercase()
+                    .as_str(),
+                "off" | "0" | "false"
+            ),
             rate_max_msgs: env_or("RELAY_RATE_MAX_MSGS", d.rate_max_msgs),
             rate_window_secs: env_or("RELAY_RATE_WINDOW_SECS", d.rate_window_secs),
             max_conns_per_ip: env_or("RELAY_MAX_CONNS_PER_IP", d.max_conns_per_ip),

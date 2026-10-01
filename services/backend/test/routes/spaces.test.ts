@@ -2,6 +2,9 @@ import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import type { FastifyInstance } from "fastify";
 import { buildTestServer, closeTestServer } from "../helpers/testServer.js";
 import { LUNA } from "../helpers/testUsers.js";
+import { db } from "../../src/db/connection.js";
+import { spaces } from "../../src/db/schema/spaces.js";
+import { config } from "../../src/config.js";
 
 let server: FastifyInstance;
 
@@ -52,6 +55,68 @@ describe("spaces routes", () => {
       expect(response.statusCode).toBe(200);
       const body = response.json();
       expect(body.data.id).toBe("space-create-test");
+    });
+    it("rejects a hostRelay that is not wss:// on a public host", async () => {
+      for (const hostRelay of [
+        "ws://relay.example.com",
+        "wss://192.168.1.20:7787",
+        "wss://localhost:7777",
+        "wss://100.64.0.9",
+        "wss://[fd00::7]",
+        "wss://[::ffff:127.0.0.1]",
+      ]) {
+        const response = await server.inject({
+          method: "POST",
+          url: "/spaces",
+          headers: { "x-auth-pubkey": LUNA.pubkey },
+          payload: { id: "space-bad-host", name: "Bad host", hostRelay },
+        });
+        expect(response.statusCode, hostRelay).toBe(400);
+        expect(response.json().code).toBe("INVALID_HOST_RELAY");
+      }
+    });
+
+    it("never exempts the internal relay address", async () => {
+      const saved = config.relayUrl;
+      (config as { relayUrl: string }).relayUrl = "ws://relay:7777";
+      try {
+        const response = await server.inject({
+          method: "POST",
+          url: "/spaces",
+          headers: { "x-auth-pubkey": LUNA.pubkey },
+          payload: { id: "space-internal-relay", name: "Internal", hostRelay: "ws://relay:7777" },
+        });
+        expect(response.statusCode).toBe(400);
+      } finally {
+        (config as { relayUrl: string }).relayUrl = saved;
+      }
+    });
+
+    it("accepts the platform relay itself as hostRelay (ws://localhost in dev)", async () => {
+      const response = await server.inject({
+        method: "POST",
+        url: "/spaces",
+        headers: { "x-auth-pubkey": LUNA.pubkey },
+        payload: { id: "space-own-relay", name: "Own relay", hostRelay: config.publicRelayUrl },
+      });
+      expect(response.statusCode).toBe(200);
+    });
+
+    it("does not re-validate hostRelay when the creator re-registers (cache recovery)", async () => {
+      await db.insert(spaces).values({
+        id: "space-legacy-host",
+        name: "Legacy",
+        hostRelay: "ws://10.0.0.5:7777",
+        creatorPubkey: LUNA.pubkey,
+        createdAt: Date.now(),
+      });
+      const response = await server.inject({
+        method: "POST",
+        url: "/spaces",
+        headers: { "x-auth-pubkey": LUNA.pubkey },
+        payload: { id: "space-legacy-host", name: "Legacy renamed", hostRelay: "ws://10.0.0.5:7777" },
+      });
+      expect(response.statusCode).toBe(200);
     });
   });
 

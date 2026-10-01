@@ -100,6 +100,10 @@ beforeAll(async () => {
   // Run the app's own migration runner (creates schemas + applies raw SQL files)
   const { runMigrations } = await import("../src/db/migrate.js");
   await runMigrations();
+  // The relay-owned tables the backend writes (moderation, NIP-29 mirror) —
+  // on this raw client, so files that mock src/db/connection still get them.
+  const { relayTestSchemaSql } = await import("./helpers/relaySchema.js");
+  await dbClient.unsafe(relayTestSchemaSql());
 });
 
 beforeEach(async () => {

@@ -4,6 +4,7 @@ import { spaces, spaceTags } from "../db/schema/spaces.js";
 import { listingRequests, spaceCategories, relayDirectory, scenes } from "../db/schema/discovery.js";
 import { parseZapSats } from "../lib/nostr/zapAmount.js";
 import { config } from "../config.js";
+import { suspensionService } from "./suspensionService.js";
 import crypto from "crypto";
 
 /** Split a `tag=a,b,c` query value into a deduped, trimmed OR-list. */
@@ -278,7 +279,8 @@ export const discoveryService = {
 
     if (rows.length === 0) return { tracks: [], albums: [] };
 
-    const decorated = rows.map((r) => {
+    const visibleRows = await suspensionService.withoutSuspended(rows, (r) => r.pubkey);
+    const decorated = visibleRows.map((r) => {
       const space = spaceByAuthor.get(r.pubkey);
       return {
         ...r,

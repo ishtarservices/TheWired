@@ -10,17 +10,25 @@ import (
 	"github.com/redis/go-redis/v9"
 )
 
-// Limits defines rate limit thresholds (per pubkey, per minute).
+// Limits defines rate limit thresholds (per pubkey, per minute), plus the
+// hourly report-intake buckets.
 type Limits struct {
 	ReadPerMin   int
 	WritePerMin  int
 	SearchPerMin int
+	// POST /api/reports has its own hourly bucket on top of the write budget:
+	// a guest report needs no key and every report pages the operator, so
+	// anonymous callers are keyed by IP and kept tight.
+	ReportAnonPerHour int
+	ReportPerHour     int
 }
 
 var DefaultLimits = Limits{
-	ReadPerMin:   100,
-	WritePerMin:  30,
-	SearchPerMin: 10,
+	ReadPerMin:        100,
+	WritePerMin:       30,
+	SearchPerMin:      10,
+	ReportAnonPerHour: 5,
+	ReportPerHour:     30,
 }
 
 // AllowResult contains the outcome of a rate limit check.
@@ -96,9 +104,22 @@ func (l *Limiter) Allow(ctx context.Context, pubkey string, category string) (Al
 	default:
 		limit = l.limits.ReadPerMin
 	}
+	return l.allow(ctx, fmt.Sprintf("ratelimit:%s:%s", category, pubkey), limit, time.Minute)
+}
 
-	key := fmt.Sprintf("ratelimit:%s:%s", category, pubkey)
-	window := time.Minute
+// AllowReport checks the hourly report-intake bucket. `ident` is the rate
+// limit identity the middleware already computed: a pubkey, or "anon:<ip>"
+// for a guest (which gets the tighter ReportAnonPerHour).
+func (l *Limiter) AllowReport(ctx context.Context, ident string, anonymous bool) (AllowResult, error) {
+	limit := l.limits.ReportPerHour
+	if anonymous {
+		limit = l.limits.ReportAnonPerHour
+	}
+	return l.allow(ctx, "ratelimit:report:"+ident, limit, time.Hour)
+}
+
+// allow runs the sliding-window check for one key.
+func (l *Limiter) allow(ctx context.Context, key string, limit int, window time.Duration) (AllowResult, error) {
 	now := time.Now()
 	windowStart := now.Add(-window)
 	resetAt := now.Add(window)

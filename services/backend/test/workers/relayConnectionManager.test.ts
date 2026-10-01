@@ -144,7 +144,12 @@ describe("relay manager — regression (own relay)", () => {
     await tick();
 
     const reqs = reqFrames(own);
-    expect(reqs.map((r) => r[1])).toEqual(["ingester", "ingester-music-backfill", "ingester-wraps"]);
+    expect(reqs.map((r) => r[1])).toEqual([
+      "ingester",
+      "ingester-music-backfill",
+      "ingester-wraps",
+      "ingester-reports",
+    ]);
     // Main sub carries the full legacy kind set; backfill is music-only.
     expect((reqs[0][2] as { kinds: number[] }).kinds).toContain(9);
     expect((reqs[1][2] as { kinds: number[] }).kinds).toEqual([31683, 33123]);
@@ -158,6 +163,15 @@ describe("relay manager — regression (own relay)", () => {
     const { WRAP_LOOKBACK_SEC } = await import("../../src/workers/relayConnectionManager.js");
     const expectedSince = Math.floor(Date.now() / 1000) - WRAP_LOOKBACK_SEC;
     expect(Math.abs(wraps.since - expectedSince)).toBeLessThan(60);
+
+    // Reports (kind 1984) are read-gated like wraps, so they ride their own
+    // REQ too, looking back an hour past the shared cursor.
+    expect((reqs[0][2] as { kinds: number[] }).kinds).not.toContain(1984);
+    const reports = reqs[3][2] as { kinds: number[]; since: number };
+    expect(reports.kinds).toEqual([1984]);
+    const { REPORT_LOOKBACK_SEC } = await import("../../src/workers/relayConnectionManager.js");
+    const cursorDefault = Math.floor(Date.now() / 1000) - 3600; // getSince() with no stored cursor
+    expect(Math.abs(reports.since - (cursorDefault - REPORT_LOOKBACK_SEC))).toBeLessThan(60);
   });
 });
 
@@ -179,14 +193,14 @@ describe("relay manager — NIP-42 ingest role (own relay)", () => {
     (config as { publicRelayUrl: string }).publicRelayUrl = savedPublic;
   });
 
-  it("answers the AUTH challenge with the public relay URL and sends the wraps REQ only after OK", async () => {
+  it("answers the AUTH challenge with the public relay URL and sends the gated REQs only after OK", async () => {
     const { ingestPubkey } = await import("../../src/workers/relayConnectionManager.js");
     await startManager();
     const own = await waitForWs(config.relayUrl);
     own.simulateOpen();
     await tick();
 
-    // Before AUTH: the two legacy REQs, no wraps REQ.
+    // Before AUTH: the two legacy REQs, no wraps / reports REQ.
     expect(reqFrames(own).map((r) => r[1])).toEqual(["ingester", "ingester-music-backfill"]);
 
     own.simulateMessage(["AUTH", "challenge-abc"]);
@@ -200,13 +214,40 @@ describe("relay manager — NIP-42 ingest role (own relay)", () => {
     expect(ev.tags).toContainEqual(["challenge", "challenge-abc"]);
     expect(ev.sig).toHaveLength(128);
 
-    // Still no wraps REQ until the relay acknowledges the AUTH.
+    // Still no gated REQ until the relay acknowledges the AUTH.
     expect(reqFrames(own).map((r) => r[1])).not.toContain("ingester-wraps");
+    expect(reqFrames(own).map((r) => r[1])).not.toContain("ingester-reports");
     own.simulateMessage(["OK", ev.id, true, ""]);
     await tick();
     const reqs = reqFrames(own);
-    expect(reqs.map((r) => r[1])).toEqual(["ingester", "ingester-music-backfill", "ingester-wraps"]);
+    expect(reqs.map((r) => r[1])).toEqual([
+      "ingester",
+      "ingester-music-backfill",
+      "ingester-wraps",
+      "ingester-reports",
+    ]);
     expect((reqs[2][2] as { kinds: number[] }).kinds).toEqual([1059]);
+    expect((reqs[3][2] as { kinds: number[] }).kinds).toEqual([1984]);
+  });
+
+  it("re-sends the reports REQ when the relay CLOSED it as auth-required", async () => {
+    await startManager();
+    const own = await waitForWs(config.relayUrl);
+    own.simulateOpen();
+    await tick();
+    // CLOSED before AUTH completed: held until the OK, then sent once.
+    own.simulateMessage(["CLOSED", "ingester-reports", "auth-required: reports are served only to their author"]);
+    await tick();
+    expect(reqFrames(own).filter((r) => r[1] === "ingester-reports")).toHaveLength(0);
+    own.simulateMessage(["AUTH", "c2"]);
+    await tick();
+    const auth = own.sent.map((s) => JSON.parse(s)).find((m) => m[0] === "AUTH")!;
+    own.simulateMessage(["OK", auth[1].id, true, ""]);
+    await tick();
+    expect(reqFrames(own).filter((r) => r[1] === "ingester-reports")).toHaveLength(1);
+    own.simulateMessage(["CLOSED", "ingester-reports", "auth-required: reports are served only to their author"]);
+    await tick();
+    expect(reqFrames(own).filter((r) => r[1] === "ingester-reports")).toHaveLength(2);
   });
 
   it("re-sends the wraps REQ when the relay CLOSED it as auth-required", async () => {
@@ -236,7 +277,12 @@ describe("relay manager — NIP-42 ingest role (own relay)", () => {
     own.simulateMessage(["AUTH", "challenge-xyz"]);
     await tick();
     expect(own.sent.map((s) => JSON.parse(s)).some((m) => m[0] === "AUTH")).toBe(false);
-    expect(reqFrames(own).map((r) => r[1])).toEqual(["ingester", "ingester-music-backfill", "ingester-wraps"]);
+    expect(reqFrames(own).map((r) => r[1])).toEqual([
+      "ingester",
+      "ingester-music-backfill",
+      "ingester-wraps",
+      "ingester-reports",
+    ]);
   });
 });
 

@@ -4,6 +4,7 @@ import { getRedis } from "../lib/redis.js";
 import { eq, sql } from "drizzle-orm";
 import { nanoid } from "../lib/id.js";
 import { startLockedInterval } from "../lib/workerLock.js";
+import { suspensionService } from "../services/suspensionService.js";
 
 interface EventRow {
   id: string;
@@ -100,8 +101,8 @@ export async function computeTrendingPeriod(
   const hours = PERIOD_HOURS[period];
   const sinceTs = Math.floor(Date.now() / 1000) - hours * 3600;
 
-  // 1. Fetch events (single query)
-  const events = (await db.execute(
+  // 1. Fetch events (single query); suspended accounts never trend.
+  const fetched = (await db.execute(
     sql`SELECT id, pubkey, created_at, kind, tags FROM relay.events
         WHERE created_at >= ${sinceTs}
           AND kind IN (1, 22, 30023, 34236, 31683, 33123)
@@ -112,6 +113,7 @@ export async function computeTrendingPeriod(
         ORDER BY created_at DESC
         LIMIT 2000`,
   )) as unknown as EventRow[];
+  const events = await suspensionService.withoutSuspended(fetched, (e) => e.pubkey);
 
   if (events.length === 0) {
     console.log(`[trending] ${period}: no events found`);

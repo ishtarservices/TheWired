@@ -108,7 +108,7 @@ async fn exercise(db: &Db, alice: &TestIdentity, bob: &TestIdentity) -> Obs {
     let wrap = sign_event(&ephemeral, 1059, vec![vec!["p".into(), bob.pubkey.clone()]], "cipher", 200);
     db.store_event_flagged(&wrap, true).await.unwrap();
     let wrap_filter = filt(serde_json::json!({ "kinds": [1059], "#p": [bob.pubkey] }));
-    let ctx = |authed: Option<&'static str>, all: bool| ReadCtx { authed, serve_all_wraps: all, now: 300 };
+    let ctx = |authed: Option<&'static str>, all: bool| ReadCtx { authed, serve_all_wraps: all, serve_all_reports: all, now: 300 };
     let bob_pk: &'static str = Box::leak(bob.pubkey.clone().into_boxed_str());
     let carol_pk: &'static str = Box::leak(TestIdentity::from_seed(3).pubkey.into_boxed_str());
     let wrap_anon_count = db.query_events_ctx(&wrap_filter, &ctx(None, false)).await.unwrap().len();
@@ -124,7 +124,7 @@ async fn exercise(db: &Db, alice: &TestIdentity, bob: &TestIdentity) -> Obs {
     let exp_filter = filt(serde_json::json!({ "ids": [expiring.id] }));
     let expiring_visible_before = db.query_events_ctx(&exp_filter, &ctx(None, false)).await.unwrap().len();
     let expiring_visible_after = db
-        .query_events_ctx(&exp_filter, &ReadCtx { authed: None, serve_all_wraps: false, now: 400 })
+        .query_events_ctx(&exp_filter, &ReadCtx { authed: None, serve_all_wraps: false, serve_all_reports: false, now: 400 })
         .await
         .unwrap()
         .len();

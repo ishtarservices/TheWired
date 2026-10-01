@@ -10,6 +10,7 @@ import { db } from "../db/connection.js";
 import { spaceMembers } from "../db/schema/members.js";
 import { pTagGrantsAccess } from "./blobAccess.js";
 import { isListedPublicMusic } from "../lib/musicListing.js";
+import { suspensionService } from "./suspensionService.js";
 
 // Catalog-listing predicate lives in lib/ (pure) so the search-doc builder can
 // share it; re-exported here because this module is the visibility policy's
@@ -47,6 +48,10 @@ export async function isEventVisibleTo(
   authPubkey: string | null,
   membershipCache?: Map<string, boolean>,
 ): Promise<boolean> {
+  // A suspended account's music is hidden from everyone but its author
+  // (suspend_pubkey, App Store 1.2 — reversible, so nothing is deleted).
+  if (authPubkey !== event.pubkey && (await suspensionService.isSuspended(event.pubkey))) return false;
+
   const eventTags = event.tags;
   const vis = eventTags.find((t: string[]) => t[0] === "visibility")?.[1];
   const hTags = [...new Set(eventTags.filter((t) => t[0] === "h" && t[1]).map((t) => t[1]))];

@@ -9,6 +9,8 @@ import { roleService } from "../services/roleService.js";
 import { channelService } from "../services/channelService.js";
 import { validate, nonEmptyString, limitParam, offsetParam } from "../lib/validation.js";
 import { requirePubkey, requireSpaceCreator } from "../lib/authz.js";
+import { checkHostRelayUrl } from "../lib/relayUrlGuard.js";
+import { config } from "../config.js";
 
 const listQuerySchema = z.object({
   limit: limitParam(50, 100),
@@ -150,8 +152,20 @@ export const spacesRoutes: FastifyPluginAsync = async (server) => {
       return { data: { id: body.id } };
     }
 
-    // Create branch. onConflictDoNothing guards a concurrent-create race; if we
-    // lost it, re-resolve ownership rules against the winner's row.
+    // Create branch. hostRelay is checked here only: re-registration (above)
+    // never changes it, so a legacy row's value cannot block cache recovery.
+    // Only the PUBLIC relay URL is exempt: RELAY_URL is the internal address
+    // (ws://relay:7777 in production), which no member's client can reach.
+    const hostRelay = checkHostRelayUrl(body.hostRelay, [config.publicRelayUrl]);
+    if (!hostRelay.ok) {
+      return reply.status(400).send({
+        error: `hostRelay: ${hostRelay.reason ?? "not allowed"}`,
+        code: "INVALID_HOST_RELAY",
+      });
+    }
+
+    // onConflictDoNothing guards a concurrent-create race; if we lost it,
+    // re-resolve ownership rules against the winner's row.
     const inserted = await db
       .insert(spaces)
       .values({

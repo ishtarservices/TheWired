@@ -2,6 +2,7 @@ import type { FastifyPluginAsync } from "fastify";
 import { z } from "zod";
 import { profileCacheService } from "../services/profileCacheService.js";
 import { validate, hexId } from "../lib/validation.js";
+import { suspensionService } from "../services/suspensionService.js";
 
 const pubkeyParams = z.object({
   pubkey: hexId,
@@ -16,7 +17,10 @@ export const profilesRoutes: FastifyPluginAsync = async (server) => {
     const params = validate(pubkeyParams, request.params, reply);
     if (!params) return;
 
-    const profile = await profileCacheService.getProfile(params.pubkey);
+    // A suspended account is hidden from API responses (suspend_pubkey).
+    const profile = (await suspensionService.isSuspended(params.pubkey))
+      ? null
+      : await profileCacheService.getProfile(params.pubkey);
     if (!profile) {
       return reply.status(404).send({ error: "Profile not found", code: "NOT_FOUND", statusCode: 404 });
     }
@@ -27,7 +31,10 @@ export const profilesRoutes: FastifyPluginAsync = async (server) => {
     const body = validate(batchBody, request.body, reply);
     if (!body) return;
 
-    const profiles = await profileCacheService.getBatchProfiles(body.pubkeys);
+    const profiles = await suspensionService.withoutSuspended(
+      await profileCacheService.getBatchProfiles(body.pubkeys),
+      (p) => p.pubkey,
+    );
     return { data: profiles };
   });
 };

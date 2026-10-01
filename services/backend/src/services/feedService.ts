@@ -2,6 +2,19 @@ import { db } from "../db/connection.js";
 import { trendingSnapshots } from "../db/schema/feeds.js";
 import { eq, and, desc, sql } from "drizzle-orm";
 import { getRedis } from "../lib/redis.js";
+import { suspensionService } from "./suspensionService.js";
+
+/** Drop trending entries authored by a suspended account (one lookup, and
+ *  none at all while nobody is suspended). */
+async function withoutSuspendedEvents<T extends { eventId: string }>(items: T[]): Promise<T[]> {
+  const suspended = await suspensionService.suspendedSet();
+  if (suspended.size === 0 || items.length === 0) return items;
+  const rows = (await db.execute(
+    sql`SELECT id, pubkey FROM relay.events WHERE id IN (${sql.join(items.map((i) => sql`${i.eventId}`), sql`, `)})`,
+  )) as unknown as { id: string; pubkey: string }[];
+  const hidden = new Set(rows.filter((r) => suspended.has(r.pubkey)).map((r) => r.id));
+  return hidden.size === 0 ? items : items.filter((i) => !hidden.has(i.eventId));
+}
 
 export const feedService = {
   async getTrending(params: { period: string; kind?: number; limit: number; genre?: string }) {
@@ -14,7 +27,7 @@ export const feedService = {
       for (let i = 0; i < ids.length; i += 2) {
         results.push({ eventId: ids[i], score: parseFloat(ids[i + 1]) });
       }
-      return results;
+      return withoutSuspendedEvents(results);
     }
 
     // Honour `kind` — the route accepts it, and snapshots are stored per kind,
@@ -25,12 +38,14 @@ export const feedService = {
       conditions.push(eq(trendingSnapshots.kind, params.kind));
     }
 
-    return await db
-      .select()
-      .from(trendingSnapshots)
-      .where(and(...conditions))
-      .orderBy(desc(trendingSnapshots.score))
-      .limit(params.limit);
+    return withoutSuspendedEvents(
+      await db
+        .select()
+        .from(trendingSnapshots)
+        .where(and(...conditions))
+        .orderBy(desc(trendingSnapshots.score))
+        .limit(params.limit),
+    );
   },
 
   async getPersonalized(pubkey: string, params: { page: number; pageSize: number }) {
@@ -45,7 +60,7 @@ export const feedService = {
       for (let i = 0; i < cached.length; i += 2) {
         items.push({ eventId: cached[i], score: parseFloat(cached[i + 1]) });
       }
-      return items.slice(start, start + params.pageSize);
+      return withoutSuspendedEvents(items.slice(start, start + params.pageSize));
     }
 
     // Get user's follow list (kind:3 event) -- tags are JSONB in relay schema
@@ -96,10 +111,11 @@ export const feedService = {
     const pubkeyMap = new Map(pubkeyRows.map((r) => [r.id, r.pubkey]));
 
     // Score and filter
+    const suspended = await suspensionService.suspendedSet();
     const scored: { eventId: string; score: number }[] = [];
     for (const item of trending) {
       const author = pubkeyMap.get(item.eventId);
-      if (!author) continue;
+      if (!author || suspended.has(author)) continue;
 
       // Filter muted
       if (muted.has(author)) continue;

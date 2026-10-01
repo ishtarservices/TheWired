@@ -99,6 +99,23 @@ describe("computeProfileStats", () => {
     expect(countFor(MARCUS.pubkey)).toBe(1);
   });
 
+  it("skips suspended accounts so their purged search document is not re-created", async () => {
+    const { suspensionService } = await import("../../src/services/suspensionService.js");
+    await seedProfile(LUNA.pubkey);
+    await seedProfile(MARCUS.pubkey);
+    await db.execute(sql`INSERT INTO relay.suspended_pubkeys (pubkey, suspended_by) VALUES (${MARCUS.pubkey}, 'admin')`);
+    suspensionService.invalidate();
+    try {
+      const result = await computeProfileStats();
+      expect(result.profiles).toBe(1);
+      expect(countFor(MARCUS.pubkey)).toBeUndefined();
+      expect(countFor(LUNA.pubkey)).toBe(0);
+    } finally {
+      await db.execute(sql`DELETE FROM relay.suspended_pubkeys WHERE pubkey = ${MARCUS.pubkey}`);
+      suspensionService.invalidate();
+    }
+  });
+
   it("writes a PARTIAL update so kind:0 ingest fields survive", async () => {
     await seedProfile(LUNA.pubkey);
     await seedNote({ pubkey: LUNA.pubkey });

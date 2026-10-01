@@ -9,6 +9,12 @@
     "typecheck": "tsc --noEmit",
     "db:generate": "drizzle-kit generate",
     "db:migrate": "tsx --env-file=.env src/db/migrate-cli.ts",
+    "reports": "tsx --env-file=.env src/scripts/reports.ts",
+    "reports:list": "tsx --env-file=.env src/scripts/reports.ts list",
+    "reports:show": "tsx --env-file=.env src/scripts/reports.ts show",
+    "reports:resolve": "tsx --env-file=.env src/scripts/reports.ts resolve",
+    "reports:lift": "tsx --env-file=.env src/scripts/reports.ts lift",
+    "reports:restore": "tsx --env-file=.env src/scripts/reports.ts restore",
     "test": "vitest run",
     "test:watch": "vitest",
     "test:coverage": "vitest run --coverage"

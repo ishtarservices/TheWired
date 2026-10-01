@@ -12,6 +12,7 @@ import { startDiscoveryScoreComputer } from "./workers/discoveryScoreComputer.js
 import { startTranscodeWorker } from "./workers/transcodeWorker.js";
 import { closeTranscodeQueue } from "./lib/queue.js";
 import { musicService } from "./services/musicService.js";
+import { startAccountDeletionWorker } from "./workers/accountDeletionWorker.js";
 
 async function main() {
   // Run database migrations before anything else
@@ -44,6 +45,8 @@ async function main() {
     startNotificationDispatcher(),
     startAnalyticsAggregator(),
     startDiscoveryScoreComputer(),
+    // Finishes account deletions a failed step or a crash left pending.
+    startAccountDeletionWorker(),
   ];
 
   // BullMQ transcode worker is opt-in via env so we can scale producers and

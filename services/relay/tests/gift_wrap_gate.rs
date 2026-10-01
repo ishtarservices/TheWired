@@ -208,13 +208,13 @@ async fn expired_events_are_rejected_hidden_and_swept() {
     let filter: Filter = serde_json::from_str(&format!(r#"{{"ids":["{}"]}}"#, live.id)).unwrap();
     let before = state
         .pool
-        .query_events_ctx(&filter, &ReadCtx { authed: None, serve_all_wraps: false, now: exp - 1 })
+        .query_events_ctx(&filter, &ReadCtx { authed: None, serve_all_wraps: false, serve_all_reports: false, now: exp - 1 })
         .await
         .unwrap();
     assert_eq!(before.len(), 1);
     let after = state
         .pool
-        .query_events_ctx(&filter, &ReadCtx { authed: None, serve_all_wraps: false, now: exp })
+        .query_events_ctx(&filter, &ReadCtx { authed: None, serve_all_wraps: false, serve_all_reports: false, now: exp })
         .await
         .unwrap();
     assert!(after.is_empty(), "expired event still served");

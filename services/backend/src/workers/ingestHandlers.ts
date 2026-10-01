@@ -23,6 +23,10 @@ import { eq, and, sql } from "drizzle-orm";
 import { buildMusicSearchDoc } from "../lib/musicSearchDoc.js";
 import { escapeMsFilter } from "../lib/meiliFilter.js";
 import { isListedPublicMusic } from "../lib/musicListing.js";
+import { KIND_REPORT, parseReportEvent } from "../lib/reports/reportInput.js";
+import { reportService } from "../services/reportService.js";
+import { suspensionService } from "../services/suspensionService.js";
+import { accountDeletionService } from "../services/accountDeletionService.js";
 
 /**
  * Per-event ingestion context (Decentralized Spaces, M3). The multi-relay
@@ -91,6 +95,7 @@ export type IngestAction =
   | "proposal"
   | "deletion"
   | "giftWrap"
+  | "report"
   | null;
 
 export interface IngestPlan {
@@ -139,6 +144,10 @@ function decideAction(event: NostrEvent, ctx: IngestContext): IngestAction {
     // dm push (emitNotifications). Own relay only; never indexed.
     case KIND_GIFT_WRAP:
       return ctx.isOwnRelay ? "giftWrap" : null;
+    // NIP-56 report → the moderation queue (app.reports). Own relay only: a
+    // foreign relay must not be able to flood the operator's queue.
+    case KIND_REPORT:
+      return ctx.isOwnRelay ? "report" : null;
 
     // Space-scoped kinds — gated by allowedSpaceIds.
     case 7:
@@ -174,6 +183,7 @@ function decideAction(event: NostrEvent, ctx: IngestContext): IngestAction {
  */
 export async function processEvent(event: NostrEvent, ctx: IngestContext): Promise<void> {
   if (!verifyEvent(event)) return;
+  if (await authorBlocked(event)) return;
 
   const { action, indexSearch } = planIngest(event, ctx);
 
@@ -216,6 +226,9 @@ export async function processEvent(event: NostrEvent, ctx: IngestContext): Promi
       break;
     case "giftWrap":
       break; // notification-only (see emitNotifications)
+    case "report":
+      await indexReport(event);
+      break;
     case null:
       break;
   }
@@ -223,6 +236,33 @@ export async function processEvent(event: NostrEvent, ctx: IngestContext): Promi
   if (indexSearch) await indexToMeilisearch(event);
 
   await emitNotifications(event, ctx);
+}
+
+/**
+ * Events the platform no longer indexes or pushes for:
+ *  - a suspended author's (the relay refuses their new writes; an external
+ *    relay or a backfill can still replay old ones) — except kind 5, so a
+ *    suspended account's own deletions still clean up search;
+ *  - a deleted account's events dated at or before its vanish, and gift wraps
+ *    addressed to it (the re-ingest block of the account-deletion tombstone).
+ */
+export async function authorBlocked(event: NostrEvent): Promise<boolean> {
+  if (event.kind !== 5 && (await suspensionService.isSuspended(event.pubkey))) return true;
+  const deleted = await accountDeletionService.deletedVanishTimes();
+  if (deleted.size === 0) return false;
+  const vanishAt = deleted.get(event.pubkey);
+  if (vanishAt !== undefined && event.created_at <= vanishAt) return true;
+  if (event.kind === KIND_GIFT_WRAP) {
+    const recipient = getTagValue(event, "p");
+    if (recipient && deleted.has(recipient)) return true;
+  }
+  return false;
+}
+
+async function indexReport(event: NostrEvent) {
+  const input = parseReportEvent(event);
+  if (!input) return;
+  await reportService.file(input);
 }
 
 // ─── Push notifications ──────────────────────────────────────────────

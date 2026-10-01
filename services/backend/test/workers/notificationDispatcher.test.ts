@@ -203,6 +203,22 @@ describe("dispatchOnce", () => {
     expect(second.sent[0][0].categoryId).toBeUndefined();
   });
 
+  it("a report push carries { type: report, reportId } for the admin inbox and nothing else", async () => {
+    await device();
+    await seed({
+      type: "report",
+      title: "new report",
+      body: "spam · a post",
+      url: "soot://admin/reports/rep123",
+      collapseKey: "report",
+      data: JSON.stringify({ reportId: "rep123" }),
+    });
+    const { sender, sent } = fakeSender();
+    await dispatchOnce({ sender });
+    expect(sent[0][0].data).toEqual({ reportId: "rep123", type: "report", url: "soot://admin/reports/rep123" });
+    expect(sent[0][0].mutableContent).toBeUndefined();
+  });
+
   it("deletes a device on DeviceNotRegistered and still marks the row sent", async () => {
     await device();
     await seed();

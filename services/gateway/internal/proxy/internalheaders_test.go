@@ -44,3 +44,19 @@ func TestStripInternalHeaders_DoesNotBlockDownstreamInjection(t *testing.T) {
 		t.Errorf("expected downstream-injected value to survive, got %q", saw)
 	}
 }
+
+// The guest report intake's client IP is internal too: a client can't plant
+// one to frame another IP (or dodge the per-IP report bucket's record).
+func TestStripInternalHeaders_RemovesForgedClientIP(t *testing.T) {
+	present := false
+	inner := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, present = r.Header["X-Client-Ip"]
+		w.WriteHeader(http.StatusOK)
+	})
+	req := httptest.NewRequest("POST", "http://localhost:9080/api/reports", nil)
+	req.Header.Set("X-Client-Ip", "203.0.113.99")
+	StripInternalHeaders(inner).ServeHTTP(httptest.NewRecorder(), req)
+	if present {
+		t.Error("forged X-Client-Ip reached the handler")
+	}
+}

@@ -136,6 +136,8 @@ async fn truncate_all(pool: &PgPool) -> sqlx::Result<()> {
             relay.group_members,
             relay.group_roles,
             relay.invite_codes,
+            relay.suspended_pubkeys,
+            relay.tombstones,
             app.space_members,
             app.spaces
         RESTART IDENTITY CASCADE;

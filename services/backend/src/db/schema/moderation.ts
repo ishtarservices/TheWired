@@ -21,13 +21,8 @@ export const timedMutes = appSchema.table("timed_mutes", {
   createdAt: timestamp("created_at").defaultNow(),
 });
 
-export const spamReports = appSchema.table("spam_reports", {
-  id: text("id").primaryKey(),
-  eventId: text("event_id").notNull(),
-  reporterPubkey: text("reporter_pubkey").notNull(),
-  reason: text("reason"),
-  createdAt: timestamp("created_at").defaultNow(),
-});
+// app.spam_reports was retired by migration 0030 (rows moved to app.reports,
+// see schema/reports.ts).
 
 export const reputation = appSchema.table("reputation", {
   pubkey: text("pubkey").primaryKey(),
@@ -35,12 +30,15 @@ export const reputation = appSchema.table("reputation", {
   lastUpdated: timestamp("last_updated").defaultNow(),
 });
 
-/** Audit log for moderation and role management actions */
+/** Audit log for moderation and role management actions (migration 0030).
+ *  `spaceId` is null for platform-level actions (report resolutions:
+ *  report_dismiss, report_remove_event, report_remove_music,
+ *  report_suspend_pubkey, report_escalate, suspension_lift, event_restore). */
 export const moderationAuditLog = appSchema.table("moderation_audit_log", {
   id: text("id").primaryKey(),
-  spaceId: text("space_id").notNull().references(() => spaces.id, { onDelete: "cascade" }),
+  spaceId: text("space_id").references(() => spaces.id, { onDelete: "cascade" }),
   actorPubkey: text("actor_pubkey").notNull(),
-  action: text("action").notNull(), // ban, unban, mute, unmute, kick, role_assign, role_remove, override_change
+  action: text("action").notNull(), // ban, unban, mute, unmute, kick, role_assign, role_remove, override_change, report_*
   targetPubkey: text("target_pubkey"),
   details: text("details"), // JSON blob with extra context (reason, roleId, channelId, etc.)
   createdAt: timestamp("created_at").defaultNow(),

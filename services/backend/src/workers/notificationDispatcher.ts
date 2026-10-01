@@ -70,6 +70,7 @@ const NOUN: Record<string, string> = {
   chat: "mentions",
   post: "posts",
   release: "releases",
+  report: "reports",
 };
 
 /** Pure: fold a collapse group into one title/body. Exported for tests. */
@@ -222,8 +223,10 @@ export async function dispatchOnce(deps: DispatchDeps): Promise<DispatchStats> {
         const isDm = folded.type === "dm";
         // DM data carries DMPushData (eventId + relay) so the iOS Notification
         // Service Extension can fetch + decrypt on device; mutableContent wakes
-        // it (docs/DM_WIRE_CONTRACT.md §8).
-        const newestData = isDm ? (parseData(group[group.length - 1]) ?? {}) : {};
+        // it (docs/DM_WIRE_CONTRACT.md §8). A report push carries its reportId
+        // (soot's admin inbox opens it; services/reportNotifier).
+        const newestData =
+          isDm || folded.type === "report" ? (parseData(group[group.length - 1]) ?? {}) : {};
         messages.push({
           to: device.token,
           title: folded.title,

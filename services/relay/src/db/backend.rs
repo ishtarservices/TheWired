@@ -31,7 +31,7 @@ use std::collections::HashSet;
 #[cfg(feature = "embedded")]
 use sqlx::SqlitePool;
 
-use super::{event_store, group_store, membership_source};
+use super::{event_store, group_store, membership_source, moderation};
 use crate::protocol::nip50;
 
 #[cfg(feature = "embedded")]
@@ -113,6 +113,17 @@ impl Db {
             Db::Pg(p) => event_store::is_self_published(p, event_id).await,
             #[cfg(feature = "embedded")]
             Db::Sqlite(p) => sqlite::is_self_published(p, event_id).await,
+        }
+    }
+
+    /// Operator moderation state for a write: `(tombstoned, suspended)`. The
+    /// embedded relay has no operator moderation and always answers
+    /// `(false, false)`.
+    pub async fn moderation_state(&self, event_id: &str, pubkey: &str) -> anyhow::Result<(bool, bool)> {
+        match self {
+            Db::Pg(p) => moderation::moderation_state(p, event_id, pubkey).await,
+            #[cfg(feature = "embedded")]
+            Db::Sqlite(_) => Ok((false, false)),
         }
     }
 
