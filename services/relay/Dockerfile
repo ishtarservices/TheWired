@@ -40,7 +40,8 @@ RUN cargo zigbuild --release --target $(cat /target.txt) && \
     cp target/$(cat /target.txt)/release/thewired-relay /app/thewired-relay
 
 FROM debian:bookworm-slim
-RUN apt-get update && apt-get install -y ca-certificates && rm -rf /var/lib/apt/lists/*
+# curl: the compose healthcheck probes /health with it (the slim base has none).
+RUN apt-get update && apt-get install -y ca-certificates curl && rm -rf /var/lib/apt/lists/*
 COPY --from=builder /app/thewired-relay /usr/local/bin/
 COPY --from=builder /app/migrations /migrations
 RUN groupadd -r app && useradd -r -g app app

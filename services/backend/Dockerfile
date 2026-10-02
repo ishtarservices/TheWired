@@ -11,9 +11,10 @@ RUN pnpm build
 
 FROM node:22-slim
 WORKDIR /app
+# curl: the compose healthcheck probes /health with it (node:22-slim has none).
 RUN corepack enable && \
     apt-get update && \
-    apt-get install -y --no-install-recommends ffmpeg && \
+    apt-get install -y --no-install-recommends ffmpeg curl && \
     rm -rf /var/lib/apt/lists/*
 COPY --from=builder /app/package.json /app/pnpm-lock.yaml /app/pnpm-workspace.yaml ./
 COPY --from=builder /app/packages/shared-types/package.json ./packages/shared-types/
