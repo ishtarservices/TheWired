@@ -199,6 +199,8 @@ describe("GET /profile/:pubkey — OG share page", () => {
     });
     expect(iphone.headers["vary"]).toContain("User-Agent");
     expect(iphone.payload).toContain("Get soot for iPhone");
+    // No store URL configured (pre-launch): soot's own site, not desktop downloads.
+    expect(iphone.payload).toContain('<a class="open" href="https://soot.win">Get soot for iPhone</a>');
     expect(iphone.payload).toContain(`href="soot://profile/${LUNA.pubkey}?section=music"`);
     expect(iphone.payload).not.toContain("Download The Wired");
 
@@ -214,6 +216,8 @@ describe("GET /profile/:pubkey — OG share page", () => {
     });
     expect(mac.payload).toContain("Download The Wired for desktop");
     expect(mac.payload).toContain("https://thewired.app/#download");
+    // soot isn't music-only: the desktop hint fits a profile, space or note too.
+    expect(mac.payload).toContain("Open this link on your phone to view it in soot.");
     expect(mac.payload).not.toContain("soot://");
   });
 

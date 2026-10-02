@@ -77,6 +77,11 @@ export function platformFromUserAgent(ua: string | undefined): SharePlatform {
   return "desktop";
 }
 
+/** soot's own site. A phone's "Get soot" falls back to it while the store
+ *  URLs are unset (pre-launch it says "on the app store soon"); The Wired's
+ *  /#download only has desktop builds. */
+const SOOT_SITE = "https://soot.win";
+
 /** The call-to-action block per platform. On a phone the universal link
  *  already opened soot when it's installed, so whoever sees this page most
  *  likely doesn't have it: "get soot" leads, "open in soot" (the soot://
@@ -87,10 +92,10 @@ function renderActions(platform: SharePlatform, deepLink: string): string {
   if (platform === "desktop") {
     const href = escapeHtml(config.desktopAppUrl || landingDownload);
     return `<a class="open" href="${href}">Download The Wired for desktop</a>
-<p class="hint">Open this link on your phone to listen in soot.</p>`;
+<p class="hint">Open this link on your phone to view it in soot.</p>`;
   }
   const store = platform === "ios" ? config.iosAppUrl : config.androidAppUrl;
-  const storeHref = escapeHtml(store || landingDownload);
+  const storeHref = escapeHtml(store || SOOT_SITE);
   return `<a class="open" href="${storeHref}">Get soot${platform === "ios" ? " for iPhone" : " for Android"}</a>
 <a class="secondary" href="${deepLink}">Already have it? Open in soot</a>`;
 }
