@@ -87,7 +87,7 @@ function renderActions(platform: SharePlatform, deepLink: string): string {
   if (platform === "desktop") {
     const href = escapeHtml(config.desktopAppUrl || landingDownload);
     return `<a class="open" href="${href}">Download The Wired for desktop</a>
-<p class="hint">Open this link on your phone to listen in soot.</p>`;
+<p class="hint">Open this link on your phone to view it in soot.</p>`;
   }
   const store = platform === "ios" ? config.iosAppUrl : config.androidAppUrl;
   const storeHref = escapeHtml(store || landingDownload);

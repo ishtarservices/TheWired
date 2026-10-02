@@ -214,6 +214,8 @@ describe("GET /profile/:pubkey — OG share page", () => {
     });
     expect(mac.payload).toContain("Download The Wired for desktop");
     expect(mac.payload).toContain("https://thewired.app/#download");
+    // soot isn't music-only: the desktop hint fits a profile, space or note too.
+    expect(mac.payload).toContain("Open this link on your phone to view it in soot.");
     expect(mac.payload).not.toContain("soot://");
   });
 
