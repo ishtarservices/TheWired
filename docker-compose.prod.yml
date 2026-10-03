@@ -5,6 +5,12 @@
 # pulled from GHCR; only this file, .env and deploy/deploy-all.sh live on the
 # host. Compose forwards ONLY the variables listed under each `environment:`
 # — an .env entry that is not named here never reaches its container.
+# Container logs go to the host systemd journal, which deletes them after
+# 30 days (docs/DEPLOY.md, "Log retention"). The privacy policy promises
+# that window, so change both together.
+x-logging: &logging
+  driver: journald
+
 networks:
   frontend:
   backend:
@@ -12,6 +18,7 @@ networks:
 services:
   postgres:
     image: postgres:16-alpine
+    logging: *logging
     environment:
       POSTGRES_USER: ${POSTGRES_USER:-thewired}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}
@@ -33,6 +40,7 @@ services:
 
   redis:
     image: redis:7-alpine
+    logging: *logging
     command: redis-server --maxmemory 256mb --maxmemory-policy noeviction --appendonly yes
     volumes:
       - redisdata:/data
@@ -51,6 +59,7 @@ services:
 
   meilisearch:
     image: getmeili/meilisearch:v1.6
+    logging: *logging
     environment:
       MEILI_MASTER_KEY: ${MEILI_MASTER_KEY:?Set MEILI_MASTER_KEY in .env}
       MEILI_ENV: production
@@ -71,6 +80,7 @@ services:
 
   relay:
     image: ghcr.io/ishtarservices/thewired-relay:latest
+    logging: *logging
     environment:
       DATABASE_URL: postgres://${POSTGRES_USER:-thewired}:${POSTGRES_PASSWORD:?err}@postgres:5432/${POSTGRES_DB:-thewired}
       RELAY_PORT: 7777
@@ -115,6 +125,7 @@ services:
 
   backend:
     image: ghcr.io/ishtarservices/thewired-backend:latest
+    logging: *logging
     environment:
       DATABASE_URL: postgres://${POSTGRES_USER:-thewired}:${POSTGRES_PASSWORD:?err}@postgres:5432/${POSTGRES_DB:-thewired}
       REDIS_URL: redis://redis:6379
@@ -205,6 +216,7 @@ services:
 
   gateway:
     image: ghcr.io/ishtarservices/thewired-gateway:latest
+    logging: *logging
     environment:
       GATEWAY_PORT: 9080
       BACKEND_URL: http://backend:3002
@@ -234,6 +246,7 @@ services:
 
   livekit:
     image: livekit/livekit-server:latest
+    logging: *logging
     # The whole config is passed inline so compose interpolates the secrets
     # (a mounted config/livekit.yaml would NOT be interpolated). Networking
     # rationale: docs/DEPLOY.md.
@@ -279,6 +292,7 @@ services:
 
   landing:
     image: ghcr.io/ishtarservices/thewired-landing:latest
+    logging: *logging
     # The soot.win page reads these at request time (Caddy templates): each
     # store button appears once its URL is set. IOS_APP_ID is the numeric App
     # Store id, for Safari's smart app banner.
@@ -301,6 +315,7 @@ services:
 
   proxy:
     image: ghcr.io/ishtarservices/thewired-proxy:latest
+    logging: *logging
     ports:
       - "80:80"
       - "443:443"

@@ -2,10 +2,10 @@
 /**
  * Privacy policy for soot and The Wired's servers.
  *
- * DRAFT — not legal advice. Counsel must review before publication, and the
- * bracketed placeholders must be filled: the operator name and jurisdiction
- * come from the app's legal text via legal.json; [log retention] must match
- * the servers' log rotation.
+ * DRAFT — not legal advice. Counsel must review before publication. The
+ * operator name and jurisdiction come from the app's legal text via
+ * legal.json. The 30-day log retention is enforced by the host's systemd
+ * journal (docs/DEPLOY.md, "Log retention") — change both together.
  *
  * Every claim here describes what the code actually stores — keep it in step
  * with services/backend (schema + workers) and services/relay when they change.
@@ -90,7 +90,7 @@ const contact = Object.fromEntries(legal.contacts.map((c) => [c.kind, c.address]
       </li>
       <li>
         <strong>Server logs</strong>: request paths and times, and the IP address of each connection to our relay,
-        for security and abuse prevention. They are kept for [log retention].
+        for security and abuse prevention. They are kept for up to 30 days and then deleted automatically.
       </li>
       <li>
         <strong>Voice and video</strong>: calls and voice rooms pass through our voice server end-to-end encrypted. We
