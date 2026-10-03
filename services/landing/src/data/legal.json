@@ -1,8 +1,8 @@
 {
   "termsVersion": "2026-09-29",
   "operator": {
-    "name": "[operator legal name]",
-    "jurisdiction": "[governing jurisdiction]",
+    "name": "Ummi Labs, LLC",
+    "jurisdiction": "the State of Delaware, United States",
     "minimumAge": 17
   },
   "documents": {
@@ -14,7 +14,7 @@
         {
           "heading": "the agreement",
           "body": [
-            "These terms are an agreement between you and [operator legal name] (\"we\"), the operator of the soot app and the servers it uses by default. By creating an identity, signing in with a key, or browsing without an account, you agree to them and to the community guidelines. If you do not agree, do not use soot.",
+            "These terms are an agreement between you and Ummi Labs, LLC (\"we\"), the operator of the soot app and the servers it uses by default. By creating an identity, signing in with a key, or browsing without an account, you agree to them and to the community guidelines. If you do not agree, do not use soot.",
             "You must be at least 17 years old to use soot."
           ]
         },
@@ -86,7 +86,7 @@
         {
           "heading": "changes and law",
           "body": [
-            "We may change these terms. When the meaning changes we will ask you to agree again. These terms are governed by the law of [governing jurisdiction].",
+            "We may change these terms. When the meaning changes we will ask you to agree again. These terms are governed by the law of the State of Delaware, United States.",
             "Questions: support@thewired.app."
           ]
         }
