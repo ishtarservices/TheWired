@@ -78,6 +78,41 @@ Inbound, from anywhere:
 7880 is published by compose for Caddy's convenience but should stay closed
 at the firewall. SSH should be restricted to known addresses.
 
+## Log retention
+
+Every container logs to the host's systemd journal (`logging: *logging` in the
+compose file), and the journal deletes entries after 30 days. The privacy
+policy (`services/landing/src/pages/privacy.astro`) promises that window for
+server logs, which include client IPs, so change the two together.
+
+One-time host setup, in `/etc/systemd/journald.conf.d/retention.conf`:
+
+```ini
+[Journal]
+Storage=persistent
+# The journal deletes whole files once all their entries are expired, so
+# rotate files daily and expire at 29 days: nothing outlives 30.
+MaxFileSec=1day
+MaxRetentionSec=29day
+# Disk cap; whichever limit is hit first wins.
+SystemMaxUse=1G
+# Keep entries out of rsyslog's /var/log/syslog, which rotates on its own
+# (longer) schedule. Read logs with journalctl or `docker compose logs`.
+ForwardToSyslog=no
+```
+
+Then `sudo systemctl restart systemd-journald`, and recreate the containers
+(`docker compose -f docker-compose.prod.yml up -d --force-recreate`): a
+container's log driver is fixed when it is created. `docker compose logs`
+works as before, and `journalctl CONTAINER_NAME=<container>` reads one
+container's history.
+
+The policy allows one exception: specific entries needed to investigate a
+particular security incident or abuse report may be kept longer. Export just
+those entries before they expire (e.g. `journalctl CONTAINER_NAME=<container>
+--since … --until … > incident-<id>.log`), keep the file with the incident,
+and delete it when the investigation is closed.
+
 ## DNS
 
 A records, all to the host's public IP, DNS-only: the apex, `api`, `relay`,
