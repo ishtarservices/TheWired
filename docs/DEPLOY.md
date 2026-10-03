@@ -107,6 +107,12 @@ container's log driver is fixed when it is created. `docker compose logs`
 works as before, and `journalctl CONTAINER_NAME=<container>` reads one
 container's history.
 
+The policy allows one exception: specific entries needed to investigate a
+particular security incident or abuse report may be kept longer. Export just
+those entries before they expire (e.g. `journalctl CONTAINER_NAME=<container>
+--since … --until … > incident-<id>.log`), keep the file with the incident,
+and delete it when the investigation is closed.
+
 ## DNS
 
 A records, all to the host's public IP, DNS-only: the apex, `api`, `relay`,
