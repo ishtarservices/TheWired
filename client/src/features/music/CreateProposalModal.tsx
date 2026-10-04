@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { X, Plus, Trash2 } from "lucide-react";
-import type { MusicAlbum, ProposalChange } from "@/types/music";
+import type { MusicAlbum, ProposalChange, TracklistChangeType } from "@/types/music";
 import { useAppSelector } from "@/store/hooks";
 import { buildProposalEvent } from "./musicEventBuilder";
 import { signAndPublish } from "@/lib/nostr/publish";
@@ -10,7 +10,7 @@ interface CreateProposalModalProps {
   onClose: () => void;
 }
 
-const CHANGE_TYPE_LABELS: Record<ProposalChange["type"], string> = {
+const CHANGE_TYPE_LABELS: Record<TracklistChangeType, string> = {
   add_track: "Add Track",
   remove_track: "Remove Track",
   reorder: "Reorder Track",
