@@ -1,4 +1,7 @@
 import type { NostrEvent, UnsignedEvent } from "@/types/nostr";
+import { looksLikeNip44 } from "./nip44Shape";
+
+export { looksLikeNip44 };
 
 /**
  * Granting a listen request = the owner republishes the target (same kind and
@@ -49,22 +52,6 @@ function hasSpaceTags(tags: readonly string[][]): boolean {
 /** Every `h` value on the event, deduped, in tag order. */
 export function spaceIdsOf(event: Pick<NostrEvent, "tags">): string[] {
   return [...new Set(event.tags.filter((t) => t[0] === "h" && t[1]).map((t) => t[1]))];
-}
-
-/**
- * Does `content` have the shape of a NIP-44 v2 payload (base64, version byte
- * 0x02, at least the minimum payload length)? Used to tell a failed decrypt of
- * a real ciphertext (abort — granting without the copy would leave the viewer
- * unable to read it) from cleartext content (p-tag only).
- */
-export function looksLikeNip44(content: string): boolean {
-  if (content.length < 132 || content.length % 4 !== 0) return false;
-  if (!/^[A-Za-z0-9+/]+={0,2}$/.test(content)) return false;
-  try {
-    return atob(content.slice(0, 4)).charCodeAt(0) === 2;
-  } catch {
-    return false;
-  }
 }
 
 export type AccessState =

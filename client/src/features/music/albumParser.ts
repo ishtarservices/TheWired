@@ -1,5 +1,6 @@
 import type { NostrEvent } from "@/types/nostr";
 import type { MusicAlbum, MusicVisibility, ProjectType } from "@/types/music";
+import { looksLikeNip44 } from "./nip44Shape";
 
 /** Determine visibility from event tags */
 function parseVisibility(event: NostrEvent): MusicVisibility {
@@ -97,8 +98,9 @@ export async function parsePrivateAlbumEvent(
   const visibility = parseVisibility(event);
   if (visibility !== "private") return parseAlbumEvent(event);
 
-  // If content is empty, fall back to cleartext parsing (old-style unlisted)
-  if (!event.content) return parseAlbumEvent(event);
+  // If content is empty, fall back to cleartext parsing (old-style unlisted).
+  // Non-NIP-44 content (a soot plain-text description) is cleartext too.
+  if (!event.content || !looksLikeNip44(event.content)) return parseAlbumEvent(event);
 
   try {
     const { nip44Decrypt } = await import("@/lib/nostr/nip44");

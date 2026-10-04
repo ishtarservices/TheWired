@@ -2,6 +2,7 @@ import type { NostrEvent } from "@/types/nostr";
 import type { MusicTrack, MusicVisibility } from "@/types/music";
 import type { ImetaVariant } from "@/types/media";
 import { parseImetaTags } from "@/features/media/imetaParser";
+import { looksLikeNip44 } from "./nip44Shape";
 
 /**
  * `["catalog","none"]` keeps a public track off its author's catalog. Unrelated
@@ -136,8 +137,10 @@ export async function parsePrivateTrackEvent(
   if (visibility !== "private") return parseTrackEvent(event);
 
   // If content is empty, this is a private event without encrypted metadata
-  // (e.g. old-style unlisted). Fall back to cleartext parsing.
-  if (!event.content) return parseTrackEvent(event);
+  // (e.g. old-style unlisted, or a soot upload). Content that isn't a NIP-44
+  // payload (a soot plain-text description) is cleartext too: the metadata is
+  // in the tags, and a decrypt attempt would just fail and hide the track.
+  if (!event.content || !looksLikeNip44(event.content)) return parseTrackEvent(event);
 
   try {
     const { nip44Decrypt } = await import("@/lib/nostr/nip44");
