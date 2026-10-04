@@ -145,6 +145,20 @@ describe("planGrant", () => {
     expect(ownedChildTrackRefs(project)).toEqual([`31683:${ME}:one`, `31683:${ME}:two`]);
   });
 
+  it("leaves public and space children alone", async () => {
+    const pub = ev({ tags: [["d", "one"]] });
+    const space = ev({ tags: [["d", "two"], ["h", "space1"]] });
+    const plan = await planGrant({ target: project, requester: REQ, me: ME, childTracks: [pub, space], crypto: fakeCrypto, now: NOW });
+    expect(plan.map((u) => u.tags.find((t) => t[0] === "d")?.[1])).toEqual(["lp"]);
+  });
+
+  it("grants a private space event to a space member (p-tag still needed)", async () => {
+    const target = ev({ tags: [["d", "x"], ["h", "space1"], ["visibility", "private"]] });
+    expect(await planGrant({ target, requester: REQ, me: ME, crypto: fakeCrypto, now: NOW })).toEqual([]);
+    const plan = await planGrant({ target, requester: REQ, me: ME, crypto: fakeCrypto, isSpaceMember: (ids) => ids.includes("space1"), now: NOW });
+    expect(plan[0].tags[plan[0].tags.length - 1]).toEqual(["p", REQ, "", "collaborator"]);
+  });
+
   it("is empty when nothing needs changing, and refuses a foreign target", async () => {
     const granted = ev({ tags: [["d", "spiral"], ["visibility", "private"], ["p", REQ, "", "collaborator"]] });
     expect(await planGrant({ target: granted, requester: REQ, me: ME, crypto: fakeCrypto })).toEqual([]);
@@ -156,6 +170,8 @@ describe("accessStateFor", () => {
   it("classifies public, space, granted and needs-grant", () => {
     expect(accessStateFor(ev({ tags: [["d", "x"]] }), REQ)).toBe("public");
     expect(accessStateFor(ev({ tags: [["d", "x"], ["h", "space1"]] }), REQ)).toBe("space");
+    expect(accessStateFor(ev({ tags: [["d", "x"], ["h", "space1"]] }), REQ, { spaceMember: true })).toBe("has-access");
+    expect(accessStateFor(ev({ tags: [["d", "x"], ["h", "s"], ["visibility", "private"]] }), REQ, { spaceMember: true })).toBe("needs-grant");
     expect(accessStateFor(ev(), ME)).toBe("has-access");
     expect(accessStateFor(ev(), REQ)).toBe("needs-grant");
     expect(accessStateFor(ev({ tags: [["d", "x"], ["visibility", "private"], ["p", REQ, "", "artist"]] }), REQ)).toBe("has-access");

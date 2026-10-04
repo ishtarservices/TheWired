@@ -72,21 +72,27 @@ export type AccessState =
   | "public"
   /** The requester is the author or already holds what a grant would add. */
   | "has-access"
-  /** Space-scoped (`h`): the backend checks membership before p-tags, so a
-   *  per-person grant cannot unlock it — they need to join the space. */
+  /** Space-scoped (`h`) and the requester is not a member: the backend checks
+   *  membership before p-tags, so a per-person grant cannot unlock it — they
+   *  need to join the space. */
   | "space"
   /** Private and the requester lacks a grant (or their decryptable copy). */
   | "needs-grant";
 
 /**
  * Where does `requester` stand against this event? Synchronous: the encrypted
- * form is detected by content shape. Space membership is the caller's to
- * check (it needs member lists).
+ * form is detected by content shape. Space membership comes from the caller
+ * (it needs member lists): `spaceMember` = member of ANY of the event's spaces.
  */
-export function accessStateFor(event: Pick<NostrEvent, "pubkey" | "tags" | "content">, requester: string): AccessState {
+export function accessStateFor(
+  event: Pick<NostrEvent, "pubkey" | "tags" | "content">,
+  requester: string,
+  opts: { spaceMember?: boolean } = {},
+): AccessState {
   if (requester === event.pubkey) return "has-access";
-  if (hasSpaceTags(event.tags)) return "space";
-  if (!isPrivateTags(event.tags)) return "public";
+  const space = hasSpaceTags(event.tags);
+  if (space && !opts.spaceMember) return "space";
+  if (!isPrivateTags(event.tags)) return space ? "has-access" : "public";
   const granted = event.tags.some((t) => pTagGrantsAccess(t, requester));
   if (!granted) return "needs-grant";
   const encrypted = !!event.content && looksLikeNip44(event.content);
@@ -160,11 +166,13 @@ function addressOf(event: Pick<NostrEvent, "kind" | "pubkey" | "tags">): string 
 
 /**
  * Everything the owner republishes to grant one listener: the target and, for
- * a project, each owned child track that lacks the viewer. Empty when nothing
- * needs changing (the caller then just resolves the request).
+ * a project, each owned child track the requester can't play yet. Only events
+ * in the "needs-grant" state change — a public event needs nothing and a
+ * space event can't be unlocked by a p-tag. Empty when nothing needs changing
+ * (the caller then just resolves the request).
  *
  * `childTracks` holds the latest known event per child ref; refs with no known
- * event are skipped (the caller reports them).
+ * event are skipped.
  */
 export async function planGrant(params: {
   target: NostrEvent;
@@ -172,15 +180,23 @@ export async function planGrant(params: {
   me: string;
   childTracks?: readonly NostrEvent[];
   crypto: GrantCrypto;
+  /** Is the requester a member of any of these spaces? */
+  isSpaceMember?: (spaceIds: string[]) => boolean;
   now?: number;
 }): Promise<UnsignedEvent[]> {
   const { target, requester, me, crypto } = params;
   const now = params.now ?? Math.floor(Date.now() / 1000);
   if (target.pubkey !== me) throw new Error("Only the owner can grant access.");
 
+  const needsGrant = (ev: NostrEvent) =>
+    accessStateFor(ev, requester, { spaceMember: params.isSpaceMember?.(spaceIdsOf(ev)) ?? false }) ===
+    "needs-grant";
+
   const out: UnsignedEvent[] = [];
-  const head = await grantViewerOnEvent(target, requester, crypto, now);
-  if (head) out.push(head);
+  if (needsGrant(target)) {
+    const head = await grantViewerOnEvent(target, requester, crypto, now);
+    if (head) out.push(head);
+  }
 
   if (target.kind === 33123) {
     const latestByRef = new Map<string, NostrEvent>();
@@ -192,7 +208,7 @@ export async function planGrant(params: {
     }
     for (const ref of ownedChildTrackRefs(target)) {
       const child = latestByRef.get(ref);
-      if (!child) continue;
+      if (!child || !needsGrant(child)) continue;
       const granted = await grantViewerOnEvent(child, requester, crypto, now);
       if (granted) out.push(granted);
     }
