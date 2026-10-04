@@ -1,4 +1,4 @@
-import { text, bigint, jsonb } from "drizzle-orm/pg-core";
+import { text, bigint, jsonb, uniqueIndex } from "drizzle-orm/pg-core";
 import { appSchema } from "./spaces.js";
 
 export const musicProposals = appSchema.table("music_proposals", {
@@ -15,4 +15,7 @@ export const musicProposals = appSchema.table("music_proposals", {
   eventId: text("event_id").notNull(),
   createdAt: bigint("created_at", { mode: "number" }).notNull(),
   resolvedAt: bigint("resolved_at", { mode: "number" }),
-});
+}, (t) => [
+  // One row per addressable event (migration 0031); the indexer upserts on it.
+  uniqueIndex("uq_proposals_addressable").on(t.addressableId),
+]);
