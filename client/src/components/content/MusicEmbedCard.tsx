@@ -7,6 +7,7 @@ import { setSidebarMode } from "@/store/slices/uiSlice";
 import { useAudioPlayer } from "@/features/music/useAudioPlayer";
 import { useResolvedMusic } from "@/features/music/useResolvedMusic";
 import { getTrackImage } from "@/features/music/trackImage";
+import { RequestAccessButton } from "@/features/music/RequestAccessButton";
 
 interface MusicEmbedCardProps {
   kind: number;
@@ -20,7 +21,7 @@ export function MusicEmbedCard({ kind, pubkey, identifier }: MusicEmbedCardProps
   const isTrack = kind === 31683;
 
   // Store lookup + backend auto-resolve when missing
-  const { addressableId, track, album, resolving } = useResolvedMusic(kind, pubkey, identifier);
+  const { addressableId, track, album, resolving, unavailable } = useResolvedMusic(kind, pubkey, identifier);
   const albums = useAppSelector((s) => s.music.albums);
   const { play, togglePlay, player } = useAudioPlayer();
 
@@ -47,31 +48,38 @@ export function MusicEmbedCard({ kind, pubkey, identifier }: MusicEmbedCardProps
   }, [isTrack, addressableId, dispatch, navigate]);
 
   // ── Placeholder state (data not yet in store) ──
+  // `unavailable`: the backend wouldn't resolve it for this viewer — missing,
+  // or a private release they can't reach. The address carries the owner, so
+  // a listen request can still be offered.
   if (!title) {
     return (
-      <button
-        onClick={(e) => {
-          e.stopPropagation();
-          handleNavigate();
-        }}
-        className="mt-1 inline-flex items-center gap-3 rounded-xl border border-border card-glass px-3 py-2 text-left transition-all hover:border-border-light hover-lift max-w-xs cursor-pointer"
-      >
-        <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-card">
-          {resolving ? (
-            <Loader2 size={16} className="text-muted animate-spin" />
-          ) : (
-            <Music size={16} className="text-muted" />
-          )}
-        </div>
-        <div className="min-w-0 flex-1">
-          <p className="truncate text-sm font-medium text-heading">
-            {resolving ? "Loading..." : identifier || "Music"}
-          </p>
-          <p className="truncate text-xs text-soft">
-            {isTrack ? "Track" : "Album"}
-          </p>
-        </div>
-      </button>
+      <span className="mt-1 inline-flex max-w-xs flex-col items-start gap-1">
+        <button
+          onClick={(e) => {
+            e.stopPropagation();
+            handleNavigate();
+          }}
+          className="inline-flex items-center gap-3 rounded-xl border border-border card-glass px-3 py-2 text-left transition-all hover:border-border-light hover-lift max-w-xs cursor-pointer"
+        >
+          <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-card">
+            {resolving ? (
+              <Loader2 size={16} className="text-muted animate-spin" />
+            ) : (
+              <Music size={16} className="text-muted" />
+            )}
+          </div>
+          <div className="min-w-0 flex-1">
+            <p className="truncate text-sm font-medium text-heading">
+              {resolving ? "Loading..." : identifier || "Music"}
+            </p>
+            <p className="truncate text-xs text-soft">
+              {isTrack ? "Track" : "Album"}
+              {unavailable && " · Private or unavailable"}
+            </p>
+          </div>
+        </button>
+        {unavailable && <RequestAccessButton targetRef={addressableId} className="pl-1" />}
+      </span>
     );
   }
 

@@ -7,6 +7,7 @@ import { useAudioPlayer } from "./useAudioPlayer";
 import { EditTrackModal } from "./EditTrackModal";
 import { FeaturedArtistsDisplay } from "./FeaturedArtistsDisplay";
 import { TrackActionPanel } from "./TrackActionPanel";
+import { RequestAccessButton } from "./RequestAccessButton";
 import { useResolvedArtist, resolveArtistDetailTarget } from "./useResolvedArtist";
 import { publishExisting } from "@/lib/nostr/publish";
 import { getEvent } from "@/lib/db/eventStore";
@@ -151,6 +152,7 @@ export const TrackRow = memo(function TrackRow({
                 Private
               </span>
             )}
+            {locked && <RequestAccessButton targetRef={track.addressableId} className="ml-1.5" />}
             {hasError && !locked && (
               <span className="ml-1.5 inline-block rounded bg-card px-1 py-0.5 align-middle text-[10px] text-red-400">
                 Unavailable

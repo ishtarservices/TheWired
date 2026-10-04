@@ -6,6 +6,7 @@ import { setActiveDetailId, setMusicView } from "@/store/slices/musicSlice";
 import { processIncomingEvent } from "@/lib/nostr/eventPipeline";
 import { resolveMusic } from "@/lib/api/music";
 import { Spinner } from "@/components/ui/Spinner";
+import { RequestAccessButton } from "./RequestAccessButton";
 
 interface MusicLinkResolverProps {
   type: "album" | "track" | "playlist";
@@ -18,6 +19,7 @@ export function MusicLinkResolver({ type }: MusicLinkResolverProps) {
   const navigate = useNavigate();
   const dispatch = useAppDispatch();
   const [error, setError] = useState<string | null>(null);
+  const signedIn = useAppSelector((s) => !!s.identity.pubkey);
 
   const kind = KIND_BY_TYPE[type];
   const addressableId = pubkey && slug ? `${kind}:${pubkey}:${slug}` : null;
@@ -61,7 +63,12 @@ export function MusicLinkResolver({ type }: MusicLinkResolverProps) {
 
     async function resolve() {
       try {
-        const result = await resolveMusic(type, pubkey!, slug!);
+        // Anonymous first; a signed-in viewer gets one NIP-98 retry so a
+        // granted viewer (or space member) can open a private release.
+        const result = await resolveMusic(type, pubkey!, slug!).catch((err) => {
+          if (!signedIn) throw err;
+          return resolveMusic(type, pubkey!, slug!, { auth: true });
+        });
         if (cancelled) return;
 
         const data = result.data;
@@ -135,7 +142,7 @@ export function MusicLinkResolver({ type }: MusicLinkResolverProps) {
     return () => {
       cancelled = true;
     };
-  }, [pubkey, slug, addressableId, type]);
+  }, [pubkey, slug, addressableId, type, signedIn]);
 
   function navigateForTrack(albumRef?: string) {
     if (albumRef) {
@@ -154,6 +161,20 @@ export function MusicLinkResolver({ type }: MusicLinkResolverProps) {
         <div className="text-center">
           <p className="text-lg font-semibold text-heading">Not Found</p>
           <p className="mt-1 text-sm text-soft">{error}</p>
+          {addressableId && type !== "playlist" && error === "Content not found" && (
+            <div className="mt-3 flex flex-col items-center gap-2">
+              {signedIn ? (
+                <p className="max-w-xs text-xs text-muted">
+                  If this is a private release, you can ask the artist for access.
+                </p>
+              ) : (
+                <p className="max-w-xs text-xs text-muted">
+                  If this is a private release, sign in to ask the artist for access.
+                </p>
+              )}
+              <RequestAccessButton targetRef={addressableId} />
+            </div>
+          )}
           <button
             onClick={() => navigate("/", { replace: true })}
             className="mt-4 rounded-full border border-border px-4 py-1.5 text-sm text-soft hover:border-border-light hover:text-heading"
