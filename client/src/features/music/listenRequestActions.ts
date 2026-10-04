@@ -214,13 +214,12 @@ export function createListenRequestActions(deps: ListenRequestDeps) {
 
         let plan: UnsignedEvent[] = [];
         if (st !== "public") {
-          const childTracks: NostrEvent[] = [];
-          if (target.kind === 33123) {
-            for (const ref of ownedChildTrackRefs(target)) {
-              const child = await latestOwnEvent(getState(), ref);
-              if (child) childTracks.push(child);
-            }
-          }
+          const childTracks: NostrEvent[] =
+            target.kind === 33123
+              ? (await Promise.all(ownedChildTrackRefs(target).map((ref) => latestOwnEvent(getState(), ref)))).filter(
+                  (ev): ev is NostrEvent => ev !== null,
+                )
+              : [];
           plan = await planGrant({ target, requester, me, childTracks, crypto: deps.crypto(me), isSpaceMember });
         }
 
