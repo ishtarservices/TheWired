@@ -13,6 +13,8 @@ function formatChange(change: ProposalChange): string {
       return `Move track from position ${(change.from ?? 0) + 1} to ${(change.to ?? 0) + 1}`;
     case "update_metadata":
       return `Update ${change.field ?? "metadata"}${change.value ? ` to "${change.value}"` : ""}`;
+    case "grant_access":
+      return "Listen request (viewer access)";
     default:
       return "Unknown change";
   }

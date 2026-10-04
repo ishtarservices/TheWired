@@ -10,6 +10,12 @@ import type { MusicTrack, MusicAlbum } from "@/types/music";
  * store, auto-resolving via the backend when missing (events flow back through
  * the pipeline into musicSlice). Extracted from MusicEmbedCard so other
  * surfaces (poll options, etc.) can embed playable tracks.
+ *
+ * The anonymous resolve is tried first; when it misses and the viewer is
+ * signed in, one NIP-98 retry lets a granted viewer (or space member) resolve
+ * a private release. `unavailable` = both attempts finished without data, so
+ * the caller can offer a listen request. A failed address is not retried
+ * until it changes.
  */
 export function useResolvedMusic(
   kind: number,
@@ -20,9 +26,11 @@ export function useResolvedMusic(
   track: MusicTrack | undefined;
   album: MusicAlbum | undefined;
   resolving: boolean;
+  unavailable: boolean;
 } {
   const addressableId = `${kind}:${pubkey}:${identifier}`;
   const isTrack = kind === EVENT_KINDS.MUSIC_TRACK;
+  const signedIn = useAppSelector((s) => !!s.identity.pubkey);
 
   const track = useAppSelector((s) =>
     isTrack ? s.music.tracks[addressableId] : undefined,
@@ -32,17 +40,25 @@ export function useResolvedMusic(
   );
 
   const [resolving, setResolving] = useState(false);
+  // Keyed by address + sign-in state: signing in earns one authenticated retry.
+  const attemptKey = `${addressableId}|${signedIn ? "auth" : "anon"}`;
+  const [failedFor, setFailedFor] = useState<string | null>(null);
   const hasData = isTrack ? !!track?.title : !!album?.title;
+  const failed = failedFor === attemptKey;
 
   useEffect(() => {
-    if (hasData || resolving) return;
-    let cancelled = false;
+    if (hasData || failed) return;
     const type = isTrack ? "track" : "album";
 
+    // `resolving` must not be an effect dependency: flipping it would run the
+    // cleanup and drop the in-flight result.
     setResolving(true);
     resolveMusic(type, pubkey, identifier)
+      .catch((err) => {
+        if (!signedIn) throw err;
+        return resolveMusic(type, pubkey, identifier, { auth: true });
+      })
       .then(async (result) => {
-        if (cancelled) return;
         const data = result.data;
         await processIncomingEvent((data as { event: unknown }).event, "resolve");
         if ("tracks" in data && Array.isArray(data.tracks)) {
@@ -51,11 +67,9 @@ export function useResolvedMusic(
           }
         }
       })
-      .catch(() => {})
-      .finally(() => { if (!cancelled) setResolving(false); });
+      .catch(() => setFailedFor(attemptKey))
+      .finally(() => setResolving(false));
+  }, [hasData, failed, isTrack, pubkey, identifier, signedIn, attemptKey]);
 
-    return () => { cancelled = true; };
-  }, [hasData, isTrack, pubkey, identifier, resolving]);
-
-  return { addressableId, track, album, resolving };
+  return { addressableId, track, album, resolving, unavailable: failed && !hasData && !resolving };
 }

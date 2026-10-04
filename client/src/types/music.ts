@@ -107,6 +107,7 @@ export type MusicView =
   | "search"
   | "project-history"
   // | "project-proposals" // TODO: re-enable proposals/changes system later
+  | "listen-requests"
   | "insights";
 
 /** Entry in the unified artist directory */
@@ -210,9 +211,13 @@ export interface RevisionChange {
   trackRef?: string;
 }
 
-/** Collaboration proposal change */
+/** Collaboration proposal change. `grant_access` is a listen request ("add me
+ *  as a viewer"); it is never applied as a tracklist edit — the owner grants it
+ *  by republishing the target with a viewer p-tag (accessGrant.ts). */
 export interface ProposalChange {
-  type: "add_track" | "remove_track" | "reorder" | "update_metadata";
+  type: "add_track" | "remove_track" | "reorder" | "update_metadata" | "grant_access";
+  /** grant_access: the role asked for — viewer only, for now. */
+  role?: "viewer";
   trackRef?: string;
   position?: number;
   from?: number;
@@ -221,10 +226,19 @@ export interface ProposalChange {
   value?: string;
 }
 
-/** Music collaboration proposal (kind:31685) */
+/** The tracklist-edit change types (everything but a listen request). */
+export type TracklistChangeType = Exclude<ProposalChange["type"], "grant_access">;
+
+/** Music collaboration proposal (kind:31685), as the backend serves it. */
 export interface MusicProposal {
+  /** Backend row id — what `/music/proposals/:id/resolve` takes. */
   id: string;
+  /** The event's d-tag. */
   proposalId: string;
+  /** `31685:proposer:d`. */
+  addressableId?: string;
+  /** Target address: `33123:owner:d`, or `31683:owner:d` for a listen
+   *  request against a single track (name kept for backend parity). */
   targetAlbum: string;
   proposerPubkey: string;
   ownerPubkey: string;
@@ -232,7 +246,9 @@ export interface MusicProposal {
   description?: string;
   changes: ProposalChange[];
   status: "open" | "accepted" | "rejected";
+  eventId?: string;
   createdAt: number;
+  resolvedAt?: number;
 }
 
 /** Saved album version for fan update notifications */

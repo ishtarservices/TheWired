@@ -5,8 +5,9 @@ import { setMusicView, setActiveDetailId, setProposals } from "@/store/slices/mu
 import { usePlaybackBarSpacing } from "@/hooks/usePlaybackBarSpacing";
 import { ProposalCard } from "../ProposalCard";
 import { CreateProposalModal } from "../CreateProposalModal";
-import type { MusicProposal } from "@/types/music";
 import { getApiBaseUrl } from "@/lib/api/client";
+import { parseProposalRows } from "../proposalRows";
+import { isListenRequest } from "../listenRequestWire";
 import { buildNip98Header } from "@/lib/api/nip98";
 
 export function ProjectProposals() {
@@ -37,8 +38,8 @@ export function ProjectProposals() {
       const url = `${getApiBaseUrl()}/music/proposals/${albumPubkey}/${encodeURIComponent(slug)}`;
       const res = await fetch(url);
       if (res.ok) {
-        const json = await res.json();
-        const data = (json.data ?? []) as MusicProposal[];
+        // Listen requests (grant_access) live in their own inbox, not here.
+        const data = parseProposalRows(await res.json()).filter((p) => !isListenRequest(p));
         dispatch(setProposals({ albumId: album.addressableId, proposals: data }));
       }
     } catch {

@@ -238,9 +238,22 @@ export async function resolveMusic(
   type: "album" | "track" | "playlist",
   pubkey: string,
   slug: string,
+  opts: { auth?: boolean } = {},
 ): Promise<{ data: ResolveAlbumResponse | ResolveTrackResponse }> {
   const url = `${getApiBaseUrl()}/music/resolve/${type}/${pubkey}/${encodeURIComponent(slug)}`;
-  const res = await fetch(url);
+  // Private/space releases resolve only for their audience (author, granted
+  // viewer, space member), which the backend learns from NIP-98. Opt-in so
+  // list surfaces (search, explore) don't sign one header per row; the gateway
+  // treats a missing header as anonymous.
+  const headers: Record<string, string> = {};
+  if (opts.auth) {
+    try {
+      headers.Authorization = await buildNip98Header(url, "GET");
+    } catch {
+      // Signed out / no signer — resolve anonymously.
+    }
+  }
+  const res = await fetch(url, { headers });
   if (!res.ok) {
     if (res.status === 404) throw new Error("Not found");
     throw new Error(`Resolve failed: ${res.statusText}`);

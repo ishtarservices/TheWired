@@ -18,6 +18,7 @@ import { CreateAlbumModal } from "../CreateAlbumModal";
 import { AnnotationsPanel } from "../AnnotationsPanel";
 import { usePlaybackBarSpacing } from "@/hooks/usePlaybackBarSpacing";
 import { useResolvedArtist, resolveArtistDetailTarget } from "../useResolvedArtist";
+import { ListenRequestsSection } from "../ListenRequestsSection";
 
 function CollaboratorRow({
   pubkey,
@@ -369,6 +370,11 @@ export function AlbumDetail() {
               View Details
             </button>
           </div>
+        )}
+
+        {/* Listen requests for this project and its tracks (owner only) */}
+        {isOwner && (
+          <ListenRequestsSection targetRefs={[album.addressableId, ...album.trackRefs]} />
         )}
 
         {/* Track list */}
