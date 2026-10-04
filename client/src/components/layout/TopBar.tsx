@@ -52,6 +52,7 @@ const musicViewLabels: Record<MusicView, string> = {
   insights: "Insights",
   "project-history": "Project History",
   // "project-proposals": "Proposals", // TODO: re-enable later
+  "listen-requests": "Listen Requests",
   "artist-detail": "Artist",
   "album-detail": "Project",
   "playlist-detail": "Playlist",

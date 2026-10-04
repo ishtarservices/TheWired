@@ -18,6 +18,7 @@ import { ProjectHistory } from "./views/ProjectHistory";
 // TODO: Re-enable proposals/changes system later
 // import { ProjectProposals } from "./views/ProjectProposals";
 import { InsightsDashboard } from "./views/InsightsDashboard";
+import { ListenRequests } from "./views/ListenRequests";
 
 const VIEW_COMPONENTS: Record<MusicView, React.ComponentType> = {
   home: MusicHome,
@@ -37,6 +38,7 @@ const VIEW_COMPONENTS: Record<MusicView, React.ComponentType> = {
   "project-history": ProjectHistory,
   // TODO: Re-enable proposals/changes system later
   // "project-proposals": ProjectProposals,
+  "listen-requests": ListenRequests,
   insights: InsightsDashboard,
 };
 
