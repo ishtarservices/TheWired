@@ -21,12 +21,16 @@ export const insightsRoutes: FastifyPluginAsync = async (server) => {
 
       const addressableId = params["*"];
 
+      // Fail closed: no current event (never published here, or deleted) →
+      // 404 like /music/resolve, so a deleted private track's play stats
+      // don't outlive its gate.
       const event = await fetchLatestByAddressableId(addressableId);
-      if (event) {
-        const authPubkey = (request.headers["x-auth-pubkey"] as string) ?? null;
-        const allowed = await checkEventVisibility(event, event.pubkey, authPubkey, reply);
-        if (!allowed) return;
+      if (!event) {
+        return reply.status(404).send({ error: "Not found", code: "NOT_FOUND" });
       }
+      const authPubkey = (request.headers["x-auth-pubkey"] as string) ?? null;
+      const allowed = await checkEventVisibility(event, event.pubkey, authPubkey, reply);
+      if (!allowed) return;
 
       const insights = await musicService.getInsights(addressableId);
       return { data: insights };

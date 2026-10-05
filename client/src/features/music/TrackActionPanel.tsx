@@ -35,6 +35,7 @@ import { SpacePickerModal } from "@/components/sharing/SpacePickerModal";
 import { MusicPostModal } from "./MusicPostModal";
 import { useProfileShowcase } from "@/features/profile/useProfileShowcase";
 import { buildRepost } from "@/lib/nostr/eventBuilder";
+import { isGatedTags } from "@/lib/nostr/gatedTargets";
 import { getTrackImage } from "./trackImage";
 import { useResolvedArtist } from "./useResolvedArtist";
 import { useArtistZap } from "./ArtistZapButton";
@@ -151,8 +152,11 @@ export function TrackActionPanel({
   const albums = useAppSelector((s) => s.music.albums);
   const originalEvent = useAppSelector((s) => s.events.entities[track.eventId]);
 
+  const isPublic = track.visibility === "public";
+
   const handleRepost = async () => {
-    if (!pubkey || !originalEvent) return;
+    // A repost embeds the whole event in a public kind:6 — never for a gated release.
+    if (!pubkey || !originalEvent || isGatedTags(originalEvent.tags)) return;
     try {
       const unsigned = buildRepost(
         pubkey,
@@ -221,7 +225,10 @@ export function TrackActionPanel({
   const handleShareToSpace = async (space: Space, channel: SpaceChannel) => {
     if (!pubkey) return;
     const originalEvent = store.getState().events.entities[track.eventId];
-    if (!originalEvent) return;
+    // Mirroring a space-scoped or private event verbatim onto another space's
+    // host relay would publish it past its audience (and the relay's all-of
+    // gate would reject or mis-file it). Only public releases are mirrored.
+    if (!originalEvent || isGatedTags(originalEvent.tags)) return;
 
     relayManager.connect(space.hostRelay, "read+write");
     try {
@@ -428,6 +435,7 @@ export function TrackActionPanel({
                   isOwner={isOwner}
                   isCollaborator={isCollaborator}
                   isLocal={isLocal}
+                  isPublic={isPublic}
                   saved={saved}
                   favorited={favorited}
                   downloaded={downloaded}

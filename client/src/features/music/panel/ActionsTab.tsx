@@ -109,6 +109,13 @@ interface ActionsTabProps {
   isOwner: boolean;
   isCollaborator?: boolean;
   isLocal: boolean;
+  /**
+   * Public release (no `h` / `visibility` tag). Only public releases may be
+   * reposted, mirrored into another space, or posted with a note: those embed
+   * or re-publish the event beyond its audience (docs/MUSIC_VISIBILITY.md).
+   * Copy Link and Send to DM share only the address and stay available.
+   */
+  isPublic: boolean;
   saved: boolean;
   favorited: boolean;
   downloaded: boolean;
@@ -157,6 +164,7 @@ export function ActionsTab({
   isOwner,
   isCollaborator = false,
   isLocal,
+  isPublic,
   saved,
   favorited,
   downloaded,
@@ -297,15 +305,17 @@ export function ActionsTab({
             confirmed={dmSentFlash}
             onClick={onSendToDM}
           />
-          <ActionButton
-            icon={<Globe size={14} />}
-            confirmedIcon={confirmIcon}
-            label="Share to Space"
-            confirmedLabel="Shared!"
-            confirmed={spaceSharedFlash}
-            onClick={onShareToSpace}
-          />
-          {onRepost && (
+          {isPublic && (
+            <ActionButton
+              icon={<Globe size={14} />}
+              confirmedIcon={confirmIcon}
+              label="Share to Space"
+              confirmedLabel="Shared!"
+              confirmed={spaceSharedFlash}
+              onClick={onShareToSpace}
+            />
+          )}
+          {isPublic && onRepost && (
             <ActionButton
               icon={<Repeat2 size={14} />}
               confirmedIcon={confirmIcon}
@@ -315,7 +325,7 @@ export function ActionsTab({
               onClick={onRepost}
             />
           )}
-          {onPostWithNote && (
+          {isPublic && onPostWithNote && (
             <ActionButton
               icon={<MessageSquare size={14} />}
               label="Post with Note"

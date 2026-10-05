@@ -102,6 +102,12 @@ export function CreateAlbumModal({ open, onClose, album }: CreateAlbumModalProps
       );
       setFeaturedArtists(album.featuredArtists);
       setVisibility(album.visibility);
+      // Without these an edit collapsed a space project to "no space" (submit
+      // disabled) and re-encrypted a private project with NO collaborators,
+      // revoking every grantee.
+      setSpaceId(album.spaceId ?? "");
+      setChannelId(album.channelId ?? "");
+      setCollaborators(album.collaborators ?? []);
       setAllowExport(!album.sharingDisabled);
     } else {
       setTitle("");

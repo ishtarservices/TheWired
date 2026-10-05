@@ -4,7 +4,7 @@ import { Modal } from "@/components/ui/Modal";
 import { useAppSelector } from "@/store/hooks";
 import { buildTrackEvent, buildAlbumEvent } from "./musicEventBuilder";
 import { signAndPublish } from "@/lib/nostr/publish";
-import { spacePublishRelays } from "./spacePublish";
+import { spacePublishRelaysForAll } from "./spacePublish";
 import { selectAudioSource } from "./trackParser";
 import { useResolvedArtist } from "./useResolvedArtist";
 import type { MusicTrack } from "@/types/music";
@@ -55,9 +55,19 @@ export function MoveTrackModal({ track, onClose, onBack }: MoveTrackModalProps) 
 
       const existingDTag = track.addressableId.split(":").slice(2).join(":");
 
-      // Space tracks must keep their h-tag and reach the space's host relay.
+      // Moving rebuilds the track and both projects with the cleartext
+      // builders. For a private (NIP-44) track or project that would publish
+      // the decrypted metadata and drop every collaborator grant, so refuse
+      // until a private-aware move exists (WIR-161 follow-up).
+      const sourceAlbumVis = track.albumRef ? albums[track.albumRef]?.visibility : undefined;
+      const targetAlbumVis = targetAlbumId ? albums[targetAlbumId]?.visibility : undefined;
+      if ([track.visibility, sourceAlbumVis, targetAlbumVis].includes("private")) {
+        throw new Error("Private tracks and projects can't be moved yet — edit the project's track list instead.");
+      }
+
+      // Space tracks must keep their h-tags and reach every listed space's host relay.
       const targetRelays =
-        track.visibility === "space" ? await spacePublishRelays(track.spaceId) : undefined;
+        track.visibility === "space" ? await spacePublishRelaysForAll(track.spaceIds) : undefined;
 
       // 1. Republish track with new album ref
       const trackUnsigned = buildTrackEvent(pubkey, {
@@ -110,7 +120,7 @@ export function MoveTrackModal({ track, onClose, onBack }: MoveTrackModalProps) 
           await signAndPublish(
             sourceUnsigned,
             sourceAlbum.visibility === "space"
-              ? await spacePublishRelays(sourceAlbum.spaceId)
+              ? await spacePublishRelaysForAll(sourceAlbum.spaceIds)
               : undefined,
           );
         }
@@ -142,7 +152,7 @@ export function MoveTrackModal({ track, onClose, onBack }: MoveTrackModalProps) 
           await signAndPublish(
             targetUnsigned,
             targetAlbum.visibility === "space"
-              ? await spacePublishRelays(targetAlbum.spaceId)
+              ? await spacePublishRelaysForAll(targetAlbum.spaceIds)
               : undefined,
           );
         }

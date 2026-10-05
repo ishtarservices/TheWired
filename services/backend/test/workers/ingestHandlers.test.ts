@@ -42,10 +42,25 @@ describe("planIngest — own relay", () => {
     expect(planIngest(ev(39002, [["d", "anything"]], "anyone"), ownCtx).action).toBe("groupMembers");
   });
 
-  it("indexes all searchable content kinds to Meilisearch", () => {
+  it("indexes PUBLIC searchable content kinds to Meilisearch", () => {
     for (const k of [1, 9, 22, 30023, 34236, 30119]) {
-      expect(planIngest(ev(k, [["h", "x"]]), ownCtx).indexSearch).toBe(true);
+      expect(planIngest(ev(k), ownCtx).indexSearch).toBe(true);
     }
+  });
+
+  it("never indexes space-scoped or private content into the public search index", () => {
+    // GET /search is unauthenticated; the relay hides these from anonymous
+    // readers, so the search index must too (docs/MUSIC_VISIBILITY.md).
+    for (const k of [1, 9, 22, 30023, 34236, 30119]) {
+      expect(planIngest(ev(k, [["h", "x"]]), ownCtx).indexSearch).toBe(false);
+      expect(planIngest(ev(k, [["visibility", "private"]]), ownCtx).indexSearch).toBe(false);
+      expect(planIngest(ev(k, [["visibility", "unlisted"]]), ownCtx).indexSearch).toBe(false);
+      expect(planIngest(ev(k, [["visibility", "whatever"]]), ownCtx).indexSearch).toBe(false);
+    }
+    // A value-less leading ["h"] does not mask a real second one.
+    expect(planIngest(ev(9, [["h"], ["h", "x"]]), ownCtx).indexSearch).toBe(false);
+    // A value-less tag is not a protection.
+    expect(planIngest(ev(1, [["visibility"]]), ownCtx).indexSearch).toBe(true);
   });
 });
 
@@ -88,8 +103,10 @@ describe("planIngest — anti-poisoning (allowedSpaceIds)", () => {
     expect(planIngest(ev(9, []), extCtx).action).toBeNull();
   });
 
-  it("only search-indexes the scoped chat (not other content) from an external relay", () => {
-    expect(planIngest(ev(9, [["h", "spaceA"]]), extCtx).indexSearch).toBe(true);
+  it("search-indexes nothing from an external relay", () => {
+    // The public search index only holds public content; an external relay's
+    // contribution is h-tagged (member-only) chat, so it never qualifies.
+    expect(planIngest(ev(9, [["h", "spaceA"]]), extCtx).indexSearch).toBe(false);
     expect(planIngest(ev(9, [["h", "spaceB"]]), extCtx).indexSearch).toBe(false);
     expect(planIngest(ev(1, []), extCtx).indexSearch).toBe(false); // notes aren't this group's content
     expect(planIngest(ev(30023, []), extCtx).indexSearch).toBe(false);

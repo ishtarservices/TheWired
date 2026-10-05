@@ -3,7 +3,8 @@ import { X, Upload, Music, FileAudio, ChevronLeft } from "lucide-react";
 import { Modal } from "@/components/ui/Modal";
 import { useAppSelector } from "@/store/hooks";
 import { uploadAudio } from "@/lib/api/music";
-import { buildTrackEvent } from "./musicEventBuilder";
+import { buildTrackEvent, buildPrivateTrackEvent } from "./musicEventBuilder";
+import { spacePublishRelaysForAll } from "./spacePublish";
 import { signAndPublish } from "@/lib/nostr/publish";
 import { selectAudioSource } from "./trackParser";
 import { readAudioMetadata } from "./trackFileParser";
@@ -107,8 +108,11 @@ export function ReplaceAudioModal({ track, onClose, onBack }: ReplaceAudioModalP
       // Extract the existing d-tag to preserve addressable identity
       const existingDTag = track.addressableId.split(":").slice(2).join(":");
 
-      // Rebuild the track event with the new audio but same metadata
-      const unsigned = buildTrackEvent(pubkey, {
+      // Rebuild the track event with the new audio but same metadata. Every
+      // visibility-bearing field is threaded through: dropping `spaceIds`
+      // here silently turned a space release public, and rebuilding a private
+      // track with the cleartext builder de-encrypted it.
+      const params = {
         title: track.title,
         artist: track.artist,
         slug: existingDTag,
@@ -124,12 +128,21 @@ export function ReplaceAudioModal({ track, onClose, onBack }: ReplaceAudioModalP
         artistPubkeys: track.artistPubkeys.length > 0 ? track.artistPubkeys : undefined,
         featuredArtists: track.featuredArtists.length > 0 ? track.featuredArtists : undefined,
         visibility: track.visibility,
+        spaceId: track.visibility === "space" ? track.spaceId : undefined,
+        spaceIds: track.visibility === "space" ? track.spaceIds : undefined,
+        channelId: track.visibility === "space" ? track.channelId : undefined,
         sharingDisabled: track.sharingDisabled,
         inCatalog: track.inCatalog,
         revisionSummary: revisionSummary || undefined,
-      });
+      };
+      const unsigned =
+        track.visibility === "private"
+          ? await buildPrivateTrackEvent(pubkey, { ...params, collaborators: track.collaborators })
+          : buildTrackEvent(pubkey, params);
 
-      await signAndPublish(unsigned);
+      const targetRelays =
+        track.visibility === "space" ? await spacePublishRelaysForAll(track.spaceIds) : undefined;
+      await signAndPublish(unsigned, targetRelays);
       onClose();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to replace audio");

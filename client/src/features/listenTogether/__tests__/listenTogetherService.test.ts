@@ -12,6 +12,7 @@ vi.mock("@/features/music/useAudioPlayer", () => ({
 import { store, resetAll } from "@/store";
 import { login } from "@/store/slices/identitySlice";
 import { startSession, setPendingInvite } from "@/store/slices/listenTogetherSlice";
+import { setConnectedRoom } from "@/store/slices/voiceSlice";
 import { setCurrentTrack, addTrack, nextTrack, setDuration, togglePlay, updatePosition } from "@/store/slices/musicSlice";
 import {
   handleIncomingMessage,
@@ -23,6 +24,7 @@ import {
   suggestTrack,
   acceptSuggestion,
   startListenTogetherSession,
+  canShareTrackWithListeners,
 } from "../listenTogetherService";
 import { anchorTime, decodeLTMessage, MAX_LATENCY_MS, type LTMessage, type LTMessageType, type TrackMeta } from "../syncProtocol";
 import type { MusicTrack } from "@/types/music";
@@ -327,16 +329,69 @@ describe("gated tracks", () => {
     expect(t.accessUnknown).toBe(true);
   });
 
-  it("sends the track's visibility when DJing, mapping local to private", () => {
-    store.dispatch(addTrack(track(T1, "local")));
-    store.dispatch(setCurrentTrack({ trackId: T1, queue: [T1], queueIndex: 0 }));
-    store.dispatch(startSession({ context: "space", roomId: "r", djPubkey: ME, isLocalDJ: true }));
-    // A late joiner triggers a full lt:start re-send.
+  /** The DJ is in the voice channel of space `spaceId`. */
+  function inSpaceRoom(spaceId: string) {
+    store.dispatch(setConnectedRoom({
+      room: { spaceId, channelId: "vc", roomName: `${spaceId}:vc` },
+      token: "t",
+      serverUrl: "wss://lk",
+    }));
+  }
+
+  function djWith(t: MusicTrack, context: "space" | "dm" = "space") {
+    store.dispatch(addTrack(t));
+    store.dispatch(setCurrentTrack({ trackId: t.addressableId, queue: [t.addressableId], queueIndex: 0 }));
+    store.dispatch(startSession({ context, roomId: "r", djPubkey: ME, isLocalDJ: true }));
     return import("../listenTogetherService").then(({ broadcastSessionToLateJoiner }) => {
       broadcastSessionToLateJoiner();
-      const sent = JSON.parse(new TextDecoder().decode(publishData.mock.calls[0][0]));
-      expect(sent.data.trackMeta.visibility).toBe("private");
+      return JSON.parse(new TextDecoder().decode(publishData.mock.calls[0][0]));
     });
+  }
+
+  it("shares a space track's metadata only inside one of its own spaces' rooms", async () => {
+    inSpaceRoom("s1");
+    const sent = await djWith({ ...track(T1, "space"), spaceIds: ["s1", "s2"] });
+    expect(sent.data.trackId).toBe(T1);
+    expect(sent.data.trackMeta.visibility).toBe("space");
+  });
+
+  it("withholds a space track from another space's room and from a DM", async () => {
+    inSpaceRoom("other");
+    const sent = await djWith({ ...track(T1, "space"), spaceIds: ["s1"] });
+    expect(sent.data.trackId).toBeNull();
+    expect(sent.data.trackMeta).toBeNull();
+    expect(JSON.stringify(sent)).not.toContain(T1);
+
+    store.dispatch(resetAll());
+    store.dispatch(login({ pubkey: ME, signerType: "nip07" }));
+    publishData.mockClear();
+    const dm = await djWith({ ...track(T1, "space"), spaceIds: ["s1"] }, "dm");
+    expect(dm.data.trackMeta).toBeNull();
+  });
+
+  it("never hands a private or local track's metadata or URLs to listeners", async () => {
+    inSpaceRoom("s1");
+    for (const vis of ["private", "local"] as const) {
+      store.dispatch(resetAll());
+      store.dispatch(login({ pubkey: ME, signerType: "nip07" }));
+      publishData.mockClear();
+      inSpaceRoom("s1");
+      const sent = await djWith({ ...track(T1, vis), spaceIds: ["s1"] });
+      expect(sent.data.trackMeta).toBeNull();
+      expect(JSON.stringify(sent)).not.toContain("https://");
+    }
+  });
+
+  it("canShareTrackWithListeners is the single rule", () => {
+    const pub = { visibility: "public" as const, spaceIds: [] };
+    const sp = { visibility: "space" as const, spaceIds: ["s1"] };
+    expect(canShareTrackWithListeners(pub, "dm", null)).toBe(true);
+    expect(canShareTrackWithListeners(sp, "space", "s1")).toBe(true);
+    expect(canShareTrackWithListeners(sp, "space", "s2")).toBe(false);
+    expect(canShareTrackWithListeners(sp, "space", null)).toBe(false);
+    expect(canShareTrackWithListeners(sp, "dm", null)).toBe(false);
+    expect(canShareTrackWithListeners({ visibility: "private", spaceIds: ["s1"] }, "space", "s1")).toBe(false);
+    expect(canShareTrackWithListeners({ visibility: "local", spaceIds: [] }, "space", "s1")).toBe(false);
   });
 });
 
@@ -388,11 +443,21 @@ describe("suggestions", () => {
 
   it("a listener sends lt:suggest with the track's metadata", () => {
     joinAsListener();
-    store.dispatch(addTrack(track(T2, "space")));
+    store.dispatch(setConnectedRoom({
+      room: { spaceId: "s1", channelId: "vc", roomName: "s1:vc" }, token: "t", serverUrl: "wss://lk",
+    }));
+    store.dispatch(addTrack({ ...track(T2, "space"), spaceIds: ["s1"] }));
     expect(suggestTrack(T2)).toBe(true);
     const sent = JSON.parse(new TextDecoder().decode(publishData.mock.calls[0][0]));
     expect(sent.type).toBe("lt:suggest");
     expect(sent.data).toMatchObject({ trackId: T2, trackMeta: { visibility: "space" } });
+  });
+
+  it("can't suggest a space track from a space this room isn't in", () => {
+    joinAsListener();
+    store.dispatch(addTrack({ ...track(T2, "space"), spaceIds: ["elsewhere"] }));
+    expect(suggestTrack(T2)).toBe(false);
+    expect(publishData).not.toHaveBeenCalled();
   });
 
   it("can't suggest a track without metadata", () => {

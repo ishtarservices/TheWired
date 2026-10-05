@@ -8,6 +8,7 @@ use std::time::{Duration, Instant};
 use tokio::sync::broadcast;
 use tokio::sync::Mutex;
 
+use crate::nostr::access;
 use crate::nostr::event::Event;
 use crate::nostr::report_gate;
 use crate::nostr::wrap_gate::{self, ReadCtx, WrapAuthGate};
@@ -101,37 +102,12 @@ fn is_event_visible_to_ctx(
     if !report_gate::report_visible(event, ctx) {
         return false;
     }
-    let authed_owned: Option<String> = ctx.authed.map(str::to_string);
-    let authed_pubkey = &authed_owned;
-    let visibility = event.get_tag_value("visibility");
-    let h_tags = event.get_tag_values("h");
-
-    // Public events: always visible
-    if visibility.is_none() && h_tags.is_empty() {
-        return true;
-    }
-
-    // Protected event — must be authenticated
-    let pk = match authed_pubkey {
-        Some(pk) => pk,
-        None => return false,
-    };
-
-    // Author always sees own events
-    if event.pubkey == *pk {
-        return true;
-    }
-
-    // p-tag: collaborator access
-    let p_tagged = event.tags.iter().any(|t| {
-        t.first().is_some_and(|k| k == "p") && t.get(1).is_some_and(|v| v == pk)
-    });
-    if p_tagged {
-        return true;
-    }
-
-    // h-tag: membership of any listed space
-    h_tags.iter().any(|h| space_memberships.contains(h))
+    // The shared read policy (nostr::access): author / role-aware p-tag grant
+    // / any-of membership for h-only events. The per-connection membership
+    // cache stands in for the DB lookup the stored-query SQL does.
+    access::is_visible_to(event, ctx.authed, |h_tags| {
+        h_tags.iter().any(|h| space_memberships.contains(h))
+    })
 }
 
 /// Per-client WebSocket connection handler
@@ -272,7 +248,7 @@ pub async fn handle_connection(
                         // membership cache if it's older than MEMBERSHIP_TTL —
                         // otherwise a kicked user holding this socket keeps
                         // receiving the channel until they reconnect.
-                        if event.get_tag_value("h").is_some() {
+                        if !event.get_tag_values("h").is_empty() {
                             maybe_refresh_memberships(
                                 &state,
                                 &authed_pubkey,
@@ -560,5 +536,59 @@ mod tests {
             &Some("carol".into()),
             &set_with(&["any_space"])
         ));
+    }
+
+    /// p-tag ROLES decide grants exactly as on the backend: a `featured` credit
+    /// (or any unknown role) is not access; member roles and role-less are.
+    #[test]
+    fn p_tag_roles_decide_broadcast_grants() {
+        let evt = event_with(
+            31683,
+            "alice",
+            vec![
+                vec!["visibility".into(), "private".into()],
+                vec!["p".into(), "fay".into(), "".into(), "featured".into()],
+                vec!["p".into(), "col".into(), "".into(), "collaborator".into()],
+                vec!["p".into(), "ed".into(), "".into(), "editor".into()],
+            ],
+        );
+        assert!(!is_event_visible_to(&evt, &Some("fay".into()), &empty_set()), "featured is a credit");
+        assert!(is_event_visible_to(&evt, &Some("col".into()), &empty_set()));
+        assert!(is_event_visible_to(&evt, &Some("ed".into()), &empty_set()));
+    }
+
+    /// A private event shared into a space is NOT widened to the space: a
+    /// member without a grant is hidden on broadcast, as on stored REQ.
+    #[test]
+    fn private_in_space_is_not_widened_to_members() {
+        let evt = event_with(
+            31683,
+            "alice",
+            vec![
+                vec!["h".into(), "space_x".into()],
+                vec!["visibility".into(), "private".into()],
+                vec!["p".into(), "bob".into(), "".into(), "collaborator".into()],
+            ],
+        );
+        assert!(!is_event_visible_to(&evt, &Some("carol".into()), &set_with(&["space_x"])));
+        assert!(is_event_visible_to(&evt, &Some("bob".into()), &empty_set()));
+        assert!(is_event_visible_to(&evt, &Some("alice".into()), &empty_set()));
+    }
+
+    /// A p-tag grant on an h-only event admits a non-member (same as the
+    /// backend's /music/resolve + blob layer).
+    #[test]
+    fn granted_non_member_sees_h_tagged_broadcast() {
+        let evt = event_with(
+            31683,
+            "alice",
+            vec![
+                vec!["h".into(), "space_x".into()],
+                vec!["p".into(), "bob".into(), "".into(), "collaborator".into()],
+                vec!["p".into(), "fay".into(), "".into(), "featured".into()],
+            ],
+        );
+        assert!(is_event_visible_to(&evt, &Some("bob".into()), &empty_set()));
+        assert!(!is_event_visible_to(&evt, &Some("fay".into()), &empty_set()));
     }
 }

@@ -13,6 +13,7 @@
 use sqlx::sqlite::SqlitePoolOptions;
 use sqlx::{QueryBuilder, Sqlite, SqlitePool};
 
+use crate::nostr::access;
 use crate::nostr::event::Event;
 use crate::nostr::filter::Filter;
 use crate::nostr::report_gate::KIND_REPORT;
@@ -199,8 +200,10 @@ pub async fn store_event_flagged(
     self_published: bool,
 ) -> anyhow::Result<bool> {
     let d_tag = event.get_tag_value("d");
-    let h_tag = event.get_tag_value("h");
-    let visibility = event.get_tag_value("visibility");
+    // First VALUED h tag (same as Postgres `h_tags[1]`): a value-less leading
+    // ["h"] must not leave a space-scoped row looking public.
+    let h_tag = event.get_tag_values("h").into_iter().next();
+    let visibility = event.get_tag_values("visibility").into_iter().next();
     let tags_json = serde_json::to_string(&event.tags)?;
     let expires_at = event_expiration(event);
 
@@ -417,25 +420,41 @@ fn push_visibility_gate(qb: &mut QueryBuilder<Sqlite>, ctx: &ReadCtx<'_>) {
         }
     }
     match ctx.authed {
-        Some(pk) => {
-            // private/unlisted: author or p-tagged collaborator
-            qb.push(" AND (visibility IS NULL OR pubkey = ")
-                .push_bind(pk.to_string())
-                .push(" OR id IN (SELECT event_id FROM event_tags WHERE tag_name = 'p' AND tag_value = ")
-                .push_bind(pk.to_string())
-                .push("))");
-            // h-tagged: author or relay-native member of ANY listed group
-            qb.push(" AND (h_tag IS NULL OR pubkey = ")
-                .push_bind(pk.to_string())
-                .push(" OR EXISTS (SELECT 1 FROM event_tags t JOIN group_members gm ON gm.group_id = t.tag_value \
-                        WHERE t.event_id = events.id AND t.tag_name = 'h' AND gm.pubkey = ")
-                .push_bind(pk.to_string())
-                .push("))");
-        }
+        Some(pk) => push_authed_gate(qb, pk, "events", ""),
         None => {
             qb.push(" AND visibility IS NULL AND h_tag IS NULL");
         }
     }
+}
+
+/// The one authenticated read predicate (nostr::access), spelled in SQLite:
+/// author, or an access-granting p tag (role-aware via JSON1 over `tags`,
+/// pre-filtered by the indexed `event_tags`), or — for `h`-only events — a
+/// relay-native member of ANY listed group. `table` is the events table name
+/// or alias used by the enclosing query; `p` its column prefix (`""` or `"e."`).
+fn push_authed_gate(qb: &mut QueryBuilder<Sqlite>, pk: &str, table: &str, p: &str) {
+    let roles = access::sql_granting_roles();
+    qb.push(format!(" AND ({p}pubkey = "))
+        .push_bind(pk.to_string())
+        .push(format!(
+            " OR ({p}id IN (SELECT event_id FROM event_tags WHERE tag_name = 'p' AND tag_value = "
+        ))
+        .push_bind(pk.to_string())
+        .push(format!(
+            ") AND EXISTS (SELECT 1 FROM json_each({p}tags) pt \
+               WHERE json_extract(pt.value, '$[0]') = 'p' AND json_extract(pt.value, '$[1]') = "
+        ))
+        .push_bind(pk.to_string())
+        .push(format!(
+            " AND COALESCE(json_extract(pt.value, '$[3]'), '') IN ({roles})))"
+        ))
+        .push(format!(
+            " OR ({p}visibility IS NULL AND ({p}h_tag IS NULL OR EXISTS (\
+                 SELECT 1 FROM event_tags t JOIN group_members gm ON gm.group_id = t.tag_value \
+                 WHERE t.event_id = {table}.id AND t.tag_name = 'h' AND gm.pubkey = "
+        ))
+        .push_bind(pk.to_string())
+        .push("))))");
 }
 
 fn push_in(qb: &mut QueryBuilder<Sqlite>, col: &str, values: &[String]) {
@@ -503,19 +522,7 @@ pub async fn search_events_ctx(
         .push_bind(ctx.now)
         .push(")");
     match ctx.authed {
-        Some(pk) => {
-            qb.push(" AND (e.visibility IS NULL OR e.pubkey = ")
-                .push_bind(pk.to_string())
-                .push(" OR e.id IN (SELECT event_id FROM event_tags WHERE tag_name = 'p' AND tag_value = ")
-                .push_bind(pk.to_string())
-                .push("))");
-            qb.push(" AND (e.h_tag IS NULL OR e.pubkey = ")
-                .push_bind(pk.to_string())
-                .push(" OR EXISTS (SELECT 1 FROM event_tags t JOIN group_members gm ON gm.group_id = t.tag_value \
-                        WHERE t.event_id = e.id AND t.tag_name = 'h' AND gm.pubkey = ")
-                .push_bind(pk.to_string())
-                .push("))");
-        }
+        Some(pk) => push_authed_gate(&mut qb, pk, "e", "e."),
         None => {
             qb.push(" AND e.visibility IS NULL AND e.h_tag IS NULL");
         }
@@ -788,6 +795,68 @@ mod tests {
         assert_eq!(query_events(&p, &f(), Some("carol")).await.unwrap().len(), 0, "stranger hidden");
         assert_eq!(query_events(&p, &f(), Some("bob")).await.unwrap().len(), 1, "collaborator reads");
         assert_eq!(query_events(&p, &f(), Some("alice")).await.unwrap().len(), 1, "author reads");
+    }
+
+    #[tokio::test]
+    async fn p_tag_roles_decide_private_reads() {
+        // Role-aware grants (nostr::access): featured/unknown roles are credits.
+        let p = pool().await;
+        store_event(&p, &ev("pr", "alice", 31683, 100, vec![
+            vec!["d", "s"], vec!["title", "t"], vec!["visibility", "private"],
+            vec!["p", "fay", "", "featured"],
+            vec!["p", "col", "", "collaborator"],
+            vec!["p", "con", "", "contributor"],
+            vec!["p", "ed", "", "editor"],
+            vec!["p", "art", "", "artist"],
+            vec!["p", "prod", "", "producer"],
+            vec!["p", "old"],
+        ], "")).await.unwrap();
+        let f = || filter(serde_json::json!({"kinds": [31683]}));
+        for (who, n) in [("fay", 0), ("prod", 0), ("carol", 0), ("col", 1), ("con", 1), ("ed", 1), ("art", 1), ("old", 1), ("alice", 1)] {
+            assert_eq!(query_events(&p, &f(), Some(who)).await.unwrap().len(), n, "{who}");
+        }
+        assert_eq!(query_events(&p, &f(), None).await.unwrap().len(), 0, "anon");
+    }
+
+    #[tokio::test]
+    async fn private_in_space_is_not_widened_and_grant_admits_non_member() {
+        let p = pool().await;
+        sqlx::query("INSERT INTO groups (group_id, name) VALUES ('g', 'G')").execute(&p).await.unwrap();
+        sqlx::query("INSERT INTO group_members (group_id, pubkey) VALUES ('g', 'bob')").execute(&p).await.unwrap();
+        // h + private: member bob is NOT admitted; grantee col is.
+        store_event(&p, &ev("hp", "alice", 31683, 100, vec![
+            vec!["d", "a"], vec!["title", "t"], vec!["h", "g"], vec!["visibility", "private"],
+            vec!["p", "col", "", "collaborator"],
+        ], "")).await.unwrap();
+        // h only: member bob reads; grantee col (non-member) reads; featured fay and stranger don't.
+        store_event(&p, &ev("ho", "alice", 31683, 101, vec![
+            vec!["d", "b"], vec!["title", "t"], vec!["h", "g"],
+            vec!["p", "col", "", "collaborator"], vec!["p", "fay", "", "featured"],
+        ], "")).await.unwrap();
+        async fn ids(p: &SqlitePool, who: Option<&str>) -> Vec<String> {
+            let mut v: Vec<String> = query_events(p, &filter(serde_json::json!({"kinds": [31683]})), who)
+                .await.unwrap().into_iter().map(|e| e.id).collect();
+            v.sort();
+            v
+        }
+        assert_eq!(ids(&p, Some("bob")).await, vec!["ho"]);
+        assert_eq!(ids(&p, Some("col")).await, vec!["ho", "hp"]);
+        assert_eq!(ids(&p, Some("fay")).await, Vec::<String>::new());
+        assert_eq!(ids(&p, Some("carol")).await, Vec::<String>::new());
+        assert_eq!(ids(&p, None).await, Vec::<String>::new());
+        assert_eq!(ids(&p, Some("alice")).await, vec!["ho", "hp"]);
+    }
+
+    #[tokio::test]
+    async fn malformed_first_h_tag_still_protects() {
+        // [["h"],["h","g"]]: the h_tag column must mirror the first VALUED h tag,
+        // or the row would read as public to anonymous clients.
+        let p = pool().await;
+        store_event(&p, &ev("mf", "alice", 9, 100, vec![vec!["h"], vec!["h", "g"]], "x")).await.unwrap();
+        let col: (Option<String>,) = sqlx::query_as("SELECT h_tag FROM events WHERE id = 'mf'").fetch_one(&p).await.unwrap();
+        assert_eq!(col.0.as_deref(), Some("g"));
+        assert_eq!(query_events(&p, &filter(serde_json::json!({"kinds": [9]})), None).await.unwrap().len(), 0);
+        assert_eq!(query_events(&p, &filter(serde_json::json!({"kinds": [9]})), Some("alice")).await.unwrap().len(), 1);
     }
 
     #[tokio::test]

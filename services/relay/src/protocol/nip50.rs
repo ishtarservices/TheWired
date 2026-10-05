@@ -1,5 +1,6 @@
 use sqlx::{PgPool, Postgres};
 
+use crate::nostr::access;
 use crate::nostr::event::Event;
 use crate::nostr::report_gate::KIND_REPORT;
 use crate::nostr::wrap_gate::{ReadCtx, KIND_GIFT_WRAP};
@@ -29,12 +30,12 @@ pub async fn search_events_ctx(
     let limit = limit.clamp(0, 500);
     // $1 = query, $2 = limit, $3 = now, $4 = authed pubkey (when present).
     let visibility = match ctx.authed {
-        Some(_) =>
-            " AND (visibility IS NULL OR pubkey = $4 OR $4 = ANY(p_tags)) \
-             AND (h_tag IS NULL OR pubkey = $4 \
-                   OR h_tags && ARRAY(SELECT space_id FROM app.space_members WHERE pubkey = $4) \
-                   OR h_tags && ARRAY(SELECT group_id FROM relay.group_members WHERE pubkey = $4))",
-        None => " AND visibility IS NULL AND h_tag IS NULL",
+        Some(_) => {
+            let members_any = "h_tags && ARRAY(SELECT space_id FROM app.space_members WHERE pubkey = $4) \
+                 OR h_tags && ARRAY(SELECT group_id FROM relay.group_members WHERE pubkey = $4)";
+            format!(" AND {}", access::pg_visible_predicate("$4", members_any, ""))
+        }
+        None => format!(" AND {}", access::pg_anonymous_predicate("")),
     };
     let sql = format!(
         "SELECT id, pubkey, created_at, kind, tags, content, sig \

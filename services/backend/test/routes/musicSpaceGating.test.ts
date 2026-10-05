@@ -17,6 +17,7 @@ import { musicUploads } from "../../src/db/schema/music.js";
 import { spaces } from "../../src/db/schema/spaces.js";
 import { spaceMembers } from "../../src/db/schema/members.js";
 import { config } from "../../src/config.js";
+import { sql } from "drizzle-orm";
 import { nanoid } from "../../src/lib/id.js";
 import { clearBlobAccessCache } from "../../src/services/blobAccess.js";
 import {
@@ -39,6 +40,12 @@ const SHA_MIXED = "5".repeat(64); // one owner references it publicly AND privat
 const SHA_ROLES = "6".repeat(64); // private track with role-annotated p-tags
 const SHA_MULTI = "7".repeat(64); // track shared into SPACE_ID and SPACE_B
 const SHA_MEMBERS = "8".repeat(64); // private track with contributor/editor member roles (+HLS)
+const SHA_SPACE_GRANT = "9".repeat(64); // space track carrying a p-tag grant for a non-member (+HLS)
+const SHA_STEAL = "a".repeat(64); // LUNA's private sha; ZARA publishes her own private track pointing at it
+const SHA_BOTH = "b".repeat(64); // track that is BOTH space-scoped and private
+const SHA_NATIVE = "c".repeat(64); // track in a NIP-29-native group (relay.group_members, no app.spaces row)
+const SHA_ODDVIS = "d".repeat(64); // track with an unknown visibility value
+const NATIVE_GROUP = "sg-native-group";
 
 async function seedBlob(sha: string, ownerPubkey: string, withHls = false) {
   await writeFile(join(BLOB_DIR, sha), Buffer.alloc(1024, 1));
@@ -60,10 +67,10 @@ beforeAll(async () => {
   server = await buildTestServer();
   await ensureRelayEventsTable();
 
-  for (const sha of [SHA_SPACE, SHA_GRIEF, SHA_MIXED, SHA_ROLES, SHA_MULTI, SHA_MEMBERS]) {
+  for (const sha of [SHA_SPACE, SHA_GRIEF, SHA_MIXED, SHA_ROLES, SHA_MULTI, SHA_MEMBERS, SHA_SPACE_GRANT, SHA_STEAL, SHA_BOTH, SHA_NATIVE, SHA_ODDVIS]) {
     await writeFile(join(BLOB_DIR, sha), Buffer.alloc(1024, 1));
   }
-  for (const sha of [SHA_SPACE, SHA_MULTI, SHA_MEMBERS]) {
+  for (const sha of [SHA_SPACE, SHA_MULTI, SHA_MEMBERS, SHA_SPACE_GRANT]) {
     await mkdir(join(BLOB_DIR, "hls", sha, "128k"), { recursive: true });
     await writeFile(
       join(BLOB_DIR, "hls", sha, "master.m3u8"),
@@ -104,6 +111,17 @@ beforeEach(async () => {
   await seedBlob(SHA_ROLES, LUNA.pubkey);
   await seedBlob(SHA_MULTI, LUNA.pubkey, true);
   await seedBlob(SHA_MEMBERS, LUNA.pubkey, true);
+  await seedBlob(SHA_SPACE_GRANT, LUNA.pubkey, true);
+  await seedBlob(SHA_STEAL, LUNA.pubkey);
+  await seedBlob(SHA_BOTH, LUNA.pubkey);
+  await seedBlob(SHA_NATIVE, LUNA.pubkey);
+  await seedBlob(SHA_ODDVIS, LUNA.pubkey);
+
+  // NIP-29-native group hosted on this relay: membership lives ONLY in
+  // relay.group_members (no app.spaces / app.space_members row). DECKARD is in it.
+  await db.execute(sql`INSERT INTO relay.groups (group_id, name) VALUES (${NATIVE_GROUP}, 'Native') ON CONFLICT DO NOTHING`);
+  await db.execute(sql`DELETE FROM relay.group_members WHERE group_id = ${NATIVE_GROUP}`);
+  await db.execute(sql`INSERT INTO relay.group_members (group_id, pubkey) VALUES (${NATIVE_GROUP}, ${DECKARD.pubkey}), (${NATIVE_GROUP}, ${LUNA.pubkey})`);
 
   // h-only space track (mobile's shape: no visibility tag, just ["h", spaceId])
   await insertMusicEvent({
@@ -146,6 +164,49 @@ beforeEach(async () => {
     ],
   });
 
+  // Space-scoped track that ALSO grants a non-member via p-tag (WIR-76): the
+  // grantee must get the same access as a member on every layer; a featured
+  // credit on the same event stays a credit.
+  await insertMusicEvent({
+    kind: 31683, pubkey: LUNA.pubkey, slug: `${SLUG}-space-grant`,
+    hTag: SPACE_ID, imetaSha: SHA_SPACE_GRANT,
+    pTags: [
+      ["p", JAYDEE.pubkey, "", "collaborator"],
+      ["p", SAGE.pubkey, "", "featured"],
+    ],
+  });
+
+  // LUNA's private track on SHA_STEAL; ZARA (not an uploader) publishes her own
+  // private track whose imeta points at LUNA's sha.
+  await insertMusicEvent({
+    kind: 31683, pubkey: LUNA.pubkey, slug: `${SLUG}-steal-victim`,
+    visibility: "private", imetaSha: SHA_STEAL,
+  });
+  await insertMusicEvent({
+    kind: 31683, pubkey: ZARA.pubkey, slug: `${SLUG}-steal`,
+    visibility: "private", imetaSha: SHA_STEAL,
+  });
+
+  // Space-scoped AND private: members of the space are NOT widened in; only
+  // the author and p-tag grantees see it.
+  await insertMusicEvent({
+    kind: 31683, pubkey: LUNA.pubkey, slug: `${SLUG}-both`,
+    hTag: SPACE_ID, visibility: "private", imetaSha: SHA_BOTH,
+    pTags: [["p", SAGE.pubkey, "", "collaborator"]],
+  });
+
+  // Track shared into the NIP-29-native group only.
+  await insertMusicEvent({
+    kind: 31683, pubkey: LUNA.pubkey, slug: `${SLUG}-native`,
+    hTag: NATIVE_GROUP, imetaSha: SHA_NATIVE,
+  });
+
+  // Unknown visibility value: protected everywhere (never exposed by accident).
+  await insertMusicEvent({
+    kind: 31683, pubkey: LUNA.pubkey, slug: `${SLUG}-oddvis`,
+    visibility: "members-only" as "private", imetaSha: SHA_ODDVIS,
+  });
+
   // Private track carrying the project MEMBER roles mobile writes: contributor
   // and editor must unlock media exactly like collaborator; featured stays a credit.
   await insertMusicEvent({
@@ -161,10 +222,11 @@ beforeEach(async () => {
 
 afterAll(async () => {
   await deleteRelayEventsBySlugPrefix(SLUG);
-  for (const sha of [SHA_SPACE, SHA_GRIEF, SHA_MIXED, SHA_ROLES, SHA_MULTI, SHA_MEMBERS]) {
+  for (const sha of [SHA_SPACE, SHA_GRIEF, SHA_MIXED, SHA_ROLES, SHA_MULTI, SHA_MEMBERS, SHA_SPACE_GRANT, SHA_STEAL, SHA_BOTH, SHA_NATIVE, SHA_ODDVIS]) {
     await rm(join(BLOB_DIR, sha), { force: true }).catch(() => {});
   }
-  for (const sha of [SHA_SPACE, SHA_MULTI, SHA_MEMBERS]) {
+  await db.execute(sql`DELETE FROM relay.groups WHERE group_id = ${NATIVE_GROUP}`);
+  for (const sha of [SHA_SPACE, SHA_MULTI, SHA_MEMBERS, SHA_SPACE_GRANT]) {
     await rm(join(BLOB_DIR, "hls", sha), { recursive: true, force: true }).catch(() => {});
   }
   await closeTestServer();
@@ -234,6 +296,119 @@ describe("h-only space tracks protect the blob + HLS ladder", () => {
       (await server.inject({ method: "GET", url: `/music/access/${LUNA.pubkey}/${SLUG}-space` }))
         .statusCode,
     ).toBe(404);
+  });
+});
+
+describe("p-tag grants on space-scoped tracks (WIR-76)", () => {
+  const url = (path: string) => `${path}/${LUNA.pubkey}/${SLUG}-space-grant`;
+  const as = (pk: string | null) => (pk ? { "x-auth-pubkey": pk } : {});
+
+  it("a non-member collaborator resolves, mints, and plays like a member", async () => {
+    const resolve = await server.inject({ method: "GET", url: url("/music/resolve/track"), headers: as(JAYDEE.pubkey) });
+    expect(resolve.statusCode).toBe(200);
+
+    const access = await server.inject({ method: "GET", url: url("/music/access"), headers: as(JAYDEE.pubkey) });
+    expect(access.statusCode).toBe(200);
+    const d = access.json().data;
+    expect(d.gated).toBe(true);
+
+    expect((await server.inject({ method: "GET", url: `/${SHA_SPACE_GRANT}`, headers: as(JAYDEE.pubkey) })).statusCode).toBe(200);
+    expect((await server.inject({ method: "GET", url: `/${SHA_SPACE_GRANT}?tk=${d.token}` })).statusCode).toBe(200);
+    expect((await server.inject({ method: "GET", url: `/hls/${SHA_SPACE_GRANT}/master.m3u8?tk=${d.token}` })).statusCode).toBe(200);
+
+    const insights = await server.inject({ method: "GET", url: `/music/insights/31683:${LUNA.pubkey}:${SLUG}-space-grant`, headers: as(JAYDEE.pubkey) });
+    expect(insights.statusCode).toBe(200);
+  });
+
+  it("a space member without a p-tag still has access", async () => {
+    expect((await server.inject({ method: "GET", url: url("/music/resolve/track"), headers: as(MARCUS.pubkey) })).statusCode).toBe(200);
+    expect((await server.inject({ method: "GET", url: `/${SHA_SPACE_GRANT}`, headers: as(MARCUS.pubkey) })).statusCode).toBe(200);
+  });
+
+  it("a featured-only non-member, a stranger, and anon are denied on every layer", async () => {
+    for (const viewer of [SAGE.pubkey, ZARA.pubkey, null]) {
+      expect((await server.inject({ method: "GET", url: url("/music/resolve/track"), headers: as(viewer) })).statusCode).toBe(404);
+      expect((await server.inject({ method: "GET", url: url("/music/access"), headers: as(viewer) })).statusCode).toBe(404);
+      expect((await server.inject({ method: "GET", url: `/${SHA_SPACE_GRANT}`, headers: as(viewer) })).statusCode).toBe(404);
+      expect((await server.inject({ method: "GET", url: `/hls/${SHA_SPACE_GRANT}/master.m3u8`, headers: as(viewer) })).statusCode).toBe(404);
+    }
+  });
+});
+
+describe("/music/access mints only for a sha the blob layer would serve", () => {
+  it("refuses a token to an author whose own private track points at someone else's protected sha", async () => {
+    const res = await server.inject({
+      method: "GET",
+      url: `/music/access/${ZARA.pubkey}/${SLUG}-steal`,
+      headers: { "x-auth-pubkey": ZARA.pubkey },
+    });
+    expect(res.statusCode).toBe(404);
+    expect(res.body).not.toContain("tk=");
+    // And the blob itself stays closed to her.
+    expect((await server.inject({ method: "GET", url: `/${SHA_STEAL}`, headers: { "x-auth-pubkey": ZARA.pubkey } })).statusCode).toBe(404);
+  });
+
+  it("still mints for the real owner", async () => {
+    const res = await server.inject({
+      method: "GET",
+      url: `/music/access/${LUNA.pubkey}/${SLUG}-steal-victim`,
+      headers: { "x-auth-pubkey": LUNA.pubkey },
+    });
+    expect(res.statusCode).toBe(200);
+    expect(res.json().data.gated).toBe(true);
+  });
+});
+
+describe("space-scoped AND private: the space does not widen a private event", () => {
+  const url = (path: string) => `${path}/${LUNA.pubkey}/${SLUG}-both`;
+  const as = (pk: string | null) => (pk ? { "x-auth-pubkey": pk } : {});
+
+  it("denies a space member without a p-tag on every layer", async () => {
+    expect((await server.inject({ method: "GET", url: url("/music/resolve/track"), headers: as(MARCUS.pubkey) })).statusCode).toBe(404);
+    expect((await server.inject({ method: "GET", url: url("/music/access"), headers: as(MARCUS.pubkey) })).statusCode).toBe(404);
+    expect((await server.inject({ method: "GET", url: `/${SHA_BOTH}`, headers: as(MARCUS.pubkey) })).statusCode).toBe(404);
+  });
+
+  it("serves the author and a collaborator grantee", async () => {
+    for (const viewer of [LUNA.pubkey, SAGE.pubkey]) {
+      expect((await server.inject({ method: "GET", url: url("/music/resolve/track"), headers: as(viewer) })).statusCode).toBe(200);
+      expect((await server.inject({ method: "GET", url: `/${SHA_BOTH}`, headers: as(viewer) })).statusCode).toBe(200);
+    }
+  });
+});
+
+describe("NIP-29-native group membership (relay.group_members) counts on every layer", () => {
+  const url = (path: string) => `${path}/${LUNA.pubkey}/${SLUG}-native`;
+  const as = (pk: string | null) => (pk ? { "x-auth-pubkey": pk } : {});
+
+  it("a relay-native member resolves, mints, and fetches the blob", async () => {
+    expect((await server.inject({ method: "GET", url: url("/music/resolve/track"), headers: as(DECKARD.pubkey) })).statusCode).toBe(200);
+    const access = await server.inject({ method: "GET", url: url("/music/access"), headers: as(DECKARD.pubkey) });
+    expect(access.statusCode).toBe(200);
+    expect(access.json().data.gated).toBe(true);
+    expect((await server.inject({ method: "GET", url: `/${SHA_NATIVE}`, headers: as(DECKARD.pubkey) })).statusCode).toBe(200);
+  });
+
+  it("a non-member and anon are denied", async () => {
+    for (const viewer of [ZARA.pubkey, null]) {
+      expect((await server.inject({ method: "GET", url: url("/music/resolve/track"), headers: as(viewer) })).statusCode).toBe(404);
+      expect((await server.inject({ method: "GET", url: `/${SHA_NATIVE}`, headers: as(viewer) })).statusCode).toBe(404);
+    }
+  });
+});
+
+describe("an unknown visibility value is protected, not public", () => {
+  const url = (path: string) => `${path}/${LUNA.pubkey}/${SLUG}-oddvis`;
+  it("404s resolve + access for a stranger and anon, serves the author", async () => {
+    for (const viewer of [ZARA.pubkey, null]) {
+      const h = viewer ? { "x-auth-pubkey": viewer } : {};
+      expect((await server.inject({ method: "GET", url: url("/music/resolve/track"), headers: h })).statusCode).toBe(404);
+      expect((await server.inject({ method: "GET", url: url("/music/access"), headers: h })).statusCode).toBe(404);
+      expect((await server.inject({ method: "GET", url: `/${SHA_ODDVIS}`, headers: h })).statusCode).toBe(404);
+    }
+    const owner = await server.inject({ method: "GET", url: url("/music/access"), headers: { "x-auth-pubkey": LUNA.pubkey } });
+    expect(owner.statusCode).toBe(200);
+    expect(owner.json().data.gated).toBe(true);
   });
 });
 

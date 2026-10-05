@@ -16,9 +16,10 @@ use std::collections::HashSet;
 use std::sync::Arc;
 
 use common::{
-    add_member, insert_space, make_app_state, send_event, setup_test_pool, sign_multi_h,
-    sign_music_track, TestIdentity,
+    add_member, insert_space, make_app_state, remove_member, send_event, setup_test_pool,
+    sign_event, sign_multi_h, sign_music_track, TestIdentity,
 };
+use thewired_relay::nostr::event::Event;
 use thewired_relay::protocol::handler::handle_message;
 use thewired_relay::protocol::subscription::SubscriptionManager;
 use thewired_relay::server::AppState;
@@ -236,4 +237,119 @@ async fn too_many_h_tags_rejected_before_lookups() {
         .await
         .unwrap();
     assert!(row.is_none(), "rejected event must not be stored");
+}
+
+/// A kind:31683 track with arbitrary extra tags (visibility / p grants).
+fn sign_track_with(identity: &TestIdentity, slug: &str, extra: Vec<Vec<String>>) -> Event {
+    let mut tags: Vec<Vec<String>> = vec![
+        vec!["d".to_string(), slug.to_string()],
+        vec!["title".to_string(), format!("Track {slug}")],
+    ];
+    tags.extend(extra);
+    sign_event(identity, 31683, tags, "", 1_700_000_000)
+}
+
+fn p(pk: &str, role: &str) -> Vec<String> {
+    vec!["p".to_string(), pk.to_string(), String::new(), role.to_string()]
+}
+
+fn sorted(mut v: Vec<String>) -> Vec<String> {
+    v.sort();
+    v
+}
+
+/// One read policy on Postgres (docs/MUSIC_VISIBILITY.md §"Who may view"):
+/// author / role-aware p grant always; private admits nobody else even inside
+/// a space; h-only admits any-of members.
+#[tokio::test]
+async fn unified_read_policy_private_grants_and_private_in_space() {
+    let pool = pool_or_skip!();
+    let artist = TestIdentity::from_seed(0x70);
+    let member = TestIdentity::from_seed(0x71);
+    let collab = TestIdentity::from_seed(0x72);
+    let featured = TestIdentity::from_seed(0x73);
+    let stranger = TestIdentity::from_seed(0x74);
+    insert_space(&pool, S1).await.unwrap();
+    add_member(&pool, S1, &artist.pubkey).await.unwrap();
+    add_member(&pool, S1, &member.pubkey).await.unwrap();
+
+    let (state, tx) = make_app_state(pool.clone());
+    let private = sign_track_with(&artist, "priv", vec![
+        vec!["visibility".into(), "private".into()],
+        p(&collab.pubkey, "collaborator"),
+        p(&featured.pubkey, "featured"),
+    ]);
+    let both = sign_track_with(&artist, "both", vec![
+        vec!["h".into(), S1.into()],
+        vec!["visibility".into(), "private".into()],
+        p(&collab.pubkey, "collaborator"),
+    ]);
+    let granted = sign_track_with(&artist, "granted", vec![
+        vec!["h".into(), S1.into()],
+        p(&collab.pubkey, "collaborator"),
+        p(&featured.pubkey, "featured"),
+    ]);
+    for e in [&private, &both, &granted] {
+        assert!(parse_ok(&send_event(&state, &tx, e).await).0, "publish {}", e.id);
+    }
+
+    let f = serde_json::json!({"kinds": [31683]});
+    let expect = |ids: &[&Event]| sorted(ids.iter().map(|e| e.id.clone()).collect());
+
+    assert_eq!(sorted(req_ids(&state, f.clone(), Some(&artist.pubkey)).await), expect(&[&private, &both, &granted]), "author");
+    assert_eq!(sorted(req_ids(&state, f.clone(), Some(&collab.pubkey)).await), expect(&[&private, &both, &granted]), "collaborator grant on every shape");
+    assert_eq!(sorted(req_ids(&state, f.clone(), Some(&member.pubkey)).await), expect(&[&granted]), "member: h-only yes, private-in-space no");
+    assert!(req_ids(&state, f.clone(), Some(&featured.pubkey)).await.is_empty(), "featured is a credit, not a grant");
+    assert!(req_ids(&state, f.clone(), Some(&stranger.pubkey)).await.is_empty(), "stranger");
+    assert!(req_ids(&state, f, None).await.is_empty(), "anonymous");
+}
+
+/// The author keeps reading their own h-tagged event after leaving the space;
+/// a removed member stops reading at once (stored REQ queries the DB).
+#[tokio::test]
+async fn author_reads_after_leaving_and_removed_member_loses_access() {
+    let pool = pool_or_skip!();
+    let artist = TestIdentity::from_seed(0x75);
+    let member = TestIdentity::from_seed(0x76);
+    insert_space(&pool, S1).await.unwrap();
+    add_member(&pool, S1, &artist.pubkey).await.unwrap();
+    add_member(&pool, S1, &member.pubkey).await.unwrap();
+
+    let (state, tx) = make_app_state(pool.clone());
+    let track = sign_music_track(&artist, &[S1], "stay");
+    assert!(parse_ok(&send_event(&state, &tx, &track).await).0);
+
+    let f = serde_json::json!({"kinds": [31683]});
+    assert_eq!(req_ids(&state, f.clone(), Some(&member.pubkey)).await, vec![track.id.clone()]);
+
+    remove_member(&pool, S1, &artist.pubkey).await.unwrap();
+    remove_member(&pool, S1, &member.pubkey).await.unwrap();
+    assert_eq!(req_ids(&state, f.clone(), Some(&artist.pubkey)).await, vec![track.id.clone()], "author always reads own");
+    assert!(req_ids(&state, f, Some(&member.pubkey)).await.is_empty(), "removed member is cut off");
+}
+
+/// Column invariant: a public event stores `h_tag IS NULL` and `h_tags = '{}'`;
+/// a value-less leading ["h"] does not mask the real one.
+#[tokio::test]
+async fn h_columns_mirror_valued_tags_only() {
+    let pool = pool_or_skip!();
+    let artist = TestIdentity::from_seed(0x77);
+    insert_space(&pool, S1).await.unwrap();
+    add_member(&pool, S1, &artist.pubkey).await.unwrap();
+    let (state, tx) = make_app_state(pool.clone());
+
+    let public = sign_track_with(&artist, "pub", vec![]);
+    assert!(parse_ok(&send_event(&state, &tx, &public).await).0);
+    let row: (Option<String>, Vec<String>, Option<String>) =
+        sqlx::query_as("SELECT h_tag, h_tags, visibility FROM relay.events WHERE id = $1")
+            .bind(&public.id).fetch_one(&pool).await.unwrap();
+    assert_eq!(row, (None, vec![], None));
+
+    let odd = sign_event(&artist, 9, vec![vec!["h".into()], vec!["h".into(), S1.into()]], "x", 1_700_000_001);
+    assert!(parse_ok(&send_event(&state, &tx, &odd).await).0);
+    let row: (Option<String>, Vec<String>) =
+        sqlx::query_as("SELECT h_tag, h_tags FROM relay.events WHERE id = $1")
+            .bind(&odd.id).fetch_one(&pool).await.unwrap();
+    assert_eq!(row, (Some(S1.to_string()), vec![S1.to_string()]));
+    assert!(req_ids(&state, serde_json::json!({"kinds": [9]}), None).await.is_empty(), "anon never sees it");
 }

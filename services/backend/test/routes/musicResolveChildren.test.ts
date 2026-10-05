@@ -183,6 +183,17 @@ describe("GET /music/insights — visibility gate", () => {
   });
 });
 
+describe("GET /music/insights — missing event", () => {
+  it("404s when no current event exists (fail closed), even for the would-be owner", async () => {
+    const res = await server.inject({
+      method: "GET",
+      url: `/music/insights/31683:${LUNA.pubkey}:never-published-insights`,
+      headers: { "x-auth-pubkey": LUNA.pubkey },
+    });
+    expect(res.statusCode).toBe(404);
+  });
+});
+
 describe("POST /music/rebuild-counts — admin gate", () => {
   it("403s a regular authenticated user", async () => {
     const res = await server.inject({

@@ -108,8 +108,10 @@ export const suspensionService = {
       content: string;
     }>;
 
+    const isPublic = (tags: string[][]) =>
+      !tags.some((t) => (t[0] === "h" || t[0] === "visibility") && !!t[1]);
     const events = rows
-      .filter((r) => SEARCHABLE_KINDS.includes(r.kind))
+      .filter((r) => SEARCHABLE_KINDS.includes(r.kind) && isPublic(r.tags))
       .map((r) => ({
         id: r.id,
         kind: r.kind,
@@ -118,8 +120,6 @@ export const suspensionService = {
         created_at: Number(r.created_at),
         tags: r.tags,
       }));
-    const isPublic = (tags: string[][]) =>
-      !tags.some((t) => t[0] === "h" || (t[0] === "visibility" && (t[1] === "private" || t[1] === "unlisted")));
     const asEvent = (r: (typeof rows)[number]) => ({ ...r, created_at: Number(r.created_at) });
     const tracks = rows
       .filter((r) => r.kind === 31683 && isPublic(r.tags))

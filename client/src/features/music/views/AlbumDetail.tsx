@@ -7,6 +7,7 @@ import { useAudioPlayer } from "../useAudioPlayer";
 import { useLibrary } from "../useLibrary";
 import { buildMusicLink } from "../musicLinks";
 import { buildAlbumEvent, buildPrivateAlbumEvent } from "../musicEventBuilder";
+import { spacePublishRelaysForAll } from "../spacePublish";
 import { copyToClipboard } from "@/lib/clipboard";
 import { signAndPublish } from "@/lib/nostr/publish";
 import { Avatar } from "@/components/ui/Avatar";
@@ -141,6 +142,12 @@ export function AlbumDetail() {
       hashtags: album.hashtags.length > 0 ? album.hashtags : undefined,
       projectType: album.projectType,
       visibility: album.visibility,
+      // Keep the space scope and export flag; rebuilding without them made a
+      // space project public and re-enabled export.
+      spaceId: album.visibility === "space" ? album.spaceId : undefined,
+      spaceIds: album.visibility === "space" ? album.spaceIds : undefined,
+      channelId: album.visibility === "space" ? album.channelId : undefined,
+      sharingDisabled: album.sharingDisabled,
     };
 
     // For private albums, re-encrypt with updated collaborator list
@@ -148,7 +155,9 @@ export function AlbumDetail() {
       ? await buildPrivateAlbumEvent(pubkey, { ...albumParams, collaborators: newCollaborators })
       : buildAlbumEvent(pubkey, albumParams);
 
-    await signAndPublish(unsigned);
+    const targetRelays =
+      album.visibility === "space" ? await spacePublishRelaysForAll(album.spaceIds) : undefined;
+    await signAndPublish(unsigned, targetRelays);
     // No manual dispatch needed — signAndPublish → processIncomingEvent handles it
   };
 

@@ -25,8 +25,7 @@
  */
 import { sql } from "drizzle-orm";
 import { db } from "../db/connection.js";
-import { spaceMembers } from "../db/schema/members.js";
-import { and, eq, inArray } from "drizzle-orm";
+import { spacesMemberOf } from "./musicVisibility.js";
 
 export interface ProtectedEventRef {
   pubkey: string;
@@ -103,7 +102,7 @@ export async function getProtectedRefsForBlob(sha256: string): Promise<Protected
           UNION
           SELECT pubkey FROM app.music_uploads WHERE sha256 = ${sha256}
         ) owners ON owners.pubkey = e.pubkey
-        WHERE e.kind IN (31683, 33123)
+        WHERE e.kind IN (31683, 33123, 30119)
         AND e.tags::text LIKE ${"%" + sha256 + "%"}`,
   )) as unknown as Array<{ pubkey: string; tags: unknown; is_protected: boolean }>;
 
@@ -128,9 +127,11 @@ export async function getProtectedRefsForBlob(sha256: string): Promise<Protected
 }
 
 /**
- * Authorize a viewer against ONE protected event: the author, an access-granting
- * `p`-tag (see {@link pTagGrantsAccess}), or (for `h`-tagged space content) a
- * member of ANY of its listed spaces. Returns false if unauthenticated.
+ * Authorize a viewer against ONE protected event — the same policy and order as
+ * musicVisibility.isEventVisibleTo: the author, an access-granting `p`-tag (see
+ * {@link pTagGrantsAccess}), or — only when the event carries NO `visibility`
+ * tag — a member of ANY of its listed `h` spaces (a private event shared into a
+ * space is not widened to the space's members). Returns false if unauthenticated.
  */
 export async function authorizeProtectedRef(
   ref: ProtectedEventRef,
@@ -139,15 +140,11 @@ export async function authorizeProtectedRef(
   if (!authPubkey) return false;
   if (authPubkey === ref.pubkey) return true;
   if (ref.tags.some((t) => pTagGrantsAccess(t, authPubkey))) return true;
+  if (ref.tags.some((t) => t[0] === "visibility" && !!t[1])) return false;
 
   const hTags = ref.tags.filter((t) => t[0] === "h" && t[1]).map((t) => t[1]);
   if (hTags.length > 0) {
-    const membership = await db
-      .select({ spaceId: spaceMembers.spaceId })
-      .from(spaceMembers)
-      .where(and(inArray(spaceMembers.spaceId, hTags), eq(spaceMembers.pubkey, authPubkey)))
-      .limit(1);
-    return membership.length > 0;
+    return (await spacesMemberOf(hTags, authPubkey)).size > 0;
   }
   return false;
 }

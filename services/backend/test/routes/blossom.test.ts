@@ -419,6 +419,7 @@ describe("blossom routes", () => {
       const response = await server.inject({
         method: "GET",
         url: `/list/${LUNA.pubkey}`,
+        headers: { "x-auth-pubkey": LUNA.pubkey },
       });
 
       expect(response.statusCode).toBe(200);
@@ -444,10 +445,26 @@ describe("blossom routes", () => {
       const response = await server.inject({
         method: "GET",
         url: `/list/${MARCUS.pubkey}`,
+        headers: { "x-auth-pubkey": MARCUS.pubkey },
       });
 
       expect(response.statusCode).toBe(200);
       expect(response.json()).toEqual([]);
+    });
+
+    it("is owner-only: 401 without auth, 403 for another pubkey (no sha oracle)", async () => {
+      const blob = makeTestBlob("list-private-oracle");
+      await uploadBlob(LUNA, blob);
+      const anon = await server.inject({ method: "GET", url: `/list/${LUNA.pubkey}` });
+      expect(anon.statusCode).toBe(401);
+      expect(anon.body).not.toContain(blob.sha256);
+      const other = await server.inject({
+        method: "GET",
+        url: `/list/${LUNA.pubkey}`,
+        headers: { "x-auth-pubkey": MARCUS.pubkey },
+      });
+      expect(other.statusCode).toBe(403);
+      expect(other.body).not.toContain(blob.sha256);
     });
 
     it("respects limit parameter", async () => {
@@ -461,6 +478,7 @@ describe("blossom routes", () => {
       const response = await server.inject({
         method: "GET",
         url: `/list/${LUNA.pubkey}?limit=2`,
+        headers: { "x-auth-pubkey": LUNA.pubkey },
       });
 
       expect(response.statusCode).toBe(200);
@@ -476,6 +494,7 @@ describe("blossom routes", () => {
       const response = await server.inject({
         method: "GET",
         url: `/list/${LUNA.pubkey}`,
+        headers: { "x-auth-pubkey": LUNA.pubkey },
       });
 
       const body = response.json();

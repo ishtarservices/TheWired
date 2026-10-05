@@ -1,3 +1,4 @@
+pub mod access;
 pub mod event;
 pub mod filter;
 pub mod membership_gate;
