@@ -1,4 +1,4 @@
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, vi } from "vitest";
 import { generateSecretKey, getPublicKey, nip44 } from "nostr-tools";
 import type { NostrEvent } from "@/types/nostr";
 import type { MusicProposal } from "@/types/music";
@@ -62,9 +62,11 @@ describe("grantViewerOnEvent", () => {
     ]);
   });
 
-  it("treats undecryptable cleartext content (soot description) as p-tag only", async () => {
+  it("treats cleartext content (soot description) as p-tag only, without asking the signer", async () => {
     const prev = ev({ content: "a demo from the basement" });
-    const out = await grantViewerOnEvent(prev, REQ, fakeCrypto, NOW);
+    const decryptSelf = vi.fn(fakeCrypto.decryptSelf);
+    const out = await grantViewerOnEvent(prev, REQ, { ...fakeCrypto, decryptSelf }, NOW);
+    expect(decryptSelf).not.toHaveBeenCalled();
     expect(out!.tags[out!.tags.length - 1]).toEqual(["p", REQ, "", "collaborator"]);
     expect(out!.tags.some((t) => t[0] === "encrypted_content")).toBe(false);
   });

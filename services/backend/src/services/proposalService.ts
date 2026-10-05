@@ -102,6 +102,17 @@ export const proposalService = {
     if (!Array.isArray(parsed?.changes) || parsed.changes.length === 0) return;
     const access = isAccessRequestChanges(parsed.changes);
 
+    // Replays are the common case (every reconnect re-delivers), so settle
+    // them on one indexed read before any admission query runs.
+    const addressableId = `31685:${event.pubkey}:${dTag}`;
+    const [existing] = await db
+      .select()
+      .from(musicProposals)
+      .where(eq(musicProposals.addressableId, addressableId))
+      .limit(1);
+    // The same event again (relay replay), or an older version: nothing to do.
+    if (existing && event.created_at <= existing.createdAt) return;
+
     if (access) {
       if (!(await admitAccessTarget(targetAlbum, ownerPubkey, event.pubkey))) return;
     } else {
@@ -109,7 +120,6 @@ export const proposalService = {
       if (project && project.pubkey !== ownerPubkey) return;
     }
 
-    const addressableId = `31685:${event.pubkey}:${dTag}`;
     const now = Math.floor(Date.now() / 1000);
     const fields = {
       title: typeof parsed.title === "string" ? parsed.title : "",
@@ -123,15 +133,7 @@ export const proposalService = {
       createdAt: event.created_at,
     };
 
-    const [existing] = await db
-      .select()
-      .from(musicProposals)
-      .where(eq(musicProposals.addressableId, addressableId))
-      .limit(1);
-
     if (existing) {
-      // The same event again (relay replay), or an older version: nothing to do.
-      if (event.created_at <= existing.createdAt) return;
       if (access && existing.status !== "open") {
         // Asking again after a decline waits out the cooldown, and a reopen
         // counts against the requester's open cap like a new request.

@@ -111,23 +111,21 @@ export async function grantViewerOnEvent(
     appended.push(["p", requester, "", "collaborator"]);
   }
 
-  if (isPrivateTags(prev.tags) && prev.content) {
+  // Only the NIP-44 form needs a per-viewer copy. Cleartext content (a soot
+  // description) is skipped by shape, so the signer is never asked to decrypt
+  // something that isn't a ciphertext (a NIP-07 extension would prompt for it).
+  if (isPrivateTags(prev.tags) && prev.content && looksLikeNip44(prev.content)) {
     const hasCopy = prev.tags.some((t) => t[0] === "encrypted_content" && t[2] === requester);
     if (!hasCopy) {
-      let plaintext: string | null = null;
+      let plaintext: string;
       try {
         plaintext = await crypto.decryptSelf(prev.content);
       } catch (err) {
-        if (looksLikeNip44(prev.content)) {
-          throw new Error(
-            `Couldn't decrypt this private release to share it${err instanceof Error ? ` (${err.message})` : ""}.`,
-          );
-        }
-        // Cleartext content (e.g. a soot description) — the p-tag is enough.
+        throw new Error(
+          `Couldn't decrypt this private release to share it${err instanceof Error ? ` (${err.message})` : ""}.`,
+        );
       }
-      if (plaintext !== null) {
-        appended.push(["encrypted_content", await crypto.encryptFor(requester, plaintext), requester]);
-      }
+      appended.push(["encrypted_content", await crypto.encryptFor(requester, plaintext), requester]);
     }
   }
 
