@@ -26,3 +26,18 @@ export async function spacePublishRelays(
   }
   return [hostRelay];
 }
+
+/**
+ * Host relays for an event shared into several spaces (one `h` tag each),
+ * deduped. Undefined when none is known, so the publish falls back to the
+ * default write relays instead of going nowhere.
+ */
+export async function spacePublishRelaysForAll(
+  spaceIds: readonly string[],
+): Promise<string[] | undefined> {
+  const out = new Set<string>();
+  for (const id of new Set(spaceIds)) {
+    for (const url of (await spacePublishRelays(id)) ?? []) out.add(url);
+  }
+  return out.size > 0 ? [...out] : undefined;
+}

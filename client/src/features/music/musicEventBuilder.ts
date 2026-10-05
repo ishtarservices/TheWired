@@ -3,6 +3,11 @@ import { EVENT_KINDS } from "@/types/nostr";
 import type { MusicVisibility, ProjectType, ProposalChange } from "@/types/music";
 import { nip44Encrypt } from "@/lib/nostr/nip44";
 
+/** Cleartext placeholder titles on NIP-44 private events. The relay refuses a
+ *  music event without a `title` tag, and the real title is encrypted. */
+export const PRIVATE_TRACK_TITLE = "Private Track";
+export const PRIVATE_ALBUM_TITLE = "Private Project";
+
 interface TrackEventParams {
   title: string;
   artist: string;
@@ -244,6 +249,10 @@ export async function buildPrivateTrackEvent(
 
   const tags: string[][] = [
     ["d", params.slug],
+    // The relay requires a cleartext title on every music event (audit #115);
+    // the real title lives in the encrypted metadata, so this is a placeholder
+    // that parsers never surface for anyone who can decrypt (WIR-158).
+    ["title", PRIVATE_TRACK_TITLE],
     ["visibility", "private"],
   ];
 
@@ -310,6 +319,8 @@ export async function buildPrivateAlbumEvent(
 
   const tags: string[][] = [
     ["d", params.slug],
+    // Cleartext placeholder for the relay's title rule; see buildPrivateTrackEvent.
+    ["title", PRIVATE_ALBUM_TITLE],
     ["visibility", "private"],
   ];
 

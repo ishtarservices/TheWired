@@ -1,6 +1,13 @@
 import { createSlice, type PayloadAction } from "@reduxjs/toolkit";
 import type { MusicTrack, MusicAlbum, MusicPlaylist, MusicView, RepeatMode, MusicAnnotation, MusicRevision, TrackInsights, MusicProposal, SavedAlbumVersion, TrackSortKey, AlbumSortKey, SortDir, PlaybackError } from "../../types/music";
 
+/** The requester's record of one listen request they sent. */
+export interface ListenRequestRecord {
+  /** Unix seconds. */
+  requestedAt: number;
+  eventId: string;
+}
+
 interface MusicState {
   tracks: Record<string, MusicTrack>;
   albums: Record<string, MusicAlbum>;
@@ -79,6 +86,21 @@ interface MusicState {
   activeView: MusicView;
   activeDetailId: string | null;
   viewMode: "grid" | "list";
+
+  /** Listen requests (kind-31685 grant_access). `incoming` is the owner's
+   *  inbox as the backend serves it (open rows); `requested` is the
+   *  requester's own memory of what they asked for (localStorage, per account
+   *  — there is no route to read it back). */
+  listenRequests: {
+    incoming: MusicProposal[];
+    /** Unix seconds of the last successful inbox fetch (0 = never). */
+    fetchedAt: number;
+    loading: boolean;
+    error: string | null;
+    requested: Record<string, ListenRequestRecord>;
+    /** Pubkey `requested` was hydrated for (null = not yet). */
+    requestedFor: string | null;
+  };
 
   /** Persisted sort preferences for the library list views (track + album). */
   librarySort: {
@@ -167,6 +189,15 @@ const initialState: MusicState = {
   activeView: "home",
   activeDetailId: null,
   viewMode: "grid",
+
+  listenRequests: {
+    incoming: [],
+    fetchedAt: 0,
+    loading: false,
+    error: null,
+    requested: {},
+    requestedFor: null,
+  },
 
   librarySort: {
     trackKey: "added",
@@ -262,6 +293,37 @@ export const musicSlice = createSlice({
     },
     setProposals(state, action: PayloadAction<{ albumId: string; proposals: MusicProposal[] }>) {
       state.proposals[action.payload.albumId] = action.payload.proposals;
+    },
+    listenRequestsLoading(state) {
+      state.listenRequests.loading = true;
+    },
+    listenRequestsLoaded(state, action: PayloadAction<{ rows: MusicProposal[]; fetchedAt: number }>) {
+      state.listenRequests.incoming = action.payload.rows;
+      state.listenRequests.fetchedAt = action.payload.fetchedAt;
+      state.listenRequests.loading = false;
+      state.listenRequests.error = null;
+    },
+    listenRequestsFailed(state, action: PayloadAction<string>) {
+      state.listenRequests.loading = false;
+      state.listenRequests.error = action.payload;
+    },
+    /** Backend rows resolved (granted/declined/settled) — drop them now. */
+    listenRequestRowsResolved(state, action: PayloadAction<string[]>) {
+      const ids = new Set(action.payload);
+      state.listenRequests.incoming = state.listenRequests.incoming.filter((r) => !ids.has(r.id));
+    },
+    listenRequestsHydrated(
+      state,
+      action: PayloadAction<{ pubkey: string; records: Record<string, ListenRequestRecord> }>,
+    ) {
+      state.listenRequests.requested = action.payload.records;
+      state.listenRequests.requestedFor = action.payload.pubkey;
+    },
+    listenAccessRequested(state, action: PayloadAction<{ targetRef: string; record: ListenRequestRecord }>) {
+      state.listenRequests.requested[action.payload.targetRef] = action.payload.record;
+    },
+    listenAccessRequestForgotten(state, action: PayloadAction<string>) {
+      delete state.listenRequests.requested[action.payload];
     },
     setSavedVersions(state, action: PayloadAction<Record<string, SavedAlbumVersion>>) {
       state.savedVersions = action.payload;
@@ -890,4 +952,11 @@ export const {
   setViewMode,
   setLibraryTrackSort,
   setLibraryAlbumSort,
+  listenRequestsLoading,
+  listenRequestsLoaded,
+  listenRequestsFailed,
+  listenRequestRowsResolved,
+  listenRequestsHydrated,
+  listenAccessRequested,
+  listenAccessRequestForgotten,
 } = musicSlice.actions;

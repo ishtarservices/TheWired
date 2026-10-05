@@ -1,9 +1,10 @@
 import { useNavigate, useLocation } from "react-router-dom";
 import { cn } from "@/lib/utils";
-import { Home, Clock, Heart, Users, Disc3, Music, ListMusic, FolderUp, Compass, BarChart3 } from "lucide-react";
+import { Home, Clock, Heart, Users, Disc3, Music, ListMusic, FolderUp, Compass, BarChart3, Inbox } from "lucide-react";
 import { useAppDispatch, useAppSelector } from "@/store/hooks";
 import { setMusicView } from "@/store/slices/musicSlice";
 import type { MusicView } from "@/types/music";
+import { useIncomingListenRequests } from "./useListenRequests";
 
 interface NavItem {
   view: MusicView;
@@ -22,6 +23,7 @@ const navItems: NavItem[] = [
   { view: "songs", label: "Songs", icon: Music },
   { view: "playlists", label: "Playlists", icon: ListMusic },
   { view: "insights" as MusicView, label: "Insights", icon: BarChart3, requiresAuth: true },
+  { view: "listen-requests", label: "Listen Requests", icon: Inbox, requiresAuth: true },
 ];
 
 export function MusicSidebar() {
@@ -30,6 +32,7 @@ export function MusicSidebar() {
   const location = useLocation();
   const activeView = useAppSelector((s) => s.music.activeView);
   const pubkey = useAppSelector((s) => s.identity.pubkey);
+  const { groups: listenRequests } = useIncomingListenRequests();
 
   const handleNav = (view: MusicView) => {
     dispatch(setMusicView(view));
@@ -65,6 +68,14 @@ export function MusicSidebar() {
             >
               <item.icon size={16} />
               <span>{item.label}</span>
+              {item.view === "listen-requests" && listenRequests.length > 0 && (
+                <span
+                  className="ml-auto rounded-full bg-primary/15 px-1.5 py-0.5 text-[10px] font-semibold leading-none text-primary"
+                  aria-label={`${listenRequests.length} open listen requests`}
+                >
+                  {listenRequests.length > 99 ? "99+" : listenRequests.length}
+                </span>
+              )}
             </button>
           );
         })}
