@@ -62,6 +62,7 @@ describe("NotificationToastStack", () => {
             dms: true,
             newFollowers: true,
             chatMessages: true,
+            musicUpdates: true,
             browserNotifications: false,
             sound: false,
             dnd: false,

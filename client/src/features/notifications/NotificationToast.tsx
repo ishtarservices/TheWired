@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, useCallback } from "react";
 import { useNavigate } from "react-router-dom";
-import { X, AtSign, MessageCircle, UserPlus, Link2, HeartHandshake, Zap } from "lucide-react";
+import { X, AtSign, MessageCircle, UserPlus, Link2, HeartHandshake, Zap, RefreshCw } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useAppDispatch, useAppSelector } from "@/store/hooks";
 import { removeNotification, markNotificationRead, markNotificationToastShown, type InAppNotification, type NotificationType } from "@/store/slices/notificationSlice";
@@ -21,6 +21,7 @@ const TYPE_ICONS: Record<NotificationType, typeof AtSign> = {
   invite: Link2,
   friend_request: HeartHandshake,
   zap: Zap,
+  music_update: RefreshCw,
 };
 
 const TYPE_COLORS: Record<NotificationType, string> = {
@@ -31,6 +32,7 @@ const TYPE_COLORS: Record<NotificationType, string> = {
   invite: "text-primary",
   friend_request: "text-primary",
   zap: "text-yellow-400",
+  music_update: "text-primary",
 };
 
 export function NotificationToastStack() {
@@ -114,7 +116,8 @@ function Toast({
     notification.type === "mention" ||
     notification.type === "chat" ||
     notification.type === "invite" ||
-    notification.type === "follow";
+    notification.type === "follow" ||
+    notification.type === "music_update";
 
   // Actionable notifications (friend req, follow back) get an extended toast
   // so the user has time to act. DMs and others use the short timer.

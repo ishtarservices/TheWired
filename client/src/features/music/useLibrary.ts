@@ -21,8 +21,7 @@ import {
 import { removeCachedAudio } from "@/lib/db/audioCache";
 import { store } from "@/store";
 import { saveMusicLibrary } from "@/lib/db/musicStore";
-import { getApiBaseUrl } from "@/lib/api/client";
-import { buildNip98Header } from "@/lib/api/nip98";
+import { saveVersion, saveVersions, forgetVersion, forgetVersions, type VersionItem } from "./savedVersionSync";
 
 /** Persist current library state to IndexedDB */
 function persistLibrary() {
@@ -119,9 +118,18 @@ export function useLibrary() {
       if (track?.albumRef && !state.library.savedAlbumIds.includes(track.albumRef)) {
         dispatch(addSavedAlbum(track.albumRef));
         ensureAlbumIndexed(dispatch, track.albumRef);
+        const album = state.albums[track.albumRef];
+        if (album && album.pubkey !== store.getState().identity.pubkey) {
+          void saveVersion(album.addressableId, album.eventId, album.createdAt);
+        }
       }
 
       persistLibrary();
+
+      // Record the version we have so the backend can flag a newer release
+      if (track && track.pubkey !== store.getState().identity.pubkey) {
+        void saveVersion(addrId, track.eventId, track.createdAt);
+      }
     },
     [dispatch],
   );
@@ -129,6 +137,7 @@ export function useLibrary() {
   const unsaveTrack = useCallback(
     (addrId: string) => {
       dispatch(removeSavedTrack(addrId));
+      forgetVersion(addrId);
 
       // State after the track was removed from savedTrackIds
       const state = store.getState().music;
@@ -151,6 +160,7 @@ export function useLibrary() {
           );
           if (!hasAnySavedTracks) {
             dispatch(removeSavedAlbum(track.albumRef));
+            forgetVersion(track.albumRef);
             if (state.library.favoritedAlbumIds.includes(track.albumRef)) {
               dispatch(removeFavoritedAlbum(track.albumRef));
             }
@@ -205,22 +215,18 @@ export function useLibrary() {
 
       persistLibrary();
 
-      // Save version to backend for update notifications
+      // Record the versions we have so the backend can flag a newer release
+      // (the album and each cascaded track; never our own releases)
       if (album) {
-        const url = `${getApiBaseUrl()}/music/save-version`;
-        buildNip98Header(url, "POST")
-          .then((auth) =>
-            fetch(url, {
-              method: "POST",
-              headers: { "Content-Type": "application/json", Authorization: auth },
-              body: JSON.stringify({
-                addressableId: addrId,
-                eventId: album.eventId,
-                createdAt: album.createdAt,
-              }),
-            }),
-          )
-          .catch((err) => console.debug("[music] Failed to save version:", err));
+        const me = store.getState().identity.pubkey;
+        const items: VersionItem[] = [];
+        if (album.pubkey !== me) items.push({ addressableId: addrId, eventId: album.eventId, createdAt: album.createdAt });
+        const trackRefs = album.trackRefs.length > 0 ? album.trackRefs : state.tracksByAlbum[addrId] ?? [];
+        for (const trackId of trackRefs) {
+          const t = state.tracks[trackId];
+          if (t && t.pubkey !== me) items.push({ addressableId: trackId, eventId: t.eventId, createdAt: t.createdAt });
+        }
+        void saveVersions(items);
       }
     },
     [dispatch],
@@ -238,11 +244,15 @@ export function useLibrary() {
         dispatch(removeFavoritedAlbum(addrId));
       }
 
+      // Stop update tracking for the album and its tracks (one request)
+      const cascadeRefs = album
+        ? (album.trackRefs.length > 0 ? album.trackRefs : state.tracksByAlbum[addrId] ?? [])
+        : [];
+      forgetVersions([addrId, ...cascadeRefs]);
+
       // Cascade: remove the album's tracks from library + clear cached audio
       if (album) {
-        const trackRefs = album.trackRefs.length > 0
-          ? album.trackRefs
-          : state.tracksByAlbum[addrId] ?? [];
+        const trackRefs = cascadeRefs;
         for (const trackId of trackRefs) {
           dispatch(removeSavedTrack(trackId));
           dispatch(removeFavoritedTrack(trackId));

@@ -337,6 +337,9 @@ export const musicSlice = createSlice({
     setSavedVersion(state, action: PayloadAction<SavedAlbumVersion>) {
       state.savedVersions[action.payload.addressableId] = action.payload;
     },
+    clearSavedVersion(state, action: PayloadAction<string>) {
+      delete state.savedVersions[action.payload];
+    },
 
     removeTrack(state, action: PayloadAction<string>) {
       const id = action.payload;
@@ -878,6 +881,7 @@ export const {
   setSavedVersions,
   markVersionUpdate,
   setSavedVersion,
+  clearSavedVersion,
   removeTrack,
   removeAlbum,
   removePlaylist,

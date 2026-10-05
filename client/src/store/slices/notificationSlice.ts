@@ -2,7 +2,7 @@ import { createSlice, type PayloadAction } from "@reduxjs/toolkit";
 
 // ── Types ───────────────────────────────────────────────────────
 
-export type NotificationType = "mention" | "dm" | "follow" | "chat" | "invite" | "friend_request" | "zap";
+export type NotificationType = "mention" | "dm" | "follow" | "chat" | "invite" | "friend_request" | "zap" | "music_update";
 
 export interface InAppNotification {
   id: string;
@@ -49,6 +49,8 @@ export interface NotificationPreferences {
   dms: boolean;
   newFollowers: boolean;
   chatMessages: boolean;
+  /** A saved track / project got a new version (WIR-165). */
+  musicUpdates: boolean;
   browserNotifications: boolean;
   sound: boolean;
   /** Do Not Disturb mode */
@@ -63,6 +65,7 @@ const defaultPreferences: NotificationPreferences = {
   dms: true,
   newFollowers: true,
   chatMessages: true,
+  musicUpdates: true,
   browserNotifications: false,
   sound: false,
   dnd: false,
@@ -335,7 +338,9 @@ export const notificationSlice = createSlice({
       if (p.lastReadTimestamps)
         state.lastReadTimestamps = p.lastReadTimestamps;
       if (p.spaceMutes) state.spaceMutes = p.spaceMutes;
-      if (p.preferences) state.preferences = p.preferences;
+      // Merge over defaults so a preference added after the user's prefs were
+      // persisted (e.g. musicUpdates) gets its default instead of `undefined`.
+      if (p.preferences) state.preferences = { ...defaultPreferences, ...p.preferences };
       if (p.channelNotifSettings)
         state.channelNotifSettings = p.channelNotifSettings;
       if (p.spaceNotifSettings)

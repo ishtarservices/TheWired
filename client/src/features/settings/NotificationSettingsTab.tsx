@@ -127,6 +127,12 @@ export function NotificationSettingsTab() {
             onChange={(v) => update("chatMessages", v)}
           />
           <Toggle
+            label="Music updates"
+            description="When an artist releases a new version of a saved track or project"
+            checked={prefs.musicUpdates}
+            onChange={(v) => update("musicUpdates", v)}
+          />
+          <Toggle
             label="Browser notifications"
             description="Show OS notifications when the app is in the background"
             checked={prefs.browserNotifications}

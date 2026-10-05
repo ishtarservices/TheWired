@@ -3,7 +3,7 @@ import { z } from "zod";
 import { musicService } from "../services/musicService.js";
 import { db } from "../db/connection.js";
 import { eq, and, sql } from "drizzle-orm";
-import { savedAlbumVersions } from "../db/schema/savedVersions.js";
+import { savedVersionService } from "../services/savedVersionService.js";
 import { musicUploads } from "../db/schema/music.js";
 import { config } from "../config.js";
 import { getTranscodeQueue } from "../lib/queue.js";
@@ -57,11 +57,18 @@ const saveVersionBody = z.object({
   createdAt: z.number().int().min(1),
 });
 
-const acknowledgeUpdateBody = z.object({
-  addressableId: nonEmptyString,
-  eventId: hexId,
-  createdAt: z.number().int().min(1),
+const acknowledgeUpdateBody = saveVersionBody;
+
+/** Either one item or a batch (an album + its cascaded tracks is one request,
+ *  one NIP-98 signature). */
+const saveVersionsBody = z.object({
+  items: z.array(saveVersionBody).min(1).max(200),
 });
+
+const forgetVersionBody = z.union([
+  z.object({ addressableId: nonEmptyString }),
+  z.object({ addressableIds: z.array(nonEmptyString).min(1).max(200) }),
+]);
 
 /** Extract the primary audio blob sha256 from an event's imeta tags. Prefers an
  *  explicit `x <sha>` sub-tag; falls back to a 64-hex match in the `url`. Returns
@@ -373,6 +380,10 @@ export const musicRoutes: FastifyPluginAsync = async (server) => {
     },
   );
 
+  // ── Saved versions (WIR-165) ─────────────────────────────────────────────
+  // A fan records the version of a track/project they have; the ingester flags
+  // the row when a strictly newer event arrives. See savedVersionService.
+
   // POST /music/save-version -- fan saves their current version
   server.post("/save-version", async (request, reply) => {
     const pubkey = (request.headers["x-auth-pubkey"] as string) ?? null;
@@ -382,48 +393,52 @@ export const musicRoutes: FastifyPluginAsync = async (server) => {
     const body = validate(saveVersionBody, request.body, reply);
     if (!body) return;
 
-    const { addressableId, eventId, createdAt } = body;
-
-    await db
-      .insert(savedAlbumVersions)
-      .values({
-        pubkey,
-        addressableId,
-        savedEventId: eventId,
-        savedCreatedAt: createdAt,
-        hasUpdate: false,
-      })
-      .onConflictDoUpdate({
-        target: [savedAlbumVersions.pubkey, savedAlbumVersions.addressableId],
-        set: {
-          savedEventId: eventId,
-          savedCreatedAt: createdAt,
-          hasUpdate: false,
-        },
-      });
-
-    return { data: { saved: true } };
+    const row = await savedVersionService.save(pubkey, body.addressableId, body.eventId, body.createdAt);
+    return { data: row };
   });
 
-  // GET /music/saved-updates -- albums with updates available
+  // POST /music/save-versions -- batch form of the above
+  server.post("/save-versions", async (request, reply) => {
+    const pubkey = (request.headers["x-auth-pubkey"] as string) ?? null;
+    if (!pubkey) {
+      return reply.status(401).send({ error: "Authentication required", code: "UNAUTHORIZED" });
+    }
+    const body = validate(saveVersionsBody, request.body, reply);
+    if (!body) return;
+
+    return { data: await savedVersionService.saveMany(pubkey, body.items) };
+  });
+
+  // DELETE /music/save-version -- fan removed the item from their library
+  server.delete("/save-version", async (request, reply) => {
+    const pubkey = (request.headers["x-auth-pubkey"] as string) ?? null;
+    if (!pubkey) {
+      return reply.status(401).send({ error: "Authentication required", code: "UNAUTHORIZED" });
+    }
+    const body = validate(forgetVersionBody, request.body, reply);
+    if (!body) return;
+
+    const ids = "addressableIds" in body ? body.addressableIds : [body.addressableId];
+    await savedVersionService.forget(pubkey, ids);
+    return { data: { forgotten: ids.length } };
+  });
+
+  // GET /music/saved-updates -- every saved version, with the newest event the
+  // ingester has seen for it. The client derives "update available" from this
+  // AND from newer events it already holds, so all rows are returned (not only
+  // flagged ones) — otherwise a locally-known newer version has nothing to
+  // compare against.
   server.get("/saved-updates", async (request, reply) => {
     const pubkey = (request.headers["x-auth-pubkey"] as string) ?? null;
     if (!pubkey) {
       return reply.status(401).send({ error: "Authentication required", code: "UNAUTHORIZED" });
     }
-
-    const rows = await db
-      .select()
-      .from(savedAlbumVersions)
-      .where(and(
-        eq(savedAlbumVersions.pubkey, pubkey),
-        eq(savedAlbumVersions.hasUpdate, true),
-      ));
-
-    return { data: rows };
+    return { data: await savedVersionService.list(pubkey) };
   });
 
-  // POST /music/acknowledge-update -- mark update as seen
+  // POST /music/acknowledge-update -- the fan has seen the update. Resolves to
+  // the newest known version (client's or ingester's), so a client that hasn't
+  // received the new event yet can't acknowledge a stale one.
   server.post("/acknowledge-update", async (request, reply) => {
     const pubkey = (request.headers["x-auth-pubkey"] as string) ?? null;
     if (!pubkey) {
@@ -432,21 +447,11 @@ export const musicRoutes: FastifyPluginAsync = async (server) => {
     const body = validate(acknowledgeUpdateBody, request.body, reply);
     if (!body) return;
 
-    const { addressableId, eventId, createdAt } = body;
-
-    await db
-      .update(savedAlbumVersions)
-      .set({
-        hasUpdate: false,
-        savedEventId: eventId,
-        savedCreatedAt: createdAt,
-      })
-      .where(and(
-        eq(savedAlbumVersions.pubkey, pubkey),
-        eq(savedAlbumVersions.addressableId, addressableId),
-      ));
-
-    return { data: { acknowledged: true } };
+    const row = await savedVersionService.acknowledge(pubkey, body.addressableId, body.eventId, body.createdAt);
+    if (!row) {
+      return reply.status(404).send({ error: "No saved version for this item", code: "NOT_FOUND" });
+    }
+    return { data: row };
   });
 
   // POST /music/upload/cover -- Upload cover art

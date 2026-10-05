@@ -12,7 +12,7 @@ import { signAndPublish } from "@/lib/nostr/publish";
 import { Avatar } from "@/components/ui/Avatar";
 import { useProfile } from "@/features/profile/useProfile";
 import { useUserSearch } from "@/features/search/useUserSearch";
-import { useSavedVersions } from "../useSavedVersions";
+import { useSavedVersions, useHasPendingUpdate } from "../useSavedVersions";
 import { ReleaseNotesModal } from "../ReleaseNotesModal";
 import { CreateAlbumModal } from "../CreateAlbumModal";
 import { AnnotationsPanel } from "../AnnotationsPanel";
@@ -70,8 +70,8 @@ export function AlbumDetail() {
   const pubkey = useAppSelector((s) => s.identity.pubkey);
   const { playQueue } = useAudioPlayer();
   const { saveTrack, saveAlbum, unsaveAlbum, isAlbumSaved, favoriteAlbum, unfavoriteAlbum, isAlbumFavorited } = useLibrary();
-  const { savedVersions, acknowledgeUpdate } = useSavedVersions();
-  const hasUpdate = albumId ? savedVersions[albumId]?.hasUpdate ?? false : false;
+  const { acknowledgeUpdate } = useSavedVersions();
+  const hasUpdate = useHasPendingUpdate(albumId);
   const [copied, setCopied] = useState(false);
   const [showReleaseNotes, setShowReleaseNotes] = useState(false);
   const [confirmRemove, setConfirmRemove] = useState(false);
@@ -353,14 +353,19 @@ export function AlbumDetail() {
           </div>
         </div>
 
-        {/* Update Available banner */}
+        {/* Update Available banner — derived from saved vs newest known version */}
         {hasUpdate && !isOwner && (
-          <div className="mx-6 mt-2 flex items-center gap-3 rounded-xl border border-primary/30 bg-primary/5 px-4 py-3">
+          <div
+            role="status"
+            className="mx-6 mt-2 flex items-center gap-3 rounded-xl border border-primary/30 bg-primary/5 px-4 py-3"
+          >
             <RefreshCw size={16} className="shrink-0 text-primary" />
-            <div className="flex-1">
+            <div className="min-w-0 flex-1">
               <p className="text-sm font-medium text-heading">Update Available</p>
-              <p className="text-xs text-soft">
-                The artist has released a new version of this project.
+              <p className="truncate text-xs text-soft">
+                {album.revisionSummary?.trim()
+                  ? album.revisionSummary
+                  : "The artist has released a new version of this project."}
               </p>
             </div>
             <button
@@ -368,6 +373,14 @@ export function AlbumDetail() {
               className="shrink-0 rounded-lg bg-primary/20 px-3 py-1.5 text-xs font-medium text-primary hover:bg-primary/30 transition-colors"
             >
               View Details
+            </button>
+            <button
+              onClick={() => acknowledgeUpdate(album.addressableId)}
+              aria-label="Dismiss update"
+              title="Dismiss — mark this version as seen"
+              className="shrink-0 rounded-lg p-1.5 text-muted hover:bg-surface hover:text-heading transition-colors"
+            >
+              <X size={14} />
             </button>
           </div>
         )}
@@ -429,9 +442,7 @@ export function AlbumDetail() {
           albumId={albumId}
           onClose={() => setShowReleaseNotes(false)}
           onUpdate={() => {
-            if (album) {
-              acknowledgeUpdate(album.addressableId, album.eventId, album.createdAt);
-            }
+            if (album) acknowledgeUpdate(album.addressableId);
             setShowReleaseNotes(false);
           }}
         />

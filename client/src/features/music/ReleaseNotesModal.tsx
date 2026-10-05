@@ -1,6 +1,7 @@
 import { X, RefreshCw } from "lucide-react";
 import { useAppSelector } from "@/store/hooks";
 import { useResolvedArtist } from "./useResolvedArtist";
+import { newestKnownVersion } from "./savedVersions";
 
 interface ReleaseNotesModalProps {
   albumId: string;
@@ -19,7 +20,10 @@ export function ReleaseNotesModal({ albumId, onClose, onUpdate }: ReleaseNotesMo
   const savedDate = savedVersion
     ? new Date(savedVersion.savedCreatedAt * 1000).toLocaleDateString()
     : "Unknown";
-  const currentDate = new Date(album.createdAt * 1000).toLocaleDateString();
+  // The ingester may know a newer version than the client has received yet.
+  const newest = savedVersion ? newestKnownVersion(savedVersion, album) : { eventId: album.eventId, createdAt: album.createdAt };
+  const currentDate = new Date(newest.createdAt * 1000).toLocaleDateString();
+  const notYetReceived = newest.eventId !== album.eventId;
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-background/60">
@@ -51,7 +55,13 @@ export function ReleaseNotesModal({ albumId, onClose, onUpdate }: ReleaseNotesMo
             </div>
           </div>
 
-          {album.revisionSummary && (
+          {notYetReceived && (
+            <p className="mt-3 text-[11px] text-muted">
+              Fetching the latest version from relays — details will fill in when it arrives.
+            </p>
+          )}
+
+          {album.revisionSummary && !notYetReceived && (
             <div className="mt-3 border-t border-border pt-3">
               <p className="text-[10px] font-semibold uppercase tracking-wider text-muted">
                 What changed
