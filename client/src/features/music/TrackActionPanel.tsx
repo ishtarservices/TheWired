@@ -19,6 +19,7 @@ import { buildChatMessage } from "@/lib/nostr/eventBuilder";
 import type { UnsignedEvent } from "@/types/nostr";
 import { sendDM } from "@/features/dm/dmService";
 import { buildNaddrReference } from "@/lib/nostr/naddrEncode";
+import { buildMusicChannelPostEvent, releaseShareBlockReason } from "./musicChannelPost";
 import type { Space, SpaceChannel } from "@/types/space";
 
 import { PanelHeader } from "./panel/PanelHeader";
@@ -231,7 +232,16 @@ export function TrackActionPanel({
     }
 
     if (channel.type === "music") {
+      // A private / other-space release would be an unplayable card for everyone else.
+      if (releaseShareBlockReason(track, space.id)) return;
+      // The release itself (so members can resolve it) + a kind-9 shelf post
+      // tagged with the music channel — the wire shape soot reads too. A
+      // republish alone never reaches a curated channel on anyone else's device.
       await publishExisting(originalEvent, [space.hostRelay]);
+      await signAndPublish(
+        buildMusicChannelPostEvent(pubkey, space.id, channel.id, { kind: "track", track }),
+        [space.hostRelay],
+      );
       const contextId = `${space.id}:${channel.id}`;
       dispatch(indexSpaceFeed({ contextId, eventId: track.eventId }));
       dispatch(trackFeedTimestamp({ contextId, createdAt: originalEvent.created_at }));
