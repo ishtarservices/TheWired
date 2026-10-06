@@ -47,7 +47,10 @@ export function layoutDTags(space: Pick<Space, "id" | "hostRelay">): string[] {
 
 /**
  * Build our kind:30078 layout event.
- * Tags: ["category", catId, name, position], ["channel", channelId, type, label, catId, position].
+ * Tags: ["category", catId, name, position],
+ *       ["channel", channelId, type, label, catId, position, feedMode?]
+ * `feedMode` ("all" | "curated") is written only when curated, so older
+ * readers (which ignore extra positions) and older events agree on "all".
  */
 export function buildLayoutEvent(
   pubkey: string,
@@ -70,7 +73,9 @@ export function buildLayoutEvent(
     tags.push(["category", catId, catId, String(pos++)]);
   }
   channels.forEach((ch, i) => {
-    tags.push(["channel", ch.id, ch.type, ch.label, ch.categoryId ?? "", String(ch.position ?? i)]);
+    const tag = ["channel", ch.id, ch.type, ch.label, ch.categoryId ?? "", String(ch.position ?? i)];
+    if (ch.feedMode === "curated") tag.push("curated");
+    tags.push(tag);
   });
 
   return {
@@ -129,13 +134,15 @@ export function parseLayoutEvent(event: NostrEvent, space: Space): SpaceChannel[
     let label: string;
     let categoryId: string | undefined;
     let position: number;
+    let feedMode: SpaceChannel["feedMode"] = "all";
 
     if (isWired) {
-      // ["channel", id, type, label, catId, position]
+      // ["channel", id, type, label, catId, position, feedMode?]
       type = mapType(tag[2]);
       label = (tag[3] || `#${id}`).slice(0, 64);
       categoryId = tag[4] || undefined;
       position = Number.parseInt(tag[5] ?? "", 10);
+      if (tag[6] === "curated") feedMode = "curated";
     } else {
       // Obelisk: ["channel", id, catId, position] — type via a sibling "t" tag
       // is fuzzy across versions, so default to chat and map if present.
@@ -155,7 +162,7 @@ export function parseLayoutEvent(event: NostrEvent, space: Space): SpaceChannel[
       isDefault: i === 0,
       adminOnly: false,
       slowModeSeconds: 0,
-      feedMode: "all",
+      feedMode,
     });
     i += 1;
   }

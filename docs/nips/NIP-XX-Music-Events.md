@@ -294,6 +294,78 @@ These identifiers are used in `a` tags for cross-referencing (album referencing 
 
 ---
 
+## Space Channels (NIP-29 groups)
+
+A space (NIP-29 group) may organise its music into channels. Two tags on a
+music event, and one kind-9 convention, make a channel's contents the same on
+every client:
+
+### `channel` tag on a release
+
+A release scoped to a group (`["h", "<group-id>"]`) MAY carry
+`["channel", "<channel-id>"]` naming the music channel it was uploaded or
+placed into. Placement rules:
+
+| Event | Appears in |
+| --- | --- |
+| `visibility: private` or `unlisted` | no channel, ever |
+| `h` tags present, none for this group | no channel in this group |
+| `channel` tag present | only that channel |
+| no `channel` tag | every `all`-mode music channel whose members include the author |
+| `["catalog", "none"]` and no `channel` tag | no channel (audio attached to a note stays with the note) |
+
+A `curated` channel holds only what was placed there: releases carrying its
+`channel` tag, and shelf posts (below).
+
+The `channel` tag is **publish-time scoping, written only by upload/edit under
+the author's key**. Sharing a release into a channel never adds it (even when
+the sharer is the author): it would silently narrow where a public release
+appears everywhere else. A share is always a kind-9 shelf post, which any
+member may make into any channel they can post to, carries attribution, and is
+removable with a kind `5`.
+
+### Kind-9 shelf post
+
+Any member can put a release or an external link on a music channel's shelf
+with an ordinary kind `9` group message tagged for that channel. Clients that
+know nothing of shelves still render the `content` as a message.
+
+```jsonc
+{
+  "kind": 9,
+  "content": "nostr:naddr1...\n\nTurn it up.",          // ref or url, then "\n\n<note>"
+  "tags": [
+    ["h", "<group-id>"],
+    ["channel", "<music-channel-id>"],
+    ["a", "31683:<pubkey>:<d>"], ["k", "31683"],          // a release …
+    ["p", "<release author>", "", "artist"]                // … by someone else
+  ]
+}
+```
+
+For an external link the `a`/`k` pair is replaced by `["r", "<canonical url>"]`
+and the content starts with that url. Supported providers and their canonical
+forms (the dedupe key across posts): YouTube
+(`https://www.youtube.com/watch?v=<id>` / `playlist?list=<id>`), SoundCloud
+(`https://soundcloud.com/<user>/<slug>` or `/<user>/sets/<slug>`), Bandcamp
+(`https://<sub>.bandcamp.com/<track|album>/<slug>`), Spotify
+(`https://open.spotify.com/<track|album|playlist>/<id>`), Apple Music
+(`https://music.apple.com/<cc>/<album|song|playlist>/<slug>/<id>[?i=<song>]`).
+
+Rendering rules shared by The Wired desktop and soot:
+
+- A post of a release already on the shelf attaches attribution (poster, time,
+  note) to that row instead of adding a second card; two posts of the same
+  canonical url collapse the same way.
+- A posted release that is `private`, or exclusive to other groups, is not
+  shown (the poster's client refuses to post it).
+- A kind `5` from the poster (`e` tag) removes the post.
+- In a mixed "All" view a track folds into its project when the project is on
+  the shelf, except when the track itself was posted (the attribution is the
+  point of that row).
+
+---
+
 ## Relay Behavior
 
 Relays that wish to validate music events SHOULD at minimum verify:

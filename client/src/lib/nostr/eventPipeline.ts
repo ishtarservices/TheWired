@@ -1062,6 +1062,10 @@ function indexEventIntoSpaceFeeds(event: NostrEvent): void {
       (t) => t[0] === "visibility" && (t[1] === "private" || t[1] === "unlisted"),
     );
     if (hasPrivateTag) return;
+    // Audio dropped into a note (`catalog:none`) stays with the note; it reaches
+    // a shelf only through an explicit `channel` tag (soot placement parity).
+    const offCatalog = event.tags.some((t) => t[0] === "catalog" && t[1] === "none");
+    if (offCatalog && !event.tags.some((t) => t[0] === "channel" && t[1])) return;
 
     // When an addressable event replaces an older version (same pubkey+kind+d_tag),
     // remove the old event ID from all space feeds to prevent stale entries.

@@ -17,6 +17,7 @@ import { copyToClipboard } from "@/lib/clipboard";
 import { addToQueue, insertNextInQueue } from "@/store/slices/musicSlice";
 import { buildRepost } from "@/lib/nostr/eventBuilder";
 import { buildNaddrReference } from "@/lib/nostr/naddrEncode";
+import { buildMusicChannelPostEvent, releaseShareBlockReason } from "./musicChannelPost";
 import { buildChatMessage } from "@/lib/nostr/eventBuilder";
 import { signAndPublish, publishExisting } from "@/lib/nostr/publish";
 import { relayManager } from "@/lib/nostr/relayManager";
@@ -209,7 +210,13 @@ export function AlbumActionPanel({ album, open, onClose, onEdit }: AlbumActionPa
     try { await relayManager.waitForConnection(space.hostRelay, 5000); } catch { /* ok */ }
 
     if (channel.type === "music") {
+      if (releaseShareBlockReason(album, space.id)) return;
+      // Release + kind-9 shelf post tagged with the music channel (soot wire shape).
       await publishExisting(evt, [space.hostRelay]);
+      await signAndPublish(
+        buildMusicChannelPostEvent(pubkey, space.id, channel.id, { kind: "album", album }),
+        [space.hostRelay],
+      );
       const contextId = `${space.id}:${channel.id}`;
       dispatch(indexSpaceFeed({ contextId, eventId: album.eventId }));
       dispatch(trackFeedTimestamp({ contextId, createdAt: evt.created_at }));

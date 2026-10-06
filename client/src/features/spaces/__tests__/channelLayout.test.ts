@@ -106,3 +106,23 @@ describe("channelLayout", () => {
     expect(wiredLayoutDTag("abc")).toBe("wired:layout:abc");
   });
 });
+
+describe("feedMode round-trip (curated channels in native spaces)", () => {
+  it("writes `curated` as the 7th position and reads it back; absent = all", () => {
+    const space = makeSpace();
+    const unsigned = buildLayoutEvent(CREATOR, space.id, [
+      makeChannel({ id: "general", type: "chat", position: 0 }),
+      makeChannel({ id: "shelf", type: "music", position: 1, feedMode: "curated" }),
+      makeChannel({ id: "all-music", type: "music", position: 2 }),
+    ]);
+    const shelfTag = unsigned.tags.find((t) => t[0] === "channel" && t[1] === "shelf")!;
+    expect(shelfTag[6]).toBe("curated");
+    const allTag = unsigned.tags.find((t) => t[0] === "channel" && t[1] === "all-music")!;
+    expect(allTag).toHaveLength(6);
+
+    const parsed = parseLayoutEvent(asEvent(unsigned, CREATOR), space)!;
+    expect(parsed.find((c) => c.id === "shelf")?.feedMode).toBe("curated");
+    expect(parsed.find((c) => c.id === "all-music")?.feedMode).toBe("all");
+    expect(parsed.find((c) => c.id === "general")?.feedMode).toBe("all");
+  });
+});
