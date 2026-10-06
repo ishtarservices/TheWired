@@ -95,7 +95,8 @@ let dbClient: any = null;
 beforeAll(async () => {
   // Dynamic import so env vars are set first
   const postgres = (await import("postgres")).default;
-  dbClient = postgres(process.env.DATABASE_URL!);
+  const { onnotice } = await import("../src/db/pgNotice.js");
+  dbClient = postgres(process.env.DATABASE_URL!, { onnotice });
 
   // Run the app's own migration runner (creates schemas + applies raw SQL files)
   const { runMigrations } = await import("../src/db/migrate.js");

@@ -3,12 +3,13 @@ import { join, dirname } from "path";
 import { fileURLToPath } from "url";
 import postgres from "postgres";
 import { config } from "../config.js";
+import { onnotice } from "./pgNotice.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const MIGRATIONS_DIR = join(__dirname, "migrations");
 
 export async function runMigrations() {
-  const sql = postgres(config.databaseUrl);
+  const sql = postgres(config.databaseUrl, { onnotice });
 
   try {
     // Ensure the app schema exists before anything else
