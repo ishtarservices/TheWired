@@ -66,6 +66,8 @@ async function seedBlob(sha: string, ownerPubkey: string, withHls = false) {
 beforeAll(async () => {
   server = await buildTestServer();
   await ensureRelayEventsTable();
+  // CI runners start without the blob dir; nothing else is guaranteed to create it first.
+  await mkdir(BLOB_DIR, { recursive: true });
 
   for (const sha of [SHA_SPACE, SHA_GRIEF, SHA_MIXED, SHA_ROLES, SHA_MULTI, SHA_MEMBERS, SHA_SPACE_GRANT, SHA_STEAL, SHA_BOTH, SHA_NATIVE, SHA_ODDVIS]) {
     await writeFile(join(BLOB_DIR, sha), Buffer.alloc(1024, 1));
