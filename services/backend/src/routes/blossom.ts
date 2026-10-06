@@ -275,8 +275,19 @@ export async function blossomRoutes(server: FastifyInstance) {
   });
 
   // ---- BUD-02: GET /list/<pubkey> -- List blobs for pubkey ----
+  // Owner-only (BUD-02 permits an auth-gated list). The list enumerates every
+  // sha a user uploaded, including audio whose only protection is the sha
+  // itself (unpublished uploads, NIP-44-private tracks — docs/MUSIC_VISIBILITY.md
+  // §Blob protection rule 4), so it must never be an anonymous oracle.
   server.get("/list/:pubkey", async (request, reply) => {
     const { pubkey } = request.params as { pubkey: string };
+    const authPubkey = (request.headers["x-auth-pubkey"] as string) ?? null;
+    if (!authPubkey) {
+      return reply.status(401).send({ error: "Authentication required", code: "UNAUTHORIZED" });
+    }
+    if (authPubkey !== pubkey) {
+      return reply.status(403).send({ error: "Can only list your own blobs", code: "FORBIDDEN" });
+    }
     const { since, limit } = request.query as {
       since?: string;
       limit?: string;

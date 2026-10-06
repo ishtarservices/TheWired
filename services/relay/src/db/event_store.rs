@@ -1,6 +1,7 @@
 use serde_json::Value;
 use sqlx::{PgPool, Postgres};
 
+use crate::nostr::access;
 use crate::nostr::event::Event;
 use crate::nostr::filter::Filter;
 use crate::nostr::report_gate::KIND_REPORT;
@@ -265,25 +266,18 @@ fn build_conditions(filter: &Filter, ctx: &ReadCtx<'_>) -> (Vec<String>, Vec<Bin
             let auth_param = param_counter;
             binds.push(BindValue::StringVec(vec![pk.to_string()]));
 
-            // Private/unlisted: author or p-tagged collaborator. Use the indexed
-            // `p_tags` text[] column instead of a per-row jsonb_array_elements
-            // scan (#114).
-            conditions.push(format!(
-                "(visibility IS NULL OR pubkey = ${auth_param}[1] OR ${auth_param}[1] = ANY(p_tags))"
-            ));
-
-            // Space-scoped: author or member of ANY listed space, in EITHER the
-            // backend world (app.space_members) OR the relay-native one
-            // (relay.group_members). `h_tags && ARRAY(...)` is the any-of leg
-            // for multi-space events; for a single-h event it reduces to the
-            // old per-space EXISTS. The native-group UNION was missing, so
-            // NIP-29-native members couldn't read their own group's history
-            // (#18 verifier).
-            conditions.push(format!(
-                "(h_tag IS NULL OR pubkey = ${auth_param}[1] \
-                 OR h_tags && ARRAY(SELECT space_id FROM app.space_members WHERE pubkey = ${auth_param}[1]) \
-                 OR h_tags && ARRAY(SELECT group_id FROM relay.group_members WHERE pubkey = ${auth_param}[1]))"
-            ));
+            // One predicate for every protected shape (nostr::access): the
+            // author, an access-granting p tag (role-aware), or — for `h`-only
+            // events — a member of ANY listed space in EITHER the backend world
+            // (app.space_members) OR the relay-native one (relay.group_members).
+            // `h_tags && ARRAY(...)` is the any-of leg for multi-space events.
+            // The indexed `p_tags` text[] pre-filters the jsonb role check so
+            // the per-row scan only runs for rows that name the reader (#114).
+            let pk = format!("${auth_param}[1]");
+            let members_any = format!(
+                "h_tags && ARRAY(SELECT space_id FROM app.space_members WHERE pubkey = {pk})                  OR h_tags && ARRAY(SELECT group_id FROM relay.group_members WHERE pubkey = {pk})"
+            );
+            conditions.push(access::pg_visible_predicate(&pk, &members_any, ""));
 
             if !ctx.serve_all_wraps {
                 conditions.push(format!(
@@ -296,8 +290,7 @@ fn build_conditions(filter: &Filter, ctx: &ReadCtx<'_>) -> (Vec<String>, Vec<Bin
         }
         None => {
             // Unauthenticated: only public events (no visibility tag, no h_tag)
-            conditions.push("visibility IS NULL".to_string());
-            conditions.push("h_tag IS NULL".to_string());
+            conditions.push(access::pg_anonymous_predicate(""));
             if !ctx.serve_all_wraps {
                 conditions.push(format!("kind <> {KIND_GIFT_WRAP}"));
             }

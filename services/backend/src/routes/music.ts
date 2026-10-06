@@ -15,7 +15,9 @@ import {
   checkEventVisibility,
   resolveVisibleChildTracks,
   isListedPublicMusic,
+  hasProtectedVisibility,
 } from "../services/musicVisibility.js";
+import { authorizeProtectedRefs, getProtectedRefsForBlob } from "../services/blobAccess.js";
 
 const pubkeySlugParams = z.object({
   pubkey: hexId,
@@ -544,10 +546,7 @@ export const musicRoutes: FastifyPluginAsync = async (server) => {
       const event = rows[0];
 
       const isProtected =
-        event.tags.some((t) => t[0] === "h") ||
-        ["private", "unlisted"].includes(
-          event.tags.find((t) => t[0] === "visibility")?.[1] ?? "",
-        );
+        event.tags.some((t) => t[0] === "h" && !!t[1]) || hasProtectedVisibility(event.tags);
 
       // Public track: no token required — client plays the plain URL.
       if (!isProtected) return { data: { gated: false as const } };
@@ -561,6 +560,17 @@ export const musicRoutes: FastifyPluginAsync = async (server) => {
       // No plaintext sha (e.g. NIP-44-encrypted track) → backend can't gate the blob;
       // no token needed and the client plays the decrypted URL directly.
       if (!sha) return { data: { gated: false as const } };
+
+      // A token unlocks every rendition of the sha, so it may only be minted
+      // when the blob layer itself would serve this viewer: the sha's
+      // protection is decided by events its UPLOADERS authored (blobAccess),
+      // not by whoever references it. Otherwise anyone who learned a protected
+      // sha could publish their own private track pointing at it and mint a
+      // token for someone else's media.
+      const protectedRefs = await getProtectedRefsForBlob(sha);
+      if (protectedRefs.length > 0 && !(await authorizeProtectedRefs(protectedRefs, authPubkey))) {
+        return reply.status(404).send({ error: "Not found", code: "NOT_FOUND" });
+      }
 
       const { token, exp } = mintMediaToken(sha);
 

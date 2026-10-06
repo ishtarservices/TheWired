@@ -111,7 +111,8 @@ export function AnnotationCard({ annotation, isArtistNote, onDelete, onTogglePin
     : annotation.label;
 
   const handleRepost = useCallback(async () => {
-    if (!myPubkey || !rawEvent) return;
+    // Reposts embed the event verbatim; private and space-scoped notes stay put.
+    if (!myPubkey || !rawEvent || annotation.isPrivate || annotation.spaceId) return;
     const unsigned = buildRepost(
       myPubkey,
       { id: rawEvent.id, pubkey: rawEvent.pubkey },
@@ -124,7 +125,7 @@ export function AnnotationCard({ annotation, isArtistNote, onDelete, onTogglePin
     } catch {
       // Best-effort
     }
-  }, [myPubkey, rawEvent]);
+  }, [myPubkey, rawEvent, annotation.isPrivate, annotation.spaceId]);
 
   const handleQuoteSubmit = useCallback(async () => {
     if (!myPubkey || !quoteText.trim() || !rawEvent) return;
@@ -260,7 +261,7 @@ export function AnnotationCard({ annotation, isArtistNote, onDelete, onTogglePin
         )}
 
         {/* Repost (public annotations only, when raw event is available) */}
-        {!annotation.isPrivate && myPubkey && rawEvent && (
+        {!annotation.isPrivate && !annotation.spaceId && myPubkey && rawEvent && (
           <button
             onClick={handleRepost}
             className={`rounded-lg p-1 transition-all ${
@@ -275,7 +276,7 @@ export function AnnotationCard({ annotation, isArtistNote, onDelete, onTogglePin
         )}
 
         {/* Quote (public annotations only, when raw event is available) */}
-        {!annotation.isPrivate && myPubkey && rawEvent && (
+        {!annotation.isPrivate && !annotation.spaceId && myPubkey && rawEvent && (
           <button
             onClick={() => setQuoting((v) => !v)}
             className={`rounded-lg p-1 transition-all ${

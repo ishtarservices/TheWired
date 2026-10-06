@@ -60,9 +60,15 @@ function getTagValue(event: NostrEvent, name: string): string | undefined {
   return tag?.[1];
 }
 
+/**
+ * Protected shape (docs/MUSIC_VISIBILITY.md): ANY valued `visibility` tag or
+ * ANY valued `h` tag. Mirrors the relay's `visibility IS NOT NULL OR h_tag IS
+ * NOT NULL` columns and services/musicVisibility.ts, so an unknown visibility
+ * value hides rather than exposes and a value-less leading ["h"] cannot mask a
+ * later real one.
+ */
 function isNonPublicEvent(event: NostrEvent): boolean {
-  const vis = getTagValue(event, "visibility");
-  return vis === "unlisted" || vis === "private" || !!getTagValue(event, "h");
+  return event.tags.some((t) => (t[0] === "visibility" || t[0] === "h") && !!t[1]);
 }
 
 function today(): string {
@@ -115,11 +121,14 @@ const SEARCHABLE_KINDS = [1, 9, 22, 30023, 34236, 30119];
 export function planIngest(event: NostrEvent, ctx: IngestContext): IngestPlan {
   const action = decideAction(event, ctx);
 
-  // Own relay indexes all public content kinds (today's behavior); an external
-  // relay only contributes the h-tagged chat it's scoped to.
-  const indexSearch = SEARCHABLE_KINDS.includes(event.kind)
-    ? ctx.isOwnRelay || (event.kind === 9 && scopeAllows(ctx, getTagValue(event, "h")))
-    : false;
+  // The `events` search index backs the unauthenticated GET /search, so only
+  // PUBLIC content may enter it: a space-scoped (h) or private/unlisted event
+  // is member-/grantee-only on the relay and must not be searchable by anyone.
+  // Own relay indexes every public searchable kind; an external relay could
+  // only ever contribute h-tagged chat, which is never public, so it indexes
+  // nothing.
+  const indexSearch =
+    SEARCHABLE_KINDS.includes(event.kind) && ctx.isOwnRelay && !isNonPublicEvent(event);
 
   return { action, indexSearch };
 }

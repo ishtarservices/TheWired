@@ -11,6 +11,7 @@ import { useFileUpload } from "@/hooks/useFileUpload";
 import { AnchoredPopover } from "@/components/ui/AnchoredPopover";
 import { useAppSelector } from "@/store/hooks";
 import { buildRootNote, buildRepost } from "@/lib/nostr/eventBuilder";
+import { isGatedTags } from "@/lib/nostr/gatedTargets";
 import { buildNaddrReference } from "@/lib/nostr/naddrEncode";
 import { signAndPublish } from "@/lib/nostr/publish";
 import { registerGifShare } from "@/lib/api/gif";
@@ -284,6 +285,10 @@ export function MusicPostModal({ open, onClose, target }: MusicPostModalProps) {
   const handleRepost = useCallback(async () => {
     if (!pubkey || !originalEvent) return;
     if (reposting) return;
+    if (isGatedTags(originalEvent.tags)) {
+      setError("Members-only and private releases can't be reposted.");
+      return;
+    }
     setError(null);
     setReposting(true);
 

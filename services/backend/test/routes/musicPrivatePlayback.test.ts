@@ -67,6 +67,7 @@ beforeAll(async () => {
   await db.execute(sql`ALTER TABLE relay.events ADD COLUMN IF NOT EXISTS visibility TEXT`);
 
   // Blob files on disk (survive per-test app.* truncation).
+  await mkdir(BLOB_DIR, { recursive: true });
   await writeFile(join(BLOB_DIR, SHA_PRIV), Buffer.alloc(1024, 7));
   await writeFile(join(BLOB_DIR, SHA_PUB), Buffer.alloc(1024, 9));
 

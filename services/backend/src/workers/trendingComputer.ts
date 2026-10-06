@@ -106,10 +106,9 @@ export async function computeTrendingPeriod(
     sql`SELECT id, pubkey, created_at, kind, tags FROM relay.events
         WHERE created_at >= ${sinceTs}
           AND kind IN (1, 22, 30023, 34236, 31683, 33123)
-          AND NOT (tags @> '[["visibility","unlisted"]]'::jsonb)
-          AND NOT (tags @> '[["visibility","private"]]'::jsonb)
-          AND NOT (tags @> '[["catalog","none"]]'::jsonb)
+          AND visibility IS NULL
           AND h_tag IS NULL
+          AND NOT (tags @> '[["catalog","none"]]'::jsonb)
         ORDER BY created_at DESC
         LIMIT 2000`,
   )) as unknown as EventRow[];

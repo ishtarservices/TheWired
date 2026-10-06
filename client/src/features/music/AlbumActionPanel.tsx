@@ -16,6 +16,7 @@ import { buildMusicLink } from "./musicLinks";
 import { copyToClipboard } from "@/lib/clipboard";
 import { addToQueue, insertNextInQueue } from "@/store/slices/musicSlice";
 import { buildRepost } from "@/lib/nostr/eventBuilder";
+import { isGatedTags } from "@/lib/nostr/gatedTargets";
 import { buildNaddrReference } from "@/lib/nostr/naddrEncode";
 import { buildMusicChannelPostEvent, releaseShareBlockReason } from "./musicChannelPost";
 import { buildChatMessage } from "@/lib/nostr/eventBuilder";
@@ -111,6 +112,9 @@ export function AlbumActionPanel({ album, open, onClose, onEdit }: AlbumActionPa
   );
   const canManage = isOwner || isCollaborator;
   const isLocal = album.visibility === "local";
+  // Only public projects may be mirrored into another space, reposted, or
+  // posted with a note (docs/MUSIC_VISIBILITY.md); the address-only shares stay.
+  const isPublic = album.visibility === "public";
   const originalEvent = useAppSelector((s) => s.events.entities[album.eventId]);
 
   const annotationCount = useAppSelector((s) => {
@@ -204,7 +208,7 @@ export function AlbumActionPanel({ album, open, onClose, onEdit }: AlbumActionPa
   const handleShareToSpace = async (space: Space, channel: SpaceChannel) => {
     if (!pubkey) return;
     const evt = store.getState().events.entities[album.eventId];
-    if (!evt) return;
+    if (!evt || isGatedTags(evt.tags)) return;
 
     relayManager.connect(space.hostRelay, "read+write");
     try { await relayManager.waitForConnection(space.hostRelay, 5000); } catch { /* ok */ }
@@ -246,7 +250,7 @@ export function AlbumActionPanel({ album, open, onClose, onEdit }: AlbumActionPa
   };
 
   const handleRepost = async () => {
-    if (!pubkey || !originalEvent) return;
+    if (!pubkey || !originalEvent || isGatedTags(originalEvent.tags)) return;
     try {
       const unsigned = buildRepost(pubkey, { id: originalEvent.id, pubkey: originalEvent.pubkey }, JSON.stringify(originalEvent));
       await signAndPublish(unsigned);
@@ -420,23 +424,27 @@ export function AlbumActionPanel({ album, open, onClose, onEdit }: AlbumActionPa
                         label="Send to DM" confirmedLabel="Sent!" confirmed={dmSentFlash}
                         onClick={() => setDmPickerOpen(true)}
                       />
-                      <ActionButton
-                        icon={<Globe size={14} />} confirmedIcon={confirmIcon}
-                        label="Share to Space" confirmedLabel="Shared!" confirmed={spaceSharedFlash}
-                        onClick={() => setSpacePickerOpen(true)}
-                      />
-                      {originalEvent && (
+                      {isPublic && (
+                        <ActionButton
+                          icon={<Globe size={14} />} confirmedIcon={confirmIcon}
+                          label="Share to Space" confirmedLabel="Shared!" confirmed={spaceSharedFlash}
+                          onClick={() => setSpacePickerOpen(true)}
+                        />
+                      )}
+                      {isPublic && originalEvent && (
                         <ActionButton
                           icon={<Repeat2 size={14} />} confirmedIcon={confirmIcon}
                           label="Repost" confirmedLabel="Reposted!" confirmed={repostFlash}
                           onClick={handleRepost}
                         />
                       )}
-                      <ActionButton
-                        icon={<MessageSquare size={14} />}
-                        label="Post with Note"
-                        onClick={() => setPostModalOpen(true)}
-                      />
+                      {isPublic && (
+                        <ActionButton
+                          icon={<MessageSquare size={14} />}
+                          label="Post with Note"
+                          onClick={() => setPostModalOpen(true)}
+                        />
+                      )}
                     </>
                   )}
 

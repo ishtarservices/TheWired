@@ -5,9 +5,8 @@
  * enforces the same model via services/blobAccess.ts. Full matrix:
  * docs/MUSIC_VISIBILITY.md.
  */
-import { and, eq, inArray, sql } from "drizzle-orm";
+import { sql } from "drizzle-orm";
 import { db } from "../db/connection.js";
-import { spaceMembers } from "../db/schema/members.js";
 import { pTagGrantsAccess } from "./blobAccess.js";
 import { isListedPublicMusic } from "../lib/musicListing.js";
 import { suspensionService } from "./suspensionService.js";
@@ -33,12 +32,16 @@ export function normalizeEvent(row: RelayEvent): RelayEvent {
 }
 
 /**
- * Pure visibility policy: may `authPubkey` see this event? Space-scoped (`h`)
- * requires ownership or membership of ANY listed space (a multi-space event
- * carries one `h` tag per space); private/unlisted requires ownership or an
- * access-granting p-tag: role "artist", a member role ("collaborator",
- * "contributor", "editor"), or role-less — a "featured" credit is NOT an
- * access grant; see blobAccess.pTagGrantsAccess for the single source of truth.
+ * Pure visibility policy: may `authPubkey` see this event? The author and any
+ * pubkey with an access-granting p-tag (role "artist", a member role
+ * "collaborator" / "contributor" / "editor", or role-less; a "featured" credit
+ * is NOT a grant — see blobAccess.pTagGrantsAccess, the single source of truth)
+ * may always see it. Beyond those, space-scoped (`h`) content is visible to a
+ * member of ANY listed space (a multi-space event carries one `h` tag per
+ * space); private/unlisted content is visible to nobody else. Anonymous
+ * viewers never see non-public content. This is the same order the blob layer
+ * applies (blobAccess.authorizeProtectedRef), so a p-tag grantee of a
+ * space-scoped release resolves it, mints a token, and fetches its media alike.
  * `membershipCache` dedupes space-membership queries across a batch of events,
  * keyed `${spaceId}:${pubkey}`.
  */
@@ -53,33 +56,40 @@ export async function isEventVisibleTo(
   if (authPubkey !== event.pubkey && (await suspensionService.isSuspended(event.pubkey))) return false;
 
   const eventTags = event.tags;
-  const vis = eventTags.find((t: string[]) => t[0] === "visibility")?.[1];
   const hTags = [...new Set(eventTags.filter((t) => t[0] === "h" && t[1]).map((t) => t[1]))];
+  const hasVisibility = hasProtectedVisibility(eventTags);
 
-  // Space-scoped: require ownership or membership of ANY listed space
-  if (hTags.length > 0) {
-    if (!authPubkey) return false;
-    if (authPubkey !== ownerPubkey) {
-      if (!(await isMemberOfAny(hTags, authPubkey, membershipCache))) return false;
-    }
-  }
+  const isProtected = hTags.length > 0 || hasVisibility;
+  if (!isProtected) return true;
+  if (!authPubkey) return false;
 
-  // Private/unlisted: require ownership or an access-granting p-tag
-  if (vis === "unlisted" || vis === "private") {
-    if (!authPubkey) return false;
-    if (authPubkey !== ownerPubkey && !eventTags.some((t) => pTagGrantsAccess(t, authPubkey))) {
-      return false;
-    }
-  }
+  // The author and access-granting p-tags see every protected shape.
+  if (authPubkey === ownerPubkey) return true;
+  if (eventTags.some((t) => pTagGrantsAccess(t, authPubkey))) return true;
 
-  return true;
+  // Private/unlisted admits nobody else (an `h` tag on a private event does
+  // not widen it to the space).
+  if (hasVisibility) return false;
+
+  // Space-scoped: membership of ANY listed space.
+  return isMemberOfAny(hTags, authPubkey, membershipCache);
+}
+
+/**
+ * Does the event carry a protecting `visibility` tag? ANY valued visibility
+ * tag protects (private, unlisted, or an unknown future value) — the relay's
+ * `visibility` column is populated the same way, so an unknown value hides
+ * rather than exposes on every layer.
+ */
+export function hasProtectedVisibility(tags: string[][]): boolean {
+  return tags.some((t) => t[0] === "visibility" && !!t[1]);
 }
 
 /**
  * Is `authPubkey` a member of at least one of `spaceIds`? Consults the cache
- * per space, queries every uncached id in one `IN (...)` select, and fills the
- * cache for each id (true for the hits, false for the rest) so a batch of
- * events sharing spaces costs one round trip.
+ * per space, queries every uncached id in one select, and fills the cache for
+ * each id (true for the hits, false for the rest) so a batch of events sharing
+ * spaces costs one round trip.
  */
 async function isMemberOfAny(
   spaceIds: string[],
@@ -94,15 +104,30 @@ async function isMemberOfAny(
   }
   if (uncached.length === 0) return false;
 
-  const rows = await db
-    .select({ spaceId: spaceMembers.spaceId })
-    .from(spaceMembers)
-    .where(and(inArray(spaceMembers.spaceId, uncached), eq(spaceMembers.pubkey, authPubkey)));
-  const memberOf = new Set(rows.map((r) => r.spaceId));
+  const memberOf = await spacesMemberOf(uncached, authPubkey);
   for (const spaceId of uncached) {
     membershipCache?.set(`${spaceId}:${authPubkey}`, memberOf.has(spaceId));
   }
   return memberOf.size > 0;
+}
+
+/**
+ * Which of `spaceIds` is `pubkey` a member of — in EITHER membership world the
+ * relay honours (services/relay/src/db/membership_source.rs): the backend's
+ * `app.space_members` (Platform / A-lite spaces) or the relay-native
+ * `relay.group_members` (NIP-29-native groups hosted on this relay). Without
+ * the union a native-group member could read a track over the relay but get a
+ * 404 from every backend surface for it.
+ */
+export async function spacesMemberOf(spaceIds: string[], pubkey: string): Promise<Set<string>> {
+  if (spaceIds.length === 0) return new Set();
+  const ids = sql.join(spaceIds.map((id) => sql`${id}`), sql`, `);
+  const rows = (await db.execute(
+    sql`SELECT space_id FROM app.space_members WHERE pubkey = ${pubkey} AND space_id IN (${ids})
+        UNION
+        SELECT group_id FROM relay.group_members WHERE pubkey = ${pubkey} AND group_id IN (${ids})`,
+  )) as unknown as Array<{ space_id: string }>;
+  return new Set(rows.map((r) => r.space_id));
 }
 
 /** Enforce visibility on a top-level resolve target. Writes a 404 to `reply` and

@@ -20,7 +20,11 @@ A music event is in exactly one state, derived from its tags:
 
 Both the desktop encrypted form and mobile's cleartext form of `private` must
 stay supported: gates key on the *tags* (`visibility`, `h`, `p`), which are
-cleartext in both forms. The relay mirrors `visibility` and `h` into dedicated
+cleartext in both forms. **Any valued `visibility` tag protects** — `private`,
+`unlisted`, or an unknown future value — on every layer (relay column, backend
+gates, search indexing), so an unrecognised value hides rather than exposes.
+A value-less tag (`["h"]`, `["visibility"]`) is ignored everywhere; the mirrored
+columns take the first *valued* tag. The relay mirrors `visibility` and `h` into dedicated
 `relay.events` columns at insert time (`event_store.rs`), so backend queries can
 filter without unpacking JSONB: `h_tags TEXT[]` holds every `h` value in tag
 order and the scalar `h_tag` is `h_tags[1]`, with `h_tag IS NULL ⇔ h_tags = '{}'`
@@ -89,8 +93,9 @@ several `["h", <spaceId>]` tags. The contract, enforced by the relay and
 mirrored by the backend:
 
 - **Read (any-of):** the event is visible to the author, an access-granting
-  `p`-tag, or a member of **any** listed space. A `#h` filter matches on any
-  of the tags, not just the first. Anonymous readers never see it.
+  `p`-tag, or a member of **any** listed space (see §"Who may view" for the
+  one policy every layer applies). A `#h` filter matches on any of the tags,
+  not just the first. Anonymous readers never see it.
 - **Publish (all-of, relay gate):** the author must be a member of **every**
   listed space the relay can resolve (`app.spaces ∪ relay.groups`). Ids the
   relay does not know are ignored (the space may be hosted elsewhere), but at
@@ -102,13 +107,33 @@ mirrored by the backend:
 
 ## Who may view a non-public event
 
-Implemented in `services/backend/src/services/musicVisibility.ts`
-(`isEventVisibleTo`) and mirrored in `services/blobAccess.ts` for media:
+One policy, evaluated in this order on **every** layer — relay stored REQ and
+NIP-50 search (`services/relay/src/nostr/access.rs` → `event_store.rs`,
+`nip50.rs`, `sqlite.rs`), relay live broadcast (`connection.rs`), backend
+routes (`services/backend/src/services/musicVisibility.ts` `isEventVisibleTo`)
+and media (`blobAccess.ts` `authorizeProtectedRef`):
 
-- **space** (`h`): the author, or a member of **any** of its listed spaces
-  (`app.space_members`; one membership query over all the event's `h` values).
-- **private / unlisted**: the author, or a pubkey with an *access-granting*
-  `p` tag on the event.
+1. No valued `visibility` tag and no valued `h` tag → **public**, anyone.
+2. Anonymous (un-AUTHed / no NIP-98) → **denied**.
+3. The **author** → allowed.
+4. An **access-granting `p` tag** (role table below) → allowed, for every
+   protected shape — including a space-scoped release (a grant is how a
+   non-member is let into a space exclusive; WIR-76).
+5. Any valued `visibility` tag → **denied** (private is private even when it
+   also carries `h`: a space never widens a private event to its members).
+6. `h` only → allowed iff the reader is a member of **any** listed space.
+
+Membership is the union of both worlds the relay knows
+(`services/relay/src/db/membership_source.rs`): `app.space_members` (Platform
+and A-lite spaces) **and** `relay.group_members` (NIP-29-native groups hosted
+on this relay). The backend queries the same union
+(`musicVisibility.spacesMemberOf`), so a native-group member who can read a
+track over the relay can also resolve it, mint a token and fetch its media.
+The embedded SQLite relay has only the relay-native world.
+
+Removal takes effect immediately on every DB-backed path (publish, REQ, search,
+backend). Live broadcast uses a per-connection membership cache refreshed
+lazily every 30 s, so a kicked member may receive live events for up to 30 s.
 
 ### p-tag roles
 
@@ -134,8 +159,11 @@ Music p-tags carry a role in the 4th element: `["p", <pubkey>, <relay>, <role>]`
 | Browse / search index (Meilisearch, trending) | indexed | **never indexed** (ingest, rebuild, and trending all exclude; a formerly-public version's doc is removed on privatize) | never indexed | indexed with `unlisted: true`; **filtered out** of browse/search/trending/listed-space music; not counted in genre/tag chips |
 | Raw blob `GET /<sha>` | 200, immutable cache | 404 without `?tk=` token or authorized NIP-98 pubkey; `no-store` when served | same | 200, immutable cache |
 | HLS `/hls/<sha>/…` (master, playlists, segments) | 200 | 404 without valid `?tk=` | same | 200 |
-| `GET /music/access` | `{gated:false}` | token minted for authorized viewers only | same | `{gated:false}` |
-| `GET /music/insights/*` | 200 | 404 unless member/author | 404 unless author/grantee | 200 |
+| `GET /music/access` | `{gated:false}` | token minted for authorized viewers only, and only when the blob layer would serve that viewer the sha (see §Blob protection — an author cannot mint for a sha they did not upload) | same | `{gated:false}` |
+| `GET /music/insights/*` | 200 | 404 unless member/author/grantee; **404 when no current event exists** (fail closed) | 404 unless author/grantee | 200 |
+| `GET /music/revisions/*` | 200 | gated by the **current** version like `/music/resolve`: 404 unless member/author/grantee, 404 when no current event | same | 200 |
+| `GET /search` (events index: 1/9/22/30023/34236/30119) | indexed | **never indexed** (the index backs an unauthenticated route) | never indexed | indexed |
+| Blossom `GET /list/:pubkey` | owner-only (NIP-98 pubkey must equal `:pubkey`); it enumerates every uploaded sha, including ones whose only protection is the sha itself | | | |
 | `GET /music/proposals/:pubkey/:slug` (kind-31685 list) | 200 | 404 unless member/author (same gate as the project itself; a missing project also 404s) | 404 unless author/grantee | 200 |
 | OG share pages (`thewired.app/music/*`) | full metadata | generic branded page — **no metadata, indistinguishable from a missing slug** | same | track page: full metadata; **absent from the catalog page** |
 
@@ -180,6 +208,29 @@ Mobile wants "share a private WIP so the recipient can actually play it":
   leaked link is a leaked capability until expiry; do not exceed ~7d TTL, and
   keep tokens out of logs (the `?tk=` redaction in `server.ts` already covers
   this).
+
+## Client publishing rules (desktop)
+
+- **Gated events never default to public relays.** `lib/nostr/publish.ts`
+  routes any event carrying a valued `h` or `visibility` tag that was published
+  without explicit targets to the app relay plus the listed spaces' host relay
+  sets (`lib/nostr/gatedTargets.ts`); `features/music/spacePublish.ts` falls
+  back to the app relay, never the default write relays, for a space the client
+  no longer knows. soot applies the same rule (app relay + host fan-out).
+- **Republish paths thread the whole visibility set through**: `spaceIds`,
+  `channelId`, `sharingDisabled`, `inCatalog`, and for private events the
+  NIP-44 builder with the existing `collaborators`. Replace-audio, project edit
+  and collaborator edits were the paths that used to drop them.
+- **Only public releases leave their audience**: Repost (kind 6 embeds the
+  whole event), Post with Note, and Share to Space (which mirrors the event
+  verbatim onto another host) are hidden and refused for `h` / private events.
+  Copy Link and Send to DM share only the address and stay available.
+- **Listen Together** sends a track's title, cover and media URLs only when
+  every listener may see it: public always; space-scoped only inside a voice
+  channel of one of its own spaces; private/unlisted/local never
+  (`features/listenTogether/listenTogetherService.ts canShareTrackWithListeners`).
+- Moving a private track or into/out of a private project is refused until a
+  private-aware move exists (the cleartext rebuild would de-encrypt it).
 
 ## Known accepted gaps
 

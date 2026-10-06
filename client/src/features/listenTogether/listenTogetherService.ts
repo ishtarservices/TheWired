@@ -140,15 +140,15 @@ export async function startListenTogetherSession(
 /** The DJ's full session state, as sent in lt:start. */
 function buildStartPayload(myPubkey: string): LTStartPayload {
   const musicPlayer = store.getState().music.player;
-  const currentTrack = musicPlayer.currentTrackId
-    ? store.getState().music.tracks[musicPlayer.currentTrackId]
-    : null;
+  // A track the listeners may not see is not announced at all (no id, no meta).
+  const currentTrack = shareableTrack(musicPlayer.currentTrackId);
+  const q = shareableQueue(musicPlayer.queue, musicPlayer.queueIndex);
   return {
     djPubkey: myPubkey,
-    trackId: musicPlayer.currentTrackId,
-    ...capLtQueue(musicPlayer.queue, musicPlayer.queueIndex),
+    trackId: currentTrack ? musicPlayer.currentTrackId : null,
+    ...capLtQueue(q.queue, q.queueIndex),
     position: musicPlayer.position,
-    isPlaying: musicPlayer.isPlaying,
+    isPlaying: currentTrack ? musicPlayer.isPlaying : false,
     trackMeta: currentTrack ? buildTrackMeta(currentTrack) : null,
   };
 }
@@ -409,7 +409,7 @@ export function suggestTrack(trackId: string): boolean {
   const myPubkey = store.getState().identity.pubkey;
   if (!lt.active || lt.isLocalDJ || !myPubkey) return false;
 
-  const track = store.getState().music.tracks[trackId];
+  const track = shareableTrack(trackId);
   if (!track || track.variants.length === 0) return false;
 
   const payload: LTSuggestPayload = { trackId, trackMeta: buildTrackMeta(track) };
@@ -451,13 +451,16 @@ export function broadcastPlay(
   const myPubkey = store.getState().identity.pubkey;
   if (!myPubkey) return;
 
-  const track = store.getState().music.tracks[trackId];
+  // Not shareable with this room's listeners → play locally only; listeners
+  // keep whatever they had and get no title, cover, or blob URL.
+  const track = shareableTrack(trackId);
   if (!track) return;
 
+  const q = shareableQueue(queue, queueIndex);
   const payload: LTPlayPayload = {
     trackId,
     position,
-    ...capLtQueue(queue, queueIndex),
+    ...capLtQueue(q.queue, q.queueIndex),
     trackMeta: buildTrackMeta(track),
   };
 
@@ -490,13 +493,14 @@ export function broadcastResume(position: number): void {
   const lt = store.getState().listenTogether;
   if (!lt.currentTrackId) return;
 
-  const track = store.getState().music.tracks[lt.currentTrackId];
+  const track = shareableTrack(lt.currentTrackId);
   if (!track) return;
 
+  const q = shareableQueue(lt.sharedQueue, lt.sharedQueueIndex);
   const payload: LTPlayPayload = {
     trackId: lt.currentTrackId,
     position,
-    ...capLtQueue(lt.sharedQueue, lt.sharedQueueIndex),
+    ...capLtQueue(q.queue, q.queueIndex),
     trackMeta: buildTrackMeta(track),
   };
 
@@ -886,6 +890,48 @@ function handleSuggest(payload: LTSuggestPayload, from: string): void {
 }
 
 // ── Utilities ─────────────────────────────────────────────────────
+
+/**
+ * May this track's metadata (title, cover, blob/HLS URLs) be sent to the
+ * session's listeners? Public tracks always. A space-scoped track only inside
+ * a voice channel of one of its own spaces, where every listener is a member.
+ * Private, unlisted, and local tracks never: a DM peer or another space's room
+ * is outside their audience, and for a NIP-44 private track the plain blob URL
+ * in `variants` is the whole capability (docs/MUSIC_VISIBILITY.md).
+ */
+export function canShareTrackWithListeners(
+  track: Pick<MusicTrack, "visibility" | "spaceIds">,
+  context: "space" | "dm" | null,
+  roomSpaceId: string | null | undefined,
+): boolean {
+  if (track.visibility === "public") return true;
+  if (track.visibility === "space") {
+    return context === "space" && !!roomSpaceId && track.spaceIds.includes(roomSpaceId);
+  }
+  return false;
+}
+
+function shareableTrack(trackId: string | null | undefined): MusicTrack | null {
+  if (!trackId) return null;
+  const state = store.getState();
+  const track = state.music.tracks[trackId];
+  if (!track) return null;
+  const lt = state.listenTogether;
+  const roomSpaceId = lt.context === "space" ? state.voice.connectedRoom?.spaceId : null;
+  return canShareTrackWithListeners(track, lt.context, roomSpaceId) ? track : null;
+}
+
+/**
+ * The shared queue with every track the listeners may not see removed (their
+ * addressable ids carry the slug ≈ title). `queueIndex` is re-pointed at the
+ * current track, or 0 when it was dropped.
+ */
+function shareableQueue(queue: string[], queueIndex: number): { queue: string[]; queueIndex: number } {
+  const current = queue[queueIndex];
+  const kept = queue.filter((id) => shareableTrack(id) !== null);
+  const idx = current ? kept.indexOf(current) : -1;
+  return { queue: kept, queueIndex: idx >= 0 ? idx : 0 };
+}
 
 function buildTrackMeta(track: MusicTrack): TrackMeta {
   return {
