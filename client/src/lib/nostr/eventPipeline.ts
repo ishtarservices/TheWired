@@ -14,6 +14,7 @@ import { addReaction, addReactions, removeReactionByEventId, type ReactionInput 
 import { addZap, addZaps, type ZapInput } from "../../store/slices/zapsSlice";
 import { addPollVote, addPollVotes, removeVoteByEventId, removePoll, type PollVoteInput } from "../../store/slices/pollsSlice";
 import { getSatoshisAmountFromBolt11 } from "nostr-tools/nip57";
+import { notifyMusicUpdate } from "../../features/music/savedVersionSync";
 import { addTrack, indexTrackByArtist, indexTrackByAlbum, indexTrackByArtistName, indexAlbumByArtist, indexAlbumByArtistName, addAlbum, addPlaylist, addAnnotation, removeAnnotation, removeTrack, removeAlbum, removePlaylist } from "../../store/slices/musicSlice";
 import { addDMMessage, editDMMessage, remoteDeleteDMMessage, reactDMMessage, removeDMReaction, setTyping, applyReceipt } from "../../store/slices/dmSlice";
 import { parseDMWire } from "@ishtarservices/core";
@@ -710,6 +711,9 @@ async function indexEvent(event: NostrEvent): Promise<void> {
         if (track.albumRef) {
           dispatch(indexTrackByAlbum({ albumAddrId: track.albumRef, trackAddrId: track.addressableId }));
         }
+        // A newer version of a saved track just landed → "updated" notification
+        // (no-op unless the user saved it and this is strictly newer).
+        notifyMusicUpdate(track.addressableId);
       };
 
       const isPrivate = event.tags.some(
@@ -771,6 +775,8 @@ async function indexEvent(event: NostrEvent): Promise<void> {
         for (const cp of album.collaborators) {
           dispatch(indexAlbumByArtist({ pubkey: cp, addressableId: album.addressableId }));
         }
+        // Same for a saved project
+        notifyMusicUpdate(album.addressableId);
       };
 
       const isPrivateAlbum = event.tags.some(

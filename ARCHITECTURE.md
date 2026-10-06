@@ -1030,7 +1030,7 @@ app.feed_sources            -- Per-space feed source configuration
 app.music_uploads           -- Uploaded audio/cover files (sha256, url, mime_type, file_size, duration, status)
 app.music_revisions         -- Track revision history + release notes
 app.music_proposals         -- Draft proposed edits pending approval
-app.saved_album_versions    -- Album snapshots for restore
+app.saved_album_versions    -- Fan's saved version per track/project + newest seen (update detection)
 app.music_plays             -- Per-user listening history
 app.listing_requests        -- Space listing request queue for /discover
 app.relay_directory         -- NIP-66/NIP-11 relay metadata (name, NIPs, RTT, user_count)

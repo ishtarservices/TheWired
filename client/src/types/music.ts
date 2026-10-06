@@ -251,10 +251,19 @@ export interface MusicProposal {
   resolvedAt?: number;
 }
 
-/** Saved album version for fan update notifications */
+/**
+ * The version of a saved track (31683) or project (33123) a fan has, as recorded
+ * on the backend. `hasUpdate` is the ingester's hint that it saw a strictly
+ * newer event (`latest*`); the client derives the real "update available" state
+ * with `hasPendingUpdate` (features/music/savedVersions.ts), which also counts a
+ * newer event already in Redux. Type name predates track support.
+ */
 export interface SavedAlbumVersion {
   addressableId: string;
   savedEventId: string;
   savedCreatedAt: number;
   hasUpdate: boolean;
+  /** Newest event the ingester has seen for this address, if newer than saved. */
+  latestEventId?: string | null;
+  latestCreatedAt?: number | null;
 }

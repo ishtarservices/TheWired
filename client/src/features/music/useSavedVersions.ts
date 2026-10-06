@@ -1,126 +1,37 @@
 import { useEffect, useCallback } from "react";
-import { useAppDispatch, useAppSelector } from "@/store/hooks";
-import { setSavedVersions, markVersionUpdate, setSavedVersion } from "@/store/slices/musicSlice";
-import type { SavedAlbumVersion } from "@/types/music";
-import { getApiBaseUrl } from "@/lib/api/client";
-import { buildNip98Header } from "@/lib/api/nip98";
+import { useAppSelector } from "@/store/hooks";
+import { hasPendingUpdate } from "./savedVersions";
+import { syncSavedVersions, acknowledgeUpdate, saveVersion } from "./savedVersionSync";
 
 /**
- * Hook to fetch and manage saved album version state.
- * Checks the backend for albums with pending updates.
+ * Saved-version state for the music UI. Triggers one (throttled, app-wide)
+ * backend sync on mount; the heavy lifting lives in `savedVersionSync`.
  */
 export function useSavedVersions() {
-  const dispatch = useAppDispatch();
   const pubkey = useAppSelector((s) => s.identity.pubkey);
   const savedVersions = useAppSelector((s) => s.music.savedVersions);
 
-  const fetchUpdates = useCallback(async () => {
-    if (!pubkey) return;
-
-    try {
-      const url = `${getApiBaseUrl()}/music/saved-updates`;
-      const headers: Record<string, string> = {
-        Authorization: await buildNip98Header(url, "GET"),
-      };
-      const res = await fetch(url, { headers });
-      if (!res.ok) return;
-
-      const json = await res.json();
-      const rows = json?.data as Array<{
-        addressableId: string;
-        savedEventId: string;
-        savedCreatedAt: number;
-        hasUpdate: boolean;
-      }> | undefined;
-      if (!Array.isArray(rows)) return;
-
-      const versions: Record<string, SavedAlbumVersion> = {};
-      for (const row of rows) {
-        versions[row.addressableId] = {
-          addressableId: row.addressableId,
-          savedEventId: row.savedEventId,
-          savedCreatedAt: row.savedCreatedAt,
-          hasUpdate: row.hasUpdate,
-        };
-      }
-      dispatch(setSavedVersions(versions));
-    } catch {
-      // ignore
-    }
-  }, [pubkey, dispatch]);
-
   useEffect(() => {
-    fetchUpdates();
-  }, [fetchUpdates]);
+    if (pubkey) void syncSavedVersions();
+  }, [pubkey]);
 
-  const acknowledgeUpdate = useCallback(
-    async (addressableId: string, eventId: string, createdAt: number) => {
-      if (!pubkey) return;
+  const fetchUpdates = useCallback(() => syncSavedVersions({ force: true }), []);
 
-      // Optimistic update
-      dispatch(markVersionUpdate({ addressableId, hasUpdate: false }));
+  return { savedVersions, acknowledgeUpdate, saveVersion, fetchUpdates };
+}
 
-      try {
-        const url = `${getApiBaseUrl()}/music/acknowledge-update`;
-        const headers: Record<string, string> = {
-          "Content-Type": "application/json",
-          Authorization: await buildNip98Header(url, "POST"),
-        };
-        await fetch(url, {
-          method: "POST",
-          headers,
-          body: JSON.stringify({ addressableId, eventId, createdAt }),
-        });
-
-        // Update saved version in Redux
-        dispatch(
-          setSavedVersion({
-            addressableId,
-            savedEventId: eventId,
-            savedCreatedAt: createdAt,
-            hasUpdate: false,
-          }),
-        );
-      } catch {
-        // Revert optimistic update on error
-        dispatch(markVersionUpdate({ addressableId, hasUpdate: true }));
-      }
-    },
-    [pubkey, dispatch],
-  );
-
-  const saveVersion = useCallback(
-    async (addressableId: string, eventId: string, createdAt: number) => {
-      if (!pubkey) return;
-
-      try {
-        const url = `${getApiBaseUrl()}/music/save-version`;
-        const headers: Record<string, string> = {
-          "Content-Type": "application/json",
-          Authorization: await buildNip98Header(url, "POST"),
-        };
-        await fetch(url, {
-          method: "POST",
-          headers,
-          body: JSON.stringify({ addressableId, eventId, createdAt }),
-        });
-
-        dispatch(
-          setSavedVersion({
-            addressableId,
-            savedEventId: eventId,
-            savedCreatedAt: createdAt,
-            hasUpdate: false,
-          }),
-        );
-      } catch {
-        // ignore
-      }
-    },
-    [pubkey, dispatch],
-  );
-
-  const albumsWithUpdates = Object.values(savedVersions).filter((v) => v.hasUpdate);
-
-  return { savedVersions, albumsWithUpdates, acknowledgeUpdate, saveVersion, fetchUpdates };
+/**
+ * Derived "update available" for one saved track / project: a strictly newer
+ * version is known on the backend or already in Redux. Never true for the
+ * author's own items.
+ */
+export function useHasPendingUpdate(addressableId: string | null | undefined): boolean {
+  return useAppSelector((s) => {
+    if (!addressableId) return false;
+    const saved = s.music.savedVersions[addressableId];
+    if (!saved) return false;
+    const current = s.music.albums[addressableId] ?? s.music.tracks[addressableId];
+    if (current && current.pubkey === s.identity.pubkey) return false;
+    return hasPendingUpdate(saved, current);
+  });
 }

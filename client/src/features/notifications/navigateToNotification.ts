@@ -93,8 +93,10 @@ export function navigateToNotification(
       break;
     }
 
-    case "invite": {
-      // Collaboration invite: contextId is an addressable ID like "31683:pubkey:slug"
+    case "invite":
+    case "music_update": {
+      // Collaboration invite / updated saved item: contextId is an addressable
+      // ID like "31683:pubkey:slug"
       const ctx = notification.contextId;
       if (ctx?.startsWith("31683:") || ctx?.startsWith("33123:")) {
         const parts = ctx.split(":");

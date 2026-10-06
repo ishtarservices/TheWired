@@ -19,6 +19,7 @@ import {
 import { watchedBy } from "../db/schema/notifications.js";
 import { revisionService } from "../services/revisionService.js";
 import { proposalService } from "../services/proposalService.js";
+import { savedVersionService } from "../services/savedVersionService.js";
 import { eq, and, sql } from "drizzle-orm";
 import { buildMusicSearchDoc } from "../lib/musicSearchDoc.js";
 import { escapeMsFilter } from "../lib/meiliFilter.js";
@@ -618,7 +619,26 @@ async function removeStaleMusicDocs(event: NostrEvent, kind: 31683 | 33123) {
   }
 }
 
+/**
+ * Flag fans whose saved version of this track/project is older than `event`
+ * (WIR-165). Runs for public AND non-public events: a private project still
+ * updates for the collaborators it is addressed to — but only for them, since
+ * nobody else can fetch it. Never throws; a flagging failure must not stop
+ * indexing.
+ */
+async function flagSavedVersions(event: NostrEvent) {
+  try {
+    const audience = isNonPublicEvent(event)
+      ? event.tags.filter((t) => t[0] === "p" && t[1]).map((t) => t[1])
+      : null;
+    await savedVersionService.flagUpdates(event, audience);
+  } catch (err) {
+    console.error("[ingester] Failed to flag saved versions:", (err as Error).message);
+  }
+}
+
 async function indexMusicTrack(event: NostrEvent) {
+  await flagSavedVersions(event);
   if (isNonPublicEvent(event)) {
     await removeStaleMusicDocs(event, 31683);
     return;
@@ -653,6 +673,7 @@ async function indexMusicTrack(event: NostrEvent) {
 }
 
 async function indexMusicAlbum(event: NostrEvent) {
+  await flagSavedVersions(event);
   if (isNonPublicEvent(event)) {
     await removeStaleMusicDocs(event, 33123);
     return;
@@ -677,14 +698,6 @@ async function indexMusicAlbum(event: NostrEvent) {
     await revisionService.captureRevision(`33123:${event.pubkey}:${dTag}`, event);
   } catch (err) {
     console.error("[ingester] Failed to capture album revision:", (err as Error).message);
-  }
-
-  try {
-    await db.execute(
-      sql`UPDATE app.saved_album_versions SET has_update = true WHERE addressable_id = ${`33123:${event.pubkey}:${dTag}`}`,
-    );
-  } catch (err) {
-    console.error("[ingester] Failed to flag saved versions:", (err as Error).message);
   }
 }
 

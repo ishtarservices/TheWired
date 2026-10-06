@@ -45,6 +45,7 @@ import { setMembers } from "../../store/slices/spaceConfigSlice";
 import { updateSpaceMembers } from "../../store/slices/spacesSlice";
 import { syncSpaceMembers } from "../../store/thunks/spaceMembers";
 import { loadMusicLibrary } from "../db/musicStore";
+import { syncSavedVersions, watchSavedItemsForUpdates } from "../../features/music/savedVersionSync";
 import { getEventsByKind } from "../db/eventStore";
 import {
   setSpaces,
@@ -1147,6 +1148,12 @@ export async function performLogin(
       }
       subscriptionManager.subscribe({ filters, relayUrls: PROFILE_RELAYS });
     }
+
+    // Step 7e-c: Saved items we DO hold — ask relays for anything newer than
+    // our copy, and pull the backend's saved-version rows (which also fetch
+    // versions the ingester saw first and raise "updated" notifications).
+    watchSavedItemsForUpdates([...musicLib.savedAlbumIds, ...musicLib.savedTrackIds]);
+    void syncSavedVersions({ force: true });
   }
 
   // Step 7e-b: Load persisted deleted message IDs from IndexedDB

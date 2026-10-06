@@ -12,6 +12,9 @@ import { useResolvedArtist, resolveArtistDetailTarget } from "./useResolvedArtis
 import { publishExisting } from "@/lib/nostr/publish";
 import { getEvent } from "@/lib/db/eventStore";
 import { removeLocalEventId } from "@/lib/db/musicStore";
+import { UpdateAvailableBadge } from "./UpdateAvailableBadge";
+import { useHasPendingUpdate } from "./useSavedVersions";
+import { acknowledgeUpdate } from "./savedVersionSync";
 
 interface TrackRowProps {
   track: MusicTrack;
@@ -47,6 +50,7 @@ export const TrackRow = memo(function TrackRow({
   );
   const resolvedArtist = useResolvedArtist(track.artist, track.artistPubkeys);
   const isOwner = pubkey === track.pubkey;
+  const hasUpdate = useHasPendingUpdate(track.addressableId);
   const isLocal = track.visibility === "local";
   // A private track the viewer isn't the owner/collaborator/artist for — its media is
   // server-gated, so mark the row and gate play rather than firing a silent 404.
@@ -67,6 +71,8 @@ export const TrackRow = memo(function TrackRow({
   const handlePlay = () => {
     // Private track the viewer can't access — don't attempt playback (would 404).
     if (locked) return;
+    // Playing a saved track that has a newer version counts as seeing the update.
+    if (hasUpdate) void acknowledgeUpdate(track.addressableId);
     // If this track is already current, toggle play/pause instead of restarting
     if (isCurrent) {
       togglePlay();
@@ -138,6 +144,12 @@ export const TrackRow = memo(function TrackRow({
               >
                 Unlisted
               </span>
+            )}
+            {hasUpdate && (
+              <UpdateAvailableBadge
+                title="New version available — play to update"
+                className="ml-1.5 align-middle"
+              />
             )}
             {isDownloaded && (
               <span title="Available offline" className="ml-1.5 inline-block align-middle">

@@ -7,6 +7,7 @@ import { CreateAlbumModal } from "./CreateAlbumModal";
 import { AlbumActionPanel } from "./AlbumActionPanel";
 import { useAudioPlayer } from "./useAudioPlayer";
 import { UpdateAvailableBadge } from "./UpdateAvailableBadge";
+import { useHasPendingUpdate } from "./useSavedVersions";
 import { useResolvedArtist, resolveArtistDetailTarget } from "./useResolvedArtist";
 
 interface AlbumCardProps {
@@ -20,9 +21,7 @@ export const AlbumCard = memo(function AlbumCard({ album, onNavigate }: AlbumCar
   const resolvedArtist = useResolvedArtist(album.artist, album.artistPubkeys);
   const isOwner = pubkey === album.pubkey;
   const isLocal = album.visibility === "local";
-  const hasUpdate = useAppSelector(
-    (s) => s.music.savedVersions[album.addressableId]?.hasUpdate ?? false,
-  );
+  const hasUpdate = useHasPendingUpdate(album.addressableId);
 
   const tracks = useAppSelector((s) => s.music.tracks);
   const tracksByAlbum = useAppSelector((s) => s.music.tracksByAlbum[album.addressableId]);
