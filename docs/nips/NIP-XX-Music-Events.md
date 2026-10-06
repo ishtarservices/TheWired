@@ -317,6 +317,13 @@ placed into. Placement rules:
 A `curated` channel holds only what was placed there: releases carrying its
 `channel` tag, and shelf posts (below).
 
+The `channel` tag is **publish-time scoping, written only by upload/edit under
+the author's key**. Sharing a release into a channel never adds it (even when
+the sharer is the author): it would silently narrow where a public release
+appears everywhere else. A share is always a kind-9 shelf post, which any
+member may make into any channel they can post to, carries attribution, and is
+removable with a kind `5`.
+
 ### Kind-9 shelf post
 
 Any member can put a release or an external link on a music channel's shelf
