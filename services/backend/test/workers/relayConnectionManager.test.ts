@@ -53,6 +53,11 @@ class MockWebSocket {
   simulateMessage(arr: unknown[]) {
     this.fire("message", { data: JSON.stringify(arr) });
   }
+  /** What Node's built-in WebSocket does on ECONNREFUSED: `error`, no `close`. */
+  simulateRefused() {
+    this.readyState = MockWebSocket.CLOSED;
+    this.fire("error", { type: "error" });
+  }
 }
 
 function reqFrames(ws: MockWebSocket): unknown[][] {
@@ -330,6 +335,34 @@ describe("relay manager — external relays", () => {
     await new Promise((r) => setTimeout(r, 80));
     const sockets = MockWebSocket.instances.filter((w) => w.url === "wss://ext.flap");
     expect(sockets.length).toBeGreaterThanOrEqual(2);
+  });
+
+  it("keeps retrying when the connect itself is refused (error without close)", async () => {
+    // Regression: a relay restart leaves a window where the reconnect attempt
+    // is refused; undici's WebSocket then fires only `error`, and a close-only
+    // reconnect gave up forever (the ingester silently stopped ingesting).
+    await startManager();
+    const own = await waitForWs(config.relayUrl);
+    own.simulateOpen();
+    await tick();
+    own.close(); // relay goes down
+    await new Promise((r) => setTimeout(r, 80));
+    const attempts = () => MockWebSocket.instances.filter((w) => w.url === config.relayUrl);
+    expect(attempts().length).toBeGreaterThanOrEqual(2);
+
+    attempts()[attempts().length - 1].simulateRefused(); // still down
+    await new Promise((r) => setTimeout(r, 160));
+    expect(attempts().length).toBeGreaterThanOrEqual(3);
+
+    // An established socket that errors AND closes schedules one reconnect, not two.
+    const before = attempts().length;
+    const live = attempts()[before - 1];
+    live.simulateOpen();
+    await tick();
+    live.simulateRefused();
+    live.close();
+    await new Promise((r) => setTimeout(r, 400));
+    expect(attempts().length).toBe(before + 1);
   });
 });
 
