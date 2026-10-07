@@ -15,8 +15,8 @@ import { addZap, addZaps, type ZapInput } from "../../store/slices/zapsSlice";
 import { addPollVote, addPollVotes, removeVoteByEventId, removePoll, type PollVoteInput } from "../../store/slices/pollsSlice";
 import { getSatoshisAmountFromBolt11 } from "nostr-tools/nip57";
 import { notifyMusicUpdate } from "../../features/music/savedVersionSync";
-import { addTrack, indexTrackByArtist, indexTrackByAlbum, indexTrackByArtistName, indexAlbumByArtist, indexAlbumByArtistName, addAlbum, addPlaylist, addAnnotation, removeAnnotation, removeTrack, removeAlbum, removePlaylist } from "../../store/slices/musicSlice";
-import { addDMMessage, editDMMessage, remoteDeleteDMMessage, reactDMMessage, removeDMReaction, setTyping, applyReceipt } from "../../store/slices/dmSlice";
+import { addTrack, indexTrackByArtist, indexTrackByAlbum, indexTrackByArtistName, indexAlbumByArtist, indexAlbumByArtistName, addAlbum, addPlaylist, addAnnotation, removeAnnotation, removeTrack, removeAlbum, removePlaylist, recordMovedRelease } from "../../store/slices/musicSlice";
+import { addDMMessage, editDMMessage, remoteDeleteDMMessage, reactDMMessage, removeDMReaction, setTyping, applyReceipt, markDMWrapProcessed } from "../../store/slices/dmSlice";
 import { parseDMWire } from "@ishtarservices/core";
 import { DM_EXPIRATION_SECONDS } from "@ishtarservices/shared-types";
 import { queueDeliveredReceipt } from "./dmSignals";
@@ -31,7 +31,11 @@ import { hasMediaUrls, hasEmbedUrls } from "../media/mediaUrlParser";
 import { parseThreadRef, parseQuoteRef } from "../../features/spaces/noteParser";
 import { parseVoteEvent } from "../../features/polls/pollParser";
 import { profileCache } from "./profileCache";
-import { unwrapGiftWrap } from "./giftWrap";
+import { unwrapGiftWrap, type UnwrappedDM } from "./giftWrap";
+import { GIFT_WRAP_ACCEPT_KINDS, KIND_DM_PROJECT_KEY, parseProjectKeyDM } from "../../features/music/sharedKey/projectKeyDM";
+import { forgetHeldProjectKey, receiveProjectKey } from "../../features/music/sharedKey/projectKeys";
+import { isSecretPersistEnabled } from "./secretStore";
+import { addressOf, movedTargetOf } from "../../features/music/sharedKey/members";
 import { decryptQueue } from "./decryptQueue";
 import { evaluateNotification, evaluateDMNotification, evaluateFriendRequestNotification, evaluateFriendAcceptNotification, evaluateCollaboratorNotification } from "./notificationEvaluator";
 import { addFriendRequest, markOutgoingAccepted, applyAcceptWrap, applyRemoveWrap, addProcessedWrapId, clearRemovedPubkey, isStaleAfterRemoval } from "../../store/slices/friendRequestSlice";
@@ -687,6 +691,11 @@ async function indexEvent(event: NostrEvent): Promise<void> {
       break;
     }
     case EVENT_KINDS.MUSIC_TRACK: {
+      const movedTo = movedTargetOf(event);
+      if (movedTo) {
+        handleMovedStub(event, movedTo);
+        break;
+      }
       emit(indexMusicTrack({ contextId: hTag ?? "global", eventId: event.id }));
 
       // Helper to dispatch track into Redux + artist/collaborator indices
@@ -730,7 +739,7 @@ async function indexEvent(event: NostrEvent): Promise<void> {
             if (track) {
               dispatchTrack(track);
               // Notify collaborator if this is not our own event
-              if (event.pubkey !== myPubkey && track.collaborators.includes(myPubkey)) {
+              if (event.pubkey !== myPubkey && !isHeldKey(event.pubkey) && track.collaborators.includes(myPubkey)) {
                 evaluateCollaboratorNotification(event, track.title, track.addressableId);
               }
             }
@@ -744,7 +753,7 @@ async function indexEvent(event: NostrEvent): Promise<void> {
         dispatchTrack(track);
         // Notify if we're tagged as collaborator/featured on someone else's track
         const myPubkey = getState().identity.pubkey;
-        if (myPubkey && event.pubkey !== myPubkey) {
+        if (myPubkey && event.pubkey !== myPubkey && !isHeldKey(event.pubkey)) {
           const isTagged = track.collaborators.includes(myPubkey) ||
             track.featuredArtists.includes(myPubkey);
           if (isTagged) {
@@ -755,6 +764,11 @@ async function indexEvent(event: NostrEvent): Promise<void> {
       break;
     }
     case EVENT_KINDS.MUSIC_ALBUM: {
+      const movedTo = movedTargetOf(event);
+      if (movedTo) {
+        handleMovedStub(event, movedTo);
+        break;
+      }
       emit(indexMusicAlbum({ contextId: hTag ?? "global", eventId: event.id }));
 
       const dispatchAlbum = (album: import("../../types/music").MusicAlbum) => {
@@ -790,7 +804,7 @@ async function indexEvent(event: NostrEvent): Promise<void> {
             const album = await parsePrivateAlbumEvent(event, myPubkey);
             if (album) {
               dispatchAlbum(album);
-              if (event.pubkey !== myPubkey && album.collaborators.includes(myPubkey)) {
+              if (event.pubkey !== myPubkey && !isHeldKey(event.pubkey) && album.collaborators.includes(myPubkey)) {
                 evaluateCollaboratorNotification(event, album.title, album.addressableId);
               }
             }
@@ -803,7 +817,7 @@ async function indexEvent(event: NostrEvent): Promise<void> {
         dispatchAlbum(album);
         // Notify if we're tagged as collaborator/featured on someone else's album
         const myPubkey = getState().identity.pubkey;
-        if (myPubkey && event.pubkey !== myPubkey) {
+        if (myPubkey && event.pubkey !== myPubkey && !isHeldKey(event.pubkey)) {
           const isTagged = album.collaborators.includes(myPubkey) ||
             album.featuredArtists.includes(myPubkey);
           if (isTagged) {
@@ -1206,7 +1220,7 @@ async function handleGiftWrap(event: NostrEvent): Promise<void> {
   if (recipientTag && recipientTag !== myPubkey) return;
 
   try {
-    const dm = await unwrapGiftWrap(event);
+    const dm = await unwrapGiftWrap(event, { acceptKinds: GIFT_WRAP_ACCEPT_KINDS });
 
     // Validate unwrapped data — guard against corrupted decryptions from
     // wraps not addressed to us (some NIP-07 extensions don't throw on
@@ -1219,6 +1233,13 @@ async function handleGiftWrap(event: NostrEvent): Promise<void> {
     if (dm.sender !== myPubkey) {
       const muteList = getState().identity.muteList;
       if (muteList.some((m) => m.type === "pubkey" && m.value === dm.sender)) return;
+    }
+
+    // Shared-project key DM: intercepted before parseDMWire (which would drop
+    // kind 20017 as unsupported) so the nsec never reaches dmSlice or the DM store.
+    if (dm.kind === KIND_DM_PROJECT_KEY) {
+      handleProjectKeyWrap(dm, myPubkey);
+      return;
     }
 
     // One parser for the spec form (kind 15 / kind 7 / `e` replies / typing /
@@ -1404,6 +1425,45 @@ function dropIfStaleAfterRemoval(partnerPubkey: string, createdAt: number): bool
   if (isStaleAfterRemoval(frState, partnerPubkey, createdAt)) return true;
   dispatch(clearRemovedPubkey(partnerPubkey));
   return false;
+}
+
+/** A release signed by a shared-project key this device holds is "mine". */
+function isHeldKey(pubkey: string): boolean {
+  return pubkey in (getState().music.heldProjectKeys ?? {});
+}
+
+/** A rotation stub (`moved` tag) replaces the release at its address and is
+ *  never shelved or played: drop the old copy, remember the redirect, and
+ *  forget the stub author's key if this device holds it. A stub older than
+ *  the release we have (someone republished over it) is ignored. */
+function handleMovedStub(event: NostrEvent, movedTo: string): void {
+  const from = addressOf(event);
+  const music = getState().music;
+  const current = event.kind === EVENT_KINDS.MUSIC_TRACK ? music.tracks[from] : music.albums[from];
+  if (current && current.createdAt > event.created_at) return;
+  dispatch(event.kind === EVENT_KINDS.MUSIC_TRACK ? removeTrack(from) : removeAlbum(from));
+  dispatch(recordMovedRelease({ from, to: movedTo, at: event.created_at }));
+  if (isHeldKey(event.pubkey)) forgetHeldProjectKey(event.pubkey).catch(() => {});
+}
+
+/** Handle a shared-project key DM (kind 20017): validate, then keychain only.
+ *  Every delivery is checked again (the store answers "known" / "forgotten"
+ *  cheaply). The wrap is marked processed, which stops the NIP-77 reconcile
+ *  re-requesting it, only where the key outlives a restart (OS keychain, or the
+ *  web persistence opt-in): web session memory loses keys on reload, and the
+ *  replayed wrap is how they come back. A failed keychain write stays unmarked. */
+function handleProjectKeyWrap(dm: UnwrappedDM, myPubkey: string): void {
+  const markProcessed = () => {
+    if (isSecretPersistEnabled() && getState().identity.pubkey === myPubkey) {
+      dispatch(markDMWrapProcessed(dm.wrapId));
+    }
+  };
+  const grant = parseProjectKeyDM(dm, myPubkey);
+  if (!grant) {
+    markProcessed();
+    return;
+  }
+  receiveProjectKey(grant, myPubkey).then(markProcessed).catch(() => {});
 }
 
 /** Handle an unwrapped friend request */

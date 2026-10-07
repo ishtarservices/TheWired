@@ -1,6 +1,11 @@
 import { useMemo, useState, useRef, useEffect } from "react";
-import { ArrowLeft, Play, Shuffle, Disc3, Link2, Heart, Plus, Check, Trash2, Users, UserPlus, X, Clock, RefreshCw, Pencil, Search } from "lucide-react";
+import { ArrowLeft, Play, Shuffle, Disc3, Link2, Heart, Plus, Check, Trash2, Users, UserPlus, X, Clock, RefreshCw, Pencil, Search, KeyRound } from "lucide-react";
 import { useAppSelector, useAppDispatch } from "@/store/hooks";
+import { signerForRelease, useHoldsProjectKey, useIsMine } from "../sharedKey/ownership";
+import { isSharedRelease } from "../sharedKey/members";
+import { albumParamsFrom } from "../sharedKey/releaseEdit";
+import { addProjectOwner } from "../sharedKey/projectOwners";
+import type { MusicMember } from "@/types/music";
 import { goBack, setActiveDetailId } from "@/store/slices/musicSlice";
 import { TrackRow } from "../TrackRow";
 import { useAudioPlayer } from "../useAudioPlayer";
@@ -25,10 +30,15 @@ function CollaboratorRow({
   pubkey,
   isOwner,
   onRemove,
+  onShareKey,
+  sharingKey = false,
 }: {
   pubkey: string;
   isOwner: boolean;
   onRemove?: () => void;
+  /** Share the shared project's key with this member (co-owner holders only). */
+  onShareKey?: () => void;
+  sharingKey?: boolean;
 }) {
   const dispatch = useAppDispatch();
   const { profile } = useProfile(pubkey);
@@ -45,6 +55,16 @@ function CollaboratorRow({
         <Avatar src={profile?.picture} alt={name} size="sm" />
         <span className="flex-1 truncate text-sm text-body hover:text-heading">{name}</span>
       </button>
+      {onShareKey && (
+        <button
+          onClick={onShareKey}
+          disabled={sharingKey}
+          className="shrink-0 rounded p-0.5 text-muted hover:text-heading transition-colors disabled:opacity-50"
+          title="Share the project key (make co-owner)"
+        >
+          <KeyRound size={14} />
+        </button>
+      )}
       {isOwner && onRemove && (
         <button
           onClick={onRemove}
@@ -69,6 +89,13 @@ export function AlbumDetail() {
     albumId ? s.music.tracksByAlbum[albumId] : undefined,
   );
   const pubkey = useAppSelector((s) => s.identity.pubkey);
+  const isMine = useIsMine();
+  // A shared project whose key this device holds (co-owner powers).
+  const holdsKey = useHoldsProjectKey(album?.pubkey);
+  const movedTo = useAppSelector((s) => (albumId ? s.music.movedReleases[albumId]?.to : undefined));
+  const movedTarget = useAppSelector((s) => (movedTo ? s.music.albums[movedTo] : undefined));
+  const [keyError, setKeyError] = useState<string | null>(null);
+  const [sharingKeyWith, setSharingKeyWith] = useState<string | null>(null);
   const { playQueue } = useAudioPlayer();
   const { saveTrack, saveAlbum, unsaveAlbum, isAlbumSaved, favoriteAlbum, unfavoriteAlbum, isAlbumFavorited } = useLibrary();
   const { acknowledgeUpdate } = useSavedVersions();
@@ -93,7 +120,7 @@ export function AlbumDetail() {
   // For non-owner albums that are in the user's library, filter to only saved tracks.
   // Owner/collaborator albums and albums being browsed (not in library) show all tracks.
   const isOwnerOrCollab = !!pubkey && (
-    pubkey === album?.pubkey ||
+    isMine(album?.pubkey) ||
     (album?.featuredArtists.includes(pubkey) ?? false) ||
     (album?.collaborators.includes(pubkey) ?? false)
   );
@@ -111,54 +138,74 @@ export function AlbumDetail() {
     return allAlbumTracks.length - albumTracks.length;
   }, [shouldFilterByLibrary, allAlbumTracks.length, albumTracks.length]);
 
+  // A rotation stub replaced this project: follow it to its new address.
+  useEffect(() => {
+    if (!album && movedTo && movedTarget) {
+      dispatch(setActiveDetailId({ view: "album-detail", id: movedTo }));
+    }
+  }, [album, movedTo, movedTarget, dispatch]);
+
   if (!album) {
     return (
       <div className="flex flex-1 items-center justify-center">
-        <p className="text-sm text-soft">Album not found</p>
+        <p className="text-sm text-soft">
+          {movedTo ? "This project moved. You may have been removed, or its new key is still on its way." : "Album not found"}
+        </p>
       </div>
     );
   }
 
   const queueIds = albumTracks.map((t) => t.addressableId);
-  const isOwner = pubkey === album.pubkey;
+  const isOwner = isMine(album.pubkey);
   const isCollaborator = !!pubkey && (
     album.featuredArtists.includes(pubkey) || album.collaborators.includes(pubkey)
   );
   // All collaborator-type pubkeys for the members list
   const collaborators = [...new Set([...album.featuredArtists, ...album.collaborators])];
 
-  const republishAlbum = async (newCollaborators: string[]) => {
+  // Shared-key holders (`owner` tags); a personal project's owner is its author.
+  const owners = isSharedRelease(album) ? (album.owners ?? []) : [album.pubkey];
+  const ownerTaggedWithoutKey = !!pubkey && !isOwner && (album.owners ?? []).includes(pubkey);
+
+  const republishAlbum = async (newCollaborators: string[], members: MusicMember[] | undefined = album.members) => {
     if (!pubkey || !isOwner) return;
-    const slug = album.addressableId.split(":").slice(2).join(":");
+    // My project, or a shared one signed as its key.
+    const author = await signerForRelease(album.pubkey);
+    if (!author) return;
+    const shared = !!author.signer || isSharedRelease(album);
+    // Keep the space scope, export flag and every member; rebuilding without
+    // them made a space project public, re-enabled export, or dropped owners.
     const albumParams = {
-      title: album.title,
-      artist: album.artist,
-      slug,
-      genre: album.genre || undefined,
-      imageUrl: album.imageUrl,
-      trackRefs: album.trackRefs.length > 0 ? album.trackRefs : undefined,
-      artistPubkeys: album.artistPubkeys.length > 0 ? album.artistPubkeys : undefined,
+      ...albumParamsFrom(album),
       featuredArtists: newCollaborators.length > 0 ? newCollaborators : undefined,
-      hashtags: album.hashtags.length > 0 ? album.hashtags : undefined,
-      projectType: album.projectType,
-      visibility: album.visibility,
-      // Keep the space scope and export flag; rebuilding without them made a
-      // space project public and re-enabled export.
-      spaceId: album.visibility === "space" ? album.spaceId : undefined,
-      spaceIds: album.visibility === "space" ? album.spaceIds : undefined,
-      channelId: album.visibility === "space" ? album.channelId : undefined,
-      sharingDisabled: album.sharingDisabled,
+      members,
     };
 
-    // For private albums, re-encrypt with updated collaborator list
-    const unsigned = album.visibility === "private"
-      ? await buildPrivateAlbumEvent(pubkey, { ...albumParams, collaborators: newCollaborators })
-      : buildAlbumEvent(pubkey, albumParams);
+    // For private albums, re-encrypt with updated collaborator list. A shared
+    // private project stays in the relay-gated form (no NIP-44 copies).
+    const unsigned = album.visibility === "private" && !shared
+      ? await buildPrivateAlbumEvent(author.pubkey, { ...albumParams, collaborators: newCollaborators })
+      : buildAlbumEvent(author.pubkey, albumParams);
 
     const targetRelays =
       album.visibility === "space" ? await spacePublishRelaysForAll(album.spaceIds) : undefined;
-    await signAndPublish(unsigned, targetRelays);
+    await signAndPublish(unsigned, targetRelays, { signer: author.signer });
     // No manual dispatch needed — signAndPublish → processIncomingEvent handles it
+  };
+
+  /** Make `pk` a co-owner: declare them with an `owner` tag on the project
+   *  and every track its key signed, then send them the project key. */
+  const handleShareKey = async (pk: string) => {
+    if (!holdsKey || pk === pubkey) return;
+    setKeyError(null);
+    setSharingKeyWith(pk);
+    try {
+      await addProjectOwner(album, tracks, pk);
+    } catch (err) {
+      setKeyError(err instanceof Error ? err.message : "Couldn't share the key.");
+    } finally {
+      setSharingKeyWith(null);
+    }
   };
 
   const handleAddCollaborator = async (pk: string) => {
@@ -194,7 +241,10 @@ export function AlbumDetail() {
             </div>
           )}
           <div>
-            <p className="text-xs uppercase tracking-wider text-soft">{album.projectType === "album" ? "Album" : album.projectType}</p>
+            <p className="text-xs uppercase tracking-wider text-soft">
+              {album.projectType === "album" ? "Album" : album.projectType}
+              {holdsKey && <span className="ml-2 normal-case tracking-normal text-muted">shared</span>}
+            </p>
             <h1 className="text-2xl font-bold text-heading">{album.title}</h1>
             <p className="text-sm text-soft">
               {(() => {
@@ -269,7 +319,7 @@ export function AlbumDetail() {
                   {copied ? "Copied!" : "Copy Link"}
                 </button>
               )}
-              {pubkey !== album.pubkey && album.visibility !== "local" && (
+              {!isMine(album.pubkey) && album.visibility !== "local" && (
                 <>
                   {confirmRemove ? (
                     <button
@@ -479,11 +529,18 @@ export function AlbumDetail() {
           </div>
 
           <div className="flex-1 overflow-y-auto p-2">
-            {/* Owner */}
+            {/* Owner(s): a shared project lists its key holders (first = started it) */}
             <div className="mb-1 px-2 text-[10px] font-semibold uppercase tracking-wider text-muted">
-              Owner
+              {owners.length > 1 ? `Owners (${owners.length})` : "Owner"}
             </div>
-            <CollaboratorRow pubkey={album.pubkey} isOwner={false} />
+            {owners.map((pk) => (
+              <CollaboratorRow key={pk} pubkey={pk} isOwner={false} />
+            ))}
+            {ownerTaggedWithoutKey && (
+              <p className="px-2 py-1 text-[11px] text-muted">
+                You co-own this project, but its key isn&apos;t on this device.
+              </p>
+            )}
 
             {/* Collaborators list */}
             {collaborators.length > 0 && (
@@ -497,6 +554,8 @@ export function AlbumDetail() {
                     pubkey={pk}
                     isOwner={isOwner}
                     onRemove={() => handleRemoveCollaborator(pk)}
+                    onShareKey={holdsKey && !owners.includes(pk) ? () => handleShareKey(pk) : undefined}
+                    sharingKey={sharingKeyWith === pk}
                   />
                 ))}
               </>
@@ -516,6 +575,18 @@ export function AlbumDetail() {
                 onAdd={handleAddCollaborator}
               />
             )}
+
+            {/* Add a co-owner: shares the project key */}
+            {holdsKey && (
+              <AddCollaboratorSearch
+                ownerPubkey={pubkey ?? album.pubkey}
+                existingCollaborators={owners}
+                onAdd={handleShareKey}
+                label="Share the key (co-owner)"
+                icon={KeyRound}
+              />
+            )}
+            {keyError && <p className="px-2 py-1 text-[11px] text-red-400">{keyError}</p>}
           </div>
         </div>
       )}
@@ -528,10 +599,14 @@ function AddCollaboratorSearch({
   ownerPubkey,
   existingCollaborators,
   onAdd,
+  label = "Add Collaborator",
+  icon: Icon = UserPlus,
 }: {
   ownerPubkey: string;
   existingCollaborators: string[];
   onAdd: (pubkey: string) => void;
+  label?: string;
+  icon?: typeof UserPlus;
 }) {
   const { query, setQuery, results, isSearching } = useUserSearch();
   const [focused, setFocused] = useState(false);
@@ -560,8 +635,8 @@ function AddCollaboratorSearch({
   return (
     <div ref={containerRef} className="mt-3 border-t border-border pt-3 px-1">
       <div className="mb-1.5 flex items-center gap-1 text-[10px] font-semibold uppercase tracking-wider text-muted">
-        <UserPlus size={10} />
-        Add Collaborator
+        <Icon size={10} />
+        {label}
       </div>
       <div className="relative">
         <div className="flex items-center gap-2 rounded-xl border border-border bg-field px-3 py-1.5 focus-within:border-primary/40 transition-colors">

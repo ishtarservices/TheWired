@@ -2,6 +2,7 @@ import { useState, useRef, useCallback, lazy, Suspense } from "react";
 import { AnchoredPopover } from "@/components/ui/AnchoredPopover";
 import { Lock, Globe, Users, Feather, Loader2, Paperclip, Smile } from "lucide-react";
 import { useAppSelector, useAppDispatch } from "@/store/hooks";
+import { useIsMine } from "../sharedKey/ownership";
 import { removeAnnotation } from "@/store/slices/musicSlice";
 import { AnnotationCard } from "../AnnotationCard";
 import { buildAnnotationEvent } from "../musicEventBuilder";
@@ -50,6 +51,7 @@ interface NotesTabProps {
 export function NotesTab({ targetRef, targetName, ownerPubkey }: NotesTabProps) {
   const dispatch = useAppDispatch();
   const pubkey = useAppSelector((s) => s.identity.pubkey);
+  const isMine = useIsMine();
   const spaces = useAppSelector((s) => s.spaces.list);
   const { annotations: visible, loading } = useAnnotations(targetRef);
 
@@ -280,7 +282,7 @@ export function NotesTab({ targetRef, targetName, ownerPubkey }: NotesTabProps) 
     });
   };
 
-  const isOwner = pubkey === ownerPubkey;
+  const isOwner = isMine(ownerPubkey);
 
   const VisibilityIcon = visibility === "private" ? Lock : visibility === "space" ? Users : Globe;
   const visibilityLabel = visibility === "private" ? "Private" : visibility === "space" ? "Space" : "Public";

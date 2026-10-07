@@ -1,5 +1,5 @@
 import { getApiBaseUrl } from "./client";
-import { buildNip98Header } from "./nip98";
+import { buildNip98Header, type AuthSignerOptions } from "./nip98";
 import type { TrackInsights, ArtistSummary } from "@/types/music";
 
 interface UploadAudioResponse {
@@ -21,6 +21,7 @@ interface UploadCoverResponse {
 export async function uploadAudio(
   file: File,
   metadata?: { title?: string; artist?: string; duration?: number },
+  auth?: AuthSignerOptions,
 ): Promise<UploadAudioResponse> {
   const url = `${getApiBaseUrl()}/music/upload`;
   const form = new FormData();
@@ -34,7 +35,7 @@ export async function uploadAudio(
   form.append("file", file);
 
   const headers: Record<string, string> = {};
-  headers["Authorization"] = await buildNip98Header(url, "POST");
+  headers["Authorization"] = await buildNip98Header(url, "POST", auth);
 
   const res = await fetch(url, { method: "POST", headers, body: form });
   if (!res.ok) throw new Error(`Upload failed: ${res.statusText}`);
@@ -45,13 +46,13 @@ export async function uploadAudio(
 /**
  * Upload a cover art image.
  */
-export async function uploadCoverArt(file: File): Promise<UploadCoverResponse> {
+export async function uploadCoverArt(file: File, auth?: AuthSignerOptions): Promise<UploadCoverResponse> {
   const url = `${getApiBaseUrl()}/music/upload/cover`;
   const form = new FormData();
   form.append("file", file);
 
   const headers: Record<string, string> = {};
-  headers["Authorization"] = await buildNip98Header(url, "POST");
+  headers["Authorization"] = await buildNip98Header(url, "POST", auth);
 
   const res = await fetch(url, { method: "POST", headers, body: form });
   if (!res.ok) throw new Error(`Upload failed: ${res.statusText}`);
@@ -331,10 +332,11 @@ export async function deleteMusic(
   type: "track" | "album",
   pubkey: string,
   slug: string,
+  auth?: AuthSignerOptions,
 ): Promise<void> {
   const url = `${getApiBaseUrl()}/music/${type}/${pubkey}/${encodeURIComponent(slug)}`;
   const headers: Record<string, string> = {};
-  headers["Authorization"] = await buildNip98Header(url, "DELETE");
+  headers["Authorization"] = await buildNip98Header(url, "DELETE", auth);
 
   const res = await fetch(url, { method: "DELETE", headers });
   if (!res.ok && res.status !== 404) {

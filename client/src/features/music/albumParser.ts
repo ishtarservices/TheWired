@@ -1,6 +1,7 @@
 import type { NostrEvent } from "@/types/nostr";
 import type { MusicAlbum, MusicVisibility, ProjectType } from "@/types/music";
 import { looksLikeNip44 } from "./nip44Shape";
+import { parseMembers, ownersOf } from "./sharedKey/members";
 
 /** Determine visibility from event tags */
 function parseVisibility(event: NostrEvent): MusicVisibility {
@@ -8,6 +9,12 @@ function parseVisibility(event: NostrEvent): MusicVisibility {
   const vis = event.tags.find((t) => t[0] === "visibility")?.[1];
   if (vis === "private" || vis === "unlisted") return "private"; // backward compat
   return "public";
+}
+
+/** Member p-tags (incl. shared-key `owner`s) are cleartext on every form. */
+function memberFields(event: NostrEvent): Pick<MusicAlbum, "members" | "owners"> {
+  const members = parseMembers(event.tags);
+  return { members, owners: ownersOf(members) };
 }
 
 /** Parse a kind:33123 music album event into display data */
@@ -68,6 +75,7 @@ export function parseAlbumEvent(event: NostrEvent): MusicAlbum {
     artistPubkeys,
     featuredArtists,
     collaborators,
+    ...memberFields(event),
     projectType,
     imageUrl,
     blurhash,
@@ -145,6 +153,7 @@ export async function parsePrivateAlbumEvent(
       artistPubkeys,
       featuredArtists,
       collaborators: collaboratorsDecrypted,
+      ...memberFields(event),
       projectType: ((meta.projectType as string) ?? "album") as ProjectType,
       imageUrl: meta.imageUrl as string | undefined,
       genre: meta.genre as string | undefined,

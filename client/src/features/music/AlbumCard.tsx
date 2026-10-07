@@ -2,6 +2,7 @@ import { memo, useState } from "react";
 import { Disc3, MoreHorizontal, Play } from "lucide-react";
 import type { MusicAlbum } from "@/types/music";
 import { useAppDispatch, useAppSelector } from "@/store/hooks";
+import { useHoldsProjectKey, useIsMine } from "./sharedKey/ownership";
 import { setActiveDetailId } from "@/store/slices/musicSlice";
 import { CreateAlbumModal } from "./CreateAlbumModal";
 import { AlbumActionPanel } from "./AlbumActionPanel";
@@ -17,9 +18,10 @@ interface AlbumCardProps {
 
 export const AlbumCard = memo(function AlbumCard({ album, onNavigate }: AlbumCardProps) {
   const dispatch = useAppDispatch();
-  const pubkey = useAppSelector((s) => s.identity.pubkey);
+  const isMine = useIsMine();
   const resolvedArtist = useResolvedArtist(album.artist, album.artistPubkeys);
-  const isOwner = pubkey === album.pubkey;
+  const isOwner = isMine(album.pubkey);
+  const holdsKey = useHoldsProjectKey(album.pubkey);
   const isLocal = album.visibility === "local";
   const hasUpdate = useHasPendingUpdate(album.addressableId);
 
@@ -132,6 +134,7 @@ export const AlbumCard = memo(function AlbumCard({ album, onNavigate }: AlbumCar
                 </button>
               );
             })()}
+            {holdsKey && <span className="shrink-0 text-[10px] text-muted">shared</span>}
             {album.projectType !== "album" && (
               <span className="shrink-0 rounded bg-card-hover/50 px-1.5 py-0.5 text-[10px] uppercase tracking-wider text-muted">
                 {album.projectType}

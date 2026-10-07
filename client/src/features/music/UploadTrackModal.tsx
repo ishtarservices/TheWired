@@ -3,7 +3,7 @@ import { X, Upload, Music } from "lucide-react";
 import { Modal } from "@/components/ui/Modal";
 import { useAppSelector } from "@/store/hooks";
 import { uploadAudio, uploadCoverArt } from "@/lib/api/music";
-import { buildTrackEvent, buildPrivateTrackEvent } from "./musicEventBuilder";
+import { buildAlbumEvent, buildTrackEvent, buildPrivateTrackEvent } from "./musicEventBuilder";
 import { signAndPublish, signAndSaveLocally } from "@/lib/nostr/publish";
 import { spacePublishRelays } from "./spacePublish";
 import { FeaturedArtistsInput } from "./FeaturedArtistsInput";
@@ -16,6 +16,8 @@ import { parseFilename } from "./trackFileParser";
 import { useProfile } from "@/features/profile/useProfile";
 import type { EmbeddedCoverArt } from "./trackFileParser";
 import type { MusicVisibility } from "@/types/music";
+import { signerForRelease, useIsMine } from "./sharedKey/ownership";
+import { albumParamsFrom } from "./sharedKey/releaseEdit";
 
 const ALLOWED_AUDIO_TYPES = new Set([
   "audio/mpeg",
@@ -43,21 +45,25 @@ interface UploadTrackModalProps {
 export function UploadTrackModal({ open, onClose, defaultAlbumRef, defaultVisibility, defaultSpaceId, defaultChannelId }: UploadTrackModalProps) {
   const pubkey = useAppSelector((s) => s.identity.pubkey);
   const allAlbums = useAppSelector((s) => s.music.albums);
+  const isMine = useIsMine();
+  // Own albums include shared projects whose key this device holds.
   const ownAlbums = useMemo(() => {
-    if (!pubkey) return [];
-    return Object.values(allAlbums).filter((a) => a.pubkey === pubkey);
-  }, [allAlbums, pubkey]);
+    return Object.values(allAlbums).filter((a) => isMine(a.pubkey));
+  }, [allAlbums, isMine]);
   const collabAlbums = useMemo(() => {
     if (!pubkey) return [];
     return Object.values(allAlbums).filter(
-      (a) => a.pubkey !== pubkey && a.featuredArtists.includes(pubkey),
+      (a) => !isMine(a.pubkey) && a.featuredArtists.includes(pubkey),
     );
-  }, [allAlbums, pubkey]);
+  }, [allAlbums, pubkey, isMine]);
   const [title, setTitle] = useState("");
   const [artist, setArtist] = useState("");
   const [genre, setGenre] = useState("");
   const [hashtags, setHashtags] = useState<string[]>([]);
   const [albumRef, setAlbumRef] = useState(defaultAlbumRef ?? "");
+  const sharedTarget = albumRef && allAlbums[albumRef] && isMine(allAlbums[albumRef].pubkey) && allAlbums[albumRef].pubkey !== pubkey
+    ? allAlbums[albumRef]
+    : null;
   const [iAmArtist, setIAmArtist] = useState(true);
   const [artistPubkeys, setArtistPubkeys] = useState<string[]>([]);
   const [featuredArtists, setFeaturedArtists] = useState<string[]>([]);
@@ -133,9 +139,19 @@ export function UploadTrackModal({ open, onClose, defaultAlbumRef, defaultVisibi
     setUploading(true);
 
     try {
+      // Into a shared project whose key I hold: the track is signed (and its
+      // audio uploaded) as the project key, copies the project's scope and
+      // member tags, and the project is republished with the new `a` ref.
+      const project = albumRef ? allAlbums[albumRef] : undefined;
+      const projectAuthor = project ? await signerForRelease(project.pubkey) : null;
+      const intoShared = !!project && !!projectAuthor?.signer;
+      const author = intoShared ? projectAuthor! : { pubkey };
+      const auth = { signer: author.signer };
+      const scope: MusicVisibility = intoShared ? project!.visibility : visibility;
+
       const [audioResult, coverResult] = await Promise.all([
-        uploadAudio(audioFile, { title, artist, duration: fileDuration ?? undefined }),
-        coverFile ? uploadCoverArt(coverFile) : Promise.resolve(undefined),
+        uploadAudio(audioFile, { title, artist, duration: fileDuration ?? undefined }, auth),
+        coverFile ? uploadCoverArt(coverFile, auth) : Promise.resolve(undefined),
       ]);
       const imageUrl = coverResult?.url;
 
@@ -160,24 +176,36 @@ export function UploadTrackModal({ open, onClose, defaultAlbumRef, defaultVisibi
         albumRef: albumRef || undefined,
         artistPubkeys: resolvedArtistPubkeys.length > 0 ? resolvedArtistPubkeys : undefined,
         featuredArtists: featuredArtists.length > 0 ? featuredArtists : undefined,
-        visibility,
-        spaceId: visibility === "space" ? spaceId : undefined,
-        channelId: visibility === "space" && channelId ? channelId : undefined,
+        visibility: scope,
+        spaceId: scope === "space" ? spaceId : undefined,
+        channelId: scope === "space" && channelId ? channelId : undefined,
         sharingDisabled: !allowExport,
+        members: intoShared ? project!.members : undefined,
       };
 
-      const unsigned = visibility === "private"
-        ? await buildPrivateTrackEvent(pubkey, { ...eventParams, collaborators })
-        : buildTrackEvent(pubkey, eventParams);
+      const unsigned = scope === "private" && !intoShared
+        ? await buildPrivateTrackEvent(author.pubkey, { ...eventParams, collaborators })
+        : buildTrackEvent(author.pubkey, eventParams);
 
-      if (visibility === "local") {
-        await signAndSaveLocally(unsigned);
+      if (scope === "local") {
+        await signAndSaveLocally(unsigned, auth);
       } else {
         // Space uploads must reach the space's host relay, not just the user's
         // write relays — members subscribe there.
         const targetRelays =
-          visibility === "space" ? await spacePublishRelays(spaceId) : undefined;
-        await signAndPublish(unsigned, targetRelays);
+          scope === "space" ? await spacePublishRelays(spaceId) : undefined;
+        await signAndPublish(unsigned, targetRelays, auth);
+      }
+
+      if (intoShared && project) {
+        const trackAddr = `31683:${author.pubkey}:${slug}`;
+        if (!project.trackRefs.includes(trackAddr)) {
+          await signAndPublish(
+            buildAlbumEvent(author.pubkey, { ...albumParamsFrom(project), trackRefs: [...project.trackRefs, trackAddr] }),
+            undefined,
+            auth,
+          );
+        }
       }
       resetForm();
       onClose();
@@ -364,18 +392,24 @@ export function UploadTrackModal({ open, onClose, defaultAlbumRef, defaultVisibi
             </div>
           </div>
 
-          {/* Visibility */}
-          <VisibilityPicker
-            value={visibility}
-            onChange={setVisibility}
-            spaceId={spaceId}
-            onSpaceIdChange={setSpaceId}
-            channelId={channelId}
-            onChannelIdChange={setChannelId}
-          />
+          {/* Visibility (a held shared project's tracks follow its scope) */}
+          {sharedTarget ? (
+            <p className="text-xs text-muted">
+              This track follows the shared project&apos;s visibility ({sharedTarget.visibility}).
+            </p>
+          ) : (
+            <VisibilityPicker
+              value={visibility}
+              onChange={setVisibility}
+              spaceId={spaceId}
+              onSpaceIdChange={setSpaceId}
+              channelId={channelId}
+              onChannelIdChange={setChannelId}
+            />
+          )}
 
           {/* Collaborators (for private visibility) */}
-          {visibility === "private" && (
+          {!sharedTarget && visibility === "private" && (
             <FeaturedArtistsInput
               value={collaborators}
               onChange={setCollaborators}
@@ -391,12 +425,12 @@ export function UploadTrackModal({ open, onClose, defaultAlbumRef, defaultVisibi
 
           <button
             onClick={handleSubmit}
-            disabled={!audioFile || !title.trim() || uploading || (visibility === "space" && !spaceId)}
+            disabled={!audioFile || !title.trim() || uploading || (!sharedTarget && visibility === "space" && !spaceId)}
             className="w-full rounded-xl bg-linear-to-r from-primary to-primary-soft py-2 text-sm font-medium text-white transition-opacity hover:opacity-90 press-effect disabled:opacity-50"
           >
             {uploading
               ? "Uploading..."
-              : visibility === "local"
+              : !sharedTarget && visibility === "local"
                 ? "Save Locally"
                 : "Upload & Publish"}
           </button>

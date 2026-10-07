@@ -1,4 +1,5 @@
 import { useCallback } from "react";
+import { isMinePubkey } from "./sharedKey/ownership";
 import { useAppDispatch, useAppSelector } from "@/store/hooks";
 import {
   addSavedTrack,
@@ -119,7 +120,7 @@ export function useLibrary() {
         dispatch(addSavedAlbum(track.albumRef));
         ensureAlbumIndexed(dispatch, track.albumRef);
         const album = state.albums[track.albumRef];
-        if (album && album.pubkey !== store.getState().identity.pubkey) {
+        if (album && !isMinePubkey(store.getState(), album.pubkey)) {
           void saveVersion(album.addressableId, album.eventId, album.createdAt);
         }
       }
@@ -127,7 +128,7 @@ export function useLibrary() {
       persistLibrary();
 
       // Record the version we have so the backend can flag a newer release
-      if (track && track.pubkey !== store.getState().identity.pubkey) {
+      if (track && !isMinePubkey(store.getState(), track.pubkey)) {
         void saveVersion(addrId, track.eventId, track.createdAt);
       }
     },
@@ -220,11 +221,12 @@ export function useLibrary() {
       if (album) {
         const me = store.getState().identity.pubkey;
         const items: VersionItem[] = [];
-        if (album.pubkey !== me) items.push({ addressableId: addrId, eventId: album.eventId, createdAt: album.createdAt });
+        const mine = (pk: string) => pk === me || pk in (state.heldProjectKeys ?? {});
+        if (!mine(album.pubkey)) items.push({ addressableId: addrId, eventId: album.eventId, createdAt: album.createdAt });
         const trackRefs = album.trackRefs.length > 0 ? album.trackRefs : state.tracksByAlbum[addrId] ?? [];
         for (const trackId of trackRefs) {
           const t = state.tracks[trackId];
-          if (t && t.pubkey !== me) items.push({ addressableId: trackId, eventId: t.eventId, createdAt: t.createdAt });
+          if (t && !mine(t.pubkey)) items.push({ addressableId: trackId, eventId: t.eventId, createdAt: t.createdAt });
         }
         void saveVersions(items);
       }

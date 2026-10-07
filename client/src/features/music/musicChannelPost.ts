@@ -14,6 +14,7 @@
  * (chat, a NIP-29 client) still renders sensibly.
  */
 import type { MusicAlbum, MusicTrack } from "@/types/music";
+import { isSharedRelease } from "./sharedKey/members";
 import type { UnsignedEvent } from "@/types/nostr";
 import { buildChatMessage } from "@/lib/nostr/eventBuilder";
 import { buildNaddrReference } from "@/lib/nostr/naddrEncode";
@@ -49,7 +50,8 @@ export function buildMusicChannelPost(
     ["a", item.addressableId],
     ["k", String(kind)],
   ];
-  if (item.pubkey !== opts.posterPubkey) tags.push(["p", item.pubkey, "", "artist"]);
+  // Credit the release's author, never a shared project's key (credits stay human).
+  if (item.pubkey !== opts.posterPubkey && !isSharedRelease(item)) tags.push(["p", item.pubkey, "", "artist"]);
   return { content: withNote(buildNaddrReference(item.addressableId), opts.note), tags };
 }
 

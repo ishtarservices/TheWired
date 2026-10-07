@@ -1,3 +1,4 @@
+import type { EventSigner } from "@ishtarservices/core";
 import type { NostrEvent, UnsignedEvent } from "../../types/nostr";
 import { getSigner, getSignerTimeoutMs } from "./loginFlow";
 import { signingQueue } from "./signingQueue";
@@ -25,18 +26,26 @@ function targetsFor(tags: string[][], targetRelays?: string[]): string[] | undef
   return resolved;
 }
 
+export interface SignOptions {
+  /** Sign with this signer instead of the logged-in account (a shared-project
+   *  key). It signs locally, so it bypasses the account signing queue. */
+  signer?: EventSigner;
+}
+
+async function signWith(unsigned: UnsignedEvent, opts?: SignOptions): Promise<NostrEvent> {
+  if (opts?.signer) return opts.signer.signEvent(unsigned);
+  const signer = getSigner();
+  if (!signer) throw new Error("No signer available");
+  return signingQueue.enqueue(() => signer.signEvent(unsigned), getSignerTimeoutMs());
+}
+
 /** Sign and publish an event to write relays */
 export async function signAndPublish(
   unsigned: UnsignedEvent,
   targetRelays?: string[],
+  opts?: SignOptions,
 ): Promise<NostrEvent> {
-  const signer = getSigner();
-  if (!signer) throw new Error("No signer available");
-
-  const signed = await signingQueue.enqueue(
-    () => signer.signEvent(unsigned),
-    getSignerTimeoutMs(),
-  );
+  const signed = await signWith(unsigned, opts);
   const targets = targetsFor(signed.tags, targetRelays);
   const sentTo = relayManager.publish(signed, targets);
 
@@ -67,14 +76,9 @@ export async function signAndPublish(
 /** Sign an event and save it locally without publishing to relays */
 export async function signAndSaveLocally(
   unsigned: UnsignedEvent,
+  opts?: SignOptions,
 ): Promise<NostrEvent> {
-  const signer = getSigner();
-  if (!signer) throw new Error("No signer available");
-
-  const signed = await signingQueue.enqueue(
-    () => signer.signEvent(unsigned),
-    getSignerTimeoutMs(),
-  );
+  const signed = await signWith(unsigned, opts);
 
   // Persist to IndexedDB
   await putEvent(signed);

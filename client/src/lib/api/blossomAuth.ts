@@ -1,5 +1,4 @@
-import { getSigner } from "@/lib/nostr/loginFlow";
-import { signingQueue } from "@/lib/nostr/signingQueue";
+import { withAuthSigner, type AuthSignerOptions } from "./nip98";
 
 /**
  * Build a Blossom (kind 24242) Authorization header per BUD-11.
@@ -9,13 +8,11 @@ export async function buildBlossomAuthHeader(
   action: "upload" | "delete" | "list" | "get",
   sha256?: string,
   serverDomain?: string,
+  opts?: AuthSignerOptions,
 ): Promise<string> {
-  const signer = getSigner();
-  if (!signer) throw new Error("No signer available");
-
   const created_at = Math.floor(Date.now() / 1000);
   const expiration = String(created_at + 3600); // 1 hour
-  const pubkey = await signingQueue.enqueue(() => signer.getPublicKey());
+  const pubkey = await withAuthSigner(opts, (s) => s.getPublicKey());
 
   const tags: string[][] = [
     ["t", action],
@@ -32,7 +29,7 @@ export async function buildBlossomAuthHeader(
     content: `${action} blob`,
   };
 
-  const signed = await signingQueue.enqueue(() => signer.signEvent(unsignedEvent));
+  const signed = await withAuthSigner(opts, (s) => s.signEvent(unsignedEvent));
   const encoded = btoa(JSON.stringify(signed));
   return `Nostr ${encoded}`;
 }
