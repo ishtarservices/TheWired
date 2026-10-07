@@ -39,8 +39,8 @@ audio to a plain note. The track is **public** (no `visibility` tag, no `h`
 tag) so the note embed can resolve and play it for anyone.
 
 A **listed public** music event is one with no `visibility` tag, no `h` tag,
-and no `["catalog","none"]` tag. That is the bar for every public discovery
-surface and every author-catalog shelf. The single predicate is
+no `["catalog","none"]` tag, and no `moved` tag (see §Search index). That is
+the bar for every public discovery surface and every author-catalog shelf. The single predicate is
 `isListedPublicMusic(tags)` in `services/backend/src/lib/musicListing.ts`
 (re-exported from `services/musicVisibility.ts`); desktop and mobile parsers
 keep their own one-liner (`MusicTrack.inCatalog` on desktop), as they already
@@ -85,6 +85,34 @@ Implementation notes:
   `parseVisibility` maps to `private`. Do not merge the two concepts: a
   `visibility:unlisted` track is hidden from everyone but its grantees; a
   `catalog:none` track is public to everyone, just not catalogued.
+
+## Search index: one doc per release
+
+The Meilisearch `tracks` and `albums` docs are keyed by **event id**, but a
+release is an addressable event, so each edit is a new id. Ingest
+(`syncMusicSearchDocs` in `workers/ingestHandlers.ts`) keeps exactly one doc
+per address, the newest indexable version:
+
+- A newer version (an edit, a shared project's owner-set change, a re-sign, a
+  privatize, a `moved` stub) deletes every older version's doc and undoes the
+  genre/tag counts of the ones that were counted (`music:counted_events`).
+- An older version that arrives after a newer one changes nothing.
+- Work for one address is serialized in-process, and each write is waited on
+  (`waitForTask`) before the next version of that address looks for it:
+  `processEvent` is fire-and-forget and every reconnect replays the music
+  backfill.
+- `/search/music` also returns one hit per address, the newest version
+  (`newestPerAddress`), so an index written before this rule cannot show
+  duplicates.
+- `musicService.rebuildCounts` runs on every backend start and rebuilds both
+  indexes and the counts from `relay.events`, which holds one row per address.
+
+**Moved stubs** (soot `docs/collab-shared-key.md`): a key rotation or a
+personal→shared conversion leaves a stub at the old address with a
+`["moved", "<kind>:<new pubkey>:<d>"]` tag. It keeps the title but has no
+audio, and clients never shelve, list or play it. So a stub is **never indexed
+or counted** (`isIndexableMusic`), it is not listed public
+(`isListedPublicMusic`), and ingesting it removes the old address's doc.
 
 ## Multi-space events
 
@@ -157,7 +185,7 @@ Music p-tags carry a role in the 4th element: `["p", <pubkey>, <relay>, <role>]`
 | Relay query (NIP-01 REQ) | served | relay-gated per NIP-29 membership (any listed space) | relay-gated | served |
 | `GET /music/resolve/*` | 200 | 404 unless member/author | 404 unless author/grantee | 200 |
 | Album/playlist **child tracks** | included | dropped unless viewer authorized per child | dropped unless authorized | included |
-| Browse / search index (Meilisearch, trending) | indexed | **never indexed** (ingest, rebuild, and trending all exclude; a formerly-public version's doc is removed on privatize) | never indexed | indexed with `unlisted: true`; **filtered out** of browse/search/trending/listed-space music; not counted in genre/tag chips |
+| Browse / search index (Meilisearch, trending) | indexed, one doc per address (§Search index) | **never indexed** (ingest, rebuild, and trending all exclude; a formerly-public version's doc is removed on privatize) | never indexed | indexed with `unlisted: true`; **filtered out** of browse/search/trending/listed-space music; not counted in genre/tag chips |
 | Raw blob `GET /<sha>` | 200, immutable cache | 404 without `?tk=` token or authorized NIP-98 pubkey; `no-store` when served | same | 200, immutable cache |
 | HLS `/hls/<sha>/…` (master, playlists, segments) | 200 | 404 without valid `?tk=` | same | 200 |
 | `GET /music/access` | `{gated:false}` | token minted for authorized viewers only, and only when the blob layer would serve that viewer the sha (see §Blob protection — an author cannot mint for a sha they did not upload) | same | `{gated:false}` |

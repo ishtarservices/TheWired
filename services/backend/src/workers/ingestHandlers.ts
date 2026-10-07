@@ -24,7 +24,7 @@ import { savedVersionService, addressableIdOf as savedVersionAddress } from "../
 import { eq, and, sql } from "drizzle-orm";
 import { buildMusicSearchDoc } from "../lib/musicSearchDoc.js";
 import { escapeMsFilter } from "../lib/meiliFilter.js";
-import { isListedPublicMusic } from "../lib/musicListing.js";
+import { isIndexableMusic, isListedPublicMusic } from "../lib/musicListing.js";
 import { KIND_REPORT, parseReportEvent } from "../lib/reports/reportInput.js";
 import { reportService } from "../services/reportService.js";
 import { suspensionService } from "../services/suspensionService.js";
@@ -206,10 +206,10 @@ export async function processEvent(event: NostrEvent, ctx: IngestContext): Promi
       await indexZapReceipt(event);
       break;
     case "musicTrack":
-      await indexMusicTrack(event);
+      await indexMusicRelease(event, 31683);
       break;
     case "musicAlbum":
-      await indexMusicAlbum(event);
+      await indexMusicRelease(event, 33123);
       break;
     case "proposal":
       await indexProposal(event);
@@ -588,45 +588,112 @@ async function indexGroupMembers(event: NostrEvent) {
   await db.update(spaces).set({ mirroredMemberCount: count }).where(eq(spaces.id, groupId));
 }
 
+type MusicIndex = "tracks" | "albums";
+type MusicDoc = Record<string, unknown>;
+
 /**
- * When an addressable music event goes non-public (publish-then-privatize, or
- * a space-scoped republish), any Meilisearch doc from its earlier PUBLIC
- * version is now stale: the relay row was replaced, so browse pages fetch a
- * dead event id and silently shrink. Remove those docs + their counts.
+ * processEvent is fire-and-forget per relay message, and every reconnect
+ * replays the whole music backfill, so two versions of one release can be in
+ * flight at once. Replacing an address's search doc is read-then-write against
+ * Meilisearch, so work for one address runs strictly in arrival order. The
+ * ingester runs in one process, so an in-process chain is enough.
  */
-async function removeStaleMusicDocs(event: NostrEvent, kind: 31683 | 33123) {
-  const ms = getMeilisearchClient();
-  const index = kind === 31683 ? "tracks" : "albums";
-  const dTag = getTagValue(event, "d") ?? "";
-  const addr = `${kind}:${event.pubkey}:${dTag}`;
+const musicAddressChains = new Map<string, Promise<unknown>>();
 
-  try {
-    const results = await ms.index(index).search("", {
-      filter: `pubkey = "${escapeMsFilter(event.pubkey)}"`,
-      limit: 100,
+function inAddressOrder<T>(addr: string, work: () => Promise<T>): Promise<T> {
+  const run = (musicAddressChains.get(addr) ?? Promise.resolve()).then(work);
+  const settled = run.catch(() => undefined);
+  musicAddressChains.set(addr, settled);
+  void settled.then(() => {
+    if (musicAddressChains.get(addr) === settled) musicAddressChains.delete(addr);
+  });
+  return run;
+}
+
+/**
+ * Every search doc for one release address. Filters on the address itself
+ * rather than scanning the author's first page of docs; a d-tag that
+ * escapeMsFilter would alter falls back to the author filter, so the exact
+ * compare still finds it.
+ */
+async function findAddressDocs(index: MusicIndex, addr: string, pubkey: string): Promise<MusicDoc[]> {
+  const exact = escapeMsFilter(addr) === addr;
+  const results = await getMeilisearchClient()
+    .index(index)
+    .search("", {
+      filter: exact ? `addressable_id = "${addr}"` : `pubkey = "${escapeMsFilter(pubkey)}"`,
+      limit: 1000,
     });
-    const matching = results.hits.filter(
-      (h: Record<string, unknown>) =>
-        h.addressable_id === addr && (h.created_at as number) <= event.created_at,
-    );
-    if (matching.length === 0) return;
+  return results.hits.filter((h: MusicDoc) => h.addressable_id === addr);
+}
 
-    await ms.index(index).deleteDocuments(matching.map((h: Record<string, unknown>) => h.id as string));
-    for (const h of matching) {
-      // An unlisted (`catalog:none`) doc was indexed but never counted; only
-      // undo counts for docs that were.
-      const wasCounted = await redis.srem("music:counted_events", h.id as string);
-      if (!wasCounted) continue;
-      const hGenre = h.genre as string;
-      const hTags = (h.hashtags as string[]) ?? [];
-      if (hGenre) await redis.zincrby("music:genre_counts", -1, hGenre);
-      for (const t of hTags) await redis.zincrby("music:tag_counts", -1, t);
-    }
-    await redis.zremrangebyscore("music:genre_counts", "-inf", "0");
-    await redis.zremrangebyscore("music:tag_counts", "-inf", "0");
-  } catch (err) {
-    console.error(`[ingester] Failed to remove stale ${index} docs:`, (err as Error).message);
+/**
+ * Delete search docs and undo the genre/tag counts of the ones that were
+ * counted (an unlisted track's doc never was). Safe to repeat: the SREM gate
+ * means a doc found twice is only uncounted once.
+ */
+async function dropMusicDocs(index: MusicIndex, docs: MusicDoc[]) {
+  if (docs.length === 0) return;
+  await getMeilisearchClient()
+    .index(index)
+    .deleteDocuments(docs.map((h) => h.id as string));
+  for (const h of docs) {
+    const wasCounted = await redis.srem("music:counted_events", h.id as string);
+    if (!wasCounted) continue;
+    const hGenre = h.genre as string;
+    const hTags = (h.hashtags as string[]) ?? [];
+    if (hGenre) await redis.zincrby("music:genre_counts", -1, hGenre);
+    for (const t of hTags) await redis.zincrby("music:tag_counts", -1, t);
   }
+  await redis.zremrangebyscore("music:genre_counts", "-inf", "0");
+  await redis.zremrangebyscore("music:tag_counts", "-inf", "0");
+}
+
+/**
+ * Keep exactly one search doc per release address: its newest indexable
+ * version. Docs are keyed by event id, so a newer version (an edit, a shared
+ * project's owner-set change, a re-sign, a privatize, a moved stub) must drop
+ * every older version's doc and undo its counts. Otherwise each public
+ * republish leaves another hit behind and counts its genre again. An older
+ * version that arrives late changes nothing.
+ */
+async function syncMusicSearchDocs(event: NostrEvent, kind: 31683 | 33123) {
+  const index: MusicIndex = kind === 31683 ? "tracks" : "albums";
+  const addr = `${kind}:${event.pubkey}:${getTagValue(event, "d") ?? ""}`;
+
+  await inAddressOrder(addr, async () => {
+    try {
+      const others = (await findAddressDocs(index, addr, event.pubkey)).filter((h) => h.id !== event.id);
+      if (others.some((h) => (h.created_at as number) > event.created_at)) return;
+      await dropMusicDocs(index, others);
+    } catch (err) {
+      console.error(`[ingester] Failed to remove superseded ${index} docs:`, (err as Error).message);
+    }
+
+    if (!isIndexableMusic(event.tags)) return;
+
+    // Every public track is indexed (the doc carries `unlisted`, so browse/search
+    // filter it while insights still enumerate it)...
+    const ms = getMeilisearchClient();
+    const task = await ms.index(index).addDocuments([buildMusicSearchDoc(event, kind)]);
+    try {
+      // ...and applied before the next version of this address looks for it.
+      await ms.index(index).waitForTask(task.taskUid, { timeOutMs: 10_000 });
+    } catch (err) {
+      console.error(`[ingester] ${index} write still pending:`, (err as Error).message);
+    }
+
+    // Only LISTED versions feed the genre/tag chip counts, so the counts match
+    // what /music/browse returns. Albums never carry catalog:none.
+    const listed = kind === 33123 || isListedPublicMusic(event.tags);
+    if (!listed || !(await redis.sadd("music:counted_events", event.id))) return;
+    const genre = getTagValue(event, "genre");
+    const hashtags = event.tags.filter((t) => t[0] === "t").map((t) => t[1]);
+    const pipeline = redis.pipeline();
+    if (genre) pipeline.zincrby("music:genre_counts", 1, genre);
+    for (const tag of hashtags) pipeline.zincrby("music:tag_counts", 1, tag);
+    if (genre || hashtags.length > 0) await pipeline.exec();
+  });
 }
 
 /**
@@ -693,67 +760,17 @@ async function pushSavedVersionUpdates(event: NostrEvent, fans: string[]) {
   }
 }
 
-async function indexMusicTrack(event: NostrEvent) {
+async function indexMusicRelease(event: NostrEvent, kind: 31683 | 33123) {
   await flagSavedVersions(event);
-  if (isNonPublicEvent(event)) {
-    await removeStaleMusicDocs(event, 31683);
-    return;
-  }
+  await syncMusicSearchDocs(event, kind);
+  if (isNonPublicEvent(event)) return;
 
-  const ms = getMeilisearchClient();
-  const genre = getTagValue(event, "genre");
   const dTag = getTagValue(event, "d") ?? "";
-  const hashtags = event.tags.filter((t) => t[0] === "t").map((t) => t[1]);
-
-  // Every public track is indexed (the doc carries `unlisted`, so browse/search
-  // filter it while insights still enumerate it)...
-  await ms.index("tracks").addDocuments([buildMusicSearchDoc(event, 31683)]);
-
-  // ...but only LISTED tracks feed the genre/tag chip counts, so the counts
-  // match what /music/browse returns.
-  const wasNew = isListedPublicMusic(event.tags)
-    ? await redis.sadd("music:counted_events", event.id)
-    : 0;
-  if (wasNew) {
-    const pipeline = redis.pipeline();
-    if (genre) pipeline.zincrby("music:genre_counts", 1, genre);
-    for (const tag of hashtags) pipeline.zincrby("music:tag_counts", 1, tag);
-    if (genre || hashtags.length > 0) await pipeline.exec();
-  }
-
   try {
-    await revisionService.captureRevision(`31683:${event.pubkey}:${dTag}`, event);
+    await revisionService.captureRevision(`${kind}:${event.pubkey}:${dTag}`, event);
   } catch (err) {
-    console.error("[ingester] Failed to capture track revision:", (err as Error).message);
-  }
-}
-
-async function indexMusicAlbum(event: NostrEvent) {
-  await flagSavedVersions(event);
-  if (isNonPublicEvent(event)) {
-    await removeStaleMusicDocs(event, 33123);
-    return;
-  }
-
-  const ms = getMeilisearchClient();
-  const genre = getTagValue(event, "genre");
-  const dTag = getTagValue(event, "d") ?? "";
-  const hashtags = event.tags.filter((t) => t[0] === "t").map((t) => t[1]);
-
-  await ms.index("albums").addDocuments([buildMusicSearchDoc(event, 33123)]);
-
-  const wasNew = await redis.sadd("music:counted_events", event.id);
-  if (wasNew) {
-    const pipeline = redis.pipeline();
-    if (genre) pipeline.zincrby("music:genre_counts", 1, genre);
-    for (const tag of hashtags) pipeline.zincrby("music:tag_counts", 1, tag);
-    if (genre || hashtags.length > 0) await pipeline.exec();
-  }
-
-  try {
-    await revisionService.captureRevision(`33123:${event.pubkey}:${dTag}`, event);
-  } catch (err) {
-    console.error("[ingester] Failed to capture album revision:", (err as Error).message);
+    const noun = kind === 31683 ? "track" : "album";
+    console.error(`[ingester] Failed to capture ${noun} revision:`, (err as Error).message);
   }
 }
 
@@ -795,27 +812,13 @@ async function processDeletion(event: NostrEvent) {
         console.error(`[ingester] Failed to delete ${index} from relay DB:`, err);
       }
       try {
-        const results = await ms.index(index).search("", {
-          filter: `pubkey = "${escapeMsFilter(addrPubkey)}"`,
-          limit: 100,
+        await inAddressOrder(addr, async () => {
+          const docs = await findAddressDocs(index, addr, addrPubkey);
+          await dropMusicDocs(
+            index,
+            docs.filter((h) => (h.created_at as number) <= event.created_at),
+          );
         });
-        const matchingHits = results.hits.filter(
-          (h: Record<string, unknown>) =>
-            h.addressable_id === addr && (h.created_at as number) <= event.created_at,
-        );
-        const docIds = matchingHits.map((h: Record<string, unknown>) => h.id as string);
-        if (docIds.length > 0) {
-          await ms.index(index).deleteDocuments(docIds);
-          for (const h of matchingHits) {
-            const hGenre = h.genre as string;
-            const hTags = (h.hashtags as string[]) ?? [];
-            if (hGenre) await redis.zincrby("music:genre_counts", -1, hGenre);
-            for (const t of hTags) await redis.zincrby("music:tag_counts", -1, t);
-            await redis.srem("music:counted_events", h.id as string);
-          }
-          await redis.zremrangebyscore("music:genre_counts", "-inf", "0");
-          await redis.zremrangebyscore("music:tag_counts", "-inf", "0");
-        }
       } catch (err) {
         console.error(`[ingester] Failed to delete ${index} from Meilisearch:`, err);
       }

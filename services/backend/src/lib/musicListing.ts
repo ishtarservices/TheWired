@@ -22,11 +22,34 @@ export function isUnlisted(tags: string[][]): boolean {
 }
 
 /**
- * No `visibility` tag, no `h` tag, no `["catalog","none"]` — the bar for every
- * public discovery surface. Use this instead of re-deriving `!vis && !hTag`.
+ * A shared-project `moved` stub (soot docs/collab-shared-key.md): what a key
+ * rotation or a personal→shared conversion leaves at the old address, pointing
+ * at the new one. It keeps the release's title but has no audio; clients never
+ * shelve, list or play it, so neither do discovery surfaces.
+ */
+export function isMovedStub(tags: string[][]): boolean {
+  return tags.some((t) => t[0] === "moved" && !!t[1]);
+}
+
+/**
+ * No `visibility` tag, no `h` tag, no `["catalog","none"]`, not a moved stub —
+ * the bar for every public discovery surface. Use this instead of re-deriving
+ * `!vis && !hTag`.
  */
 export function isListedPublicMusic(tags: string[][]): boolean {
-  return !tags.some((t) => t[0] === "visibility" || t[0] === "h") && !isUnlisted(tags);
+  return (
+    !tags.some((t) => t[0] === "visibility" || t[0] === "h") && !isUnlisted(tags) && !isMovedStub(tags)
+  );
+}
+
+/**
+ * Does this version belong in the tracks/albums search index? Public (no
+ * valued `visibility` or `h` tag, the same protected shape the relay and
+ * musicVisibility read) and not a moved stub. `catalog:none` tracks DO belong:
+ * they are indexed with `unlisted: true` and filtered at query time.
+ */
+export function isIndexableMusic(tags: string[][]): boolean {
+  return !tags.some((t) => (t[0] === "visibility" || t[0] === "h") && !!t[1]) && !isMovedStub(tags);
 }
 
 /**

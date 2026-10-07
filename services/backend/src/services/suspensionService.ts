@@ -2,6 +2,7 @@ import { sql } from "drizzle-orm";
 import { db } from "../db/connection.js";
 import { getMeilisearchClient } from "../lib/meilisearch.js";
 import { buildMusicSearchDoc } from "../lib/musicSearchDoc.js";
+import { isIndexableMusic } from "../lib/musicListing.js";
 import { escapeMsFilter } from "../lib/meiliFilter.js";
 
 /**
@@ -122,10 +123,10 @@ export const suspensionService = {
       }));
     const asEvent = (r: (typeof rows)[number]) => ({ ...r, created_at: Number(r.created_at) });
     const tracks = rows
-      .filter((r) => r.kind === 31683 && isPublic(r.tags))
+      .filter((r) => r.kind === 31683 && isIndexableMusic(r.tags))
       .map((r) => buildMusicSearchDoc(asEvent(r), 31683));
     const albums = rows
-      .filter((r) => r.kind === 33123 && isPublic(r.tags))
+      .filter((r) => r.kind === 33123 && isIndexableMusic(r.tags))
       .map((r) => buildMusicSearchDoc(asEvent(r), 33123));
 
     try {

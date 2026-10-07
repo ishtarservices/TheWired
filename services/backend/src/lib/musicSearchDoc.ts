@@ -68,3 +68,31 @@ export function buildMusicSearchDoc(event: MusicEventLike, kind: 31683 | 33123):
     unlisted: isUnlisted(tags),
   };
 }
+
+/**
+ * One hit per release address: the newest version, at the best-ranked
+ * position. Docs are keyed by event id. Ingest keeps one doc per address, but
+ * an index written before it did (or a write Meilisearch has not applied yet)
+ * can still hold older versions of a release.
+ */
+export function newestPerAddress<T extends Record<string, unknown>>(hits: T[]): T[] {
+  const newest = new Map<string, T>();
+  for (const h of hits) {
+    const addr = h.addressable_id as string | undefined;
+    if (!addr) continue;
+    const cur = newest.get(addr);
+    if (!cur || (h.created_at as number) > (cur.created_at as number)) newest.set(addr, h);
+  }
+  const seen = new Set<string>();
+  const out: T[] = [];
+  for (const h of hits) {
+    const addr = h.addressable_id as string | undefined;
+    if (!addr) {
+      out.push(h);
+    } else if (!seen.has(addr)) {
+      seen.add(addr);
+      out.push(newest.get(addr)!);
+    }
+  }
+  return out;
+}
