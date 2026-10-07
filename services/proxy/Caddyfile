@@ -53,7 +53,7 @@ thewired.app {
 		reverse_proxy backend:3002
 	}
 
-	# Landing page, incl. /terms, /community-guidelines, /privacy, /support
+	# Landing page, incl. /terms, /community-guidelines, /privacy, /dmca, /support
 	handle {
 		reverse_proxy landing:8080
 	}
@@ -67,6 +67,7 @@ soot.win {
 	redir /privacy https://thewired.app/privacy
 	redir /terms https://thewired.app/terms
 	redir /community-guidelines https://thewired.app/community-guidelines
+	redir /dmca https://thewired.app/dmca
 	redir /support https://thewired.app/support
 	reverse_proxy landing:8080
 }
