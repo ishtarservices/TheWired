@@ -291,15 +291,22 @@ export function startRelayIngester(): { stop: () => Promise<void> } {
       }
     });
 
-    ws.addEventListener("close", () => {
-      if (stopped || !connections.has(url)) return;
-      conn.reconnectTimer = setTimeout(() => open(url), conn.backoffMs);
+    // Reconnect from BOTH close and error. Node's built-in (undici) WebSocket
+    // fires only `error` — never `close` — when the connect itself is refused
+    // (relay restarting, ECONNREFUSED), so a close-only reconnect gave up for
+    // good the first time a retry landed while the relay was still down. The
+    // guard makes the pair idempotent when an established socket errors and
+    // then closes.
+    const scheduleReconnect = () => {
+      if (stopped || !connections.has(url) || conn.ws !== ws || conn.reconnectTimer) return;
+      conn.reconnectTimer = setTimeout(() => {
+        conn.reconnectTimer = null;
+        open(url);
+      }, conn.backoffMs);
       conn.backoffMs = Math.min(conn.backoffMs * 2, RECONNECT_MAX_MS);
-    });
-
-    ws.addEventListener("error", () => {
-      // close handler will schedule the reconnect
-    });
+    };
+    ws.addEventListener("close", scheduleReconnect);
+    ws.addEventListener("error", scheduleReconnect);
   }
 
   function sendGated(conn: Conn, ws: WebSocket, subId: string): void {
