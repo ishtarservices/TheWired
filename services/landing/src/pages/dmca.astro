@@ -1,0 +1,160 @@
+---
+/**
+ * Copyright (DMCA) policy for soot and The Wired's servers: how to send a
+ * notice under 17 U.S.C. §512(c)(3), how to counter-notice, and the
+ * repeat-infringer policy the safe harbor requires (§512(i)).
+ *
+ * DRAFT — not legal advice. Counsel must review before publication. The
+ * operator and the takedown inbox come from the app's legal text via
+ * legal.json. The designated agent is registered with the US Copyright
+ * Office; §512(c)(2) also wants the agent's name, address and phone on the
+ * site, so fill AGENT in from the filed record and keep the two the same.
+ */
+import LegalLayout from "../layouts/LegalLayout.astro";
+import legal from "../data/legal.json";
+
+const UPDATED = "2026-10-06";
+const operator = legal.operator.name;
+const contact = Object.fromEntries(legal.contacts.map((c) => [c.kind, c.address]));
+
+/** The designated agent as filed with the Copyright Office. Leave a field
+ *  null until the filed value is known; the page says where to find it. */
+const AGENT: { name: string | null; address: string[] | null; phone: string | null } = {
+  name: null,
+  address: null,
+  phone: null,
+};
+const DIRECTORY = "https://dmca.copyright.gov/osp/";
+const complete = AGENT.name && AGENT.address && AGENT.phone;
+---
+
+<LegalLayout
+  title="copyright policy"
+  description="How to report copyright infringement on soot, how to send a counter-notice, and what happens to repeat infringers."
+  path="/dmca"
+  updated={UPDATED}
+>
+  <section>
+    <p>
+      To report something on soot that infringes your copyright, write to{" "}
+      <a href={`mailto:${contact.copyright}`}>{contact.copyright}</a>. An emailed notice that contains everything
+      listed under "sending a notice" is effective. Notices are read by a person and answered within 24 hours.
+    </p>
+  </section>
+
+  <section>
+    <h2>what this covers</h2>
+    <p>
+      {operator} ("we") runs the soot app and its default servers at thewired.app. We respect other people's
+      rights and follow the Digital Millennium Copyright Act, 17 U.S.C. §512. This page says how to send a notice
+      of claimed infringement, how to answer one if your upload was removed, and what we do about people who
+      infringe repeatedly.
+    </p>
+    <p>
+      soot is a client for Nostr, an open network. We can remove content from our own servers; we cannot remove
+      copies held by relays that other people run. A notice to us covers what our servers carry.
+    </p>
+  </section>
+
+  <section>
+    <h2>designated agent</h2>
+    <p>
+      Service provider: {operator}, also doing business as soot and The Wired, at thewired.app, soot.win and
+      getsoot.app.
+    </p>
+    {AGENT.name && <p>Agent: {AGENT.name}</p>}
+    {AGENT.address && (
+      <p>
+        {AGENT.address.map((line, i) => (
+          <>
+            {i > 0 && <br />}
+            {line}
+          </>
+        ))}
+      </p>
+    )}
+    {AGENT.phone && <p>Phone: {AGENT.phone}</p>}
+    <p>
+      Email: <a href={`mailto:${contact.copyright}`}>{contact.copyright}</a>
+    </p>
+    <p>
+      The agent is registered in the US Copyright Office's{" "}
+      <a href={DIRECTORY} rel="noopener">DMCA designated agent directory</a>, where the record can be found by searching
+      for "{operator}".
+      {!complete && " The record carries the agent's mailing address and phone, which will be added to this page."}
+    </p>
+  </section>
+
+  <section>
+    <h2>sending a notice</h2>
+    <p>For your notice to be effective under §512(c)(3) it must include all of the following:</p>
+    <ul>
+      <li>your physical or electronic signature, as the owner of the copyright or someone authorised to act for them;</li>
+      <li>which copyrighted work you say has been infringed, or a representative list if there are several;</li>
+      <li>
+        where the material is on soot, with enough detail for us to find it: a link, or the track and artist name,
+        or the account that posted it;
+      </li>
+      <li>your name, address, telephone number and email address;</li>
+      <li>
+        a statement that you believe in good faith that the use is not authorised by the copyright owner, their
+        agent or the law;
+      </li>
+      <li>
+        a statement, under penalty of perjury, that the information in the notice is accurate and that you are the
+        copyright owner or are authorised to act for them.
+      </li>
+    </ul>
+    <p>
+      When we receive a complete notice we remove or disable access to the material on our servers and tell the
+      person who posted it, passing on your notice. Knowingly misrepresenting that something infringes carries
+      liability under §512(f), including for costs and legal fees.
+    </p>
+  </section>
+
+  <section>
+    <h2>counter-notice</h2>
+    <p>
+      If your upload was removed and you believe that was a mistake or that it was misidentified, you can send a
+      counter-notice under §512(g)(3) to the same address. It must include:
+    </p>
+    <ul>
+      <li>your physical or electronic signature;</li>
+      <li>what was removed and where it appeared before it was removed;</li>
+      <li>
+        a statement, under penalty of perjury, that you believe in good faith the material was removed by mistake
+        or misidentification;
+      </li>
+      <li>
+        your name, address and telephone number, a statement that you consent to the jurisdiction of the federal
+        district court for the district where your address is (or, if you are outside the United States, any
+        district in which we may be found), and that you will accept service of process from the person who sent the
+        original notice.
+      </li>
+    </ul>
+    <p>
+      We pass a complete counter-notice to the person who made the claim. Unless they tell us within 10 business
+      days that they have gone to court to keep the material down, we restore it within 10 to 14 business days of
+      receiving your counter-notice.
+    </p>
+  </section>
+
+  <section>
+    <h2>repeat infringers</h2>
+    <p>
+      Each valid notice counts against the account that posted the material. The first time, the material comes
+      off our servers and the account is warned. An account that infringes repeatedly is removed from our servers,
+      and may be removed sooner where the circumstances call for it. A removal that is reversed by a counter-notice
+      does not count, and neither does a notice that is clearly defective.
+    </p>
+  </section>
+
+  <section>
+    <h2>other complaints</h2>
+    <p>
+      This page is about copyright only. For trademark, impersonation or other complaints, write to{" "}
+      <a href={`mailto:${contact.abuse}`}>{contact.abuse}</a>. For anything else:{" "}
+      <a href={`mailto:${contact.support}`}>{contact.support}</a>.
+    </p>
+  </section>
+</LegalLayout>
