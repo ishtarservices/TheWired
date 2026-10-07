@@ -3,7 +3,7 @@ import { createWriteStream, existsSync } from "fs";
 import { mkdir, unlink, rename, rm } from "fs/promises";
 import { join, resolve } from "path";
 import { Readable } from "stream";
-import { eq, desc, sql, and } from "drizzle-orm";
+import { eq, desc, sql, and, inArray } from "drizzle-orm";
 import { db } from "../db/connection.js";
 import { musicUploads } from "../db/schema/music.js";
 import { blobs, blobOwners } from "../db/schema/blobs.js";
@@ -14,6 +14,7 @@ import { buildMusicSearchDoc } from "../lib/musicSearchDoc.js";
 import { escapeMsFilter } from "../lib/meiliFilter.js";
 import { MS_LISTED_FILTER, isListedPublicMusic } from "../lib/musicListing.js";
 import { suspensionService } from "./suspensionService.js";
+import { clearBlobAccessCache } from "./blobAccess.js";
 import { canonicalAudioType } from "../lib/audioMime.js";
 import { probeDurationSec } from "../lib/transcode.js";
 
@@ -209,6 +210,35 @@ export const musicService = {
     await db.insert(blobOwners).values({ sha256, pubkey }).onConflictDoNothing();
 
     return { url, sha256 };
+  },
+
+  /**
+   * Move the signer's ownership of `shas` to `to` (WIR-172 rotation). Per sha:
+   * the signer's blob_owners row becomes `to`'s (kept if `to` already has one),
+   * and music_uploads rows the signer holds for that sha are re-attributed.
+   * Shas the signer does not own are skipped, so a replay changes nothing.
+   */
+  async transferBlobs(signer: string, to: string, shas: string[]): Promise<{ moved: string[]; skipped: string[] }> {
+    const moved: string[] = [];
+    await db.transaction(async (tx) => {
+      const owned = await tx
+        .select({ sha256: blobOwners.sha256 })
+        .from(blobOwners)
+        .where(and(eq(blobOwners.pubkey, signer), inArray(blobOwners.sha256, shas)));
+      const ownedSet = new Set(owned.map((r) => r.sha256));
+      for (const sha of shas) {
+        if (!ownedSet.has(sha)) continue;
+        await tx.insert(blobOwners).values({ sha256: sha, pubkey: to }).onConflictDoNothing();
+        await tx.delete(blobOwners).where(and(eq(blobOwners.sha256, sha), eq(blobOwners.pubkey, signer)));
+        await tx
+          .update(musicUploads)
+          .set({ pubkey: to })
+          .where(and(eq(musicUploads.sha256, sha), eq(musicUploads.pubkey, signer)));
+        moved.push(sha);
+      }
+    });
+    if (moved.length > 0) clearBlobAccessCache();
+    return { moved, skipped: shas.filter((s) => !moved.includes(s)) };
   },
 
   /**

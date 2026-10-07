@@ -129,6 +129,28 @@ describe("music_update push through processEvent", () => {
     expect(await rowsFor(LUNA.pubkey)).toHaveLength(1);
   });
 
+  it("a shared project never pushes its `owner` holders, and titles from the artist tag without a kind 0 (WIR-172)", async () => {
+    const v1 = version(T0);
+    for (const fan of [LUNA.pubkey, SAGE.pubkey]) {
+      await savedVersionService.save(fan, ADDR, v1.id, v1.created_at);
+    }
+    await processEvent(
+      version(T0 + 100, [["p", SAGE.pubkey, "", "owner"], ["p", LUNA.pubkey, "", "collaborator"], ["artist", "the project"]]),
+      own,
+    );
+    expect(await rowsFor(SAGE.pubkey)).toHaveLength(0);
+    const rows = await rowsFor(LUNA.pubkey);
+    expect(rows).toHaveLength(1);
+    expect(rows[0].title).toBe("the project");
+  });
+
+  it("without a kind 0 or artist tag the title is the release title, never a hex stub", async () => {
+    const v1 = version(T0);
+    await savedVersionService.save(LUNA.pubkey, ADDR, v1.id, v1.created_at);
+    await processEvent(version(T0 + 100), own);
+    expect((await rowsFor(LUNA.pubkey))[0].title).toBe("EP One");
+  });
+
   it("an external relay never flags or pushes (music is own-relay only)", async () => {
     const v1 = version(T0);
     await savedVersionService.save(LUNA.pubkey, ADDR, v1.id, v1.created_at);
