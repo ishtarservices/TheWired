@@ -5,7 +5,11 @@ import { listingRequests, spaceCategories, relayDirectory, scenes } from "../db/
 import { parseZapSats } from "../lib/nostr/zapAmount.js";
 import { config } from "../config.js";
 import { suspensionService } from "./suspensionService.js";
+import { isListedPublicMusic } from "../lib/musicListing.js";
 import crypto from "crypto";
+
+/** Shares older than this never reach the "from spaces" rail (bounds the kind-9 scan). */
+export const SHARE_LOOKBACK_SEC = 90 * 86_400;
 
 /** Split a `tag=a,b,c` query value into a deduped, trimmed OR-list. */
 export function parseTagList(raw: string | undefined): string[] {
@@ -301,6 +305,138 @@ export const discoveryService = {
       ]);
     }
 
+    return { tracks: tracks.slice(0, limit), albums: albums.slice(0, limit) };
+  },
+
+  /**
+   * The honest "from spaces" rail (WIR-171): public releases that were SHARED
+   * into a listed space's music channel (a kind-9 shelf post carrying `a` +
+   * `channel`, docs/nips/NIP-XX-Music-Events.md "Kind-9 shelf post"). The join
+   * is share → space, never author → space, so "via <space>" is literally
+   * true. The gate stays on the release itself: a member may share a public
+   * track into a private room (the room stays private, the track was already
+   * public), while a space-exclusive, private, unlisted or catalog:none
+   * release never surfaces no matter where it was shared. Ranked by share
+   * recency; a release shared into several spaces collapses to its newest
+   * share. Shares older than SHARE_LOOKBACK_SEC are not scanned.
+   */
+  async getSharedSpaceMusic(opts: {
+    sort?: "recent" | "trending";
+    limit?: number;
+    poolSize?: number;
+  }) {
+    const limit = Math.min(opts.limit ?? 20, 100);
+    const poolSize = Math.min(Math.max(opts.poolSize ?? 500, limit), 1000);
+    const since = Math.floor(Date.now() / 1000) - SHARE_LOOKBACK_SEC;
+
+    // Newest share per release address, restricted to music-type channels of
+    // listed platform spaces. The `a` tag is read from the JSONB tags (the
+    // relay keeps no a_tags column); the channel match is containment on the
+    // channel's id.
+    // `share_count` = how many distinct listed spaces the release was shared
+    // into (the rail says "shared in 3 spaces"); the row itself is the newest
+    // share.
+    const shares = (await db.execute(sql`
+      WITH posts AS (
+        SELECT ref.addr, e.pubkey AS shared_by, e.created_at AS shared_at,
+               s.id AS space_id, s.name AS space_name, s.picture AS space_picture
+        FROM relay.events e
+        JOIN app.spaces s ON s.id = e.h_tag AND s.listed = true
+        JOIN app.space_channels c ON c.space_id = s.id AND c.type = 'music'
+        CROSS JOIN LATERAL (
+          SELECT t->>1 AS addr
+          FROM jsonb_array_elements(e.tags) t
+          WHERE t->>0 = 'a' AND (t->>1) ~ '^(31683|33123):[0-9a-f]{64}:'
+          LIMIT 1
+        ) ref
+        WHERE e.kind = 9
+          AND e.created_at >= ${since}
+          AND e.tags @> jsonb_build_array(jsonb_build_array('channel'::text, c.id))
+      )
+      , counts AS (
+        SELECT addr, COUNT(DISTINCT space_id)::int AS share_count FROM posts GROUP BY addr
+      )
+      SELECT DISTINCT ON (p.addr)
+        p.addr, p.shared_by, p.shared_at, p.space_id, p.space_name, p.space_picture, n.share_count
+      FROM posts p
+      JOIN counts n ON n.addr = p.addr
+      ORDER BY p.addr, p.shared_at DESC
+    `)) as unknown as Array<{
+      addr: string;
+      shared_by: string;
+      shared_at: number | string;
+      space_id: string;
+      space_name: string;
+      space_picture: string | null;
+      share_count: number;
+    }>;
+    if (shares.length === 0) return { tracks: [], albums: [] };
+
+    // Sharers under suspension don't get to put anything on the rail.
+    const liveShares = (await suspensionService.withoutSuspended(shares, (r) => r.shared_by))
+      .map((r) => ({ ...r, shared_at: Number(r.shared_at) }))
+      .sort((a, b) => b.shared_at - a.shared_at)
+      .slice(0, poolSize);
+    if (liveShares.length === 0) return { tracks: [], albums: [] };
+
+    const shareByAddr = new Map(liveShares.map((r) => [r.addr, r]));
+    const authors = [...new Set(liveShares.map((r) => r.addr.split(":")[1]))];
+    const authorList = sql.join(authors.map((p) => sql`${p}`), sql`, `);
+
+    // Newest stored version of each referenced release. The publicness gate is
+    // applied to THAT version in JS (isListedPublicMusic on the tags), not in
+    // SQL, so an older public version can never stand in for a release the
+    // author has since made private or space-exclusive.
+    const rows = (await db.execute(sql`
+      SELECT id, pubkey, kind, tags, content, created_at, sig
+      FROM relay.events
+      WHERE kind IN (31683, 33123)
+        AND pubkey IN (${authorList})
+      ORDER BY created_at DESC
+    `)) as unknown as Array<{
+      id: string;
+      pubkey: string;
+      kind: number;
+      tags: string[][];
+      content: string;
+      created_at: number | string;
+      sig: string;
+    }>;
+
+    const newestByAddr = new Map<string, (typeof rows)[number]>();
+    for (const r of rows) {
+      const d = r.tags.find((t) => t[0] === "d")?.[1];
+      if (d === undefined) continue;
+      const addr = `${r.kind}:${r.pubkey}:${d}`;
+      if (!shareByAddr.has(addr) || newestByAddr.has(addr)) continue;
+      newestByAddr.set(addr, r);
+    }
+
+    const candidates = [...newestByAddr.entries()]
+      .filter(([, r]) => isListedPublicMusic(r.tags))
+      .map(([addr, r]) => {
+        const share = shareByAddr.get(addr)!;
+        return {
+          ...r,
+          created_at: Number(r.created_at),
+          space: { id: share.space_id, name: share.space_name, picture: share.space_picture },
+          sharedAt: share.shared_at,
+          sharedBy: share.shared_by,
+          shareCount: share.share_count,
+        };
+      });
+    const visible = (await suspensionService.withoutSuspended(candidates, (r) => r.pubkey)).sort(
+      (a, b) => b.sharedAt - a.sharedAt,
+    );
+
+    let tracks = visible.filter((e) => e.kind === 31683);
+    let albums = visible.filter((e) => e.kind === 33123);
+    if (opts.sort === "trending") {
+      [tracks, albums] = await Promise.all([
+        rankByTrending(tracks, "trending:music:tracks"),
+        rankByTrending(albums, "trending:music:albums"),
+      ]);
+    }
     return { tracks: tracks.slice(0, limit), albums: albums.slice(0, limit) };
   },
 

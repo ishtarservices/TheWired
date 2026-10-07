@@ -51,6 +51,7 @@ export function channelFor(type: string): ExpoChannel {
       return "spaces";
     case "post":
     case "release":
+    case "music_update":
       return "releases";
     case "reply":
     case "mention":
@@ -70,6 +71,7 @@ const NOUN: Record<string, string> = {
   chat: "mentions",
   post: "posts",
   release: "releases",
+  music_update: "music updates",
   report: "reports",
 };
 

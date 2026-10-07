@@ -55,7 +55,7 @@ removes the event from "this author's discography" and "public discovery":
 | `/music/resolve/*`, `/music/access`, HLS, blobs, insights, proposals | as today | **unchanged**, as today |
 | `/music/browse`, `/music/browse/albums`, trending sets | included | **excluded** (trending computer, Meilisearch query filter, route re-check) |
 | `/search/music` | indexed + returned | indexed, **filtered out** at query time |
-| `/discovery/spaces/music` | included | **excluded** |
+| `/discovery/spaces/music` (both `source=members` and `source=shares`) | included | **excluded** |
 | Genre/tag counts | counted | not counted |
 | OG track page | full metadata | full metadata (a shared note link should unfurl) |
 | OG catalog page (`fetchPublicCatalogByPubkey`) | listed | **excluded** |
@@ -240,3 +240,36 @@ Mobile wants "share a private WIP so the recipient can actually play it":
   capability-by-obscurity; the backend cannot gate what it cannot see.
 - `visibility:unlisted` has no distinct behavior server-side; it is an alias of
   private until a product decision says otherwise.
+
+## "From spaces" rail: shares, not membership
+
+`GET /discovery/spaces/music?source=shares` serves public releases that were
+**shared into a listed space's music channel** (a kind-9 shelf post carrying
+`a` + `channel`, see `docs/nips/NIP-XX-Music-Events.md` "Kind-9 shelf post"),
+annotated with the space the share landed in, ranked by share recency and
+collapsed to each release's newest share (`sharedAt`, `sharedBy`, `shareCount`).
+The default `source=members` is the older author-join (public music by people
+who run or belong to a listed space).
+
+The gate is on the **release**, never the share: the newest stored version of
+the release must have no `h`, no `visibility` and no `catalog:none`. A member
+may share a public track into a private room (the room stays private, the
+track was already public); a space-exclusive, private or unlisted release never
+surfaces no matter where it was shared, and a release whose newest version went
+private drops off even though an older public version is still stored. Shares
+by suspended pubkeys and releases by suspended authors are dropped, as is any
+share older than 90 days (`SHARE_LOOKBACK_SEC`). Shares on decentralized-space
+relays are not scanned; the rail reads the platform relay's `relay.events`.
+
+## Cover art of protected releases
+
+`POST /music/upload/cover` records the uploader as the blob's owner, so a
+cover referenced by the author's private / space-scoped release (`image` tag,
+or an `imeta` with `m image/*`) is gated by the same blob layer as the audio.
+Header-less image loaders get the `?tk=` form from the access routes:
+`GET /music/access/:pubkey/:slug` (track) returns `cover: { sha256, gated, url,
+exp? }` next to the audio token, and `GET /music/access/album/:pubkey/:slug`
+returns it for a project. A cover is minted only when the blob layer itself
+would serve the viewer; a cover hosted elsewhere (public Blossom) comes back
+`gated: false` with its plain URL. Clients should upload covers of protected
+releases here, not to a public host.

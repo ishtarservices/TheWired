@@ -12,6 +12,7 @@ import { enqueueNotification } from "../services/notificationEnqueue.js";
 import {
   KIND_GIFT_WRAP,
   planNotifications,
+  preview,
   RELEASE_KINDS,
   threadParentId,
   type PlanDeps,
@@ -19,7 +20,7 @@ import {
 import { watchedBy } from "../db/schema/notifications.js";
 import { revisionService } from "../services/revisionService.js";
 import { proposalService } from "../services/proposalService.js";
-import { savedVersionService } from "../services/savedVersionService.js";
+import { savedVersionService, addressableIdOf as savedVersionAddress } from "../services/savedVersionService.js";
 import { eq, and, sql } from "drizzle-orm";
 import { buildMusicSearchDoc } from "../lib/musicSearchDoc.js";
 import { escapeMsFilter } from "../lib/meiliFilter.js";
@@ -640,9 +641,45 @@ async function flagSavedVersions(event: NostrEvent) {
     const audience = isNonPublicEvent(event)
       ? event.tags.filter((t) => t[0] === "p" && t[1]).map((t) => t[1])
       : null;
-    await savedVersionService.flagUpdates(event, audience);
+    const flagged = await savedVersionService.flagUpdates(event, audience);
+    await pushSavedVersionUpdates(event, flagged);
   } catch (err) {
     console.error("[ingester] Failed to flag saved versions:", (err as Error).message);
+  }
+}
+
+/**
+ * One `music_update` push per fan whose saved row was just flagged (WIR-171).
+ * Only ever reached from the own relay (decideAction gates 31683/33123), and
+ * only for rows flagUpdates actually moved — a backfill re-ingest flags
+ * nobody, so it pushes to nobody. The author never gets one for their own
+ * edit. Body carries the public title only; a non-public event reaches only
+ * the fans it is addressed to (the audience flagUpdates was given).
+ */
+async function pushSavedVersionUpdates(event: NostrEvent, fans: string[]) {
+  const recipients = fans.filter((p) => p !== event.pubkey);
+  if (recipients.length === 0) return;
+  const address = savedVersionAddress(event);
+  if (!address) return;
+  const noun = event.kind === 33123 ? "project" : "track";
+  const title = preview(getTagValue(event, "title") ?? "untitled", 80);
+  let actorName: string | undefined;
+  try {
+    const [p] = await profileCacheService.getBatchProfiles([event.pubkey]);
+    actorName = p?.displayName?.trim() || p?.name?.trim() || undefined;
+  } catch {
+    // no name → short handle
+  }
+  for (const recipient of recipients) {
+    await enqueueNotification({
+      pubkey: recipient,
+      type: "music_update",
+      title: actorName ?? `${event.pubkey.slice(0, 8)}…`,
+      body: `updated ${noun}: ${title}`,
+      url: `soot://music/${noun === "track" ? "track" : "album"}/${address}`,
+      collapseKey: `music_update:${recipient}`,
+      data: { address, actor: event.pubkey, kind: event.kind, eventId: event.id },
+    });
   }
 }
 

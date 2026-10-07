@@ -69,6 +69,16 @@ describe("/notifications/preferences", () => {
     expect((await get(LUNA.pubkey)).json().data.dndUntil).toBeNull();
   });
 
+  it("carries the musicUpdates switch (default on) and round-trips it", async () => {
+    expect((await get(LUNA.pubkey)).json().data.musicUpdates).toBe(true);
+    expect((await put(LUNA.pubkey, { musicUpdates: false })).statusCode).toBe(200);
+    expect((await get(LUNA.pubkey)).json().data.musicUpdates).toBe(false);
+    // Untouched by a PUT that doesn't mention it.
+    await put(LUNA.pubkey, { zaps: false });
+    expect((await get(LUNA.pubkey)).json().data).toMatchObject({ musicUpdates: false, zaps: false });
+    expect((await put(LUNA.pubkey, { musicUpdates: "yes" })).statusCode).toBe(400);
+  });
+
   it("validates modes, pubkeys and sizes", async () => {
     expect((await put(LUNA.pubkey, { spaceModes: { s1: "loud" } })).statusCode).toBe(400);
     expect((await put(LUNA.pubkey, { watchedPubkeys: ["not-hex"] })).statusCode).toBe(400);

@@ -95,6 +95,59 @@ function extractAudioSha(tags: string[][]): string | null {
   return fallback;
 }
 
+/** Extract the cover-art blob sha256: the `image` tag URL, or an `imeta` whose
+ *  `m` is image/*. Null when the cover is not addressed by sha (e.g. a public
+ *  Blossom host URL without one, or no cover). */
+function extractCoverSha(tags: string[][]): string | null {
+  for (const tag of tags) {
+    if (tag[0] === "image" && typeof tag[1] === "string") {
+      const m = tag[1].match(/[0-9a-f]{64}/);
+      if (m) return m[0];
+    }
+  }
+  for (const tag of tags) {
+    if (tag[0] !== "imeta") continue;
+    const parts: Record<string, string> = {};
+    for (let i = 1; i < tag.length; i++) {
+      const sp = tag[i].indexOf(" ");
+      if (sp > 0) parts[tag[i].slice(0, sp)] = tag[i].slice(sp + 1);
+    }
+    if (!parts.m?.startsWith("image/")) continue;
+    if (parts.x && /^[0-9a-f]{64}$/.test(parts.x)) return parts.x;
+    const m = parts.url?.match(/[0-9a-f]{64}/);
+    if (m) return m[0];
+  }
+  return null;
+}
+
+export interface CoverAccess {
+  sha256: string;
+  /** True when the blob layer gates this sha; `url` then carries `?tk=`. */
+  gated: boolean;
+  url: string;
+  exp?: number;
+}
+
+/**
+ * Cover-art access for a viewer already authorized on the event (WIR-171):
+ * header-less image loaders (expo-image, <img>) need the `?tk=` form like
+ * audio does. Same mint rule as the audio sha — a token is minted only when the
+ * blob layer itself would serve this viewer (protection is decided by the
+ * sha's UPLOADERS' events, blobAccess), so a stranger's event pointing at
+ * someone else's protected cover can't mint for it. A cover that is not
+ * protected (public, or not hosted here) comes back `gated: false` with the
+ * plain URL; a protected cover the blob layer refuses this viewer is omitted.
+ */
+async function coverAccessFor(tags: string[][], authPubkey: string | null): Promise<CoverAccess | null> {
+  const sha = extractCoverSha(tags);
+  if (!sha) return null;
+  const refs = await getProtectedRefsForBlob(sha);
+  if (refs.length === 0) return { sha256: sha, gated: false, url: `${config.publicUrl}/${sha}` };
+  if (!(await authorizeProtectedRefs(refs, authPubkey))) return null;
+  const { token, exp } = mintMediaToken(sha);
+  return { sha256: sha, gated: true, url: `${config.publicUrl}/${sha}?tk=${token}`, exp };
+}
+
 export const musicRoutes: FastifyPluginAsync = async (server) => {
   // GET /music/resolve/album/:pubkey/:slug -- Resolve album by addressable ID
   server.get<{ Params: { pubkey: string; slug: string } }>(
@@ -557,9 +610,10 @@ export const musicRoutes: FastifyPluginAsync = async (server) => {
       if (!allowed) return;
 
       const sha = extractAudioSha(event.tags);
+      const cover = await coverAccessFor(event.tags, authPubkey);
       // No plaintext sha (e.g. NIP-44-encrypted track) → backend can't gate the blob;
       // no token needed and the client plays the decrypted URL directly.
-      if (!sha) return { data: { gated: false as const } };
+      if (!sha) return { data: { gated: false as const, cover } };
 
       // A token unlocks every rendition of the sha, so it may only be minted
       // when the blob layer itself would serve this viewer: the sha's
@@ -597,8 +651,45 @@ export const musicRoutes: FastifyPluginAsync = async (server) => {
           sha256: sha,
           blobUrl: `${config.publicUrl}/${sha}?tk=${token}`,
           hlsMaster,
+          cover,
         },
       };
+    },
+  );
+
+  // GET /music/access/album/:pubkey/:slug -- Cover-art capability for a gated
+  // project (33123 has no audio of its own; its tracks mint through the track
+  // route). Public projects return { gated: false }; a protected one returns
+  // `cover` for an authorized viewer, 404 otherwise, same policy as /resolve.
+  server.get<{ Params: { pubkey: string; slug: string } }>(
+    "/access/album/:pubkey/:slug",
+    async (request, reply) => {
+      const params = validate(pubkeySlugParams, request.params, reply);
+      if (!params) return;
+      const { pubkey, slug } = params;
+
+      const rows = (await db.execute(
+        sql`SELECT id, pubkey, created_at, kind, tags, content, sig
+            FROM relay.events
+            WHERE kind = 33123
+              AND pubkey = ${pubkey}
+              AND tags @> ${JSON.stringify([["d", slug]])}::jsonb
+            ORDER BY created_at DESC
+            LIMIT 1`,
+      )) as unknown as RelayEvent[];
+      if (rows.length === 0) {
+        return reply.status(404).send({ error: "Album not found", code: "NOT_FOUND" });
+      }
+      const event = rows[0];
+      const isProtected =
+        event.tags.some((t) => t[0] === "h" && !!t[1]) || hasProtectedVisibility(event.tags);
+      if (!isProtected) return { data: { gated: false as const } };
+
+      const authPubkey = (request.headers["x-auth-pubkey"] as string) ?? null;
+      const allowed = await checkEventVisibility(event, pubkey, authPubkey, reply);
+      if (!allowed) return;
+
+      return { data: { gated: true as const, cover: await coverAccessFor(event.tags, authPubkey) } };
     },
   );
 

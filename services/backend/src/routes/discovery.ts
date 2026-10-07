@@ -17,6 +17,10 @@ const spacesQuerySchema = z.object({
 
 const spaceMusicQuerySchema = z.object({
   sort: z.enum(["recent", "trending"]).optional(),
+  /** `members` (default): public music by people who run or belong to a listed
+   *  space. `shares`: public releases shared into a listed space's music
+   *  channel — the only source under which "via <space>" is literally true. */
+  source: z.enum(["members", "shares"]).optional(),
   limit: limitParam(20, 100),
 });
 
@@ -78,15 +82,15 @@ export const discoveryRoutes: FastifyPluginAsync = async (server) => {
   // GET /discovery/spaces/music — music arriving through listed spaces.
   // Guest-readable (no NIP-98): mobile browses explore signed out.
   server.get<{
-    Querystring: { sort?: "recent" | "trending"; limit?: string };
+    Querystring: { sort?: "recent" | "trending"; source?: "members" | "shares"; limit?: string };
   }>("/spaces/music", async (request, reply) => {
     const query = validate(spaceMusicQuerySchema, request.query, reply);
     if (!query) return;
 
-    const results = await discoveryService.getListedSpaceMusic({
-      sort: query.sort ?? "recent",
-      limit: query.limit,
-    });
+    const results =
+      query.source === "shares"
+        ? await discoveryService.getSharedSpaceMusic({ sort: query.sort ?? "recent", limit: query.limit })
+        : await discoveryService.getListedSpaceMusic({ sort: query.sort ?? "recent", limit: query.limit });
 
     // Defensive filter, mirroring /music/browse: the service already restricts
     // to h_tag/visibility NULL and no `["catalog","none"]` in SQL, but a public

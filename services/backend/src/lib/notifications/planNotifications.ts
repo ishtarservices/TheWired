@@ -36,7 +36,9 @@ export type NotificationType =
   | "post"
   | "release"
   | "friend_request"
-  | "follow";
+  | "follow"
+  /** A saved track / project has a newer version (savedVersionService). */
+  | "music_update";
 
 export interface NotificationIntent {
   recipient: string;
