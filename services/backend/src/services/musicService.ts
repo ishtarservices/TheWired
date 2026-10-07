@@ -12,7 +12,7 @@ import { config } from "../config.js";
 import { getTranscodeQueue } from "../lib/queue.js";
 import { buildMusicSearchDoc } from "../lib/musicSearchDoc.js";
 import { escapeMsFilter } from "../lib/meiliFilter.js";
-import { MS_LISTED_FILTER, isListedPublicMusic } from "../lib/musicListing.js";
+import { MS_LISTED_FILTER, isIndexableMusic, isListedPublicMusic } from "../lib/musicListing.js";
 import { suspensionService } from "./suspensionService.js";
 import { clearBlobAccessCache } from "./blobAccess.js";
 import { canonicalAudioType } from "../lib/audioMime.js";
@@ -283,14 +283,11 @@ export const musicService = {
         if (suspended.has(row.pubkey)) continue; // hidden while suspended
         const tags = row.tags;
         const genre = tags.find((t) => t[0] === "genre")?.[1] ?? "";
-        const visibility = tags.find((t) => t[0] === "visibility")?.[1];
-        const hTag = tags.find((t) => t[0] === "h")?.[1];
         const hashtags = tags.filter((t) => t[0] === "t").map((t) => t[1]);
-        const isPublic = !visibility && !hTag;
 
         // Index every public track (the doc carries `unlisted` so browse/search
         // can filter it while insights still enumerate it)...
-        if (isPublic) {
+        if (isIndexableMusic(tags)) {
           msDocs.push(
             buildMusicSearchDoc(
               { id: row.id, pubkey: row.pubkey, created_at: Number(row.created_at), tags },
@@ -334,13 +331,10 @@ export const musicService = {
         if (suspended.has(row.pubkey)) continue; // hidden while suspended
         const tags = row.tags;
         const genre = tags.find((t) => t[0] === "genre")?.[1] ?? "";
-        const visibility = tags.find((t) => t[0] === "visibility")?.[1];
-        const hTag = tags.find((t) => t[0] === "h")?.[1];
         const hashtags = tags.filter((t) => t[0] === "t").map((t) => t[1]);
-        const isPublic = !visibility && !hTag;
 
         // Only index and count public albums
-        if (isPublic) {
+        if (isIndexableMusic(tags)) {
           msDocs.push(
             buildMusicSearchDoc(
               { id: row.id, pubkey: row.pubkey, created_at: Number(row.created_at), tags },
@@ -762,9 +756,10 @@ export const musicService = {
       const tags = row.tags;
       const genre = tags.find((t) => t[0] === "genre")?.[1];
       const hashtags = tags.filter((t) => t[0] === "t").map((t) => t[1]);
+      // Only undo counts this event added (an unlisted or private one never did).
+      if (!(await redis.srem("music:counted_events", row.id))) continue;
       if (genre) await redis.zincrby("music:genre_counts", -1, genre);
       for (const t of hashtags) await redis.zincrby("music:tag_counts", -1, t);
-      await redis.srem("music:counted_events", row.id);
     }
     await redis.zremrangebyscore("music:genre_counts", "-inf", "0");
     await redis.zremrangebyscore("music:tag_counts", "-inf", "0");

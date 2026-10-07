@@ -66,6 +66,7 @@ vi.mock("../src/lib/meilisearch.js", () => {
     deleteDocument: vi.fn().mockResolvedValue({ taskUid: 0 }),
     deleteDocuments: vi.fn().mockResolvedValue({ taskUid: 0 }),
     search: vi.fn().mockResolvedValue({ hits: [], estimatedTotalHits: 0 }),
+    waitForTask: vi.fn().mockResolvedValue({ status: "succeeded" }),
     updateSettings: vi.fn().mockResolvedValue({ taskUid: 0 }),
     updateSearchableAttributes: vi.fn().mockResolvedValue({ taskUid: 0 }),
     updateFilterableAttributes: vi.fn().mockResolvedValue({ taskUid: 0 }),

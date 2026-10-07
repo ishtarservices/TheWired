@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { CATALOG_TAG, isUnlisted, isListedPublicMusic } from "../../src/services/musicVisibility.js";
-import { MS_LISTED_FILTER } from "../../src/lib/musicListing.js";
+import { MS_LISTED_FILTER, isIndexableMusic, isMovedStub } from "../../src/lib/musicListing.js";
 import { buildMusicSearchDoc } from "../../src/lib/musicSearchDoc.js";
 
 /**
@@ -42,6 +42,10 @@ describe("isListedPublicMusic", () => {
     expect(isListedPublicMusic([...base, ["catalog", "featured"]])).toBe(true);
   });
 
+  it("rejects a shared project's moved stub", () => {
+    expect(isListedPublicMusic([...base, ["moved", "31683:k2:clip"]])).toBe(false);
+  });
+
   it("matches the Meilisearch clause used by browse/search", () => {
     // Legacy docs indexed before `unlisted` existed have no attribute; the
     // clause is a NOT so they keep matching (verified on Meilisearch 1.6.2).
@@ -59,5 +63,32 @@ describe("buildMusicSearchDoc catalog listing", () => {
   it("marks ordinary tracks and every album listed", () => {
     expect(buildMusicSearchDoc(ev(base), 31683).unlisted).toBe(false);
     expect(buildMusicSearchDoc(ev(base), 33123).unlisted).toBe(false);
+  });
+});
+
+describe("isMovedStub", () => {
+  it("is true only for a valued moved tag", () => {
+    expect(isMovedStub([...base, ["moved", "33123:k2:clip"]])).toBe(true);
+    expect(isMovedStub([...base, ["moved"]])).toBe(false);
+    expect(isMovedStub(base)).toBe(false);
+  });
+});
+
+describe("isIndexableMusic", () => {
+  it("indexes public tracks, unlisted ones included", () => {
+    expect(isIndexableMusic(base)).toBe(true);
+    expect(isIndexableMusic([...base, ["catalog", "none"]])).toBe(true);
+  });
+
+  it("never indexes protected versions or moved stubs", () => {
+    expect(isIndexableMusic([...base, ["visibility", "private"]])).toBe(false);
+    expect(isIndexableMusic([...base, ["h", "some-space"]])).toBe(false);
+    expect(isIndexableMusic([...base, ["moved", "31683:k2:clip"]])).toBe(false);
+  });
+
+  it("reads the protected shape by value, like ingest and the relay", () => {
+    // A value-less leading tag must not mask a later real one.
+    expect(isIndexableMusic([...base, ["h"], ["h", "some-space"]])).toBe(false);
+    expect(isIndexableMusic([...base, ["h"]])).toBe(true);
   });
 });

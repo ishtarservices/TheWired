@@ -1,6 +1,7 @@
 import { getMeilisearchClient } from "../lib/meilisearch.js";
 import { escapeMsFilter } from "../lib/meiliFilter.js";
 import { MS_LISTED_FILTER } from "../lib/musicListing.js";
+import { newestPerAddress } from "../lib/musicSearchDoc.js";
 import { suspensionService } from "./suspensionService.js";
 
 /** Sort fields a people query may order by. Allowlisted — never pass user input through. */
@@ -101,8 +102,9 @@ export const searchService = {
     // (insights) but never surfaced by search. Albums never carry the tag.
     const trackFilter = [MS_LISTED_FILTER, ...filters].join(" AND ");
 
+    // One hit per release, even while the index still holds older versions.
     const visible = (hits: Record<string, unknown>[]) =>
-      suspensionService.withoutSuspended(hits, (h) => h.pubkey as string | undefined);
+      suspensionService.withoutSuspended(newestPerAddress(hits), (h) => h.pubkey as string | undefined);
     if (opts?.type === "track") {
       const results = await client.index("tracks").search(query, { limit, filter: trackFilter });
       return visible(results.hits);
