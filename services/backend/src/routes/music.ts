@@ -67,6 +67,11 @@ const saveVersionsBody = z.object({
   items: z.array(saveVersionBody).min(1).max(200),
 });
 
+const blobTransferBody = z.object({
+  to: hexId,
+  shas: z.array(z.string().regex(/^[0-9a-f]{64}$/)).min(1).max(200),
+});
+
 const forgetVersionBody = z.union([
   z.object({ addressableId: nonEmptyString }),
   z.object({ addressableIds: z.array(nonEmptyString).min(1).max(200) }),
@@ -692,6 +697,27 @@ export const musicRoutes: FastifyPluginAsync = async (server) => {
       return { data: { gated: true as const, cover: await coverAccessFor(event.tags, authPubkey) } };
     },
   );
+
+  // POST /music/blobs/transfer -- Move blob ownership from the signer to a
+  // successor pubkey (WIR-172: shared-project key rotation K1 → K2, and
+  // converting a personal project to a shared key). A MOVE, not a copy: after
+  // it, only K2-authored events decide the blobs' protection, so a removed
+  // holder who still has K1 cannot publicise the audio through a public K1
+  // event. Only shas the signer owns move; everything else is reported in
+  // `skipped`, which makes a replay a no-op (idempotent).
+  server.post("/blobs/transfer", async (request, reply) => {
+    const signer = (request.headers["x-auth-pubkey"] as string) ?? null;
+    if (!signer) {
+      return reply.status(401).send({ error: "Authentication required", code: "UNAUTHORIZED" });
+    }
+    const body = validate(blobTransferBody, request.body, reply);
+    if (!body) return;
+    if (body.to === signer) {
+      return reply.status(400).send({ error: "Successor must differ from the signer", code: "BAD_REQUEST" });
+    }
+    const result = await musicService.transferBlobs(signer, body.to, [...new Set(body.shas)]);
+    return { data: result };
+  });
 
   // POST /music/admin/transcode-backfill -- Enqueue pending transcodes.
   // Admin-gated (comma-separated hex pubkeys in ADMIN_PUBKEYS). Batched;

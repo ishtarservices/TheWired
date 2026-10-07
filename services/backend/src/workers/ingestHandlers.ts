@@ -657,7 +657,14 @@ async function flagSavedVersions(event: NostrEvent) {
  * the fans it is addressed to (the audience flagUpdates was given).
  */
 async function pushSavedVersionUpdates(event: NostrEvent, fans: string[]) {
-  const recipients = fans.filter((p) => p !== event.pubkey);
+  // A shared project (WIR-172) is signed by its project key and names its
+  // human holders ["p", x, "", "owner"]; they edited it, so they are not
+  // fans to notify. Excluding is safe even when the tag is spoofed: naming
+  // someone `owner` only mutes pushes about THIS event for them.
+  const owners = new Set(
+    event.tags.filter((t) => t[0] === "p" && t[1] && t[3] === "owner").map((t) => t[1]),
+  );
+  const recipients = fans.filter((p) => p !== event.pubkey && !owners.has(p));
   if (recipients.length === 0) return;
   const address = savedVersionAddress(event);
   if (!address) return;
@@ -668,13 +675,16 @@ async function pushSavedVersionUpdates(event: NostrEvent, fans: string[]) {
     const [p] = await profileCacheService.getBatchProfiles([event.pubkey]);
     actorName = p?.displayName?.trim() || p?.name?.trim() || undefined;
   } catch {
-    // no name → short handle
+    // no name → tags
   }
+  // No kind 0 (a project key has none unless the project is public): the
+  // artist credit, then the release title, never a hex stub.
+  const artist = getTagValue(event, "artist")?.trim();
   for (const recipient of recipients) {
     await enqueueNotification({
       pubkey: recipient,
       type: "music_update",
-      title: actorName ?? `${event.pubkey.slice(0, 8)}…`,
+      title: actorName ?? (artist ? preview(artist, 80) : title),
       body: `updated ${noun}: ${title}`,
       url: `soot://music/${noun === "track" ? "track" : "album"}/${address}`,
       collapseKey: `music_update:${recipient}`,

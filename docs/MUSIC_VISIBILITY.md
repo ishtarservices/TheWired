@@ -141,6 +141,7 @@ Music p-tags carry a role in the 4th element: `["p", <pubkey>, <relay>, <role>]`
 
 | Role | Grants access to private content? |
 |---|---|
+| `owner` | yes (human holder of a shared project key; the event is signed by the project key, so this is how holders read their own gated project as themselves — WIR-172) |
 | `collaborator` | yes (project member: viewer) |
 | `contributor` | yes (project member: may add their own tracks via kind-31685 proposals) |
 | `editor` | yes (project member: may propose any change) |

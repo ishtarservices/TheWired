@@ -20,11 +20,13 @@
 
 use crate::nostr::event::Event;
 
-/// p-tag roles (4th element) that unlock protected content. `featured` and
-/// any unknown role are credits, not grants; a role-less p tag keeps granting
-/// for events that predate roles. Keep in sync with
+/// p-tag roles (4th element) that unlock protected content. `owner` is a human
+/// holder of a shared project key (WIR-172: the event is signed by the project
+/// key, so this is how holders read their own gated project as themselves).
+/// `featured` and any unknown role are credits, not grants; a role-less p tag
+/// keeps granting for events that predate roles. Keep in sync with
 /// `services/backend/src/services/blobAccess.ts` ACCESS_ROLES.
-pub const ACCESS_ROLES: [&str; 4] = ["artist", "collaborator", "contributor", "editor"];
+pub const ACCESS_ROLES: [&str; 5] = ["owner", "artist", "collaborator", "contributor", "editor"];
 
 /// Does this `p` tag grant `pubkey` access to protected content?
 pub fn p_tag_grants_access(tag: &[String], pubkey: &str) -> bool {
@@ -189,7 +191,7 @@ mod tests {
 
     #[test]
     fn sql_role_list_is_stable() {
-        assert_eq!(sql_granting_roles(), "'', 'artist', 'collaborator', 'contributor', 'editor'");
+        assert_eq!(sql_granting_roles(), "'', 'owner', 'artist', 'collaborator', 'contributor', 'editor'");
         let p = pg_visible_predicate("$4", "h_tags && ARRAY[]::text[]", "e.");
         assert!(p.contains("e.pubkey = $4"));
         assert!(p.contains("e.visibility IS NULL AND (e.h_tag IS NULL OR h_tags && ARRAY[]::text[])"));
