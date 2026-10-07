@@ -59,6 +59,7 @@ describe("preferencesAllow (pure)", () => {
     zaps: true,
     releases: true,
     friendRequests: true,
+    musicUpdates: true,
     spaceModes: {} as Record<string, "all" | "mentions" | "nothing">,
     watchedPubkeys: [] as string[],
     dndUntil: null as number | null,
@@ -80,6 +81,8 @@ describe("preferencesAllow (pure)", () => {
     expect(preferencesAllow({ ...base, mentions: false }, "mention", undefined)).toBe(false);
     expect(preferencesAllow({ ...base, releases: false }, "release", undefined)).toBe(false);
     expect(preferencesAllow({ ...base, releases: false }, "post", undefined)).toBe(false);
+    expect(preferencesAllow({ ...base, musicUpdates: false }, "music_update", undefined)).toBe(false);
+    expect(preferencesAllow({ ...base, releases: false }, "music_update", undefined)).toBe(true);
     expect(preferencesAllow({ ...base, chatMessages: false }, "chat", { spaceId: "s1" })).toBe(false);
     expect(preferencesAllow(base, "chat", { spaceId: "s1" })).toBe(true);
   });

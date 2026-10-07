@@ -655,7 +655,7 @@ Expanded from basic upload/playback into a full artist + release workflow.
 
 - **Revisions (`app.music_revisions`):** Track-level revision history with release notes
 - **Proposals (`app.music_proposals`):** Draft edits submitted for approval (collaborative editing)
-- **Saved versions (`app.saved_album_versions`):** The version of a saved track/project a fan has; the ingester flags `has_update` only for a strictly newer event (and records it in `latest_*`), the client derives "Update Available" from saved-vs-newest-known, and a `music_update` notification (toggleable) fires for new releases
+- **Saved versions (`app.saved_album_versions`):** The version of a saved track/project a fan has; the ingester flags `has_update` only for a strictly newer event (and records it in `latest_*`), the client derives "Update Available" from saved-vs-newest-known, and a `music_update` notification (toggleable via the `musicUpdates` preference) fires in-app and as a server push to every fan whose saved row was flagged (never the author, one per address per day)
 - **Annotations:** Track-anchored comments (like SoundCloud) -- `AnnotationCard`, `AnnotationsPanel`
 - **Insights (`/insights`):** Artist dashboard with play counts, listener metrics, chart components
 - **Plays tracking (`app.music_plays`, migration 0014):** Per-user listening history

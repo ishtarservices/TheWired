@@ -58,13 +58,15 @@ export function addressableIdOf(event: VersionEvent): string | null {
 export const savedVersionService = {
   /**
    * Flag every fan whose saved version of this address is older than `event`.
-   * Returns the number of rows flagged. `audience` limits the flag to those
-   * pubkeys (used for non-public events); null = everyone who saved it.
+   * Returns the pubkeys of the rows flagged (the ingester pushes to exactly
+   * these — a re-ingest flags nobody, so it pushes to nobody). `audience`
+   * limits the flag to those pubkeys (used for non-public events); null =
+   * everyone who saved it.
    */
-  async flagUpdates(event: VersionEvent, audience: string[] | null = null): Promise<number> {
+  async flagUpdates(event: VersionEvent, audience: string[] | null = null): Promise<string[]> {
     const addr = addressableIdOf(event);
-    if (!addr) return 0;
-    if (audience !== null && audience.length === 0) return 0;
+    if (!addr) return [];
+    if (audience !== null && audience.length === 0) return [];
 
     const audienceClause =
       audience === null
@@ -72,21 +74,18 @@ export const savedVersionService = {
         : sql` AND pubkey IN (${sql.join(audience.map((p) => sql`${p}`), sql`, `)})`;
 
     const rows = (await db.execute(sql`
-      WITH flagged AS (
-        UPDATE app.saved_album_versions
-           SET has_update = TRUE,
-               latest_event_id = ${event.id},
-               latest_created_at = ${event.created_at}
-         WHERE addressable_id = ${addr}
-           AND saved_event_id <> ${event.id}
-           AND saved_created_at < ${event.created_at}
-           AND (latest_created_at IS NULL OR latest_created_at < ${event.created_at})
-           ${audienceClause}
-        RETURNING 1
-      )
-      SELECT COUNT(*)::int AS n FROM flagged
-    `)) as unknown as Array<{ n: number }>;
-    return rows[0]?.n ?? 0;
+      UPDATE app.saved_album_versions
+         SET has_update = TRUE,
+             latest_event_id = ${event.id},
+             latest_created_at = ${event.created_at}
+       WHERE addressable_id = ${addr}
+         AND saved_event_id <> ${event.id}
+         AND saved_created_at < ${event.created_at}
+         AND (latest_created_at IS NULL OR latest_created_at < ${event.created_at})
+         ${audienceClause}
+      RETURNING pubkey
+    `)) as unknown as Array<{ pubkey: string }>;
+    return rows.map((r) => r.pubkey);
   },
 
   async list(pubkey: string): Promise<SavedVersionRow[]> {

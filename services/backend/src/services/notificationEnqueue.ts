@@ -73,6 +73,9 @@ export function preferencesAllow(
     case "chat":
       if (!p.chatMessages) return false;
       break;
+    case "music_update":
+      if (!p.musicUpdates) return false;
+      break;
     default:
       break;
   }
@@ -121,8 +124,10 @@ export async function enqueueNotification(params: EnqueueParams): Promise<boolea
       if (ok !== "OK") return false;
     }
 
-    if (type === "release" && typeof data?.address === "string") {
-      const ok = await getRedis().set(`notif:release:${pubkey}:${data.address}`, "1", "EX", RELEASE_DEDUPE_SEC, "NX");
+    // Releases AND saved-version updates are addressable: a tag fix republishes
+    // the same address minutes later, so one push per fan per address per day.
+    if ((type === "release" || type === "music_update") && typeof data?.address === "string") {
+      const ok = await getRedis().set(`notif:${type}:${pubkey}:${data.address}`, "1", "EX", RELEASE_DEDUPE_SEC, "NX");
       if (ok !== "OK") return false;
     }
 

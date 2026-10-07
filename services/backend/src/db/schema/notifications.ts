@@ -65,6 +65,8 @@ export const notificationPreferences = appSchema.table("notification_preferences
   zaps: boolean("zaps").notNull().default(true),
   releases: boolean("releases").notNull().default(true),
   friendRequests: boolean("friend_requests").notNull().default(true),
+  /** A saved track / project got a newer version (music_update pushes). */
+  musicUpdates: boolean("music_updates").notNull().default(true),
   spaceModes: jsonb("space_modes").$type<Record<string, SpaceNotifMode>>().notNull().default({}),
   watchedPubkeys: jsonb("watched_pubkeys").$type<string[]>().notNull().default([]),
   /** unix ms; null = off. */

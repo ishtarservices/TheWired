@@ -45,28 +45,28 @@ async function rowFor(pubkey: string) {
 describe("savedVersionService.flagUpdates", () => {
   it("does not flag when the saved event is re-ingested (relay backfill)", async () => {
     await savedVersionService.save(LUNA.pubkey, ADDR, V1.id, V1.created_at);
-    expect(await savedVersionService.flagUpdates(albumEvent(V1))).toBe(0);
+    expect(await savedVersionService.flagUpdates(albumEvent(V1))).toEqual([]);
     expect((await rowFor(LUNA.pubkey))?.hasUpdate).toBe(false);
   });
 
   it("does not flag for an older event than the saved one", async () => {
     await savedVersionService.save(LUNA.pubkey, ADDR, V2.id, V2.created_at);
-    expect(await savedVersionService.flagUpdates(albumEvent(V1))).toBe(0);
+    expect(await savedVersionService.flagUpdates(albumEvent(V1))).toEqual([]);
     expect((await rowFor(LUNA.pubkey))?.hasUpdate).toBe(false);
   });
 
   it("flags once for a strictly newer event and records it; re-ingest is a no-op", async () => {
     await savedVersionService.save(LUNA.pubkey, ADDR, V1.id, V1.created_at);
-    expect(await savedVersionService.flagUpdates(albumEvent(V2))).toBe(1);
+    expect(await savedVersionService.flagUpdates(albumEvent(V2))).toEqual([LUNA.pubkey]);
     const row = await rowFor(LUNA.pubkey);
     expect(row).toMatchObject({ hasUpdate: true, latestEventId: V2.id, latestCreatedAt: V2.created_at, savedEventId: V1.id });
 
     // Same event again (backfill): nothing changes.
-    expect(await savedVersionService.flagUpdates(albumEvent(V2))).toBe(0);
+    expect(await savedVersionService.flagUpdates(albumEvent(V2))).toEqual([]);
     // An even newer one moves `latest_*` forward…
-    expect(await savedVersionService.flagUpdates(albumEvent(V3))).toBe(1);
+    expect(await savedVersionService.flagUpdates(albumEvent(V3))).toEqual([LUNA.pubkey]);
     // …and an out-of-order older-but-still-newer-than-saved event never moves it back.
-    expect(await savedVersionService.flagUpdates(albumEvent(V2))).toBe(0);
+    expect(await savedVersionService.flagUpdates(albumEvent(V2))).toEqual([]);
     expect(await rowFor(LUNA.pubkey)).toMatchObject({ latestEventId: V3.id, latestCreatedAt: V3.created_at });
   });
 
@@ -74,11 +74,11 @@ describe("savedVersionService.flagUpdates", () => {
     await savedVersionService.save(LUNA.pubkey, ADDR, V1.id, V1.created_at);
     await savedVersionService.save(SAGE.pubkey, ADDR, V1.id, V1.created_at);
     const privateV2 = albumEvent(V2, [["visibility", "private"], ["p", SAGE.pubkey, "", "collaborator"]]);
-    expect(await savedVersionService.flagUpdates(privateV2, [SAGE.pubkey])).toBe(1);
+    expect(await savedVersionService.flagUpdates(privateV2, [SAGE.pubkey])).toEqual([SAGE.pubkey]);
     expect((await rowFor(LUNA.pubkey))?.hasUpdate).toBe(false);
     expect((await rowFor(SAGE.pubkey))?.hasUpdate).toBe(true);
     // Addressed to nobody → nobody is flagged.
-    expect(await savedVersionService.flagUpdates(albumEvent(V3), [])).toBe(0);
+    expect(await savedVersionService.flagUpdates(albumEvent(V3), [])).toEqual([]);
   });
 });
 
@@ -99,7 +99,7 @@ describe("savedVersionService.save / acknowledge", () => {
     const row = await savedVersionService.acknowledge(LUNA.pubkey, ADDR, V2.id, V2.created_at);
     expect(row).toMatchObject({ hasUpdate: false, savedEventId: V3.id, savedCreatedAt: V3.created_at });
     // The ingester re-sending V3 (backfill) can't bring the flag back.
-    expect(await savedVersionService.flagUpdates(albumEvent(V3))).toBe(0);
+    expect(await savedVersionService.flagUpdates(albumEvent(V3))).toEqual([]);
   });
 
   it("acknowledging with a version newer than the ingester's wins", async () => {
