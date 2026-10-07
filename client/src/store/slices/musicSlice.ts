@@ -109,6 +109,16 @@ interface MusicState {
     albumKey: AlbumSortKey;
     albumDir: SortDir;
   };
+
+  /** Shared-project keys this account holds on this device: project pubkey ->
+   *  its `33123:<projectpk>:<d>` coordinate. Never the secret, which lives
+   *  only in the keychain (features/music/sharedKey/projectKeyStore.ts). */
+  heldProjectKeys: Record<string, string>;
+
+  /** Rotation stubs seen this session: old address -> its `moved` target and
+   *  the stub's created_at. A stub replaces the release at its address, so an
+   *  older copy arriving later is ignored and a detail view follows `to`. */
+  movedReleases: Record<string, { to: string; at: number }>;
 }
 
 const initialState: MusicState = {
@@ -205,7 +215,16 @@ const initialState: MusicState = {
     albumKey: "added",
     albumDir: "desc",
   },
+
+  heldProjectKeys: {},
+  movedReleases: {},
 };
+
+/** A release older than (or as old as) a rotation stub at its address. */
+function isSupersededByStub(state: MusicState, item: { addressableId: string; createdAt: number }): boolean {
+  const moved = state.movedReleases?.[item.addressableId];
+  return !!moved && item.createdAt <= moved.at;
+}
 
 function pushUnique(arr: string[], id: string) {
   if (!arr.includes(id)) arr.push(id);
@@ -217,6 +236,7 @@ export const musicSlice = createSlice({
   reducers: {
     // ── Catalog ─────────────────────────────────────────────
     addTrack(state, action: PayloadAction<MusicTrack>) {
+      if (isSupersededByStub(state, action.payload)) return;
       const existing = state.tracks[action.payload.addressableId];
       if (!existing || action.payload.createdAt >= existing.createdAt) {
         state.tracks[action.payload.addressableId] = action.payload;
@@ -224,6 +244,7 @@ export const musicSlice = createSlice({
     },
     addTracks(state, action: PayloadAction<MusicTrack[]>) {
       for (const t of action.payload) {
+        if (isSupersededByStub(state, t)) continue;
         const existing = state.tracks[t.addressableId];
         if (!existing || t.createdAt >= existing.createdAt) {
           state.tracks[t.addressableId] = t;
@@ -231,6 +252,7 @@ export const musicSlice = createSlice({
       }
     },
     addAlbum(state, action: PayloadAction<MusicAlbum>) {
+      if (isSupersededByStub(state, action.payload)) return;
       const existing = state.albums[action.payload.addressableId];
       if (!existing || action.payload.createdAt >= existing.createdAt) {
         state.albums[action.payload.addressableId] = action.payload;
@@ -238,6 +260,7 @@ export const musicSlice = createSlice({
     },
     addAlbums(state, action: PayloadAction<MusicAlbum[]>) {
       for (const a of action.payload) {
+        if (isSupersededByStub(state, a)) continue;
         const existing = state.albums[a.addressableId];
         if (!existing || a.createdAt >= existing.createdAt) {
           state.albums[a.addressableId] = a;
@@ -863,10 +886,33 @@ export const musicSlice = createSlice({
       state.librarySort.albumKey = action.payload.key;
       state.librarySort.albumDir = action.payload.dir;
     },
+
+    // ── Shared project keys ─────────────────────────────────
+    setHeldProjectKeys(state, action: PayloadAction<Record<string, string>>) {
+      state.heldProjectKeys = action.payload;
+    },
+    addHeldProjectKey(state, action: PayloadAction<{ pubkey: string; coord: string }>) {
+      state.heldProjectKeys[action.payload.pubkey] = action.payload.coord;
+    },
+    removeHeldProjectKey(state, action: PayloadAction<string>) {
+      delete state.heldProjectKeys[action.payload];
+    },
+    /** Record a rotation stub. The caller removes the old release first
+     *  (removeTrack / removeAlbum keep the indices clean). */
+    recordMovedRelease(state, action: PayloadAction<{ from: string; to: string; at: number }>) {
+      const { from, to, at } = action.payload;
+      const prev = state.movedReleases[from];
+      if (prev && prev.at > at) return;
+      state.movedReleases[from] = { to, at };
+    },
   },
 });
 
 export const {
+  setHeldProjectKeys,
+  addHeldProjectKey,
+  removeHeldProjectKey,
+  recordMovedRelease,
   addTrack,
   addTracks,
   addAlbum,

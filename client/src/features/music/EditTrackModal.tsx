@@ -7,11 +7,14 @@ import { buildTrackEvent, buildPrivateTrackEvent } from "./musicEventBuilder";
 import { CatalogToggle } from "./CatalogToggle";
 import { signAndPublish, signAndSaveLocally } from "@/lib/nostr/publish";
 import { spacePublishRelays } from "./spacePublish";
+import { isSharedRelease } from "./sharedKey/members";
+import { useIsMine } from "./sharedKey/ownership";
+import { editAuthorFor, membersWithCollaborators } from "./sharedKey/releaseEdit";
 import { selectAudioSource } from "./trackParser";
 import { FeaturedArtistsInput } from "./FeaturedArtistsInput";
 import { HashtagInput } from "./HashtagInput";
 import { GenrePicker } from "./GenrePicker";
-import { VisibilityPicker } from "./VisibilityPicker";
+import { VisibilityPicker, SHARED_VISIBILITIES } from "./VisibilityPicker";
 import { ExportToggle } from "./ExportToggle";
 import { useProfile } from "@/features/profile/useProfile";
 import type { MusicTrack } from "@/types/music";
@@ -25,10 +28,15 @@ interface EditTrackModalProps {
 export function EditTrackModal({ track, onClose }: EditTrackModalProps) {
   const pubkey = useAppSelector((s) => s.identity.pubkey);
   const allAlbums = useAppSelector((s) => s.music.albums);
+  const isMine = useIsMine();
+  // A shared track is edited as its project key: it may only scope to public /
+  // private and sit in that key's own projects.
+  const shared = isSharedRelease(track) || (isMine(track.pubkey) && track.pubkey !== pubkey);
+  const albumAuthor = isMine(track.pubkey) ? track.pubkey : pubkey;
   const userAlbums = useMemo(() => {
-    if (!pubkey) return [];
-    return Object.values(allAlbums).filter((a) => a.pubkey === pubkey);
-  }, [allAlbums, pubkey]);
+    if (!albumAuthor) return [];
+    return Object.values(allAlbums).filter((a) => a.pubkey === albumAuthor);
+  }, [allAlbums, albumAuthor]);
   const [title, setTitle] = useState(track.title);
   // Don't pre-fill hex pubkeys in the artist input — the profile name
   // will be used as fallback on submit via the prevention logic.
@@ -65,6 +73,8 @@ export function EditTrackModal({ track, onClose }: EditTrackModalProps) {
     setSubmitting(true);
 
     try {
+      const author = await editAuthorFor(track, pubkey);
+      const auth = { signer: author.signer };
       // Preserve existing audio URL + imeta fields (hash/size/mime): the `x`
       // hash is what keeps blob/HLS gating working after a republish.
       const audioUrl = selectAudioSource(track.variants);
@@ -78,7 +88,7 @@ export function EditTrackModal({ track, onClose }: EditTrackModalProps) {
       // Upload new cover if provided, otherwise keep existing
       let imageUrl = track.imageUrl;
       if (coverFile) {
-        const result = await uploadCoverArt(coverFile);
+        const result = await uploadCoverArt(coverFile, auth);
         imageUrl = result.url;
       }
 
@@ -116,18 +126,27 @@ export function EditTrackModal({ track, onClose }: EditTrackModalProps) {
         // Preserve (or flip) `["catalog","none"]`; rebuilding from parsed
         // fields without it would silently re-list a note-only clip.
         inCatalog,
+        // Keep every member (shared-key owners included) on the republish.
+        members: track.members,
       };
 
-      const unsigned = visibility === "private"
-        ? await buildPrivateTrackEvent(pubkey, { ...eventParams, collaborators })
-        : buildTrackEvent(pubkey, eventParams);
+      // A shared private track uses the relay-gated form (clear tags +
+      // `visibility`, collaborators as member tags), never NIP-44 copies.
+      const unsigned = shared
+        ? buildTrackEvent(author.pubkey, {
+            ...eventParams,
+            members: visibility === "private" ? membersWithCollaborators(track.members, collaborators) : track.members,
+          })
+        : visibility === "private"
+          ? await buildPrivateTrackEvent(author.pubkey, { ...eventParams, collaborators })
+          : buildTrackEvent(author.pubkey, eventParams);
 
       if (visibility === "local") {
-        await signAndSaveLocally(unsigned);
+        await signAndSaveLocally(unsigned, auth);
       } else {
         const targetRelays =
           visibility === "space" ? await spacePublishRelays(spaceId) : undefined;
-        await signAndPublish(unsigned, targetRelays);
+        await signAndPublish(unsigned, targetRelays, auth);
       }
       onClose();
     } catch (err) {
@@ -222,6 +241,7 @@ export function EditTrackModal({ track, onClose }: EditTrackModalProps) {
             onSpaceIdChange={setSpaceId}
             channelId={channelId}
             onChannelIdChange={setChannelId}
+            options={shared ? SHARED_VISIBILITIES : undefined}
           />
 
           {/* Collaborators (for private visibility) */}

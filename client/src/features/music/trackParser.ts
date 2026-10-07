@@ -3,6 +3,7 @@ import type { MusicTrack, MusicVisibility } from "@/types/music";
 import type { ImetaVariant } from "@/types/media";
 import { parseImetaTags } from "@/features/media/imetaParser";
 import { looksLikeNip44 } from "./nip44Shape";
+import { parseMembers, ownersOf } from "./sharedKey/members";
 
 /**
  * `["catalog","none"]` keeps a public track off its author's catalog. Unrelated
@@ -18,6 +19,12 @@ function parseVisibility(event: NostrEvent): MusicVisibility {
   const vis = event.tags.find((t) => t[0] === "visibility")?.[1];
   if (vis === "private" || vis === "unlisted") return "private"; // backward compat
   return "public";
+}
+
+/** Member p-tags (incl. shared-key `owner`s) are cleartext on every form. */
+function memberFields(event: NostrEvent): Pick<MusicTrack, "members" | "owners"> {
+  const members = parseMembers(event.tags);
+  return { members, owners: ownersOf(members) };
 }
 
 /** Parse a kind:31683 music track event into display data */
@@ -105,6 +112,7 @@ export function parseTrackEvent(event: NostrEvent): MusicTrack {
     artistPubkeys,
     featuredArtists,
     collaborators,
+    ...memberFields(event),
     albumRef,
     duration,
     genre,
@@ -183,6 +191,7 @@ export async function parsePrivateTrackEvent(
       artistPubkeys,
       featuredArtists,
       collaborators,
+      ...memberFields(event),
       albumRef: meta.albumRef as string | undefined,
       duration: meta.duration as number | undefined,
       genre: meta.genre as string | undefined,

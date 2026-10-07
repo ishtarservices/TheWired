@@ -383,6 +383,12 @@ export const dmSlice = createSlice({
       state.mutationCounter += 1;
     },
 
+    /** Record a wrap that carries no message (e.g. a shared-project key DM)
+     *  so the NIP-77 inbox reconcile stops re-requesting it. */
+    markDMWrapProcessed(state, action: PayloadAction<string>) {
+      markWrapProcessed(state, action.payload);
+    },
+
     setActiveConversation(state, action: PayloadAction<string | null>) {
       state.activeConversation = action.payload;
 
@@ -812,6 +818,7 @@ export const dmSlice = createSlice({
 
 export const {
   addDMMessage,
+  markDMWrapProcessed,
   setActiveConversation,
   markConversationRead,
   clearDMUnreadDivider,

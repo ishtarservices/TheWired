@@ -2,6 +2,7 @@ import { memo, useState, useRef } from "react";
 import { Play, MoreHorizontal, HardDriveDownload, Lock } from "lucide-react";
 import type { MusicTrack } from "@/types/music";
 import { useAppSelector, useAppDispatch } from "@/store/hooks";
+import { useHoldsProjectKey, useIsMine } from "./sharedKey/ownership";
 import { setActiveDetailId } from "@/store/slices/musicSlice";
 import { useAudioPlayer } from "./useAudioPlayer";
 import { EditTrackModal } from "./EditTrackModal";
@@ -42,6 +43,7 @@ export const TrackRow = memo(function TrackRow({
   const dispatch = useAppDispatch();
   const { playQueue, play, togglePlay, player } = useAudioPlayer();
   const pubkey = useAppSelector((s) => s.identity.pubkey);
+  const isMine = useIsMine();
   const albumName = useAppSelector((s) =>
     track.albumRef ? s.music.albums[track.albumRef]?.title : undefined,
   );
@@ -49,7 +51,8 @@ export const TrackRow = memo(function TrackRow({
     s.music.downloadedTrackIds.includes(track.addressableId),
   );
   const resolvedArtist = useResolvedArtist(track.artist, track.artistPubkeys);
-  const isOwner = pubkey === track.pubkey;
+  const isOwner = isMine(track.pubkey);
+  const holdsKey = useHoldsProjectKey(track.pubkey);
   const hasUpdate = useHasPendingUpdate(track.addressableId);
   const isLocal = track.visibility === "local";
   // A private track the viewer isn't the owner/collaborator/artist for — its media is
@@ -135,6 +138,14 @@ export const TrackRow = memo(function TrackRow({
             {isLocal && (
               <span className="ml-1.5 inline-block rounded bg-card px-1 py-0.5 text-[10px] text-muted">
                 LOCAL
+              </span>
+            )}
+            {holdsKey && (
+              <span
+                title="A shared project you co-own: signed by its own key"
+                className="ml-1.5 inline-block align-middle text-[10px] text-muted"
+              >
+                shared
               </span>
             )}
             {isOwner && track.inCatalog === false && (

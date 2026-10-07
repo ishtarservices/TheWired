@@ -1,6 +1,7 @@
 import { useEffect, useState, useCallback } from "react";
 import { ArrowLeft, GitPullRequest, Plus } from "lucide-react";
 import { useAppSelector, useAppDispatch } from "@/store/hooks";
+import { useIsMine } from "../sharedKey/ownership";
 import { setMusicView, setActiveDetailId, setProposals } from "@/store/slices/musicSlice";
 import { usePlaybackBarSpacing } from "@/hooks/usePlaybackBarSpacing";
 import { ProposalCard } from "../ProposalCard";
@@ -20,11 +21,12 @@ export function ProjectProposals() {
     albumId ? s.music.proposals[albumId] ?? [] : [],
   );
   const pubkey = useAppSelector((s) => s.identity.pubkey);
+  const isMine = useIsMine();
   const [loading, setLoading] = useState(false);
   const [showCreate, setShowCreate] = useState(false);
   const { scrollPaddingClass } = usePlaybackBarSpacing();
 
-  const isOwner = pubkey === album?.pubkey;
+  const isOwner = isMine(album?.pubkey);
   const isCollaborator = !!pubkey && !!album && album.featuredArtists.includes(pubkey);
 
   const fetchProposals = useCallback(async () => {

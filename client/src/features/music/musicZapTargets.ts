@@ -1,4 +1,5 @@
 import { isHexPubkey } from "./useResolvedArtist";
+import { isSharedRelease } from "./sharedKey/members";
 
 export type ZapRole = "primary" | "featured" | "uploader";
 
@@ -47,12 +48,20 @@ export function getZappableArtists(item: ZappableMusicItem): ZapArtist[] {
  * Full ordered zap-target list for a track/album: the credited artists, plus the
  * uploader (event publisher) as an extra "uploader" target whenever they aren't
  * already credited. There is always at least one target, since every event has a
- * publisher — so a name-only item resolves to a single "uploader" target.
+ * publisher — so a name-only item resolves to a single "uploader" target. A
+ * shared release never targets its publisher (the project key).
  */
 export function getZapTargets(
-  item: ZappableMusicItem & { pubkey: string },
+  item: ZappableMusicItem & { pubkey: string; owners?: readonly string[] },
 ): ZapArtist[] {
   const artists = getZappableArtists(item);
+  // A shared release is signed by its project key, which is nobody's wallet:
+  // zaps go to people only (the starter stands in for an uncredited release).
+  if (isSharedRelease(item)) {
+    if (artists.length > 0) return artists;
+    const starter = item.owners?.find((pk) => pk !== item.pubkey);
+    return starter ? [{ pubkey: starter, role: "uploader" }] : [];
+  }
   if (artists.some((a) => a.pubkey === item.pubkey)) return artists;
   return [...artists, { pubkey: item.pubkey, role: "uploader" }];
 }

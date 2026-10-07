@@ -8,6 +8,7 @@ import {
 } from "lucide-react";
 import type { MusicAlbum } from "@/types/music";
 import { useAppSelector, useAppDispatch } from "@/store/hooks";
+import { useIsMine } from "./sharedKey/ownership";
 import { useLibrary } from "./useLibrary";
 import { useDeleteMusic } from "./useDeleteMusic";
 import { useAudioPlayer } from "./useAudioPlayer";
@@ -106,7 +107,8 @@ interface AlbumActionPanelProps {
 export function AlbumActionPanel({ album, open, onClose, onEdit }: AlbumActionPanelProps) {
   const dispatch = useAppDispatch();
   const pubkey = useAppSelector((s) => s.identity.pubkey);
-  const isOwner = pubkey === album.pubkey;
+  const isMine = useIsMine();
+  const isOwner = isMine(album.pubkey);
   const isCollaborator = !!pubkey && (
     album.featuredArtists.includes(pubkey) || album.collaborators.includes(pubkey)
   );

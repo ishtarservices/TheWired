@@ -4,6 +4,15 @@ export type MusicVisibility = "public" | "private" | "space" | "local";
 
 export type ProjectType = "album" | "ep" | "demo" | "mix" | "other";
 
+/** Member roles on a release's p-tags (beyond the artist/featured credits).
+ *  `owner` = a human holder of the shared project key. */
+export type MusicMemberRole = "owner" | "collaborator" | "contributor" | "editor";
+
+export interface MusicMember {
+  pubkey: string;
+  role: MusicMemberRole;
+}
+
 /** Parsed music track from kind:31683 event */
 export interface MusicTrack {
   addressableId: string; // `31683:${pubkey}:${dTag}`
@@ -14,6 +23,12 @@ export interface MusicTrack {
   artistPubkeys: string[]; // pubkeys explicitly tagged as artist role (from p-tags with role "artist")
   featuredArtists: string[]; // pubkeys of featured/collaborating artists (from p-tags with role "featured")
   collaborators: string[]; // pubkeys invited to view/edit private content (from p-tags with role "collaborator")
+  /** Every member p-tag (owner / collaborator / contributor / editor) in tag
+   *  order, kept verbatim so a republish never drops a member. */
+  members?: MusicMember[];
+  /** Holders of the shared project key (`owner` p-tags); the first started it.
+   *  Empty on a personal release. */
+  owners?: string[];
   albumRef?: string; // addressable ID of parent album
   duration?: number; // seconds
   genre?: string;
@@ -58,6 +73,12 @@ export interface MusicAlbum {
   artistPubkeys: string[]; // pubkeys explicitly tagged as artist role
   featuredArtists: string[]; // pubkeys of featured/collaborating artists (from p-tags with role "featured")
   collaborators: string[]; // pubkeys invited to view/edit private content (from p-tags with role "collaborator")
+  /** Every member p-tag (owner / collaborator / contributor / editor) in tag
+   *  order, kept verbatim so a republish never drops a member. */
+  members?: MusicMember[];
+  /** Holders of the shared project key (`owner` p-tags); the first started it.
+   *  Empty on a personal release. */
+  owners?: string[];
   projectType: ProjectType;
   imageUrl?: string;
   blurhash?: string;

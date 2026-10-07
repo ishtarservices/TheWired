@@ -1,19 +1,23 @@
 import { useState, useRef, useEffect, useCallback, useMemo } from "react";
 import {
   X, Upload, Trash2, GripVertical, ArrowUp, ArrowDown,
-  Wand2, Music, ListOrdered, ChevronDown, ChevronUp, Disc3, Image,
+  Wand2, Music, ListOrdered, ChevronDown, ChevronUp, Disc3, Image, KeyRound,
 } from "lucide-react";
 import { Modal } from "@/components/ui/Modal";
 import { useAppSelector } from "@/store/hooks";
 import { uploadAudio, uploadCoverArt } from "@/lib/api/music";
-import { buildAlbumEvent, buildTrackEvent, buildPrivateAlbumEvent, buildPrivateTrackEvent } from "./musicEventBuilder";
+import { buildAlbumEvent, buildTrackEvent, buildPrivateAlbumEvent, buildPrivateTrackEvent, buildProjectProfileEvent } from "./musicEventBuilder";
 import { signAndPublish, signAndSaveLocally } from "@/lib/nostr/publish";
 import { spacePublishRelays } from "./spacePublish";
 import { runWithConcurrency } from "@/lib/concurrencyPool";
 import { FeaturedArtistsInput } from "./FeaturedArtistsInput";
 import { HashtagInput } from "./HashtagInput";
 import { GenrePicker } from "./GenrePicker";
-import { VisibilityPicker } from "./VisibilityPicker";
+import { VisibilityPicker, SHARED_VISIBILITIES } from "./VisibilityPicker";
+import { isSharedRelease, ownersOf } from "./sharedKey/members";
+import { signerForRelease, useIsMine, type ReleaseSigner } from "./sharedKey/ownership";
+import { NO_PROJECT_KEY_MESSAGE, membersWithCollaborators } from "./sharedKey/releaseEdit";
+import { createProjectKey } from "./sharedKey/projectKeys";
 import { ExportToggle } from "./ExportToggle";
 import { useProfile } from "@/features/profile/useProfile";
 import {
@@ -27,7 +31,7 @@ import {
 } from "./trackFileParser";
 import type { ParsedTrackInfo } from "./trackFileParser";
 import { useResolvedArtist } from "./useResolvedArtist";
-import type { MusicAlbum, MusicTrack, MusicVisibility, ProjectType } from "@/types/music";
+import type { MusicAlbum, MusicMember, MusicTrack, MusicVisibility, ProjectType } from "@/types/music";
 
 function ExistingTrackArtist({ track }: { track: MusicTrack }) {
   const resolved = useResolvedArtist(track.artist, track.artistPubkeys);
@@ -45,10 +49,10 @@ type UploadPhase = "idle" | "parsing" | "ready" | "uploading";
 export function CreateAlbumModal({ open, onClose, album }: CreateAlbumModalProps) {
   const pubkey = useAppSelector((s) => s.identity.pubkey);
   const allTracks = useAppSelector((s) => s.music.tracks);
+  const isMine = useIsMine();
   const userTracks = useMemo(() => {
-    if (!pubkey) return [];
-    return Object.values(allTracks).filter((t) => t.pubkey === pubkey);
-  }, [allTracks, pubkey]);
+    return Object.values(allTracks).filter((t) => isMine(t.pubkey));
+  }, [allTracks, isMine]);
   const [title, setTitle] = useState("");
   const [artist, setArtist] = useState("");
   const [genre, setGenre] = useState("");
@@ -65,6 +69,8 @@ export function CreateAlbumModal({ open, onClose, album }: CreateAlbumModalProps
   const [allowExport, setAllowExport] = useState(true);
   const [coverFile, setCoverFile] = useState<File | null>(null);
   const [coverPreview, setCoverPreview] = useState<string | null>(null);
+  /** Create-only: give the project its own key so co-owners can edit it. */
+  const [sharedProject, setSharedProject] = useState(false);
 
   // Bulk upload state
   const [parsedTracks, setParsedTracks] = useState<ParsedTrackInfo[]>([]);
@@ -83,6 +89,10 @@ export function CreateAlbumModal({ open, onClose, album }: CreateAlbumModalProps
   const coverInputRef = useRef<HTMLInputElement>(null);
   const trackInputRef = useRef<HTMLInputElement>(null);
   const isEditing = !!album;
+  // A shared project (own key, co-owners) is public or private only.
+  const isShared = isEditing
+    ? isSharedRelease(album) || (isMine(album.pubkey) && album.pubkey !== pubkey)
+    : sharedProject;
 
   // Pre-fill when editing
   useEffect(() => {
@@ -123,6 +133,7 @@ export function CreateAlbumModal({ open, onClose, album }: CreateAlbumModalProps
       setVisibility("public");
       setSpaceId("");
       setAllowExport(true);
+      setSharedProject(false);
     }
     setCoverFile(null);
     setCoverPreview(null);
@@ -279,28 +290,55 @@ export function CreateAlbumModal({ open, onClose, album }: CreateAlbumModalProps
     if (!pubkey || !title.trim()) return;
     // Guard: non-owners editing would fork the album because the addressableId
     // is derived from the signer pubkey. Nostr addressable events can only be
-    // updated by the original author; collaborators need to ask the owner.
-    if (isEditing && album && album.pubkey !== pubkey) {
-      setError("Only the project owner can edit this project.");
-      return;
+    // updated by the original author (my account, or a shared project's key
+    // when this device holds it); everyone else proposes.
+    let editor: ReleaseSigner | null = null;
+    if (isEditing && album) {
+      editor = await signerForRelease(album.pubkey);
+      if (!editor) {
+        setError(isSharedRelease(album) ? NO_PROJECT_KEY_MESSAGE : "Only the project owner can edit this project.");
+        return;
+      }
     }
     setError(null);
     setSubmitting(true);
 
     try {
+      const slug = isEditing
+        ? album.addressableId.split(":").slice(2).join(":")
+        : title.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
+
+      // Who the project (and every track uploaded here) is signed by: my
+      // account, or the project's own key. A new shared project mints its key
+      // first so it is "mine" the moment the events land.
+      let author: ReleaseSigner = editor ?? { pubkey };
+      if (!editor && sharedProject) {
+        const { signer } = await createProjectKey(pubkey, slug);
+        author = { pubkey: signer.pubkey, signer };
+      }
+      const auth = { signer: author.signer };
+
       let imageUrl: string | undefined;
       if (coverFile) {
-        const result = await uploadCoverArt(coverFile);
+        const result = await uploadCoverArt(coverFile, auth);
         imageUrl = result.url;
       } else if (isEditing) {
         imageUrl = album.imageUrl;
       }
 
-      const slug = isEditing
-        ? album.addressableId.split(":").slice(2).join(":")
-        : title.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
+      // Member p-tags: kept verbatim on an edit; a new shared project declares
+      // me as its first owner. A shared private project grants its viewers by
+      // member tag (relay-gated form), never NIP-44 copies.
+      const baseMembers: MusicMember[] | undefined = isEditing
+        ? album.members
+        : isShared
+          ? [{ pubkey, role: "owner" }]
+          : undefined;
+      const members = isShared && visibility === "private"
+        ? membersWithCollaborators(baseMembers, collaborators)
+        : baseMembers;
 
-      const albumAddrId = `33123:${pubkey}:${slug}`;
+      const albumAddrId = `33123:${author.pubkey}:${slug}`;
       const resolvedArtistPubkeys = iAmArtist ? [pubkey] : artistPubkeys;
       const resolvedArtist = artist || myProfile?.display_name || myProfile?.name || pubkey;
 
@@ -331,9 +369,9 @@ export function CreateAlbumModal({ open, onClose, album }: CreateAlbumModalProps
                 title: track.title,
                 artist: track.artist || resolvedArtist,
                 duration: track.duration ?? undefined,
-              }),
+              }, auth),
               track.embeddedCover
-                ? uploadCoverArt(track.embeddedCover.file).catch(() => null)
+                ? uploadCoverArt(track.embeddedCover.file, auth).catch(() => null)
                 : Promise.resolve(null),
             ]);
             const trackImageUrl = coverResult?.url ?? imageUrl;
@@ -360,22 +398,24 @@ export function CreateAlbumModal({ open, onClose, album }: CreateAlbumModalProps
               spaceId: visibility === "space" ? spaceId : undefined,
               channelId: visibility === "space" && channelId ? channelId : undefined,
               sharingDisabled: !allowExport,
+              // Tracks a key holder adds copy the project's member tags.
+              members: isShared ? members : undefined,
             };
 
-            const trackUnsigned = visibility === "private"
-              ? await buildPrivateTrackEvent(pubkey, { ...trackParams, collaborators })
-              : buildTrackEvent(pubkey, trackParams);
+            const trackUnsigned = visibility === "private" && !isShared
+              ? await buildPrivateTrackEvent(author.pubkey, { ...trackParams, collaborators })
+              : buildTrackEvent(author.pubkey, trackParams);
 
             // signAndPublish is internally serialized by the signer queue, so
             // parallel calls here queue at the signer but parallelize the
             // relay publish step.
             if (visibility === "local") {
-              await signAndSaveLocally(trackUnsigned);
+              await signAndSaveLocally(trackUnsigned, auth);
             } else {
-              await signAndPublish(trackUnsigned, targetRelays);
+              await signAndPublish(trackUnsigned, targetRelays, auth);
             }
 
-            indexedResults[i] = `31683:${pubkey}:${trackSlug}`;
+            indexedResults[i] = `31683:${author.pubkey}:${trackSlug}`;
             updateTrack(track.key, { status: "done", uploadProgress: 100 });
           } catch (err) {
             updateTrack(track.key, {
@@ -413,16 +453,29 @@ export function CreateAlbumModal({ open, onClose, album }: CreateAlbumModalProps
         spaceId: visibility === "space" ? spaceId : undefined,
         channelId: visibility === "space" && channelId ? channelId : undefined,
         sharingDisabled: !allowExport,
+        members,
       };
 
-      const unsigned = visibility === "private"
-        ? await buildPrivateAlbumEvent(pubkey, { ...albumParams, collaborators })
-        : buildAlbumEvent(pubkey, albumParams);
+      const unsigned = visibility === "private" && !isShared
+        ? await buildPrivateAlbumEvent(author.pubkey, { ...albumParams, collaborators })
+        : buildAlbumEvent(author.pubkey, albumParams);
 
       if (visibility === "local") {
-        await signAndSaveLocally(unsigned);
+        await signAndSaveLocally(unsigned, auth);
       } else {
-        await signAndPublish(unsigned, targetRelays);
+        await signAndPublish(unsigned, targetRelays, auth);
+      }
+
+      // A public shared project's key gets a kind 0 (at creation, and when the
+      // title or cover changes) so profile fallbacks show the project.
+      if (isShared && author.signer && visibility === "public" &&
+          (!isEditing || title !== album.title || imageUrl !== album.imageUrl)) {
+        const starter = ownersOf(members)[0] ?? pubkey;
+        await signAndPublish(
+          buildProjectProfileEvent(author.pubkey, { coord: albumAddrId, name: title, picture: imageUrl, starter }),
+          undefined,
+          auth,
+        ).catch(() => {});
       }
       onClose();
     } catch (err) {
@@ -900,6 +953,28 @@ export function CreateAlbumModal({ open, onClose, album }: CreateAlbumModalProps
             );
           })()}
 
+          {/* Shared project (create only): its own key, co-owners edit directly */}
+          {!isEditing && (
+            <div>
+              <label className="flex items-center gap-2 text-xs text-soft">
+                <input
+                  type="checkbox"
+                  checked={sharedProject}
+                  onChange={(e) => {
+                    setSharedProject(e.target.checked);
+                    if (e.target.checked && !SHARED_VISIBILITIES.includes(visibility)) setVisibility("public");
+                  }}
+                  className="h-4 w-4 rounded border-2 border-border bg-field checked:bg-primary checked:border-primary accent-purple-400"
+                />
+                <KeyRound size={13} className="text-muted" />
+                Shared project
+              </label>
+              <p className="mt-1 pl-6 text-[10px] leading-snug text-muted">
+                The project gets its own key. Anyone you share the key with co-owns it and can edit it directly.
+              </p>
+            </div>
+          )}
+
           {/* Visibility */}
           <VisibilityPicker
             value={visibility}
@@ -908,6 +983,7 @@ export function CreateAlbumModal({ open, onClose, album }: CreateAlbumModalProps
             onSpaceIdChange={setSpaceId}
             channelId={channelId}
             onChannelIdChange={setChannelId}
+            options={isShared ? SHARED_VISIBILITIES : undefined}
           />
 
           {/* Collaborators (for private visibility) */}

@@ -1,21 +1,29 @@
 import { createSelector } from "@reduxjs/toolkit";
 import type { RootState } from "@/store";
-import type { ArtistEntry, MusicVisibility } from "@/types/music";
+import type { ArtistEntry, MusicMember, MusicVisibility } from "@/types/music";
 
 const selectMusicState = (state: RootState) => state.music;
 const selectIdentityPubkey = (state: RootState) => state.identity.pubkey;
 
 /** Check if a music item is visible to the given viewer (for public-facing views) */
 function isVisibleTo(
-  item: { visibility: MusicVisibility; pubkey: string; artistPubkeys: string[]; featuredArtists: string[]; collaborators: string[] },
+  item: { visibility: MusicVisibility; pubkey: string; artistPubkeys: string[]; featuredArtists: string[]; collaborators: string[]; members?: MusicMember[] },
   viewerPubkey: string | null,
+  heldKeys?: Record<string, string>,
 ): boolean {
   if (item.visibility === "public") return true;
   if (!viewerPubkey) return false;
   return item.pubkey === viewerPubkey ||
+    (!!heldKeys && item.pubkey in heldKeys) ||
     item.artistPubkeys.includes(viewerPubkey) ||
     item.featuredArtists.includes(viewerPubkey) ||
-    item.collaborators.includes(viewerPubkey);
+    item.collaborators.includes(viewerPubkey) ||
+    !!item.members?.some((m) => m.pubkey === viewerPubkey);
+}
+
+/** "Mine": authored by my account or by a shared-project key this device holds. */
+function isMineIn(music: RootState["music"], me: string | null, pubkey: string): boolean {
+  return (!!me && pubkey === me) || pubkey in (music.heldProjectKeys ?? {});
 }
 
 /**
@@ -30,15 +38,15 @@ function isOwnUnlisted(track: { pubkey: string; inCatalog?: boolean }, ownerPubk
 }
 
 /** Check if a track is in the user's library (saved or own) */
-function isTrackInLibrary(track: { addressableId: string; pubkey: string } | undefined, librarySet: Set<string>, userPubkey: string | null): boolean {
+function isTrackInLibrary(track: { addressableId: string; pubkey: string } | undefined, librarySet: Set<string>, isMine: (pubkey: string) => boolean): boolean {
   if (!track) return false;
-  return librarySet.has(track.addressableId) || track.pubkey === userPubkey;
+  return librarySet.has(track.addressableId) || isMine(track.pubkey);
 }
 
 /** Check if an album is in the user's library (saved or own) */
-function isAlbumInLibrary(album: { addressableId: string; pubkey: string } | undefined, librarySet: Set<string>, userPubkey: string | null): boolean {
+function isAlbumInLibrary(album: { addressableId: string; pubkey: string } | undefined, librarySet: Set<string>, isMine: (pubkey: string) => boolean): boolean {
   if (!album) return false;
-  return librarySet.has(album.addressableId) || album.pubkey === userPubkey;
+  return librarySet.has(album.addressableId) || isMine(album.pubkey);
 }
 
 export const selectAllTracks = createSelector(
@@ -89,9 +97,11 @@ export const selectLibraryTracks = (pubkey: string | null) =>
 
     const savedSet = new Set(music.library.savedTrackIds);
     const ownExtras = Object.values(music.tracks)
-      .filter((t) => t.pubkey === pubkey && !savedSet.has(t.addressableId))
+      .filter((t) => isMineIn(music, pubkey, t.pubkey) && !savedSet.has(t.addressableId))
       .sort((a, b) => b.createdAt - a.createdAt);
-    return [...saved, ...ownExtras].filter((t) => !isOwnUnlisted(t, pubkey));
+    return [...saved, ...ownExtras].filter(
+      (t) => !(isMineIn(music, pubkey, t.pubkey) && t.inCatalog === false),
+    );
   });
 
 /** Saved albums + own albums (deduped) */
@@ -104,7 +114,7 @@ export const selectLibraryAlbums = (pubkey: string | null) =>
 
     const savedSet = new Set(music.library.savedAlbumIds);
     const ownExtras = Object.values(music.albums)
-      .filter((a) => a.pubkey === pubkey && !savedSet.has(a.addressableId))
+      .filter((a) => isMineIn(music, pubkey, a.pubkey) && !savedSet.has(a.addressableId))
       .sort((a, b) => b.createdAt - a.createdAt);
     return [...saved, ...ownExtras];
   });
@@ -115,8 +125,8 @@ export const selectArtistTracks = (artistPubkey: string) =>
     const librarySet = new Set(music.library.savedTrackIds);
     return ids
       .map((id) => music.tracks[id])
-      .filter((t) => isTrackInLibrary(t, librarySet, userPubkey))
-      .filter((t) => isVisibleTo(t, userPubkey));
+      .filter((t) => isTrackInLibrary(t, librarySet, (pk) => isMineIn(music, userPubkey, pk)))
+      .filter((t) => isVisibleTo(t, userPubkey, music.heldProjectKeys));
   });
 
 export const selectAlbumTracks = (albumId: string) =>
@@ -165,24 +175,28 @@ export const selectUserPlaylists = createSelector(
 export const selectMyTracks = (pubkey: string) =>
   createSelector(selectMusicState, (music) =>
     Object.values(music.tracks)
-      .filter((t) => t.pubkey === pubkey)
+      .filter((t) => isMineIn(music, pubkey, t.pubkey))
       .sort((a, b) => b.createdAt - a.createdAt),
   );
 
+/** Own albums, plus shared projects whose key this device holds. */
 export const selectMyAlbums = (pubkey: string) =>
   createSelector(selectMusicState, (music) =>
     Object.values(music.albums)
-      .filter((a) => a.pubkey === pubkey)
+      .filter((a) => isMineIn(music, pubkey, a.pubkey))
       .sort((a, b) => b.createdAt - a.createdAt),
   );
 
-/** Albums where user is listed as a collaborator or featured artist but not the owner */
+/** Albums where the user is featured or a member but that aren't theirs (a
+ *  shared project whose key this device holds is theirs, not a collaboration). */
 export const selectMyCollaborations = (pubkey: string) =>
   createSelector(selectMusicState, (music) =>
     Object.values(music.albums)
       .filter((a) =>
-        a.pubkey !== pubkey &&
-        (a.featuredArtists.includes(pubkey) || a.collaborators.includes(pubkey)),
+        !isMineIn(music, pubkey, a.pubkey) &&
+        (a.featuredArtists.includes(pubkey) ||
+          a.collaborators.includes(pubkey) ||
+          !!a.members?.some((m) => m.pubkey === pubkey)),
       )
       .sort((a, b) => b.createdAt - a.createdAt),
   );
@@ -206,14 +220,14 @@ export const selectArtistDirectory = createSelector(
     for (const [pk, ids] of Object.entries(music.tracksByArtist)) {
       const count = ids.filter((id) => {
         const t = music.tracks[id];
-        return t && (libraryTrackSet.has(id) || t.pubkey === userPubkey);
+        return t && (libraryTrackSet.has(id) || isMineIn(music, userPubkey, t.pubkey));
       }).length;
       if (count > 0) pubkeyTrackCounts.set(pk, count);
     }
     for (const [pk, ids] of Object.entries(music.albumsByArtist)) {
       const count = ids.filter((id) => {
         const a = music.albums[id];
-        return a && (libraryAlbumSet.has(id) || a.pubkey === userPubkey);
+        return a && (libraryAlbumSet.has(id) || isMineIn(music, userPubkey, a.pubkey));
       }).length;
       if (count > 0) pubkeyAlbumCounts.set(pk, count);
     }
@@ -235,14 +249,14 @@ export const selectArtistDirectory = createSelector(
     for (const [name, ids] of Object.entries(music.tracksByArtistName)) {
       const count = ids.filter((id) => {
         const t = music.tracks[id];
-        return t && (libraryTrackSet.has(id) || t.pubkey === userPubkey);
+        return t && (libraryTrackSet.has(id) || isMineIn(music, userPubkey, t.pubkey));
       }).length;
       if (count > 0) nameTrackCounts.set(name, count);
     }
     for (const [name, ids] of Object.entries(music.albumsByArtistName)) {
       const count = ids.filter((id) => {
         const a = music.albums[id];
-        return a && (libraryAlbumSet.has(id) || a.pubkey === userPubkey);
+        return a && (libraryAlbumSet.has(id) || isMineIn(music, userPubkey, a.pubkey));
       }).length;
       if (count > 0) nameAlbumCounts.set(name, count);
     }
@@ -273,7 +287,7 @@ export const selectArtistNameTracks = (normalizedName: string) =>
   createSelector(selectMusicState, selectIdentityPubkey, (music, userPubkey) => {
     const ids = music.tracksByArtistName[normalizedName] ?? [];
     const librarySet = new Set(music.library.savedTrackIds);
-    return ids.map((id) => music.tracks[id]).filter((t) => isTrackInLibrary(t, librarySet, userPubkey));
+    return ids.map((id) => music.tracks[id]).filter((t) => isTrackInLibrary(t, librarySet, (pk) => isMineIn(music, userPubkey, pk)));
   });
 
 /** Albums for a text-only artist (by normalized name) -- library only */
@@ -281,7 +295,7 @@ export const selectArtistNameAlbums = (normalizedName: string) =>
   createSelector(selectMusicState, selectIdentityPubkey, (music, userPubkey) => {
     const ids = music.albumsByArtistName[normalizedName] ?? [];
     const librarySet = new Set(music.library.savedAlbumIds);
-    return ids.map((id) => music.albums[id]).filter((a) => isAlbumInLibrary(a, librarySet, userPubkey));
+    return ids.map((id) => music.albums[id]).filter((a) => isAlbumInLibrary(a, librarySet, (pk) => isMineIn(music, userPubkey, pk)));
   });
 
 /** Albums where pubkey is artist or featured -- library only */
@@ -291,8 +305,8 @@ export const selectArtistAlbums = (artistPubkey: string) =>
     const librarySet = new Set(music.library.savedAlbumIds);
     return ids
       .map((id) => music.albums[id])
-      .filter((a) => isAlbumInLibrary(a, librarySet, userPubkey))
-      .filter((a) => isVisibleTo(a, userPubkey));
+      .filter((a) => isAlbumInLibrary(a, librarySet, (pk) => isMineIn(music, userPubkey, pk)))
+      .filter((a) => isVisibleTo(a, userPubkey, music.heldProjectKeys));
   });
 
 /** Tracks where pubkey is owner, artist, or featured artist -- for profile display (no library filter).
@@ -312,7 +326,7 @@ export const selectProfileTracks = (pubkey: string) =>
         // Catalog listing: the owner keeps this clip off their discography
         !isOwnUnlisted(t, pubkey) &&
         // Visibility: only show non-public to owner/collaborators
-        isVisibleTo(t, viewerPubkey),
+        isVisibleTo(t, viewerPubkey, music.heldProjectKeys),
     );
     // Deduplicate by addressableId and sort newest first
     const seen = new Set<string>();
@@ -336,7 +350,7 @@ export const selectProfileAlbums = (pubkey: string) =>
          a.artistPubkeys.includes(pubkey) ||
          a.featuredArtists.includes(pubkey)) &&
         // Visibility: only show non-public to owner/collaborators
-        isVisibleTo(a, viewerPubkey),
+        isVisibleTo(a, viewerPubkey, music.heldProjectKeys),
     );
     const seen = new Set<string>();
     return all

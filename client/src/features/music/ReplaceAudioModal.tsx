@@ -6,6 +6,8 @@ import { uploadAudio } from "@/lib/api/music";
 import { buildTrackEvent, buildPrivateTrackEvent } from "./musicEventBuilder";
 import { spacePublishRelaysForAll } from "./spacePublish";
 import { signAndPublish } from "@/lib/nostr/publish";
+import { isSharedRelease } from "./sharedKey/members";
+import { editAuthorFor } from "./sharedKey/releaseEdit";
 import { selectAudioSource } from "./trackParser";
 import { readAudioMetadata } from "./trackFileParser";
 import type { MusicTrack } from "@/types/music";
@@ -99,11 +101,18 @@ export function ReplaceAudioModal({ track, onClose, onBack }: ReplaceAudioModalP
     setUploading(true);
 
     try {
+      // A shared track's audio is uploaded AS its project key: the backend
+      // gates a blob by its uploader, so a human-signed upload under a
+      // project-signed private track would be public by URL.
+      const author = await editAuthorFor(track, pubkey);
+      const auth = { signer: author.signer };
+      const shared = !!author.signer || isSharedRelease(track);
+
       // Upload the new audio file
       const audioResult = await uploadAudio(audioFile, {
         title: track.title,
         artist: track.artist,
-      });
+      }, auth);
 
       // Extract the existing d-tag to preserve addressable identity
       const existingDTag = track.addressableId.split(":").slice(2).join(":");
@@ -134,15 +143,17 @@ export function ReplaceAudioModal({ track, onClose, onBack }: ReplaceAudioModalP
         sharingDisabled: track.sharingDisabled,
         inCatalog: track.inCatalog,
         revisionSummary: revisionSummary || undefined,
+        members: track.members,
       };
+      // Shared private tracks keep the relay-gated form (no NIP-44 copies).
       const unsigned =
-        track.visibility === "private"
-          ? await buildPrivateTrackEvent(pubkey, { ...params, collaborators: track.collaborators })
-          : buildTrackEvent(pubkey, params);
+        track.visibility === "private" && !shared
+          ? await buildPrivateTrackEvent(author.pubkey, { ...params, collaborators: track.collaborators })
+          : buildTrackEvent(author.pubkey, params);
 
       const targetRelays =
         track.visibility === "space" ? await spacePublishRelaysForAll(track.spaceIds) : undefined;
-      await signAndPublish(unsigned, targetRelays);
+      await signAndPublish(unsigned, targetRelays, auth);
       onClose();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to replace audio");

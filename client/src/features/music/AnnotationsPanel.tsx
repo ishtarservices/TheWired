@@ -1,6 +1,7 @@
 import { useState, useMemo } from "react";
 import { Feather, Plus, Loader2, Music2 } from "lucide-react";
 import { useAppSelector, useAppDispatch } from "@/store/hooks";
+import { useIsMine } from "./sharedKey/ownership";
 import { removeAnnotation } from "@/store/slices/musicSlice";
 import { AnnotationCard } from "./AnnotationCard";
 import { AnnotationComposer } from "./AnnotationComposer";
@@ -38,6 +39,7 @@ export function AnnotationsPanel({
 }: AnnotationsPanelProps) {
   const dispatch = useAppDispatch();
   const pubkey = useAppSelector((s) => s.identity.pubkey);
+  const isMine = useIsMine();
   const { annotations: visible, loading } = useAnnotations(targetRef);
   const [composerOpen, setComposerOpen] = useState(false);
   const [expanded, setExpanded] = useState(false);
@@ -63,7 +65,7 @@ export function AnnotationsPanel({
 
   if (visible.length === 0 && totalTrackNotes === 0 && !pubkey && !loading) return null;
 
-  const isOwner = pubkey === ownerPubkey;
+  const isOwner = isMine(ownerPubkey);
   const displayLimit = compact ? 2 : expanded ? visible.length : 3;
   const displayed = visible.slice(0, displayLimit);
   const hasMore = visible.length > displayLimit;
@@ -198,7 +200,7 @@ export function AnnotationsPanel({
                         annotation={ann}
                         isArtistNote={ann.authorPubkey === track.pubkey}
                         onDelete={
-                          ann.authorPubkey === pubkey || pubkey === ownerPubkey
+                          ann.authorPubkey === pubkey || isOwner
                             ? () => handleDelete(ann)
                             : undefined
                         }

@@ -1,3 +1,4 @@
+import type { EventSigner } from "@ishtarservices/core";
 import { buildNip98Header } from "./nip98";
 import { requestQueue, type RequestPriority } from "./requestQueue";
 
@@ -19,6 +20,8 @@ interface RequestOptions {
   auth?: boolean;
   signal?: AbortSignal;
   priority?: RequestPriority;
+  /** NIP-98-sign as this key instead of the account (a shared-project key). */
+  signer?: EventSigner;
 }
 
 interface ApiResponse<T> {
@@ -51,18 +54,20 @@ export class ApiRequestError extends Error {
 const inflightGets = new Map<string, Promise<ApiResponse<unknown>>>();
 
 export async function api<T>(path: string, opts: RequestOptions = {}): Promise<ApiResponse<T>> {
-  const { method = "GET", body, auth = true, signal, priority = "normal" } = opts;
+  const { method = "GET", body, auth = true, signal, priority = "normal", signer } = opts;
   const url = `${baseUrl}${path}`;
+  // A GET signed by another key is a different request; never share it.
+  const dedupe = method === "GET" && !signer;
 
   // Deduplicate concurrent GET requests to the same path
-  if (method === "GET") {
+  if (dedupe) {
     const inflight = inflightGets.get(path);
     if (inflight) return inflight as Promise<ApiResponse<T>>;
   }
 
-  const promise = apiExecute<T>(url, { method, body, auth, signal, priority });
+  const promise = apiExecute<T>(url, { method, body, auth, signal, priority, signer });
 
-  if (method === "GET") {
+  if (dedupe) {
     inflightGets.set(path, promise as Promise<ApiResponse<unknown>>);
     // The .finally() chain creates a derived promise that also rejects when
     // the original rejects. Swallow it — callers handle errors via `promise`.
@@ -75,9 +80,9 @@ export async function api<T>(path: string, opts: RequestOptions = {}): Promise<A
 async function apiExecute<T>(
   url: string,
   opts: Required<Pick<RequestOptions, "method" | "auth" | "priority">> &
-    Pick<RequestOptions, "body" | "signal">,
+    Pick<RequestOptions, "body" | "signal" | "signer">,
 ): Promise<ApiResponse<T>> {
-  const { method, body, auth, signal, priority } = opts;
+  const { method, body, auth, signal, priority, signer } = opts;
 
   const headers: Record<string, string> = {};
 
@@ -89,7 +94,7 @@ async function apiExecute<T>(
 
   if (auth) {
     try {
-      headers["Authorization"] = await buildNip98Header(url, method);
+      headers["Authorization"] = await buildNip98Header(url, method, { signer });
     } catch {
       // No signer available, send unauthenticated
     }

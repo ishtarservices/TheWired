@@ -10,6 +10,8 @@ import { getZapTargets, type ZapArtist, type ZappableMusicItem } from "./musicZa
  *  for the "tip uploader" fallback. */
 interface ZapMusicItem extends ZappableMusicItem {
   pubkey: string;
+  /** Shared-key holders; a shared release never tips its project key. */
+  owners?: readonly string[];
 }
 
 export interface ArtistZapState {
@@ -36,7 +38,7 @@ export function useArtistZap(item: ZapMusicItem): ArtistZapState {
   // Credited artists + the uploader (when distinct). Always ≥ 1 target.
   const targets = useMemo(
     () => getZapTargets(item),
-    [item.pubkey, item.artist, item.artistPubkeys, item.featuredArtists],
+    [item.pubkey, item.artist, item.artistPubkeys, item.featuredArtists, item.owners],
   );
 
   const onZap = useCallback(() => {

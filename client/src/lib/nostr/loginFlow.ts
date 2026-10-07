@@ -76,6 +76,7 @@ import {
   setFollowedArtists,
   setUserPlaylists,
   setRecentlyPlayedIds,
+  recordMovedRelease,
 } from "../../store/slices/musicSlice";
 import { parseTrackEvent, parsePrivateTrackEvent } from "../../features/music/trackParser";
 import { parseAlbumEvent, parsePrivateAlbumEvent } from "../../features/music/albumParser";
@@ -116,6 +117,8 @@ import {
 } from "../../features/onboarding/onboardingSlice";
 import { loadOnboardingState } from "../../features/onboarding/onboardingPersistence";
 import { createLogger, shortKey } from "../debug/logger";
+import { clearProjectKeySession, hydrateHeldProjectKeys, onProjectKeyAdded, retireMovedProjectKeys } from "../../features/music/sharedKey/projectKeys";
+import { addressOf, movedTargetOf } from "../../features/music/sharedKey/members";
 
 const startupLog = createLogger("startup");
 const idLog = createLogger("identity");
@@ -138,6 +141,7 @@ let cleanupFriendRequestPersistence: (() => void) | null = null;
 let cleanupNotificationPersistence: (() => void) | null = null;
 let cleanupActiveSpacePersistence: (() => void) | null = null;
 let cleanupGiftWrapReconciliation: (() => void) | null = null;
+let cleanupProjectKeyListener: (() => void) | null = null;
 
 export function getSigner(): NostrSigner | null {
   return currentSigner;
@@ -940,11 +944,28 @@ export async function performLogin(
     store.dispatch(restoreDeletedAddrIds(Object.fromEntries(deletedAddrTimestamps)));
   }
 
+  // Shared-project rotation stubs are never shown: record each redirect and
+  // drop the stub plus any older copy of the release at its address.
+  const stubAt = new Map<string, number>();
+  for (const e of [...trackEvents, ...albumEvents]) {
+    const movedTo = movedTargetOf(e);
+    if (!movedTo) continue;
+    const from = addressOf(e);
+    if ((stubAt.get(from) ?? -1) >= e.created_at) continue;
+    stubAt.set(from, e.created_at);
+    store.dispatch(recordMovedRelease({ from, to: movedTo, at: e.created_at }));
+  }
+  if (stubAt.size > 0) retireMovedProjectKeys().catch(() => {});
+  const supersededByStub = (e: import("../../types/nostr").NostrEvent) => {
+    const at = stubAt.get(addressOf(e));
+    return at !== undefined && e.created_at <= at;
+  };
+
   const liveTrackEvents = trackEvents.filter(
-    (e) => !isEDeletedByAuthor(e) && !isDeletedByAddr(e, EVENT_KINDS.MUSIC_TRACK),
+    (e) => !isEDeletedByAuthor(e) && !isDeletedByAddr(e, EVENT_KINDS.MUSIC_TRACK) && !supersededByStub(e),
   );
   const liveAlbumEvents = albumEvents.filter(
-    (e) => !isEDeletedByAuthor(e) && !isDeletedByAddr(e, EVENT_KINDS.MUSIC_ALBUM),
+    (e) => !isEDeletedByAuthor(e) && !isDeletedByAddr(e, EVENT_KINDS.MUSIC_ALBUM) && !supersededByStub(e),
   );
   const livePlaylistEvents = playlistEvents.filter(
     (e) => !isEDeletedByAuthor(e) && !isDeletedByAddr(e, EVENT_KINDS.MUSIC_PLAYLIST),
@@ -1121,6 +1142,26 @@ export async function performLogin(
     ],
     relayUrls: PROFILE_RELAYS,
   });
+
+  // Step 7e-c: Releases signed by shared-project keys this device holds (they
+  // are "mine" too), plus their kind-5 deletes. A key that arrives later by DM
+  // widens the subscription on its own.
+  const subscribeProjectAuthors = (authors: string[]) => {
+    if (authors.length === 0 || store.getState().identity.pubkey !== pubkey) return;
+    subscriptionManager.subscribe({
+      filters: [
+        {
+          kinds: [EVENT_KINDS.MUSIC_TRACK, EVENT_KINDS.MUSIC_ALBUM, EVENT_KINDS.DELETION],
+          authors,
+          limit: 500,
+        },
+      ],
+      relayUrls: PROFILE_RELAYS,
+    });
+  };
+  cleanupProjectKeyListener?.();
+  cleanupProjectKeyListener = onProjectKeyAdded((projectPubkey) => subscribeProjectAuthors([projectPubkey]));
+  hydrateHeldProjectKeys(pubkey).then(subscribeProjectAuthors).catch(() => {});
 
   // Step 7e-b: Re-fetch any saved items that are missing from Redux.
   // This handles albums/tracks from API responses that weren't persisted to IndexedDB,
@@ -1540,6 +1581,9 @@ export function performCleanup(): void {
   cleanupActiveSpacePersistence = null;
   cleanupGiftWrapReconciliation?.();
   cleanupGiftWrapReconciliation = null;
+  cleanupProjectKeyListener?.();
+  cleanupProjectKeyListener = null;
+  clearProjectKeySession();
 
   // 3. Close subscriptions and background chat subs
   subscriptionManager.closeAll();
@@ -1582,6 +1626,9 @@ export async function performLogout(): Promise<void> {
   cleanupActiveSpacePersistence = null;
   cleanupGiftWrapReconciliation?.();
   cleanupGiftWrapReconciliation = null;
+  cleanupProjectKeyListener?.();
+  cleanupProjectKeyListener = null;
+  clearProjectKeySession();
 
   // 3. Close all relay subscriptions and background chat subs
   subscriptionManager.closeAll();

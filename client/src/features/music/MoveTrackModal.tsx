@@ -5,6 +5,9 @@ import { useAppSelector } from "@/store/hooks";
 import { buildTrackEvent, buildAlbumEvent } from "./musicEventBuilder";
 import { signAndPublish } from "@/lib/nostr/publish";
 import { spacePublishRelaysForAll } from "./spacePublish";
+import { isSharedRelease } from "./sharedKey/members";
+import { signerForRelease, useIsMine } from "./sharedKey/ownership";
+import { editAuthorFor } from "./sharedKey/releaseEdit";
 import { selectAudioSource } from "./trackParser";
 import { useResolvedArtist } from "./useResolvedArtist";
 import type { MusicTrack } from "@/types/music";
@@ -18,14 +21,19 @@ interface MoveTrackModalProps {
 export function MoveTrackModal({ track, onClose, onBack }: MoveTrackModalProps) {
   const pubkey = useAppSelector((s) => s.identity.pubkey);
   const albums = useAppSelector((s) => s.music.albums);
+  const isMine = useIsMine();
+  // A shared track moves only between its own project key's projects.
+  const shared = isSharedRelease(track) || (isMine(track.pubkey) && track.pubkey !== pubkey);
 
-  // Own albums + albums where user is a featured collaborator
+  // Own albums (shared ones whose key I hold included) + albums where user is
+  // a featured collaborator
   const availableAlbums = useMemo(() => {
     if (!pubkey) return [];
+    if (shared) return Object.values(albums).filter((a) => a.pubkey === track.pubkey);
     return Object.values(albums).filter(
-      (a) => a.pubkey === pubkey || a.featuredArtists.includes(pubkey),
+      (a) => isMine(a.pubkey) || a.featuredArtists.includes(pubkey),
     );
-  }, [albums, pubkey]);
+  }, [albums, pubkey, shared, track.pubkey, isMine]);
 
   const resolvedArtist = useResolvedArtist(track.artist, track.artistPubkeys);
   const [targetAlbumId, setTargetAlbumId] = useState<string>("");
@@ -69,8 +77,10 @@ export function MoveTrackModal({ track, onClose, onBack }: MoveTrackModalProps) 
       const targetRelays =
         track.visibility === "space" ? await spacePublishRelaysForAll(track.spaceIds) : undefined;
 
-      // 1. Republish track with new album ref
-      const trackUnsigned = buildTrackEvent(pubkey, {
+      // 1. Republish track with new album ref (as the track's own author when
+      //    that's me or a shared-project key I hold)
+      const author = await editAuthorFor(track, pubkey);
+      const trackUnsigned = buildTrackEvent(author.pubkey, {
         title: track.title,
         artist: track.artist,
         slug: existingDTag,
@@ -91,16 +101,18 @@ export function MoveTrackModal({ track, onClose, onBack }: MoveTrackModalProps) 
         channelId: track.visibility === "space" ? track.channelId : undefined,
         inCatalog: track.inCatalog,
         revisionSummary: revisionSummary || undefined,
+        members: track.members,
       });
-      await signAndPublish(trackUnsigned, targetRelays);
+      await signAndPublish(trackUnsigned, targetRelays, { signer: author.signer });
 
-      // 2. Remove from source album (if it had one)
+      // 2. Remove from source album (if it had one and it's mine to republish)
       if (track.albumRef) {
         const sourceAlbum = albums[track.albumRef];
-        if (sourceAlbum && sourceAlbum.pubkey === pubkey) {
+        const source = sourceAlbum ? await signerForRelease(sourceAlbum.pubkey) : null;
+        if (sourceAlbum && source) {
           const sourceSlug = sourceAlbum.addressableId.split(":").slice(2).join(":");
           const newTrackRefs = sourceAlbum.trackRefs.filter((r) => r !== track.addressableId);
-          const sourceUnsigned = buildAlbumEvent(pubkey, {
+          const sourceUnsigned = buildAlbumEvent(source.pubkey, {
             title: sourceAlbum.title,
             artist: sourceAlbum.artist,
             slug: sourceSlug,
@@ -116,12 +128,14 @@ export function MoveTrackModal({ track, onClose, onBack }: MoveTrackModalProps) 
             spaceIds: sourceAlbum.visibility === "space" ? sourceAlbum.spaceIds : undefined,
             channelId: sourceAlbum.visibility === "space" ? sourceAlbum.channelId : undefined,
             sharingDisabled: sourceAlbum.sharingDisabled,
+            members: sourceAlbum.members,
           });
           await signAndPublish(
             sourceUnsigned,
             sourceAlbum.visibility === "space"
               ? await spacePublishRelaysForAll(sourceAlbum.spaceIds)
               : undefined,
+            { signer: source.signer },
           );
         }
       }
@@ -129,6 +143,8 @@ export function MoveTrackModal({ track, onClose, onBack }: MoveTrackModalProps) 
       // 3. Add to target album (if selected)
       if (targetAlbumId) {
         const targetAlbum = albums[targetAlbumId];
+        // A held shared project signs as its key; anything else as before.
+        const target = targetAlbum ? await signerForRelease(targetAlbum.pubkey) : null;
         if (targetAlbum) {
           const targetSlug = targetAlbum.addressableId.split(":").slice(2).join(":");
           const newTrackRefs = [...targetAlbum.trackRefs, track.addressableId];
@@ -148,12 +164,14 @@ export function MoveTrackModal({ track, onClose, onBack }: MoveTrackModalProps) 
             spaceIds: targetAlbum.visibility === "space" ? targetAlbum.spaceIds : undefined,
             channelId: targetAlbum.visibility === "space" ? targetAlbum.channelId : undefined,
             sharingDisabled: targetAlbum.sharingDisabled,
+            members: targetAlbum.members,
           });
           await signAndPublish(
             targetUnsigned,
             targetAlbum.visibility === "space"
               ? await spacePublishRelaysForAll(targetAlbum.spaceIds)
               : undefined,
+            { signer: target?.signer },
           );
         }
       }
@@ -216,7 +234,7 @@ export function MoveTrackModal({ track, onClose, onBack }: MoveTrackModalProps) 
               {availableAlbums.map((a) => (
                 <option key={a.addressableId} value={a.addressableId}>
                   {a.title}
-                  {a.pubkey !== pubkey ? " (collaboration)" : ""}
+                  {!isMine(a.pubkey) ? " (collaboration)" : ""}
                 </option>
               ))}
             </select>

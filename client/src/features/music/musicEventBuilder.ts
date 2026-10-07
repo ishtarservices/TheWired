@@ -1,7 +1,8 @@
 import type { UnsignedEvent } from "@/types/nostr";
 import { EVENT_KINDS } from "@/types/nostr";
-import type { MusicVisibility, ProjectType, ProposalChange } from "@/types/music";
+import type { MusicMember, MusicVisibility, ProjectType, ProposalChange } from "@/types/music";
 import { nip44Encrypt } from "@/lib/nostr/nip44";
+import { memberPTags } from "./sharedKey/members";
 
 /** Cleartext placeholder titles on NIP-44 private events. The relay refuses a
  *  music event without a `title` tag, and the real title is encrypted. */
@@ -25,6 +26,10 @@ interface TrackEventParams {
   license?: string;
   artistPubkeys?: string[];
   featuredArtists?: string[];
+  /** Member p-tags (shared-key `owner`s, collaborator / contributor /
+   *  editor), written verbatim. Thread the parsed `members` through every
+   *  rebuild, or a republish drops them. Ignored by the NIP-44 builders. */
+  members?: MusicMember[];
   visibility?: MusicVisibility;
   revisionSummary?: string;
   sharingDisabled?: boolean;
@@ -52,6 +57,8 @@ interface AlbumEventParams {
   trackRefs?: string[];
   artistPubkeys?: string[];
   featuredArtists?: string[];
+  /** See TrackEventParams.members. */
+  members?: MusicMember[];
   hashtags?: string[];
   projectType?: ProjectType;
   visibility?: MusicVisibility;
@@ -125,6 +132,7 @@ export function buildTrackEvent(
       tags.push(["p", pk, "", "featured"]);
     }
   }
+  tags.push(...memberPTags(params.members));
 
   // imeta tag for audio file
   const imetaParts = [`url ${params.audioUrl}`];
@@ -190,6 +198,7 @@ export function buildAlbumEvent(
       tags.push(["p", pk, "", "featured"]);
     }
   }
+  tags.push(...memberPTags(params.members));
 
   if (params.trackRefs) {
     for (const ref of params.trackRefs) {
@@ -218,6 +227,29 @@ export function buildAlbumEvent(
     kind: EVENT_KINDS.MUSIC_ALBUM,
     tags,
     content: "",
+  };
+}
+
+/**
+ * The kind 0 of a PUBLIC shared project's key, so clients that fall back to the
+ * author's profile show the project instead of a hex stub. Never for a gated
+ * project: a public kind 0 would leak its title, cover and owners.
+ */
+export function buildProjectProfileEvent(
+  projectPubkey: string,
+  params: { coord: string; name: string; picture?: string; starter: string },
+): UnsignedEvent {
+  const profile: Record<string, string> = { name: params.name };
+  if (params.picture) profile.picture = params.picture;
+  return {
+    pubkey: projectPubkey,
+    created_at: Math.floor(Date.now() / 1000),
+    kind: 0,
+    tags: [
+      ["a", params.coord],
+      ["p", params.starter, "", "owner"],
+    ],
+    content: JSON.stringify(profile),
   };
 }
 

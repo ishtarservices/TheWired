@@ -33,7 +33,7 @@ export interface GrantCrypto {
 /** Roles that unlock protected content — mirror of the backend's
  *  `pTagGrantsAccess` (blobAccess.ts). `featured` is a credit, not a grant;
  *  a role-less p-tag is a legacy grant. */
-const ACCESS_ROLES: ReadonlySet<string> = new Set(["artist", "collaborator", "contributor", "editor"]);
+const ACCESS_ROLES: ReadonlySet<string> = new Set(["owner", "artist", "collaborator", "contributor", "editor"]);
 
 export function pTagGrantsAccess(tag: readonly string[], pubkey: string): boolean {
   if (tag[0] !== "p" || tag[1] !== pubkey) return false;

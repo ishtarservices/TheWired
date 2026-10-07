@@ -1,4 +1,5 @@
 import { useEffect, useCallback } from "react";
+import { isMinePubkey } from "./sharedKey/ownership";
 import { useAppSelector } from "@/store/hooks";
 import { hasPendingUpdate } from "./savedVersions";
 import { syncSavedVersions, acknowledgeUpdate, saveVersion } from "./savedVersionSync";
@@ -31,7 +32,7 @@ export function useHasPendingUpdate(addressableId: string | null | undefined): b
     const saved = s.music.savedVersions[addressableId];
     if (!saved) return false;
     const current = s.music.albums[addressableId] ?? s.music.tracks[addressableId];
-    if (current && current.pubkey === s.identity.pubkey) return false;
+    if (current && isMinePubkey(s, current.pubkey)) return false;
     return hasPendingUpdate(saved, current);
   });
 }

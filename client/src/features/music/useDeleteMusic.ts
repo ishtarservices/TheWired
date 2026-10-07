@@ -9,6 +9,7 @@ import { deleteMusic } from "@/lib/api/music";
 import { removeCachedAudio } from "@/lib/db/audioCache";
 import { store } from "@/store";
 import type { MusicTrack, MusicAlbum } from "@/types/music";
+import { signerForRelease } from "./sharedKey/ownership";
 
 /** Persist library state after deletions modify savedTrackIds/savedAlbumIds */
 function persistLibraryAfterDelete() {
@@ -35,7 +36,11 @@ export function useDeleteMusic() {
 
   const deleteTrack = useCallback(
     async (track: MusicTrack) => {
-      if (!pubkey || track.pubkey !== pubkey) return;
+      if (!pubkey) return;
+      // My account's release, or a shared project's (signed by its key).
+      const release = await signerForRelease(track.pubkey);
+      if (!release) return;
+      const auth = { signer: release.signer };
       setDeleting(true);
       try {
         const localIds = await getLocalEventIds();
@@ -45,14 +50,14 @@ export function useDeleteMusic() {
           await deleteEvent(track.eventId);
           await removeLocalEventId(track.eventId);
         } else {
-          const unsigned = buildDeletionEvent(pubkey, {
+          const unsigned = buildDeletionEvent(release.pubkey, {
             eventIds: [track.eventId],
             addressableIds: [track.addressableId],
           });
-          await signAndPublish(unsigned);
+          await signAndPublish(unsigned, undefined, auth);
 
           try {
-            await deleteMusic("track", pubkey, getSlug(track.addressableId));
+            await deleteMusic("track", release.pubkey, getSlug(track.addressableId), auth);
           } catch {
             // Non-fatal: Nostr deletion event is the source of truth
           }
@@ -75,7 +80,10 @@ export function useDeleteMusic() {
 
   const deleteAlbum = useCallback(
     async (album: MusicAlbum, cascadeTracks = false) => {
-      if (!pubkey || album.pubkey !== pubkey) return;
+      if (!pubkey) return;
+      const release = await signerForRelease(album.pubkey);
+      if (!release) return;
+      const auth = { signer: release.signer };
       setDeleting(true);
       try {
         const localIds = await getLocalEventIds();
@@ -90,7 +98,7 @@ export function useDeleteMusic() {
           const albumTrackIds = tracksByAlbum[album.addressableId] ?? [];
           for (const trackAddrId of albumTrackIds) {
             const track = tracks[trackAddrId];
-            if (track && track.pubkey === pubkey) {
+            if (track && track.pubkey === release.pubkey) {
               addressableIds.push(track.addressableId);
               eventIds.push(track.eventId);
             }
@@ -99,7 +107,7 @@ export function useDeleteMusic() {
           for (const ref of album.trackRefs) {
             if (!addressableIds.includes(ref)) {
               const track = tracks[ref];
-              if (track && track.pubkey === pubkey) {
+              if (track && track.pubkey === release.pubkey) {
                 addressableIds.push(track.addressableId);
                 eventIds.push(track.eventId);
               }
@@ -114,22 +122,22 @@ export function useDeleteMusic() {
           }
         } else {
           // Publish a single deletion event covering album + all its tracks
-          const unsigned = buildDeletionEvent(pubkey, {
+          const unsigned = buildDeletionEvent(release.pubkey, {
             eventIds,
             addressableIds,
           });
-          await signAndPublish(unsigned);
+          await signAndPublish(unsigned, undefined, auth);
 
           // Backend cleanup
           try {
-            await deleteMusic("album", pubkey, getSlug(album.addressableId));
+            await deleteMusic("album", release.pubkey, getSlug(album.addressableId), auth);
           } catch { /* non-fatal */ }
 
           if (cascadeTracks) {
             for (const addrId of addressableIds) {
               if (addrId === album.addressableId) continue;
               try {
-                await deleteMusic("track", pubkey, getSlug(addrId));
+                await deleteMusic("track", release.pubkey, getSlug(addrId), auth);
               } catch { /* non-fatal */ }
             }
           }

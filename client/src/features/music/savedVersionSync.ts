@@ -8,6 +8,7 @@
  * fetch instead of every album detail re-fetching on mount.
  */
 import { store } from "@/store";
+import { isMinePubkey } from "./sharedKey/ownership";
 import { setSavedVersions, setSavedVersion, clearSavedVersion } from "@/store/slices/musicSlice";
 import { addNotification } from "@/store/slices/notificationSlice";
 import type { SavedAlbumVersion } from "@/types/music";
@@ -138,7 +139,7 @@ export function watchSavedItemsForUpdates(addressableIds: string[]): void {
   const music = store.getState().music;
   const items = addressableIds
     .map((id) => ({ id, current: music.albums[id] ?? music.tracks[id] }))
-    .filter((x) => x.current && x.current.pubkey !== store.getState().identity.pubkey)
+    .filter((x) => x.current && !isMinePubkey(store.getState(), x.current.pubkey))
     .map((x) => ({ addressableId: x.id, since: x.current!.createdAt + 1 }));
   if (items.length === 0) return;
   void subscriptionManager.subscribeOnce({ filters: buildVersionFilters(items), relayUrls: PROFILE_RELAYS });
@@ -157,7 +158,7 @@ async function backfillLibraryVersions(existing: Record<string, SavedAlbumVersio
   for (const id of [...savedAlbumIds, ...savedTrackIds]) {
     if (existing[id]) continue;
     const item = state.music.albums[id] ?? state.music.tracks[id];
-    if (!item || item.pubkey === me) continue;
+    if (!item || item.pubkey === me || item.pubkey in (state.music.heldProjectKeys ?? {})) continue;
     items.push({ addressableId: id, eventId: item.eventId, createdAt: item.createdAt });
   }
   if (items.length > 0) await saveVersions(items);

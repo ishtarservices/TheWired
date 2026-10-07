@@ -9,7 +9,13 @@ interface VisibilityPickerProps {
   onSpaceIdChange: (id: string) => void;
   channelId?: string;
   onChannelIdChange?: (id: string) => void;
+  /** Restrict the choices (a shared project offers only public / private). */
+  options?: readonly MusicVisibility[];
 }
+
+/** Scopes a shared-project release may use: no `space` (the relay's h-gate
+ *  needs the author to be a member) and no `local` (other holders must see it). */
+export const SHARED_VISIBILITIES: readonly MusicVisibility[] = ["public", "private"];
 
 const OPTIONS: { value: MusicVisibility; label: string; desc: string; icon: typeof Globe }[] = [
   { value: "public", label: "Public", desc: "Discoverable by everyone", icon: Globe },
@@ -18,7 +24,7 @@ const OPTIONS: { value: MusicVisibility; label: string; desc: string; icon: type
   { value: "local", label: "Local", desc: "Stored on this device only", icon: HardDrive },
 ];
 
-export function VisibilityPicker({ value, onChange, spaceId, onSpaceIdChange, channelId, onChannelIdChange }: VisibilityPickerProps) {
+export function VisibilityPicker({ value, onChange, spaceId, onSpaceIdChange, channelId, onChannelIdChange, options }: VisibilityPickerProps) {
   const spaces = useAppSelector((s) => s.spaces.list);
   const allChannels = useAppSelector((s) => s.spaces.channels);
 
@@ -31,7 +37,7 @@ export function VisibilityPicker({ value, onChange, spaceId, onSpaceIdChange, ch
     <div>
       <label className="mb-1 block text-xs font-medium text-soft">Visibility</label>
       <div className="space-y-1">
-        {OPTIONS.map((opt) => {
+        {OPTIONS.filter((opt) => !options || options.includes(opt.value)).map((opt) => {
           const Icon = opt.icon;
           return (
             <label
