@@ -5,6 +5,7 @@ import { Button } from "../../components/ui/Button";
 import { Spinner } from "../../components/ui/Spinner";
 import { Avatar } from "../../components/ui/Avatar";
 import { createInvite } from "../../lib/api/invites";
+import { publicWebUrl } from "../../lib/publicLinks";
 import { sendDM } from "../dm/dmService";
 import { useUserSearch } from "../search/useUserSearch";
 import { useProfile } from "../profile/useProfile";
@@ -202,12 +203,13 @@ export function InviteGenerateModal({
   }, [native, planAddress, spaceId, state.maxUses, state.expiryHours, state.label]);
 
   // For native groups the code IS the group address (shared directly); for
-  // platform/A-lite it's a backend invite code behind an `/invite/<code>` link.
+  // platform/A-lite it's a backend invite code behind an `/invite/<code>` link
+  // on the public web origin, the same link soot shares.
   const inviteLink = !state.code
     ? ""
     : native
       ? state.code
-      : `${window.location.origin}/invite/${state.code}`;
+      : publicWebUrl(`/invite/${state.code}`);
 
   const handleCopy = useCallback(async () => {
     if (!inviteLink) return;
