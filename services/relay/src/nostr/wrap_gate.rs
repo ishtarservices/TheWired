@@ -124,6 +124,15 @@ pub fn is_self_published(event: &Event, authed: Option<&str>) -> bool {
     }
 }
 
+/// True when the backend's DM push ingest cannot work: the wrap gate is on
+/// (`enforce` or `warn` both key reads of EVERY wrap to the ingest role) and
+/// no ingest-role pubkey is configured. The server logs a warning for it at
+/// startup — a dev stack without `RELAY_INGEST_PUBKEYS` otherwise produces
+/// no `dm` push rows and nothing says why.
+pub fn ingest_role_missing(gate: WrapAuthGate, ingest_pubkeys: &[String]) -> bool {
+    gate != WrapAuthGate::Off && ingest_pubkeys.is_empty()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -199,5 +208,15 @@ mod tests {
         let g: crate::nostr::filter::Filter = serde_json::from_str(r##"{"#p":["x"]}"##).unwrap();
         assert!(filters_want_wraps(&[g.clone(), f]));
         assert!(!filters_want_wraps(&[g]));
+    }
+
+    #[test]
+    fn ingest_role_missing_flags_a_gated_relay_without_ingest_pubkeys() {
+        let none: Vec<String> = vec![];
+        let one = vec!["a".repeat(64)];
+        assert!(ingest_role_missing(WrapAuthGate::Enforce, &none));
+        assert!(ingest_role_missing(WrapAuthGate::Warn, &none));
+        assert!(!ingest_role_missing(WrapAuthGate::Off, &none));
+        assert!(!ingest_role_missing(WrapAuthGate::Enforce, &one));
     }
 }

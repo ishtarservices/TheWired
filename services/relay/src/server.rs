@@ -93,7 +93,7 @@ pub async fn run(config: Config, pool: Db) -> anyhow::Result<()> {
     };
     if !config.ingest_pubkeys.is_empty() {
         tracing::info!(count = config.ingest_pubkeys.len(), "Ingest-role pubkeys configured");
-    } else if config.wrap_auth_gate != crate::nostr::wrap_gate::WrapAuthGate::Off {
+    } else if crate::nostr::wrap_gate::ingest_role_missing(config.wrap_auth_gate, &config.ingest_pubkeys) {
         // The backend reads kind-1059 wraps (for the content-free DM push) and
         // kind-1984 reports only as the ingest role. Without a listed pubkey
         // its authenticated socket is an ordinary user and sees nothing — the
