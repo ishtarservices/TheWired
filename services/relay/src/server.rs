@@ -93,6 +93,15 @@ pub async fn run(config: Config, pool: Db) -> anyhow::Result<()> {
     };
     if !config.ingest_pubkeys.is_empty() {
         tracing::info!(count = config.ingest_pubkeys.len(), "Ingest-role pubkeys configured");
+    } else if config.wrap_auth_gate != crate::nostr::wrap_gate::WrapAuthGate::Off {
+        // The backend reads kind-1059 wraps (for the content-free DM push) and
+        // kind-1984 reports only as the ingest role. Without a listed pubkey
+        // its authenticated socket is an ordinary user and sees nothing — the
+        // push queue silently gets no `dm` rows. Dev stacks hit this when
+        // RELAY_INGEST_PUBKEYS is missing from .env.
+        tracing::warn!(
+            "RELAY_INGEST_PUBKEYS is empty while the gift-wrap gate is on: the backend ingester will see no wraps, so there will be no DM pushes (set it to the pubkey of the backend INGEST_SECRET_KEY)"
+        );
     }
     tracing::info!(gate = ?config.wrap_auth_gate, "Gift-wrap AUTH gate mode");
 

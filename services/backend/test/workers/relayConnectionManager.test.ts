@@ -237,6 +237,29 @@ describe("relay manager — NIP-42 ingest role (own relay)", () => {
     expect((reqs[3][2] as { kinds: number[] }).kinds).toEqual([1984]);
   });
 
+  it("logs the own-relay connect and the ingest AUTH acceptance (the WIR-173 health signal)", async () => {
+    const log = vi.spyOn(console, "log").mockImplementation(() => {});
+    try {
+      await startManager();
+      const own = await waitForWs(config.relayUrl);
+      own.simulateOpen();
+      await tick();
+      expect(log.mock.calls.map((c) => String(c[0]))).toContainEqual(
+        expect.stringContaining(`[ingester] connected to own relay ${config.relayUrl}`),
+      );
+      own.simulateMessage(["AUTH", "challenge-log"]);
+      await tick();
+      const auth = own.sent.map((s) => JSON.parse(s)).find((m) => m[0] === "AUTH");
+      own.simulateMessage(["OK", (auth![1] as { id: string }).id, true, ""]);
+      await tick();
+      expect(log.mock.calls.map((c) => String(c[0]))).toContainEqual(
+        expect.stringContaining("[ingester] ingest AUTH accepted by"),
+      );
+    } finally {
+      log.mockRestore();
+    }
+  });
+
   it("re-sends the reports REQ when the relay CLOSED it as auth-required", async () => {
     await startManager();
     const own = await waitForWs(config.relayUrl);

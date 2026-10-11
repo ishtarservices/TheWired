@@ -229,6 +229,9 @@ export function startRelayIngester(): { stop: () => Promise<void> } {
       conn.gatedPendingAuth.clear();
       const since = await getSince(url);
       conn.reportsSince = since;
+      // One line per (re)connect: a relay restart that leaves the ingester
+      // silently disconnected (WIR-173) is visible as its absence.
+      console.log(`[ingester] connected to ${isOwn(url) ? "own relay" : "relay"} ${url}`);
 
       if (isOwn(url)) {
         // Behavior-preserving: identical to the original single-relay ingester.
@@ -331,6 +334,10 @@ export function startRelayIngester(): { stop: () => Promise<void> } {
       conn.pendingAuthId = undefined;
       if (msg[2] === true) {
         conn.authed = true;
+        // The relay accepted the key — but only RELAY_INGEST_PUBKEYS makes it
+        // the ingest ROLE; an unlisted key is an ordinary authed user and the
+        // wraps/reports REQs below come back empty (relay logs a warning).
+        console.log(`[ingester] ingest AUTH accepted by ${config.relayUrl}; sending gated REQs (wraps, reports)`);
         for (const subId of GATED_SUBS) {
           if (conn.gatedPendingAuth.delete(subId)) sendGated(conn, ws, subId);
         }
