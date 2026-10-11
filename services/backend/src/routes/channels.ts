@@ -3,6 +3,7 @@ import { z } from "zod";
 import { validate, nonEmptyString, nonNegativeInt } from "../lib/validation.js";
 import { channelService } from "../services/channelService.js";
 import { permissionService } from "../services/permissionService.js";
+import { notifySpaceChanged } from "../services/spaceSignalService.js";
 
 const spaceIdParams = z.object({ spaceId: nonEmptyString });
 
@@ -65,6 +66,7 @@ export const channelsRoutes: FastifyPluginAsync = async (server) => {
 
       try {
         const channel = await channelService.createChannel(params.spaceId, body);
+        notifySpaceChanged(params.spaceId, "channels");
         return { data: channel };
       } catch (err: any) {
         return reply.status(400).send({ error: err.message, code: "BAD_REQUEST" });
@@ -92,6 +94,7 @@ export const channelsRoutes: FastifyPluginAsync = async (server) => {
 
       const channel = await channelService.updateChannel(params.spaceId, params.channelId, body);
       if (!channel) return reply.status(404).send({ error: "Channel not found", code: "NOT_FOUND" });
+      notifySpaceChanged(params.spaceId, "channels");
       return { data: channel };
     },
   );
@@ -111,6 +114,7 @@ export const channelsRoutes: FastifyPluginAsync = async (server) => {
 
       try {
         await channelService.deleteChannel(params.spaceId, params.channelId);
+        notifySpaceChanged(params.spaceId, "channels");
         return { data: { success: true } };
       } catch (err: any) {
         return reply.status(404).send({ error: err.message, code: "NOT_FOUND" });
@@ -137,6 +141,7 @@ export const channelsRoutes: FastifyPluginAsync = async (server) => {
       if (!perm.allowed) return reply.status(403).send({ error: "Missing MANAGE_CHANNELS permission", code: "FORBIDDEN" });
 
       await channelService.reorderChannels(params.spaceId, body.orderedIds);
+      notifySpaceChanged(params.spaceId, "channels");
       return { data: { success: true } };
     },
   );

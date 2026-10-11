@@ -2,6 +2,7 @@ import { z } from "zod";
 import type { FastifyPluginAsync } from "fastify";
 import { moderationService } from "../services/moderationService.js";
 import { permissionService } from "../services/permissionService.js";
+import { notifySpaceChanged } from "../services/spaceSignalService.js";
 import { validate, hexId, nonEmptyString, positiveInt } from "../lib/validation.js";
 
 const spaceIdParamsSchema = z.object({
@@ -79,6 +80,7 @@ export const moderationRoutes: FastifyPluginAsync = async (server) => {
         bannedBy: authPubkey,
         expiresAt: body.expiresAt,
       });
+      notifySpaceChanged(params.spaceId, ["members", "moderation"]);
       return { data: ban };
     },
   );
@@ -97,6 +99,7 @@ export const moderationRoutes: FastifyPluginAsync = async (server) => {
       if (!perm.allowed) return reply.status(403).send({ error: "Missing BAN_MEMBERS permission", code: "FORBIDDEN" });
 
       await moderationService.unbanMember(params.spaceId, params.pubkey, authPubkey);
+      notifySpaceChanged(params.spaceId, "moderation");
       return { data: { success: true } };
     },
   );
@@ -149,6 +152,7 @@ export const moderationRoutes: FastifyPluginAsync = async (server) => {
         durationSeconds: body.durationSeconds,
         channelId: body.channelId,
       });
+      notifySpaceChanged(params.spaceId, "moderation");
       return { data: mute };
     },
   );
@@ -167,6 +171,7 @@ export const moderationRoutes: FastifyPluginAsync = async (server) => {
       if (!perm.allowed) return reply.status(403).send({ error: "Missing MUTE_MEMBERS permission", code: "FORBIDDEN" });
 
       await moderationService.unmuteMember(params.muteId);
+      notifySpaceChanged(params.spaceId, "moderation");
       return { data: { success: true } };
     },
   );
@@ -191,6 +196,7 @@ export const moderationRoutes: FastifyPluginAsync = async (server) => {
       if (!hierarchy.allowed) return reply.status(403).send({ error: hierarchy.reason, code: "FORBIDDEN" });
 
       await moderationService.kickMember(params.spaceId, params.pubkey, authPubkey);
+      notifySpaceChanged(params.spaceId, "members");
       return { data: { success: true } };
     },
   );

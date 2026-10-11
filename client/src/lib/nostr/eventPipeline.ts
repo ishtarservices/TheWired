@@ -48,6 +48,7 @@ import { addEmojiSet, setUserEmojis, setSpaceEmojiSets } from "../../store/slice
 import { parseEmojiSetEvent, parseUserEmojiListEvent } from "../../features/emoji/emojiSetParser";
 import type { CallType, CallTransport, CallCaps } from "../../types/calling";
 import { scheduleMemberSync } from "../../store/thunks/spaceMembers";
+import { parseSpaceConfigChanged, scheduleSpaceConfigSync } from "../../store/thunks/spaceConfigSync";
 import {
   applyNativeGroupEvent,
   applyNativeLayoutEvent,
@@ -1003,6 +1004,16 @@ async function indexEvent(event: NostrEvent): Promise<void> {
         if (dTag && getState().spaces.list.some((s) => s.id === dTag)) {
           scheduleMemberSync(dTag, dispatch);
         }
+      }
+      break;
+    }
+    case EVENT_KINDS.SPACE_CONFIG_CHANGED: {
+      // Backend nudge (WIR-196): "this platform space's <what> changed". No
+      // data rides on it — the matching REST refetch is the response, debounced
+      // per space. Unknown spaces are ignored, so a stranger's nudge is free.
+      const nudge = parseSpaceConfigChanged(event);
+      if (nudge && getState().spaces.list.some((s) => s.id === nudge.spaceId)) {
+        scheduleSpaceConfigSync(nudge.spaceId, nudge.changes, dispatch);
       }
       break;
     }

@@ -3,7 +3,8 @@ import type { FastifyPluginAsync } from "fastify";
 import { roleService } from "../services/roleService.js";
 import { permissionService } from "../services/permissionService.js";
 import { profileCacheService, toMemberProfile, PROFILE_JOIN_CAP } from "../services/profileCacheService.js";
-import { requirePubkey, requireSpaceCreator } from "../lib/authz.js";
+import { requirePubkey, requireSpaceCreator, isSpaceCreator } from "../lib/authz.js";
+import { notifySpaceChanged } from "../services/spaceSignalService.js";
 import { validate, hexId, nonEmptyString } from "../lib/validation.js";
 
 const spaceIdParamsSchema = z.object({
@@ -89,6 +90,7 @@ export const rolesRoutes: FastifyPluginAsync = async (server) => {
       if (!perm.allowed) return reply.status(403).send({ error: "Missing MANAGE_ROLES permission", code: "FORBIDDEN" });
 
       const role = await roleService.createRole(params.spaceId, body);
+      notifySpaceChanged(params.spaceId, "roles");
       return { data: role };
     },
   );
@@ -113,6 +115,7 @@ export const rolesRoutes: FastifyPluginAsync = async (server) => {
 
       try {
         const role = await roleService.updateRole(params.spaceId, params.roleId, body);
+        notifySpaceChanged(params.spaceId, "roles");
         return { data: role };
       } catch (err: any) {
         return reply.status(404).send({ error: err.message, code: "NOT_FOUND" });
@@ -135,6 +138,7 @@ export const rolesRoutes: FastifyPluginAsync = async (server) => {
 
       try {
         await roleService.deleteRole(params.spaceId, params.roleId);
+        notifySpaceChanged(params.spaceId, ["roles", "members"]);
         return { data: { success: true } };
       } catch (err: any) {
         const notFound = err.message === "Role not found";
@@ -162,6 +166,7 @@ export const rolesRoutes: FastifyPluginAsync = async (server) => {
       if (!perm.allowed) return reply.status(403).send({ error: "Missing MANAGE_ROLES permission", code: "FORBIDDEN" });
 
       await roleService.reorderRoles(params.spaceId, body.orderedIds);
+      notifySpaceChanged(params.spaceId, "roles");
       return { data: { success: true } };
     },
   );
@@ -210,6 +215,7 @@ export const rolesRoutes: FastifyPluginAsync = async (server) => {
 
       try {
         await roleService.setChannelOverrides(params.spaceId, params.roleId, body.overrides);
+        notifySpaceChanged(params.spaceId, "roles");
         return { data: { success: true } };
       } catch (err: any) {
         return reply.status(404).send({ error: err.message, code: "NOT_FOUND" });
@@ -274,16 +280,26 @@ export const rolesRoutes: FastifyPluginAsync = async (server) => {
       const perm = await permissionService.check(params.spaceId, authPubkey, "MANAGE_MEMBERS");
       if (!perm.allowed) return reply.status(403).send({ error: "Missing MANAGE_MEMBERS permission", code: "FORBIDDEN" });
 
-      // Hierarchy: actor's highest role must outrank the role being assigned
-      const actorRoles = await roleService.getMemberRoles(params.spaceId, authPubkey);
-      const actorBestPos = Math.min(...actorRoles.map((r) => r.position));
+      // The role must belong to this space (a foreign id would otherwise be
+      // inserted as-is and, via the unscoped role lookup in permissionService,
+      // could carry another space's Admin flag).
       const allRoles = await roleService.listRoles(params.spaceId);
       const assignedRole = allRoles.find((r) => r.id === body.roleId);
-      if (assignedRole && assignedRole.position <= actorBestPos) {
-        return reply.status(403).send({ error: "Cannot assign a role equal to or above your own", code: "FORBIDDEN" });
+      if (!assignedRole) return reply.status(404).send({ error: "Role not found", code: "NOT_FOUND" });
+
+      // Hierarchy: the creator outranks every role; anyone else's best role
+      // must strictly outrank the role being assigned (so an Admin can hand
+      // out every role below Admin, and only the creator can mint admins).
+      if (!(await isSpaceCreator(params.spaceId, authPubkey))) {
+        const actorRoles = await roleService.getMemberRoles(params.spaceId, authPubkey);
+        const actorBestPos = Math.min(...actorRoles.map((r) => r.position));
+        if (assignedRole.position <= actorBestPos) {
+          return reply.status(403).send({ error: "Cannot assign a role equal to or above your own", code: "FORBIDDEN" });
+        }
       }
 
       await roleService.assignRole(params.spaceId, params.pubkey, body.roleId);
+      notifySpaceChanged(params.spaceId, "members");
       return { data: { success: true } };
     },
   );
@@ -301,7 +317,28 @@ export const rolesRoutes: FastifyPluginAsync = async (server) => {
       const perm = await permissionService.check(params.spaceId, authPubkey, "MANAGE_MEMBERS");
       if (!perm.allowed) return reply.status(403).send({ error: "Missing MANAGE_MEMBERS permission", code: "FORBIDDEN" });
 
+      // Same hierarchy as assign, mirrored (WIR-196): a foreign role id is
+      // a 404, the creator's roles can only be touched by the creator, and a
+      // non-creator can only strip roles strictly below their own best role —
+      // so two Admins can't demote each other and nobody demotes the owner.
+      const allRoles = await roleService.listRoles(params.spaceId);
+      const removedRole = allRoles.find((r) => r.id === params.roleId);
+      if (!removedRole) return reply.status(404).send({ error: "Role not found", code: "NOT_FOUND" });
+
+      const actorIsCreator = await isSpaceCreator(params.spaceId, authPubkey);
+      if (!actorIsCreator) {
+        if (await isSpaceCreator(params.spaceId, params.pubkey)) {
+          return reply.status(403).send({ error: "Cannot change the space creator's roles", code: "FORBIDDEN" });
+        }
+        const actorRoles = await roleService.getMemberRoles(params.spaceId, authPubkey);
+        const actorBestPos = Math.min(...actorRoles.map((r) => r.position));
+        if (removedRole.position <= actorBestPos) {
+          return reply.status(403).send({ error: "Cannot remove a role equal to or above your own", code: "FORBIDDEN" });
+        }
+      }
+
       await roleService.removeRoleFromMember(params.spaceId, params.pubkey, params.roleId);
+      notifySpaceChanged(params.spaceId, "members");
       return { data: { success: true } };
     },
   );

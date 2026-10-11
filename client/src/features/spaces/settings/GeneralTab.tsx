@@ -6,7 +6,8 @@ import { useAppSelector, useAppDispatch } from "../../../store/hooks";
 import { updateSpace } from "../../../store/slices/spacesSlice";
 import { updateSpaceInStore } from "../../../lib/db/spaceStore";
 import { useAutoResize } from "../../../hooks/useAutoResize";
-import { getSpace } from "../../../lib/api/spaces";
+import { getSpace, updateSpaceApi } from "../../../lib/api/spaces";
+import { isBackendBacked } from "../spaceType";
 import {
   getDiscoverCategories,
   submitListingRequest,
@@ -27,6 +28,8 @@ export function GeneralTab({ spaceId }: GeneralTabProps) {
   const [about, setAbout] = useState("");
   const [picture, setPicture] = useState("");
   const [saved, setSaved] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [saveError, setSaveError] = useState<string | null>(null);
   const aboutRef = useRef<HTMLTextAreaElement>(null);
   useAutoResize(aboutRef, about, 200);
 
@@ -39,13 +42,32 @@ export function GeneralTab({ spaceId }: GeneralTabProps) {
 
   if (!space) return null;
 
-  function handleSave() {
+  async function handleSave() {
     const updated = {
       ...space!,
       name: name.trim() || space!.name,
       about: about.trim() || undefined,
       picture: picture.trim() || undefined,
     };
+    setSaveError(null);
+    // Backend-backed spaces persist through PATCH /spaces/:id so every member
+    // and device sees the edit (WIR-190/WIR-196); the local write follows the
+    // backend's answer. Native (NIP-29) spaces have no backend row — local only.
+    if (isBackendBacked(space!)) {
+      setSaving(true);
+      try {
+        await updateSpaceApi(space!.id, {
+          name: updated.name,
+          about: updated.about ?? null,
+          picture: updated.picture ?? null,
+        });
+      } catch (err) {
+        setSaving(false);
+        setSaveError(err instanceof Error ? err.message : "Couldn't save the space.");
+        return;
+      }
+      setSaving(false);
+    }
     dispatch(updateSpace(updated));
     updateSpaceInStore(updated);
     setSaved(true);
@@ -87,10 +109,11 @@ export function GeneralTab({ spaceId }: GeneralTabProps) {
         />
 
         <div className="flex items-center gap-3">
-          <Button variant="primary" size="md" onClick={handleSave}>
-            Save Changes
+          <Button variant="primary" size="md" onClick={handleSave} disabled={saving}>
+            {saving ? "Saving…" : "Save Changes"}
           </Button>
           {saved && <span className="text-xs text-green-400">Saved!</span>}
+          {saveError && <span className="text-xs text-red-400">{saveError}</span>}
         </div>
       </div>
 

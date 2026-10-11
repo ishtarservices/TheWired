@@ -193,8 +193,22 @@ export const permissionService = {
       }
     }
 
-    // Admin vs admin: only space creator can moderate other admins
-    // (creator check is left to the caller since we don't have creatorPubkey here)
+    // The creator is the owner: they outrank every role (so they can moderate
+    // other admins), and nobody moderates them. Resolved here rather than at
+    // each call site so ban / mute / kick and both clients agree (WIR-196).
+    const [space] = await db
+      .select({ creatorPubkey: spaces.creatorPubkey })
+      .from(spaces)
+      .where(eq(spaces.id, spaceId))
+      .limit(1);
+    if (space?.creatorPubkey) {
+      if (space.creatorPubkey === targetPubkey) {
+        return { allowed: false, reason: "Cannot moderate the space creator" };
+      }
+      if (space.creatorPubkey === actorPubkey) return { allowed: true };
+    }
+
+    // Admin vs admin: equal rank, so neither may act on the other.
     if (targetIsAdmin && !actorIsAdmin) {
       return { allowed: false, reason: "Cannot moderate an admin" };
     }

@@ -79,6 +79,8 @@ export const EVENT_KINDS = {
   GROUP_METADATA: 39000,
   GROUP_ADMINS: 39001,
   GROUP_MEMBERS: 39002,
+  /** Backend nudge: a platform space's config changed (WIR-196). */
+  SPACE_CONFIG_CHANGED: 20900,
   CLIENT_AUTH: 22242,
   APP_SPECIFIC_DATA: 30078,
   PUT_USER: 9000,

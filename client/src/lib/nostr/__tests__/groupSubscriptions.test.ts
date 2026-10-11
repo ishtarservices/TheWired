@@ -99,6 +99,11 @@ describe("groupSubscriptions — bg chat sub collapse", () => {
     expect(h2.filters[0]["#h"]).toEqual(["C"]);
     // kind:7 rides along so chat reactions are delivered (mobile wire contract).
     expect(h1.filters[0].kinds).toEqual([7, 9, 1068, 5, 9005]);
+    // The backend's space-config-changed nudge is d-tagged (WIR-196), so it
+    // rides a second filter on the same sub, over the same ids.
+    const nudge = h1.filters[1] as unknown as { kinds: number[]; "#d": string[] };
+    expect(nudge.kinds).toEqual([20900]);
+    expect([...nudge["#d"]].sort()).toEqual(["A", "B"]);
   });
 
   it("collapses many spaces on one host into a single subscription", () => {

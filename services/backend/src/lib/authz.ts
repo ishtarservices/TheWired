@@ -96,6 +96,17 @@ export async function requireSpaceCreator(
   return space;
 }
 
+/** Is `pubkey` the space's creator (the owner)? False for unknown spaces
+ *  and for legacy creator-less rows — callers fall through to permissions. */
+export async function isSpaceCreator(spaceId: string, pubkey: string): Promise<boolean> {
+  const [row] = await db
+    .select({ creatorPubkey: spaces.creatorPubkey })
+    .from(spaces)
+    .where(eq(spaces.id, spaceId))
+    .limit(1);
+  return !!row?.creatorPubkey && row.creatorPubkey === pubkey;
+}
+
 /** 403 (and reply) unless permissionService grants `permission` (channel-scoped when channelId given). */
 export async function requireSpacePermission(
   spaceId: string,

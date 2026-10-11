@@ -79,6 +79,15 @@ export async function leaveSpaceApi(id: string) {
   return api<{ left: boolean }>(`/spaces/${encodeURIComponent(id)}/members/me`, { method: "DELETE" });
 }
 
+/** Edit a space's name / about / picture (MANAGE_SPACE). `null` clears a
+ *  field. Returns the full backend row (GET /spaces/:id's shape). */
+export async function updateSpaceApi(
+  id: string,
+  params: { name?: string; about?: string | null; picture?: string | null },
+) {
+  return api<Space>(`/spaces/${encodeURIComponent(id)}`, { method: "PATCH", body: params });
+}
+
 /** Delete a space from the backend database */
 export async function deleteSpaceApi(id: string) {
   return api<{ deleted: boolean }>(`/spaces/${encodeURIComponent(id)}`, { method: "DELETE" });

@@ -5,6 +5,7 @@ import { useProfile } from "../../profile/useProfile";
 import { useAppSelector, useAppDispatch } from "../../../store/hooks";
 import { useRoles } from "../useRoles";
 import { useMemberRoles } from "../useMemberRoles";
+import { usePermissions } from "../usePermissions";
 import { useUserSearch } from "../../search/useUserSearch";
 import { addFeedSources, removeFeedSource as removeFeedSourceApi } from "../../../lib/api/spaces";
 import { updateSpaceFeedSources } from "../../../store/slices/spacesSlice";
@@ -44,28 +45,59 @@ function RoleBadge({ role, size = "sm" }: { role: SpaceRole; size?: "sm" | "xs" 
   );
 }
 
+/**
+ * Which of `allRoles` the viewer may toggle on `target`, mirroring the backend
+ * (roles.ts assign/remove, WIR-196): the creator may toggle anything on anyone;
+ * nobody else touches the creator; everyone else may only toggle roles that
+ * rank strictly below their own best role (lower position = higher rank).
+ */
+export function editableRoleIds(input: {
+  allRoles: SpaceRole[];
+  viewerRoles: SpaceRole[];
+  viewerIsCreator: boolean;
+  targetIsCreator: boolean;
+  canManageMembers: boolean;
+}): Set<string> {
+  const { allRoles, viewerRoles, viewerIsCreator, targetIsCreator, canManageMembers } = input;
+  if (!canManageMembers) return new Set();
+  if (viewerIsCreator) return new Set(allRoles.map((r) => r.id));
+  if (targetIsCreator) return new Set();
+  const best = viewerRoles.length ? Math.min(...viewerRoles.map((r) => r.position)) : Infinity;
+  return new Set(allRoles.filter((r) => r.position > best).map((r) => r.id));
+}
+
 function MemberRow({
   pubkey,
   spaceId,
   memberRoles,
+  editable,
 }: {
   pubkey: string;
   spaceId: string;
   memberRoles: SpaceRole[];
+  /** Role ids the viewer may toggle on this member (editableRoleIds). */
+  editable: Set<string>;
 }) {
   const { profile } = useProfile(pubkey);
   const { roles: allRoles } = useRoles(spaceId);
   const { assignRole, removeRoleFromMember } = useMemberRoles(spaceId);
+  const [roleError, setRoleError] = useState<string | null>(null);
   const [expanded, setExpanded] = useState(false);
 
   const name = profile?.display_name || profile?.name || pubkey.slice(0, 8) + "...";
   const assignedIds = new Set(memberRoles.map((r) => r.id));
 
   const handleToggleRole = async (roleId: string) => {
-    if (assignedIds.has(roleId)) {
-      await removeRoleFromMember(pubkey, roleId);
-    } else {
-      await assignRole(pubkey, roleId);
+    if (!editable.has(roleId)) return;
+    setRoleError(null);
+    try {
+      if (assignedIds.has(roleId)) {
+        await removeRoleFromMember(pubkey, roleId);
+      } else {
+        await assignRole(pubkey, roleId);
+      }
+    } catch (err) {
+      setRoleError(err instanceof Error ? err.message : "Couldn't change that role.");
     }
   };
 
@@ -106,7 +138,9 @@ function MemberRow({
         <div className="px-2.5 pb-2.5">
           <div className="rounded-lg bg-surface/60 border border-border/50 p-2">
             <div className="flex items-center justify-between mb-1.5 px-0.5">
-              <p className="text-[10px] text-muted">Roles</p>
+              <p className="text-[10px] text-muted">
+                {editable.size === 0 ? "Roles (view only)" : "Roles"}
+              </p>
               {memberRoles.length > 0 && (
                 <p className="text-[10px] text-muted">{memberRoles.length} assigned</p>
               )}
@@ -122,11 +156,17 @@ function MemberRow({
                 .map((role) => {
                   const isAssigned = assignedIds.has(role.id);
                   const color = role.color ?? "var(--color-muted)";
+                  const locked = !editable.has(role.id);
+                  // Roles the viewer can't touch stay visible when held (the
+                  // badge is information) and are hidden when not (nothing to do).
+                  if (locked && !isAssigned) return null;
                   return (
                     <button
                       key={role.id}
                       onClick={() => handleToggleRole(role.id)}
-                      className="inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-[11px] font-medium transition-all duration-150 hover:brightness-125 active:scale-[0.97]"
+                      disabled={locked}
+                      title={locked ? "You can't change this role" : undefined}
+                      className="inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-[11px] font-medium transition-all duration-150 hover:brightness-125 active:scale-[0.97] disabled:cursor-default disabled:hover:brightness-100 disabled:active:scale-100"
                       style={
                         isAssigned
                           ? {
@@ -146,6 +186,7 @@ function MemberRow({
                       ) : (
                         <Plus size={10} strokeWidth={2} />
                       )}
+                      {locked && isAssigned && <span className="sr-only">(locked)</span>}
                       <span
                         className="shrink-0 rounded-full"
                         style={{
@@ -160,6 +201,7 @@ function MemberRow({
                   );
                 })}
             </div>
+            {roleError && <p className="mt-1.5 px-0.5 text-[10px] text-red-400">{roleError}</p>}
           </div>
         </div>
       )}
@@ -203,6 +245,8 @@ export function MembersTab({ spaceId }: MembersTabProps) {
   const [memberFilter, setMemberFilter] = useState("");
   const { query, setQuery, results, isSearching } = useUserSearch();
   const { members: memberData } = useMemberRoles(spaceId);
+  const { roles: allRoles } = useRoles(spaceId);
+  const { can } = usePermissions(spaceId);
 
   const isFeedMode = space?.mode === "read";
   const canManageFeed = !!currentPubkey && (
@@ -381,6 +425,13 @@ export function MembersTab({ spaceId }: MembersTabProps) {
                 pubkey={pubkey}
                 spaceId={spaceId}
                 memberRoles={memberRolesMap.get(pubkey) ?? []}
+                editable={editableRoleIds({
+                  allRoles,
+                  viewerRoles: currentPubkey ? (memberRolesMap.get(currentPubkey) ?? []) : [],
+                  viewerIsCreator: !!currentPubkey && space.creatorPubkey === currentPubkey,
+                  targetIsCreator: space.creatorPubkey === pubkey,
+                  canManageMembers: can("MANAGE_MEMBERS"),
+                })}
               />
             ))
           )}

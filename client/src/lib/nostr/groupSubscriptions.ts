@@ -59,6 +59,14 @@ function openHostSub(host: string, since: number = defaultSince()): void {
         "#h": ids,
         since,
       },
+      {
+        // Backend space-config-changed nudges (WIR-196): d-tagged (the
+        // ingest identity is a member of nothing, and the relay gates h-tags
+        // on membership), so they ride a second filter on the same sub.
+        kinds: [EVENT_KINDS.SPACE_CONFIG_CHANGED],
+        "#d": ids,
+        since,
+      },
     ],
     relayUrls: [host],
   });

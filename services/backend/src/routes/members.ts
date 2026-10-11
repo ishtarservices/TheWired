@@ -9,6 +9,7 @@ import { spaceChannels } from "../db/schema/channels.js";
 import { eq, and, sql, asc } from "drizzle-orm";
 import { onboardingService } from "../services/onboardingService.js";
 import { profileCacheService, toMemberProfile, PROFILE_JOIN_CAP } from "../services/profileCacheService.js";
+import { notifySpaceChanged } from "../services/spaceSignalService.js";
 
 const idParams = z.object({ id: nonEmptyString });
 const memberListQuery = z.object({
@@ -92,6 +93,7 @@ export const membersRoutes: FastifyPluginAsync = async (server) => {
 
       // Increment member count
       await db.update(spaces).set({ memberCount: sql`${spaces.memberCount} + 1` }).where(eq(spaces.id, id));
+      notifySpaceChanged(id, "members");
     }
 
     // Return space info + channels + feed sources for client to hydrate
@@ -154,6 +156,7 @@ export const membersRoutes: FastifyPluginAsync = async (server) => {
         .update(spaces)
         .set({ memberCount: sql`GREATEST(${spaces.memberCount} - 1, 0)` })
         .where(eq(spaces.id, id));
+      notifySpaceChanged(id, "members");
     }
 
     return { data: { left: true } };

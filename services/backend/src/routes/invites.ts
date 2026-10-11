@@ -10,6 +10,7 @@ import { eq, and, sql } from "drizzle-orm";
 import { nanoid } from "../lib/id.js";
 import { permissionService } from "../services/permissionService.js";
 import { onboardingService } from "../services/onboardingService.js";
+import { notifySpaceChanged } from "../services/spaceSignalService.js";
 
 const createInviteBody = z.object({
   spaceId: nonEmptyString,
@@ -170,6 +171,8 @@ export const invitesRoutes: FastifyPluginAsync = async (server) => {
         roleId: roleToAssign,
       }).onConflictDoNothing();
     }
+
+    notifySpaceChanged(invite.spaceId, "members");
 
     // Fetch space info to return
     const [space] = await db.select().from(spaces).where(eq(spaces.id, invite.spaceId)).limit(1);

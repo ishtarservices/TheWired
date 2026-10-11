@@ -8,7 +8,8 @@ import { eq, and, inArray, asc } from "drizzle-orm";
 import { roleService } from "../services/roleService.js";
 import { channelService } from "../services/channelService.js";
 import { validate, nonEmptyString, limitParam, offsetParam } from "../lib/validation.js";
-import { requirePubkey, requireSpaceCreator } from "../lib/authz.js";
+import { requirePubkey, requireSpaceCreator, requireSpacePermission } from "../lib/authz.js";
+import { notifySpaceChanged } from "../services/spaceSignalService.js";
 import { checkHostRelayUrl } from "../lib/relayUrlGuard.js";
 import { config } from "../config.js";
 
@@ -32,6 +33,17 @@ const createSpaceBodySchema = z.object({
   mode: z.enum(["read", "read-write"]).optional(),
   channels: z.array(z.object({ type: nonEmptyString, label: nonEmptyString })).optional(),
 });
+
+/** PATCH /:id — the editable metadata. `null` clears about/picture. */
+const updateSpaceBodySchema = z
+  .object({
+    name: nonEmptyString.max(60).optional(),
+    about: z.string().max(2000).nullable().optional(),
+    picture: z.string().url().max(2048).nullable().optional(),
+  })
+  .refine((b) => b.name !== undefined || b.about !== undefined || b.picture !== undefined, {
+    message: "Nothing to update",
+  });
 
 const validateIdsBodySchema = z.object({
   ids: z.array(z.string()).min(1).max(100),
@@ -149,6 +161,7 @@ export const spacesRoutes: FastifyPluginAsync = async (server) => {
         .update(spaces)
         .set({ name: body.name, picture: body.picture ?? null, about: body.about ?? null, mode })
         .where(and(eq(spaces.id, body.id), eq(spaces.creatorPubkey, pubkey)));
+      notifySpaceChanged(body.id, "meta");
       return { data: { id: body.id } };
     }
 
@@ -216,6 +229,37 @@ export const spacesRoutes: FastifyPluginAsync = async (server) => {
     return { data: { id: body.id } };
   });
 
+  /**
+   * PATCH /:id — Edit a space's name / about / picture (MANAGE_SPACE; the
+   * Admin role and the creator pass through permissionService's admin
+   * bypass). Until this route existed desktop's General tab saved locally
+   * only, so a rename never reached other members or devices (WIR-190).
+   * Returns the full row in GET /:id's shape so clients can apply it as-is.
+   */
+  server.patch<{ Params: { id: string } }>("/:id", async (request, reply) => {
+    const params = validate(idParamsSchema, request.params, reply);
+    if (!params) return;
+    const pubkey = requirePubkey(request, reply);
+    if (!pubkey) return;
+    const body = validate(updateSpaceBodySchema, request.body, reply);
+    if (!body) return;
+
+    const [existing] = await db.select({ id: spaces.id }).from(spaces).where(eq(spaces.id, params.id)).limit(1);
+    if (!existing) return reply.status(404).send({ error: "Space not found", code: "NOT_FOUND" });
+    if (!(await requireSpacePermission(params.id, pubkey, "MANAGE_SPACE", reply))) return;
+
+    const patch: Partial<{ name: string; about: string | null; picture: string | null }> = {};
+    if (body.name !== undefined) patch.name = body.name;
+    if (body.about !== undefined) patch.about = body.about?.trim() || null;
+    if (body.picture !== undefined) patch.picture = body.picture || null;
+    await db.update(spaces).set(patch).where(eq(spaces.id, params.id));
+
+    const [space] = await db.select().from(spaces).where(eq(spaces.id, params.id)).limit(1);
+    const tags = await db.select().from(spaceTags).where(eq(spaceTags.spaceId, params.id));
+    notifySpaceChanged(params.id, "meta");
+    return { data: { ...space, tags: tags.map((t) => t.tag) } };
+  });
+
   /** DELETE /:id — Delete a space (admin only). CASCADE FKs handle related records. */
   server.delete<{ Params: { id: string } }>("/:id", async (request, reply) => {
     const params = validate(idParamsSchema, request.params, reply);
@@ -231,6 +275,7 @@ export const spacesRoutes: FastifyPluginAsync = async (server) => {
 
     // Delete space — CASCADE foreign keys clean up channels, members, roles, invites, tags
     await db.delete(spaces).where(eq(spaces.id, id));
+    notifySpaceChanged(id, "deleted");
 
     return { data: { deleted: true } };
   });
