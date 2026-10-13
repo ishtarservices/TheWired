@@ -401,8 +401,11 @@ async function sendCallStatus(
   content = "",
 ): Promise<void> {
   try {
+    // Call control, not the invite: a short expiration keeps it under the
+    // backend's signal line, so a decline never reaches the caller's phone
+    // as a "new message" push (contract 1.2.2).
     const { wrap } = await createGiftWrappedDM(content, partnerPubkey, [["type", type]], undefined, {
-      expiration: defaultExpirationFor("call", Math.floor(Date.now() / 1000)),
+      expiration: defaultExpirationFor("call_control", Math.floor(Date.now() / 1000)),
     });
     const relays = await getDMRelaysForPublish(partnerPubkey);
     relayManager.publish(wrap, relays);

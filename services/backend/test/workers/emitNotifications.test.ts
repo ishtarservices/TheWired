@@ -196,9 +196,15 @@ describe("kind 1059 wrap through processEvent", () => {
     let rows = await rowsFor(LUNA.pubkey);
     expect(rows).toHaveLength(1);
     expect(rows[0]).toMatchObject({ type: "dm", title: "soot", body: "new message", url: "soot://dm?segment=messages" });
-    // Content-free: the wrap id + where to fetch it (DMPushData) — no sender,
-    // no ciphertext.
-    expect(JSON.parse(rows[0].data!)).toEqual({ type: "dm", eventId: wrap.id, relay: config.publicRelayUrl });
+    // Content-free: the wrap id + where to fetch it (DMPushData) and the
+    // account it is for (the wrap's own public `p`) — no sender, no
+    // ciphertext; no `expiresAt` for a wrap without an expiration.
+    expect(JSON.parse(rows[0].data!)).toEqual({
+      type: "dm",
+      eventId: wrap.id,
+      relay: config.publicRelayUrl,
+      recipient: LUNA.pubkey,
+    });
     expect(JSON.stringify(rows[0])).not.toContain("opaque-ciphertext");
     expect(JSON.stringify(rows[0])).not.toContain(wrap.pubkey);
 

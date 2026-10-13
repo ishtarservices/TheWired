@@ -416,7 +416,7 @@ export function receiptRumorTags(
 /** The seal/wrap `expiration` a rumor class gets, relative to `createdAt`
  *  (§5). `undefined` = no expiration. */
 export function defaultExpirationFor(
-  cls: "typing" | "receipt" | "call" | "message" | "media_key",
+  cls: "typing" | "receipt" | "call" | "call_control" | "message" | "media_key",
   createdAt: number,
   /** Per-conversation disappearing-messages timer, seconds (0/undefined = off). */
   disappearAfter?: number,
@@ -428,6 +428,8 @@ export function defaultExpirationFor(
       return createdAt + DM_EXPIRATION_SECONDS.receipt;
     case "call":
       return createdAt + DM_EXPIRATION_SECONDS.call;
+    case "call_control":
+      return createdAt + DM_EXPIRATION_SECONDS.callControl;
     case "media_key":
       return createdAt + DM_EXPIRATION_SECONDS.mediaKey;
     case "message":

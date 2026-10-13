@@ -282,6 +282,43 @@ describe("dispatchOnce", () => {
     expect(row.sent).toBe(false);
     expect(row.attempts).toBe(1);
   });
+
+  it("a partial delivery (one device ok, one ticket error) is retired, never re-sent to the device that got it", async () => {
+    await device(LUNA.pubkey, "ExponentPushToken[luna-phone]");
+    await device(LUNA.pubkey, "ExponentPushToken[luna-tablet]");
+    await seed();
+    const { sender, sent } = fakeSender((m) =>
+      m.to === "ExponentPushToken[luna-tablet]"
+        ? { status: "error", message: "boom", details: { error: "MessageRateExceeded" } }
+        : { status: "ok", id: randomUUID() },
+    );
+    await dispatchOnce({ sender });
+    expect(sent).toHaveLength(1);
+    const [row] = await rowsFor(LUNA.pubkey);
+    expect(row.sent).toBe(true);
+    expect(row.sentAt).not.toBeNull();
+    // A second pass sends nothing more.
+    await dispatchOnce({ sender });
+    expect(sent).toHaveLength(1);
+  });
+
+  it("a dm row whose wrap already expired (data.expiresAt) is retired unsent — no loud, empty 'new message'", async () => {
+    await device();
+    const data = JSON.stringify({ type: "dm", eventId: wrap(1), relay: "wss://relay.test", expiresAt: Date.now() - 1000 });
+    await seed({ ...dmRow(wrap(1)), data });
+    const live = JSON.stringify({ type: "dm", eventId: wrap(2), relay: "wss://relay.test", expiresAt: Date.now() + 60_000 });
+    await seed({ ...dmRow(wrap(2)), data: live });
+    const { sender, sent } = fakeSender();
+    const stats = await dispatchOnce({ sender });
+    expect(stats.expired).toBe(1);
+    expect(stats.sent).toBe(1);
+    expect(sent).toHaveLength(1);
+    expect(sent[0][0].data!.eventIds).toEqual([wrap(2)]);
+    const rows = await rowsFor(LUNA.pubkey);
+    const retired = rows.find((r) => (r.data ?? "").includes(wrap(1)))!;
+    expect(retired.sent).toBe(true);
+    expect(retired.sentAt).toBeNull();
+  });
 });
 
 describe("dm send gate (defer + fold, never drop)", () => {

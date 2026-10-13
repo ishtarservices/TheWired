@@ -1,6 +1,6 @@
 # DM wire contract — The Wired desktop ↔ soot mobile ↔ relay ↔ backend
 
-**Contract version:** `wire_version = 1` · **Document version:** 1.2.1 (2026-10-13)
+**Contract version:** `wire_version = 1` · **Document version:** 1.2.2 (2026-10-13)
 **Owner:** the TheWiredV1 monorepo (server side + `@ishtarservices/core`). soot implements it; it does not change it.
 **Ships in:** `@ishtarservices/shared-types@0.2.0`, `@ishtarservices/core@0.2.0`, `thewired-relay` ≥ 0.2.0, backend ≥ migration 0029.
 
@@ -126,10 +126,13 @@ Unchanged from `NIP17_GROUP_ROOMS.md`; restated so it is in one place:
 |---|---|
 | ordinary kind 14 / 15 / 7 / edit / delete / friend_* | none, unless the conversation has a disappearing-messages timer |
 | disappearing-messages chat | `rumor.created_at + timer` (timer in read-state `expireAfter`, §6); both sides delete locally at expiry |
-| `call_invite`, `call_decline`, `call_missed` | `created_at + 120` |
+| `call_invite` | `created_at + 120` (the ring; the one call wrap the backend pushes) |
+| `call_decline`, `call_missed` | `created_at + 45` (1.2.2; was 120) |
 | typing (20014) | `created_at + 30` |
 | receipt (20015) | `created_at + 7·86400` |
-| media key (20016) | `created_at + 120` |
+| media key (20016) | `created_at + 45` (1.2.2; was 120). Receivers still accept an envelope whose `ts` is within 120 s (`MEDIA_KEY_MAX_SKEW_MS`) |
+
+Everything under 60 s is a **signal** to the backend (§8.1) and is never pushed; a room's key fan-out (every join, leave, reconnect, rotation) used to ring each co-participant's phone as a "new message".
 
 Clients MUST ignore expired events on receipt and delete local copies of disappearing messages at expiry. The relay drops expired events on ingest, never serves them, and sweeps them every 5 min (§7.4). Do not send `expiration` to relays that do not list NIP 40 (our relay does; damus/nos.lol do).
 
@@ -213,7 +216,9 @@ Sent through the Expo push API to every registered device of the wrap's `p` pubk
 ```
 `data.recipient` (1.2.1, optional) lets a phone that holds several accounts open the tap in the right one — switch first, then navigate. It is the wrap's public `p` tag, nothing the server did not already route on; older backends omit it and the tap opens in whichever account is active.
 `collapseKey = dm:<recipient>`. Timing and filtering (backend):
-- **Typing is not pushed.** A wrap whose `expiration` is ≤ 60 s away when the backend ingests it (typing, 20014, `+30`; anything already expired) produces no push. Call invites and media keys (`+120`) and receipts (`+7 d`) still push — the server cannot see kinds; §8.2 demotes them on the phone.
+- **Signals are not pushed.** A wrap whose `expiration` is ≤ 60 s away when the backend ingests it (typing `+30`; call control and media keys `+45` since 1.2.2; anything already expired) produces no push. Call invites (`+120`) and receipts (`+7 d`) still push — the server cannot see kinds; §8.2 demotes a receipt on the phone.
+- **Expired wraps are not pushed.** `data.expiresAt` (unix ms, the newest wrap's `expiration`) rides in the payload; the dispatcher retires a dm row past it instead of pushing a wrap the phone can no longer decrypt (which showed as a loud, empty "new message").
+- **A partial delivery is not retried.** When one device or web-push subscription refuses a group and another took it, the group is retired (the error is remembered per account); only a group no target took is retried, up to 3 times. Before, the healthy device got the same push again.
 - **5-s send gate, fold instead of drop.** At most one dm push per recipient per 5 s. Wraps that arrive while the gate is shut are deferred, never dropped: they fold into the next push, whose `eventIds` names them all (newest first, ≤ 10; `eventId` = `eventIds[0]`, kept for older apps). This replaces the 120-s window of 1.0–1.1, which dropped every wrap after the first — a receipt or typing wrap could swallow the message right behind it.
 - **Latency.** A queued dm is dispatched ~1 s after ingest, and a deferred one as soon as its gate lapses; the 30-s tick is only the backstop. A row still unsent after 15 min is dropped (a stale "new message" is worse than none).
 - **Once per wrap.** A wrap id pushes at most once; the ingester's 2-day replay after a reconnect never re-pushes.
@@ -262,6 +267,7 @@ Plan: (1) on login publish a 30443 with a signing key distinct from the nsec (ke
 | Marmot | §10 plan only |
 
 ## 12. Change log
+- **1.2.2 (2026-10-13)** — room calls stop pushing (§5, §8.1): `call_decline`, `call_missed` and media-key (20016) wraps expire at `+45` (`DM_EXPIRATION_SECONDS.callControl` / `.mediaKey`; `MEDIA_KEY_MAX_SKEW_MS` stays 120 s), under the backend's 60 s signal line; `call_invite` keeps `+120`. Backend: `data.expiresAt` on dm pushes and expired rows retired at dispatch; a partial delivery is retired, not re-sent.
 - **1.2.1 (2026-10-13)** — push payload names its account (§8.1): `data.recipient` = the wrap's `p` pubkey (`DMPushData.recipient`, optional), so a phone holding several accounts switches before opening the tap. No wire change.
 - **1.2.0 (2026-10-12)** — push timing and the iOS extension (§8); no wire change. Backend: typing-style wraps (`expiration` ≤ 60 s away) are no longer pushed; the 120-s per-recipient drop window becomes a 5-s send gate that defers and folds (nothing dropped); a dm is dispatched ~1 s after ingest; push `data.eventIds` names every folded wrap (`DMPushData.eventIds`, optional); `GET /push/devices` gains `lastDm`, `ingestLastWrapAt` and receipt-stage `lastError`s. Extension (§8.2): fetch every id in `eventIds`; MAY send `delivered` for 1:1 kind-14/15 rumors from friends (the app must not repeat it); the spool holds the raw wrap (`{v:1, p, wrap, receiptSent, at}`) instead of the decrypted rumor; the app's private keychain group comes first and the extension gets only the shared one; the shared nsec copy is after-first-unlock-this-device-only; decrypt note corrected (NIP-44 v2 = ChaCha20 + HMAC-SHA256).
 - **1.1.0 (2026-09-25)** — frame-level E2EE for calls and channels (docs/E2EE_CALLS.md): `caps.e2ee` on `call_invite` (invites without it are declined), new rumor kind **20016 media key** (per-sender LiveKit keys for channels, 120-s expiry, no self-wrap), `DM_RUMOR_KINDS` gains 20016, `DM_EXPIRATION_SECONDS.mediaKey`. Backend `/voice/token` + `/voice/dm-token` require `supportsE2EE: true` (409 `E2EE_REQUIRED` otherwise). shared-types/core 0.4.0.

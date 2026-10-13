@@ -293,12 +293,18 @@ export function planNotifications(
       // Content-free by construction: we know only who it is FOR.
       const recipient = tagValue(event, "p");
       if (!recipient) return out;
-      // Typing wraps would buzz the phone every few seconds of composing.
+      // Typing, call control and media keys (≤ 60 s) would buzz the phone
+      // for nothing — a room fans a key wrap to every co-participant on each
+      // join, leave and reconnect.
       if (isSignalWrap(event, deps.nowSec ?? Math.floor(Date.now() / 1000))) return out;
       // data = DMPushData (shared-types): the NSE fetches `eventId` from
       // `relay` over an authenticated socket and decrypts on device. The
       // recipient rides along so a phone that holds several accounts opens
-      // the tap in the account the push was for (the wrap's `p` is public).
+      // the tap in the account the push was for (the wrap's `p` is public);
+      // `expiresAt` lets the dispatcher retire a wrap nobody can decrypt
+      // any more instead of pushing a loud, empty "new message".
+      const expiration = tagValue(event, "expiration");
+      const expiresAt = expiration && /^\d+$/.test(expiration) ? Number(expiration) * 1000 : undefined;
       out.push({
         recipient,
         type: "dm",
@@ -306,7 +312,13 @@ export function planNotifications(
         body: "new message",
         url: "soot://dm?segment=messages",
         collapseKey: `dm:${recipient}`,
-        data: { type: "dm", eventId: event.id, relay: deps.publicRelayUrl ?? "", recipient },
+        data: {
+          type: "dm",
+          eventId: event.id,
+          relay: deps.publicRelayUrl ?? "",
+          recipient,
+          ...(expiresAt !== undefined ? { expiresAt } : {}),
+        },
       });
       return out;
     }

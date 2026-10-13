@@ -24,11 +24,15 @@ function dm(over: Partial<UnwrappedDM>): UnwrappedDM {
 const valid = { v: 1, room: "space1:chan1", keys: [{ idx: 0, key: KEY }], ts: 1_700_000_000_000 };
 
 describe("kind 20016 media_key envelope", () => {
-  it("is an accepted rumor kind and expires after 120 s", () => {
+  it("is an accepted rumor kind; its wrap expires under the backend's 60 s signal line, its envelope skew window stays 120 s", () => {
     expect(KIND_DM_MEDIA_KEY).toBe(20016);
     expect(DM_KINDS.MEDIA_KEY).toBe(20016);
     expect(DM_RUMOR_KINDS).toContain(20016);
-    expect(defaultExpirationFor("media_key", 1000)).toBe(1120);
+    // +45 (contract 1.2.2): a room's key fan-out used to push one "new
+    // message" per wrap at +120.
+    expect(defaultExpirationFor("media_key", 1000)).toBe(1045);
+    expect(defaultExpirationFor("call_control", 1000)).toBe(1045);
+    expect(defaultExpirationFor("call", 1000)).toBe(1120);
     expect(MEDIA_KEY_MAX_SKEW_MS).toBe(120_000);
     expect(mediaKeyRumorTags()).toEqual([]);
   });

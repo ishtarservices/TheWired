@@ -216,10 +216,21 @@ export async function dispatchOnce(deps: DispatchDeps): Promise<DispatchStats> {
   for (const rows of groups.values()) {
     const pubkey = rows[0].pubkey;
 
-    // 3. (Self-wrap suppression used to live here as a client-declared Redis
-    //    set. The relay now flags self-published wraps at ingest and the
-    //    emitter never queues them — docs/DM_WIRE_CONTRACT.md §7.3.)
-    const group = rows;
+    // 3. A dm row whose wrap has expired (data.expiresAt, the wrap's own
+    //    `expiration`) is retired unsent: the phone's extension could no
+    //    longer decrypt it and would show the loud, empty server copy. (The
+    //    relay sweeps expired wraps too.) Self-wrap suppression used to live
+    //    here; the relay now flags those at ingest — contract §7.3.
+    const stale = rows.filter((r) => {
+      const at = parseData(r)?.expiresAt;
+      return typeof at === "number" && at <= now();
+    });
+    if (stale.length > 0) {
+      await markSent(stale.map((r) => r.id), false);
+      stats.expired += stale.length;
+    }
+    const group = rows.filter((r) => !stale.includes(r));
+    if (group.length === 0) continue;
 
     const ids = group.map((r) => r.id);
     const folded = collapseGroup(group);
@@ -251,6 +262,10 @@ export async function dispatchOnce(deps: DispatchDeps): Promise<DispatchStats> {
     }
 
     let allSent = true;
+    /** Some target took the push: a retry would deliver it to that device
+     *  twice, so a partial failure is logged and the group retired. Only a
+     *  group NO target took is retried. */
+    let anyDelivered = false;
 
     // 4a. Web push (desktop) — unchanged path.
     if (subs.length > 0 && webPushReady) {
@@ -266,6 +281,7 @@ export async function dispatchOnce(deps: DispatchDeps): Promise<DispatchStats> {
             { endpoint: sub.endpoint, keys: { p256dh: sub.p256dh, auth: sub.auth } },
             payload,
           );
+          anyDelivered = true;
         } catch (err: any) {
           if (err?.statusCode === 410 || err?.statusCode === 404) {
             await db
@@ -348,7 +364,10 @@ export async function dispatchOnce(deps: DispatchDeps): Promise<DispatchStats> {
         }
         // An ok ticket proves the send path, not delivery: a receipt-stage
         // error (APNs refused an earlier push) stays until an ok receipt.
-        if (anyOk) await pushService.clearDeliveryError(pubkey, { stage: "ticket" });
+        if (anyOk) {
+          anyDelivered = true;
+          await pushService.clearDeliveryError(pubkey, { stage: "ticket" });
+        }
       } catch (err) {
         console.error("[notifications] expo send failed:", (err as Error).message);
         await pushService.recordDeliveryError(pubkey, "send_failed", (err as Error).message).catch(() => {});
@@ -357,6 +376,13 @@ export async function dispatchOnce(deps: DispatchDeps): Promise<DispatchStats> {
     }
 
     if (allSent) {
+      await markSent(ids, true);
+      stats.sent += ids.length;
+    } else if (anyDelivered) {
+      // One device or subscription refused, another took it: re-sending the
+      // group would push the same "new message" twice to the one that
+      // worked. The error is remembered per account (You → Notifications).
+      console.warn(`[notifications] partial delivery for ${pubkey}: not retrying ${ids.length} row(s)`);
       await markSent(ids, true);
       stats.sent += ids.length;
     } else {

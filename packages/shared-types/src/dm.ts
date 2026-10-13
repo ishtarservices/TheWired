@@ -68,12 +68,22 @@ export const DM_CONTROL_TYPES: readonly DMControlType[] = [
   "call_missed",
 ];
 
-/** Seconds of `expiration` (seal + wrap) per rumor class. `undefined` = none. */
+/** Seconds of `expiration` (seal + wrap) per rumor class. `undefined` = none.
+ *  The backend pushes any wrap that expires more than 60 s after ingest as
+ *  a content-free "new message" (DM_WIRE_CONTRACT §8.1): everything that
+ *  must NEVER push — typing, call control, media keys — stays under that
+ *  line. `call` is the invite only: it IS the ring, and the phone's
+ *  extension renders it as "<name> is calling you". */
 export const DM_EXPIRATION_SECONDS = {
   typing: 30,
   receipt: 7 * 24 * 3600,
+  /** call_invite */
   call: 120,
-  mediaKey: 120,
+  /** call_decline / call_missed (1.2.2; was 120, which pushed) */
+  callControl: 45,
+  /** kind 20016 (1.2.2; was 120, which pushed one "new message" per key
+   *  wrap — a room fans them out on every join, leave and reconnect) */
+  mediaKey: 45,
 } as const;
 
 // ─── Frame-level E2EE for LiveKit rooms (docs/E2EE_CALLS.md) ───────────
@@ -123,8 +133,9 @@ export interface DMMediaKeyEnvelope {
 }
 
 /** Largest |now − ts| a media-key envelope is accepted with (clock skew +
- *  relay latency). Matches its wrap expiration. */
-export const MEDIA_KEY_MAX_SKEW_MS = DM_EXPIRATION_SECONDS.mediaKey * 1000;
+ *  relay latency). Wider than the wrap's expiration on purpose: a key that
+ *  arrived must still be accepted by a phone whose clock is a minute off. */
+export const MEDIA_KEY_MAX_SKEW_MS = 120 * 1000;
 /** LiveKit key indices are one byte. */
 export const MEDIA_KEY_INDEX_MAX = 255;
 
@@ -214,4 +225,8 @@ export interface DMPushData {
    *  holds several accounts switches to it before opening the tap. Absent
    *  from older backends. */
   recipient?: string;
+  /** The newest wrap's `expiration`, unix ms — the dispatcher retires a dm
+   *  row past it instead of pushing a wrap nobody can decrypt any more.
+   *  Absent when the wrap carries no expiration. */
+  expiresAt?: number;
 }
