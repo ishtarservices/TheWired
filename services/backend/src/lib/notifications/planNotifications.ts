@@ -296,7 +296,9 @@ export function planNotifications(
       // Typing wraps would buzz the phone every few seconds of composing.
       if (isSignalWrap(event, deps.nowSec ?? Math.floor(Date.now() / 1000))) return out;
       // data = DMPushData (shared-types): the NSE fetches `eventId` from
-      // `relay` over an authenticated socket and decrypts on device.
+      // `relay` over an authenticated socket and decrypts on device. The
+      // recipient rides along so a phone that holds several accounts opens
+      // the tap in the account the push was for (the wrap's `p` is public).
       out.push({
         recipient,
         type: "dm",
@@ -304,7 +306,7 @@ export function planNotifications(
         body: "new message",
         url: "soot://dm?segment=messages",
         collapseKey: `dm:${recipient}`,
-        data: { type: "dm", eventId: event.id, relay: deps.publicRelayUrl ?? "" },
+        data: { type: "dm", eventId: event.id, relay: deps.publicRelayUrl ?? "", recipient },
       });
       return out;
     }

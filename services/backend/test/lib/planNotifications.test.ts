@@ -259,8 +259,9 @@ describe("planNotifications", () => {
       body: "new message",
       url: "soot://dm?segment=messages",
       collapseKey: `dm:${ME}`,
-      // DMPushData: what the iOS extension needs to fetch + decrypt on device.
-      data: { type: "dm", eventId: "1".repeat(64), relay: "wss://relay.test" },
+      // DMPushData: what the iOS extension needs to fetch + decrypt on device,
+      // plus the account the push is for (a multi-account phone routes the tap).
+      data: { type: "dm", eventId: "1".repeat(64), relay: "wss://relay.test", recipient: ME },
     });
     expect(JSON.stringify(d)).not.toContain("ciphertext");
   });

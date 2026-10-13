@@ -210,4 +210,8 @@ export interface DMPushData {
   eventIds?: string[];
   /** Relay to fetch it from (wss://…). */
   relay: string;
+  /** The account the push is for (the wrap's `p` pubkey, hex). A phone that
+   *  holds several accounts switches to it before opening the tap. Absent
+   *  from older backends. */
+  recipient?: string;
 }
