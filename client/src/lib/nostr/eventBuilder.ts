@@ -128,19 +128,8 @@ export function buildRootNote(
   };
 }
 
-/** Build an unsigned kind:10001 pinned notes list event (NIP-51) */
-export function buildPinnedNotesEvent(
-  pubkey: string,
-  pinnedEventIds: string[],
-): UnsignedEvent {
-  return {
-    pubkey,
-    created_at: Math.floor(Date.now() / 1000),
-    kind: 10001,
-    tags: pinnedEventIds.map((id) => ["e", id]),
-    content: "",
-  };
-}
+// The pin list (kind:10001) has no builder here on purpose: it is only ever
+// written as a read-modify-write of the relay copy (features/profile/pinListWrite).
 
 /** Derive a human-readable, URL-safe `d`-tag slug from an article title, with a
  *  short random suffix so two articles sharing a title don't collide. Falls back

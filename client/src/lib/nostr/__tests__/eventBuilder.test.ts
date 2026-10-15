@@ -3,7 +3,6 @@ import {
   buildProfileEvent,
   buildChatMessage,
   buildRootNote,
-  buildPinnedNotesEvent,
   buildReply,
   buildReaction,
   buildReactionDeletion,
@@ -203,20 +202,6 @@ describe("buildRootNote", () => {
     ];
     const ev = buildRootNote(PK, "pic", undefined, att);
     expect(ev.tags.find((t) => t[0] === "imeta")).toBeDefined();
-  });
-});
-
-// ─── buildPinnedNotesEvent ───────────────────────────────
-
-describe("buildPinnedNotesEvent", () => {
-  it("builds a kind:10001 event with e-tags", () => {
-    const ev = buildPinnedNotesEvent(PK, ["evt1", "evt2"]);
-    expect(ev.kind).toBe(10001);
-    expect(ev.tags).toEqual([
-      ["e", "evt1"],
-      ["e", "evt2"],
-    ]);
-    expect(ev.content).toBe("");
   });
 });
 
