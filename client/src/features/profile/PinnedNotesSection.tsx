@@ -1,6 +1,8 @@
+import { useState } from "react";
 import { Pin } from "lucide-react";
 import { ProfileNoteCard } from "./NoteCard";
 import { usePinnedNotes } from "./usePinnedNotes";
+import { PINNED_PREVIEW } from "./pinList";
 import { Spinner } from "@/components/ui/Spinner";
 import type { ProfileFeedItem } from "./useProfileNotes";
 
@@ -8,11 +10,11 @@ interface PinnedNotesSectionProps {
   pubkey: string;
 }
 
-/** Max pinned notes to display */
-const MAX_PINNED_DISPLAY = 5;
-
+/** The profile's pinned notes, newest pin first: PINNED_PREVIEW of them, then
+ *  "Show all" — every pin stays reachable however many the list holds. */
 export function PinnedNotesSection({ pubkey }: PinnedNotesSectionProps) {
   const { pinnedEvents, loading } = usePinnedNotes(pubkey);
+  const [expanded, setExpanded] = useState(false);
 
   if (loading && pinnedEvents.length === 0) {
     return (
@@ -24,7 +26,8 @@ export function PinnedNotesSection({ pubkey }: PinnedNotesSectionProps) {
 
   if (pinnedEvents.length === 0) return null;
 
-  const displayEvents = pinnedEvents.slice(0, MAX_PINNED_DISPLAY);
+  const displayEvents = expanded ? pinnedEvents : pinnedEvents.slice(0, PINNED_PREVIEW);
+  const foldable = pinnedEvents.length > PINNED_PREVIEW;
 
   return (
     <div className="mb-4">
@@ -52,6 +55,16 @@ export function PinnedNotesSection({ pubkey }: PinnedNotesSectionProps) {
           );
         })}
       </div>
+
+      {foldable && (
+        <button
+          type="button"
+          onClick={() => setExpanded((v) => !v)}
+          className="mt-2 text-xs font-medium text-muted transition-colors hover:text-heading"
+        >
+          {expanded ? "Show less" : `Show all ${pinnedEvents.length}`}
+        </button>
+      )}
 
       {/* Divider */}
       <div className="mt-4 border-b border-border" />
