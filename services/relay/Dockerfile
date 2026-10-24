@@ -1,5 +1,5 @@
 # Stage 1: Generate dependency recipe for caching
-FROM --platform=$BUILDPLATFORM rust:1.88-slim AS chef
+FROM --platform=$BUILDPLATFORM rust:1.98-slim AS chef
 RUN apt-get update && apt-get install -y pkg-config libssl-dev && rm -rf /var/lib/apt/lists/*
 ARG CARGO_CHEF_VERSION=0.1.78
 RUN cargo install cargo-chef --locked --version "${CARGO_CHEF_VERSION}"
@@ -9,7 +9,7 @@ COPY src/ src/
 RUN cargo chef prepare --recipe-path recipe.json
 
 # Stage 2: Build dependencies + source with cross-compilation
-FROM --platform=$BUILDPLATFORM rust:1.88-slim AS builder
+FROM --platform=$BUILDPLATFORM rust:1.98-slim AS builder
 ARG TARGETPLATFORM
 RUN apt-get update && apt-get install -y pkg-config libssl-dev && rm -rf /var/lib/apt/lists/*
 ARG CARGO_CHEF_VERSION=0.1.78
