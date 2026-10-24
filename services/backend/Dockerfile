@@ -1,4 +1,4 @@
-FROM --platform=$BUILDPLATFORM node:22-slim AS builder
+FROM --platform=$BUILDPLATFORM node:26-slim AS builder
 WORKDIR /app
 RUN corepack enable
 COPY package.json pnpm-lock.yaml pnpm-workspace.yaml tsconfig.base.json ./
@@ -9,7 +9,7 @@ COPY services/backend/ ./services/backend/
 WORKDIR /app/services/backend
 RUN pnpm build
 
-FROM node:22-slim
+FROM node:26-slim
 WORKDIR /app
 # curl: the compose healthcheck probes /health with it (node:22-slim has none).
 RUN corepack enable && \
