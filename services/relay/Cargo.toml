@@ -27,6 +27,6 @@ tracing-subscriber = { version = "0.3", features = ["env-filter", "json"] }
 dotenvy = "0.15"
 rand = "0.8"
 anyhow = "1"
-tower-http = { version = "0.6", features = ["cors"] }
+tower-http = { version = "0.7", features = ["cors"] }
 if-addrs = { version = "0.13", optional = true }
 negentropy = "0.5"
