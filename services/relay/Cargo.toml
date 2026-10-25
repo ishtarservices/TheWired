@@ -12,7 +12,7 @@ embedded = ["sqlx/sqlite", "dep:if-addrs"]
 [dependencies]
 axum = { version = "0.8", features = ["ws"] }
 tokio = { version = "1", features = ["full"] }
-tokio-tungstenite = "0.26"
+tokio-tungstenite = "0.29"
 futures = "0.3"
 sqlx = { version = "0.8", features = ["runtime-tokio", "postgres", "json", "chrono", "uuid"] }
 secp256k1 = { version = "0.30", features = ["global-context"] }
