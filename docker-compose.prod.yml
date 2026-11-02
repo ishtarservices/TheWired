@@ -63,6 +63,13 @@ services:
     environment:
       MEILI_MASTER_KEY: ${MEILI_MASTER_KEY:?Set MEILI_MASTER_KEY in .env}
       MEILI_ENV: production
+      # Meilisearch sizes its indexing memory from the HOST's RAM (2/3 of it),
+      # not from the container limit below. Uncapped, a large write batch grows
+      # past the limit, the kernel kills it, and the persisted task queue
+      # retries the same batch on every boot: a crash loop. Keep this well
+      # under the memory limit.
+      MEILI_MAX_INDEXING_MEMORY: 256Mb
+      MEILI_NO_ANALYTICS: "true"
     volumes:
       - meilidata:/meili_data
     healthcheck:
@@ -76,7 +83,7 @@ services:
     deploy:
       resources:
         limits:
-          memory: 512m
+          memory: 1g
 
   relay:
     image: ghcr.io/ishtarservices/thewired-relay:latest
