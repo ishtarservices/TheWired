@@ -3,7 +3,10 @@ import { sql } from "drizzle-orm";
 import { db } from "../../src/db/connection.js";
 import { getMeilisearchClient } from "../../src/lib/meilisearch.js";
 import { cachedProfiles } from "../../src/db/schema/profiles.js";
-import { computeProfileStats } from "../../src/workers/profileStatsComputer.js";
+import {
+  computeProfileStats,
+  invalidateProfileStatsCache,
+} from "../../src/workers/profileStatsComputer.js";
 import { LUNA, MARCUS, SAGE } from "../helpers/testUsers.js";
 
 /**
@@ -43,6 +46,8 @@ beforeAll(async () => {
 beforeEach(async () => {
   await db.execute(sql`DELETE FROM relay.events`);
   index.updateDocuments.mockClear();
+  // The worker remembers what it pushed; each test starts from a fresh process.
+  invalidateProfileStatsCache();
 });
 
 /** The worker reads the known-profiles set from app.cached_profiles. */
@@ -194,7 +199,76 @@ describe("computeProfileStats", () => {
 
   it("pushes nothing when no profiles are known", async () => {
     const result = await computeProfileStats();
-    expect(result).toEqual({ profiles: 0 });
+    expect(result).toEqual({ profiles: 0, pushed: 0 });
     expect(index.updateDocuments).not.toHaveBeenCalled();
+  });
+
+  // Rewriting every known profile each run re-indexed the whole profiles index
+  // every 30 minutes — a burst that grows with the cache, not with use.
+  describe("only pushes what changed", () => {
+    it("pushes nothing on a second run when no values moved", async () => {
+      await seedProfile(LUNA.pubkey);
+      await seedProfile(MARCUS.pubkey);
+      await seedNote({ pubkey: LUNA.pubkey });
+      await computeProfileStats();
+      index.updateDocuments.mockClear();
+
+      const result = await computeProfileStats();
+      expect(result).toEqual({ profiles: 2, pushed: 0 });
+      expect(index.updateDocuments).not.toHaveBeenCalled();
+    });
+
+    it("pushes just the profile whose note_count moved", async () => {
+      await seedProfile(LUNA.pubkey);
+      await seedProfile(MARCUS.pubkey);
+      await computeProfileStats();
+      index.updateDocuments.mockClear();
+
+      await seedNote({ pubkey: LUNA.pubkey });
+      const result = await computeProfileStats();
+      expect(result.pushed).toBe(1);
+      expect(pushedDocs()).toEqual([{ pubkey: LUNA.pubkey, note_count: 1, has_nip05: false }]);
+    });
+
+    it("pushes a profile whose has_nip05 flipped", async () => {
+      await seedProfile(LUNA.pubkey);
+      await computeProfileStats();
+      index.updateDocuments.mockClear();
+
+      await db.update(cachedProfiles).set({ nip05: "luna@thewired.app" });
+      await computeProfileStats();
+      expect(nip05For(LUNA.pubkey)).toBe(true);
+    });
+
+    it("retries a batch the engine rejected instead of marking it pushed", async () => {
+      await seedProfile(LUNA.pubkey);
+      index.updateDocuments.mockRejectedValueOnce(new Error("engine down"));
+      await expect(computeProfileStats()).rejects.toThrow("engine down");
+      index.updateDocuments.mockClear();
+
+      const result = await computeProfileStats();
+      expect(result.pushed).toBe(1);
+      expect(countFor(LUNA.pubkey)).toBe(0);
+    });
+
+    it("re-pushes a profile that left the set and came back", async () => {
+      const { suspensionService } = await import("../../src/services/suspensionService.js");
+      await seedProfile(LUNA.pubkey);
+      await computeProfileStats();
+
+      await db.execute(sql`INSERT INTO relay.suspended_pubkeys (pubkey, suspended_by) VALUES (${LUNA.pubkey}, 'admin')`);
+      suspensionService.invalidate();
+      try {
+        await computeProfileStats();
+      } finally {
+        await db.execute(sql`DELETE FROM relay.suspended_pubkeys WHERE pubkey = ${LUNA.pubkey}`);
+        suspensionService.invalidate();
+      }
+      index.updateDocuments.mockClear();
+
+      const result = await computeProfileStats();
+      expect(result.pushed).toBe(1);
+      expect(countFor(LUNA.pubkey)).toBe(0);
+    });
   });
 });
