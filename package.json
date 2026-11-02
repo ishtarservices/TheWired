@@ -43,7 +43,7 @@
   "devDependencies": {
     "@noble/curves": "^1.9.7",
     "@noble/hashes": "^1.8.0",
-    "concurrently": "^9.1.0",
+    "concurrently": "^10.0.6",
     "nostr-tools": "^2.23.1",
     "postgres": "^3.4.5",
     "tsx": "^4.19.2"
