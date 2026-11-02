@@ -7,7 +7,7 @@ import { processIncomingEvent } from "./eventPipeline";
 import { putEvent } from "../db/eventStore";
 import { addLocalEventId } from "../db/musicStore";
 import { publishOutbox } from "./publishOutbox";
-import { resolvePublishTargets } from "./gatedTargets";
+import { devLocalTargets, resolvePublishTargets } from "./gatedTargets";
 import { store } from "@/store";
 
 /**
@@ -15,11 +15,14 @@ import { store } from "@/store";
  * default write relays; a space-scoped or private event (valued `h` /
  * `visibility` tag) is routed to the app relay + the listed spaces' host
  * relays instead, so it can never land on a public relay by omission
- * (docs/MUSIC_VISIBILITY.md). Host relays are connected on demand; the outbox
+ * (docs/MUSIC_VISIBILITY.md). In a dev build, public music stays on the app
+ * relay too (devLocalTargets). Host relays are connected on demand; the outbox
  * replays anything un-acked on reconnect.
  */
-function targetsFor(tags: string[][], targetRelays?: string[]): string[] | undefined {
-  const resolved = resolvePublishTargets(tags, targetRelays, store.getState().spaces.list);
+function targetsFor(kind: number, tags: string[][], targetRelays?: string[]): string[] | undefined {
+  const resolved =
+    resolvePublishTargets(tags, targetRelays, store.getState().spaces.list) ??
+    devLocalTargets(kind, import.meta.env.DEV);
   if (resolved && !targetRelays) {
     for (const url of resolved) relayManager.connect(url, "read+write");
   }
@@ -51,7 +54,7 @@ export async function signAndPublish(
   opts?: SignOptions,
 ): Promise<NostrEvent> {
   const signed = await signWith(unsigned, opts);
-  const targets = targetsFor(signed.tags, targetRelays);
+  const targets = targetsFor(signed.kind, signed.tags, targetRelays);
   const sentTo = relayManager.publish(signed, targets);
 
   // Durability backstop: record before/independent of the relay result so a relay
@@ -102,5 +105,5 @@ export async function publishExisting(
   event: NostrEvent,
   targetRelays?: string[],
 ): Promise<void> {
-  relayManager.publish(event, targetsFor(event.tags, targetRelays));
+  relayManager.publish(event, targetsFor(event.kind, event.tags, targetRelays));
 }

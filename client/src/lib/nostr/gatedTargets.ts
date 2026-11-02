@@ -1,4 +1,5 @@
 import { APP_RELAY } from "./constants";
+import { EVENT_KINDS } from "../../types/nostr";
 import { resolveRelaySet } from "@/features/spaces/relaySet";
 
 /**
@@ -66,4 +67,22 @@ export function resolvePublishTargets(
   if (targetRelays) return targetRelays;
   if (!isGatedTags(tags)) return undefined;
   return gatedTargetRelays(tags, spaces);
+}
+
+/** Music kinds a dev build keeps on its own relay. */
+const DEV_LOCAL_KINDS = new Set<number>([
+  EVENT_KINDS.MUSIC_TRACK,
+  EVENT_KINDS.MUSIC_ALBUM,
+  EVENT_KINDS.MUSIC_PLAYLIST,
+]);
+
+/**
+ * Where a dev build sends a public music event when the caller named no
+ * relays: the app relay only (the local stack). The default write relays
+ * include public ones, so QA uploads, with blob URLs on the dev machine, used
+ * to land there and surface in production clients' relay fallbacks. Release
+ * builds keep the default write relays.
+ */
+export function devLocalTargets(kind: number, isDev: boolean): string[] | undefined {
+  return isDev && DEV_LOCAL_KINDS.has(kind) ? [APP_RELAY] : undefined;
 }

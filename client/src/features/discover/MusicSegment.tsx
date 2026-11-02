@@ -12,10 +12,11 @@ import {
   setActiveTag,
   setMusicView,
 } from "@/store/slices/musicSlice";
-import { api } from "@/lib/api/client";
+import { api, getApiBaseUrl } from "@/lib/api/client";
 import { browseAlbums, browseMusic, getGenres, resolveMusic } from "@/lib/api/music";
 import { processIncomingEvent } from "@/lib/nostr/eventPipeline";
 import { subscriptionManager } from "@/lib/nostr/subscriptionManager";
+import { APP_RELAY } from "@/lib/nostr/constants";
 import { EVENT_KINDS, type NostrEvent } from "@/types/nostr";
 import type { MusicAlbum, MusicPlaylist, MusicTrack } from "@/types/music";
 import { parseTrackEvent } from "@/features/music/trackParser";
@@ -34,6 +35,7 @@ import { PublishedFolderRow } from "./components/PublishedFolderRow";
 import { formatAge, rankTracks, sortDisclosure, trackSignalLabel } from "./ranking";
 import { matchesScene, sceneBySlug, sceneChips } from "./taxonomy";
 import { useScenes } from "./useScenes";
+import { hasReachableAudio } from "./reachableAudio";
 
 const DEBOUNCE_MS = 300;
 const TRACK_LIMIT = 30;
@@ -41,6 +43,15 @@ const ALBUM_LIMIT = 12;
 const PLAYLIST_LIMIT = 30;
 const GENRE_CAP = 12;
 const ONE_SHOT_TIMEOUT_MS = 6000;
+/** Our own blob origin: its uploads count as playable even on a local stack.
+ *  Read per call, since the API base can be switched at runtime. */
+function ownApiOrigin(): string {
+  try {
+    return new URL(getApiBaseUrl()).origin;
+  } catch {
+    return "";
+  }
+}
 const RELAY_RETRY_MS = 3000;
 
 const TRACK_UNAVAILABLE = "Track unavailable — it may live outside your relays.";
@@ -142,7 +153,8 @@ export function MusicSegment({ query }: { query: string }) {
       }
 
       // Backend index cold or unreachable — surface recent relay releases
-      // instead, and label the rails as recent.
+      // instead, and label the rails as recent. The app relay only: public
+      // relays carry anyone's releases, dev/QA uploads included.
       setSource("relay");
       setTrendingIds([]);
       setRecentIds([]);
@@ -154,6 +166,7 @@ export function MusicSegment({ query }: { query: string }) {
             { kinds: [EVENT_KINDS.MUSIC_TRACK], limit: TRACK_LIMIT },
             { kinds: [EVENT_KINDS.MUSIC_ALBUM], limit: ALBUM_LIMIT },
           ],
+          relayUrls: [APP_RELAY],
           timeoutMs: ONE_SHOT_TIMEOUT_MS,
         });
         if (cancelled) return;
@@ -230,16 +243,18 @@ export function MusicSegment({ query }: { query: string }) {
     [tracks],
   );
 
-  const publicStoreTracks = useMemo(
-    () =>
-      source === "relay"
-        ? Object.values(tracks)
-            .filter((t) => t.visibility === "public")
-            .sort((a, b) => b.createdAt - a.createdAt)
-            .slice(0, TRACK_LIMIT)
-        : [],
-    [source, tracks],
-  );
+  const publicStoreTracks = useMemo(() => {
+    if (source !== "relay") return [];
+    const origin = ownApiOrigin();
+    return (
+      Object.values(tracks)
+        // The store also holds tracks from feeds and other relays, so the
+        // discovery bar applies here too: public, listed, and playable.
+        .filter((t) => t.visibility === "public" && t.inCatalog !== false && hasReachableAudio(t, origin))
+        .sort((a, b) => b.createdAt - a.createdAt)
+        .slice(0, TRACK_LIMIT)
+    );
+  }, [source, tracks]);
   const publicStoreAlbums = useMemo(
     () =>
       source === "relay"

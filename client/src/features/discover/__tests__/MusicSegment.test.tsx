@@ -38,6 +38,7 @@ import { processIncomingEvent } from "@/lib/nostr/eventPipeline";
 import { addPlaylists, addTracks } from "@/store/slices/musicSlice";
 import { parseTrackEvent } from "@/features/music/trackParser";
 import { MusicSegment } from "../MusicSegment";
+import { APP_RELAY } from "@/lib/nostr/constants";
 
 const mockBrowse = vi.mocked(browseMusic);
 const mockAlbums = vi.mocked(browseAlbums);
@@ -127,14 +128,24 @@ describe("MusicSegment", () => {
         addTracks([
           parseTrackEvent(trackEvent("pub", "Public Track") as never),
           parseTrackEvent(trackEvent("member", "Member Track", { tags: [["h", "space1"]] }) as never),
+          parseTrackEvent(trackEvent("clip", "Note Clip", { tags: [["catalog", "none"]] }) as never),
+          // A QA upload from someone's dev machine, picked up from a public relay.
+          parseTrackEvent({
+            ...trackEvent("qa", "QA Tone"),
+            tags: [["d", "qa"], ["title", "QA Tone"], ["imeta", "url http://192.168.1.20:9080/abc", "m audio/mpeg"]],
+          } as never),
         ]),
       );
     });
     await waitFor(() => expect(screen.getByText("Public Track")).toBeInTheDocument());
     expect(screen.queryByText("Member Track")).not.toBeInTheDocument();
+    expect(screen.queryByText("Note Clip")).not.toBeInTheDocument();
+    expect(screen.queryByText("QA Tone")).not.toBeInTheDocument();
+    // Public relays carry anyone's releases; the fallback asks our relay only.
     expect(mockOnce).toHaveBeenCalledWith(
       expect.objectContaining({
         filters: expect.arrayContaining([expect.objectContaining({ kinds: [31683] })]),
+        relayUrls: [APP_RELAY],
       }),
     );
     expect(screen.getByRole("heading", { name: "Recent" })).toBeInTheDocument();
