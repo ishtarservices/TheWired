@@ -8,7 +8,10 @@
 //!   - `relay.suspended_pubkeys` — accounts the operator suspended. The relay
 //!     refuses their writes, except a NIP-09 deletion (kind 5) or a NIP-62
 //!     request to vanish (kind 62): a suspended account may still take its own
-//!     content down.
+//!     content down. A row with `mode = 'shadowed'` (migration 008) is the
+//!     softer tier: writes are accepted and stored with a normal OK, but the
+//!     read paths (`db::moderation::pg_not_shadowed_predicate`, the live
+//!     broadcast filter in `connection.rs`) serve them only to the author.
 //!
 //! A lifted suspension / restored tombstone keeps its row with `lifted_at` /
 //! `restored_at` set, so both actions stay reversible and on record.

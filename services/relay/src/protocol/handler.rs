@@ -251,8 +251,8 @@ async fn handle_event(
     // content. Checked before every kind-specific path, NIP-29 ops included.
     // Fails closed like the membership gate: a lookup error rejects the write.
     match state.pool.moderation_state(&event.id, &event.pubkey).await {
-        Ok((tombstoned, suspended)) => {
-            if let Some(reason) = moderation_gate::block_reason(event.kind, tombstoned, suspended) {
+        Ok(mstate) => {
+            if let Some(reason) = moderation_gate::block_reason(event.kind, mstate.tombstoned, mstate.suspended) {
                 tracing::info!(
                     event_id = log_prefix(&event.id),
                     pubkey = log_prefix(&event.pubkey),
@@ -261,6 +261,13 @@ async fn handle_event(
                     "Rejected publish: operator moderation",
                 );
                 return vec![format!(r#"["OK","{}",false,"{}"]"#, event.id, reason)];
+            }
+            // A shadowed author's write goes through as normal (it must not
+            // learn it is shadowed); make sure the live-broadcast filter
+            // already knows the pubkey before this event is fanned out, even
+            // if the periodic refresh hasn't run since the operator acted.
+            if mstate.shadowed {
+                state.note_shadowed(&event.pubkey);
             }
         }
         Err(e) => {

@@ -1,5 +1,6 @@
 use sqlx::{PgPool, Postgres};
 
+use crate::db::moderation;
 use crate::nostr::access;
 use crate::nostr::event::Event;
 use crate::nostr::report_gate::KIND_REPORT;
@@ -33,9 +34,17 @@ pub async fn search_events_ctx(
         Some(_) => {
             let members_any = "h_tags && ARRAY(SELECT space_id FROM app.space_members WHERE pubkey = $4) \
                  OR h_tags && ARRAY(SELECT group_id FROM relay.group_members WHERE pubkey = $4)";
-            format!(" AND {}", access::pg_visible_predicate("$4", members_any, ""))
+            format!(
+                " AND {} AND {}",
+                access::pg_visible_predicate("$4", members_any, ""),
+                moderation::pg_not_shadowed_predicate(Some("$4"))
+            )
         }
-        None => format!(" AND {}", access::pg_anonymous_predicate("")),
+        None => format!(
+            " AND {} AND {}",
+            access::pg_anonymous_predicate(""),
+            moderation::pg_not_shadowed_predicate(None)
+        ),
     };
     let sql = format!(
         "SELECT id, pubkey, created_at, kind, tags, content, sig \
