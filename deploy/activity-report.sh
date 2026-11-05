@@ -155,12 +155,28 @@ FROM relay.events WHERE kind = 1 AND h_tag IS NULL
 ORDER BY created_at DESC LIMIT 25;
 
 \echo
+\echo '== Clock skew: events dated in the future / before 2020 (relay accepts them as sent) =='
+SELECT CASE WHEN created_at > extract(epoch FROM now()) + 900 THEN 'future' ELSE 'pre-2020' END AS bucket,
+       count(*) AS events, count(DISTINCT pubkey) AS pubkeys, min(kind) AS min_kind, max(kind) AS max_kind,
+       to_timestamp(max(created_at))::date AS latest
+FROM relay.events
+WHERE created_at > extract(epoch FROM now()) + 900 OR created_at < 1577836800
+GROUP BY 1;
+
+\echo
+\echo '== Gift-wrap recipients (who the 1059 flood is addressed to, last 7 days) =='
+SELECT left(p, 12) AS recipient, count(*) AS wraps
+FROM relay.events, unnest(p_tags) AS p
+WHERE kind = 1059 AND created_at > extract(epoch FROM now() - interval '7 days')
+GROUP BY p ORDER BY wraps DESC LIMIT 12;
+
+\echo
 \echo '== Spaces (app.spaces is authoritative) =='
 SELECT space_mode, count(*) AS spaces, count(*) FILTER (WHERE listed) AS listed,
-       sum(member_count) AS members, max(to_timestamp(created_at))::date AS newest
+       sum(member_count) AS members, max(to_timestamp(created_at / 1000))::date AS newest
 FROM app.spaces GROUP BY 1;
 SELECT left(id, 14) AS id, left(name, 24) AS name, space_mode, member_count, listed,
-       to_timestamp(created_at)::date AS created,
+       to_timestamp(created_at / 1000)::date AS created,
        (SELECT count(*) FROM relay.events e WHERE e.h_tags && ARRAY[s.id]
           AND e.created_at > extract(epoch FROM now() - interval '7 days')) AS events_7d
 FROM app.spaces s ORDER BY member_count DESC, created_at DESC LIMIT 15;
