@@ -13,7 +13,7 @@ import { setSavedVersions, setSavedVersion, clearSavedVersion } from "@/store/sl
 import { addNotification } from "@/store/slices/notificationSlice";
 import type { SavedAlbumVersion } from "@/types/music";
 import { getApiBaseUrl } from "@/lib/api/client";
-import { buildNip98Header } from "@/lib/api/nip98";
+import { buildAuthHeaders } from "@/lib/api/nip98";
 import { subscriptionManager } from "@/lib/nostr/subscriptionManager";
 import { PROFILE_RELAYS } from "@/lib/nostr/constants";
 import { showBrowserNotification } from "@/features/notifications/browserNotify";
@@ -33,7 +33,7 @@ function currentItem(addressableId: string) {
 }
 
 async function authed(url: string, method: string, body?: unknown): Promise<Response> {
-  const headers: Record<string, string> = { Authorization: await buildNip98Header(url, method) };
+  const headers: Record<string, string> = await buildAuthHeaders(url, method);
   if (body !== undefined) headers["Content-Type"] = "application/json";
   return fetch(url, { method, headers, body: body === undefined ? undefined : JSON.stringify(body) });
 }

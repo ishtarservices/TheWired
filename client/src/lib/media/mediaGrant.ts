@@ -6,7 +6,7 @@
 
 import { useSyncExternalStore } from "react";
 import { getApiBaseUrl } from "@/lib/api/client";
-import { buildNip98Header } from "@/lib/api/nip98";
+import { buildAuthHeaders } from "@/lib/api/nip98";
 
 const WEEK_SEC = 604_800;
 /** A failed mint isn't retried from render paths for this long. */
@@ -52,7 +52,7 @@ async function mint(): Promise<string | null> {
   const gen = generation;
   const url = `${getApiBaseUrl()}/media-grant`;
   try {
-    const headers = { Authorization: await buildNip98Header(url, "GET") };
+    const headers = await buildAuthHeaders(url, "GET");
     const res = await fetch(url, { headers });
     if (!res.ok) throw new Error(`media-grant ${res.status}`);
     const json = (await res.json()) as { data?: unknown } & Record<string, unknown>;

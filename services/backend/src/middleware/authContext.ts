@@ -1,6 +1,7 @@
 import { createHmac, timingSafeEqual } from "node:crypto";
 import type { FastifyRequest, FastifyReply, HookHandlerDoneFunction } from "fastify";
 import { config } from "../config.js";
+import { recordAccountClient, WIRED_CLIENT_HEADER } from "../services/accountClients.js";
 
 /**
  * Identity headers set by the gateway: X-Auth-Pubkey after NIP-98
@@ -125,6 +126,9 @@ export function createAuthContext(opts: AuthContextOptions) {
 
     if (pubkey.length === 64) {
       (request as any).pubkey = pubkey;
+      // Which of our apps this account uses (activity report). Throttled and
+      // fire-and-forget inside; a missing or malformed header is a no-op.
+      recordAccountClient(pubkey, headerString(request, WIRED_CLIENT_HEADER) || undefined);
     }
     done();
   };

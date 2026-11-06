@@ -4,6 +4,8 @@ import { bytesToHex, randomBytes } from "@noble/hashes/utils";
 import type { EventSigner } from "@ishtarservices/core";
 import { getSigner } from "@/lib/nostr/loginFlow";
 import { signingQueue } from "@/lib/nostr/signingQueue";
+import { isOwnApiUrl } from "./apiBase";
+import { WIRED_CLIENT_HEADER, wiredClientHeaderValue } from "./clientIdentity";
 
 /** A request body the NIP-98 `payload` tag can bind: the exact bytes that go
  *  on the wire. FormData is deliberately absent — the browser serializes it
@@ -67,4 +69,18 @@ export async function buildNip98Header(url: string, method: string, opts?: AuthS
   const signed = await withAuthSigner(opts, (s) => s.signEvent(unsignedEvent));
   const encoded = btoa(JSON.stringify(signed));
   return `Nostr ${encoded}`;
+}
+
+/** Authorization plus X-Wired-Client, the pair every authenticated call to
+ *  our own API carries. The app header is never sent to a third party (a
+ *  Blossom server, an LNURL endpoint, another relay's HTTP API): only
+ *  Authorization goes on those. Spread into a fetch `headers` object. */
+export async function buildAuthHeaders(
+  url: string,
+  method: string,
+  opts?: AuthSignerOptions,
+): Promise<Record<string, string>> {
+  const headers: Record<string, string> = { Authorization: await buildNip98Header(url, method, opts) };
+  if (isOwnApiUrl(url)) headers[WIRED_CLIENT_HEADER] = wiredClientHeaderValue();
+  return headers;
 }

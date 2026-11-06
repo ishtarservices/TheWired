@@ -68,3 +68,33 @@ func TestReverseProxy_ResponseHeaderTimeout(t *testing.T) {
 		t.Fatalf("expected 502/504, got %d", rr.Code)
 	}
 }
+
+// X-Wired-Client is set by our own apps and read by the backend's identity
+// hook; it is not an internal header, so the proxy must pass it through as-is.
+// Pairing it with a forged X-Auth-Pubkey must not change that header's fate:
+// the strip still removes the pubkey (regression for the proxy auth-header
+// bypass, #108) while the app header reaches the backend.
+func TestRouter_ForwardsWiredClientHeader_StripsForgedPubkey(t *testing.T) {
+	var gotClient, gotPubkey string
+	var pubkeyPresent bool
+	backend := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotClient = r.Header.Get("X-Wired-Client")
+		gotPubkey = r.Header.Get("X-Auth-Pubkey")
+		_, pubkeyPresent = r.Header["X-Auth-Pubkey"]
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer backend.Close()
+
+	req := httptest.NewRequest("GET", "http://gateway/api/spaces", nil)
+	req.Header.Set("X-Wired-Client", "desktop/0.7.2 (macos)")
+	req.Header.Set("X-Auth-Pubkey", "deadbeef")
+	req.Header.Set("X-Gateway-Auth", "1.00")
+	rr := httptest.NewRecorder()
+	StripInternalHeaders(NewRouter(backend.URL, nil).Handler()).ServeHTTP(rr, req)
+	if rr.Code != http.StatusOK || gotClient != "desktop/0.7.2 (macos)" {
+		t.Fatalf("status %d, backend saw X-Wired-Client=%q", rr.Code, gotClient)
+	}
+	if pubkeyPresent {
+		t.Fatalf("forged X-Auth-Pubkey reached the backend next to X-Wired-Client: %q", gotPubkey)
+	}
+}

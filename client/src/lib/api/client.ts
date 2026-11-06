@@ -1,18 +1,11 @@
 import type { EventSigner } from "@ishtarservices/core";
 import { buildNip98Header } from "./nip98";
+import { WIRED_CLIENT_HEADER, wiredClientHeaderValue } from "./clientIdentity";
 import { requestQueue, type RequestPriority } from "./requestQueue";
 
-const DEFAULT_BASE_URL = import.meta.env.VITE_API_URL ?? "http://localhost:9080/api";
+import { getApiBaseUrl } from "./apiBase";
 
-let baseUrl = DEFAULT_BASE_URL;
-
-export function setApiBaseUrl(url: string) {
-  baseUrl = url;
-}
-
-export function getApiBaseUrl(): string {
-  return baseUrl;
-}
+export { getApiBaseUrl, setApiBaseUrl } from "./apiBase";
 
 interface RequestOptions {
   method?: string;
@@ -55,7 +48,7 @@ const inflightGets = new Map<string, Promise<ApiResponse<unknown>>>();
 
 export async function api<T>(path: string, opts: RequestOptions = {}): Promise<ApiResponse<T>> {
   const { method = "GET", body, auth = true, signal, priority = "normal", signer } = opts;
-  const url = `${baseUrl}${path}`;
+  const url = `${getApiBaseUrl()}${path}`;
   // A GET signed by another key is a different request; never share it.
   const dedupe = method === "GET" && !signer;
 
@@ -95,6 +88,7 @@ async function apiExecute<T>(
   if (auth) {
     try {
       headers["Authorization"] = await buildNip98Header(url, method, { signer });
+      headers[WIRED_CLIENT_HEADER] = wiredClientHeaderValue();
     } catch {
       // No signer available, send unauthenticated
     }

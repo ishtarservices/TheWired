@@ -173,3 +173,21 @@ describe("api client", () => {
     }
   });
 });
+
+describe("X-Wired-Client", () => {
+  it("rides along with Authorization and is absent on unauthenticated calls", async () => {
+    let seen: string | null = "unset";
+    server.use(
+      http.get(`${BASE}/who`, ({ request }) => {
+        seen = request.headers.get("X-Wired-Client");
+        return HttpResponse.json({ data: "ok" });
+      }),
+    );
+
+    await api("/who");
+    expect(seen).toMatch(/^desktop\/0\.0\.0-test \(\w+\)$/);
+
+    await api("/who", { auth: false });
+    expect(seen).toBeNull();
+  });
+});
