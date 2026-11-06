@@ -83,8 +83,12 @@ describe("kind 1984 ingest", () => {
       reportEventId: ev.id,
       status: "open",
       resolution: null,
-      triage: { origin: "local", signals: ["reporter_app_user"] },
     });
+    // Other files leave MARCUS content in relay.events (never truncated), so
+    // the target-side signals vary; the reporter-side one is what this seeds.
+    const triage = rows[0].triage as { origin: string; signals: string[] };
+    expect(triage.origin).toBe("local");
+    expect(triage.signals).toContain("reporter_app_user");
   });
 
   it("ignores a forged signature and a foreign relay's copy", async () => {
@@ -127,8 +131,11 @@ describe("foreign reports", () => {
   beforeEach(() => {
     mutableConfig.adminPubkeys = [SAGE.pubkey];
   });
-  // relay.events is not truncated by the harness: content a test gives the
-  // outsiders must not leak into the next one's footprint.
+  // relay.events is not truncated by the harness: content another file, or
+  // the previous test, gave the outsiders must not shape this footprint.
+  beforeEach(async () => {
+    await deleteRelayEventsByPubkey([JAYDEE.pubkey, ZARA.pubkey]);
+  });
   afterEach(async () => {
     await deleteRelayEventsByPubkey([JAYDEE.pubkey, ZARA.pubkey]);
   });
