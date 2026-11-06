@@ -23,7 +23,15 @@ export const ACCOUNT_CLIENT_WRITE_INTERVAL_MS = 10 * 60_000;
 export const ACCOUNT_CLIENT_THROTTLE_MAX = 50_000;
 const WARN_INTERVAL_MS = 60_000;
 
-const KNOWN_CLIENTS: ReadonlySet<string> = new Set<AccountClientKind>(["desktop", "mobile"]);
+/**
+ * Platform tokens each app may report ("" = none given). Anything else is
+ * ignored: the token is part of the row key and the write throttle, so an
+ * open set would let one account mint unbounded rows.
+ */
+const KNOWN_PLATFORMS: ReadonlyMap<string, ReadonlySet<string>> = new Map<AccountClientKind, ReadonlySet<string>>([
+  ["desktop", new Set(["", "macos", "windows", "linux", "unknown"])],
+  ["mobile", new Set(["", "ios", "android"])],
+]);
 // semver 2.0 core + optional pre-release / build, ASCII only.
 const SEMVER = "(?:0|[1-9]\\d*)\\.(?:0|[1-9]\\d*)\\.(?:0|[1-9]\\d*)(?:-[0-9A-Za-z.-]+)?(?:\\+[0-9A-Za-z.-]+)?";
 const HEADER_RE = new RegExp(`^([a-z]+)/(${SEMVER})(?: \\(([a-z0-9_-]{1,16})\\))?$`);
@@ -37,8 +45,11 @@ export interface ParsedWiredClient {
 export function parseWiredClient(value: string | undefined): ParsedWiredClient | null {
   if (!value || value.length > WIRED_CLIENT_MAX_LENGTH) return null;
   const m = HEADER_RE.exec(value);
-  if (!m || !KNOWN_CLIENTS.has(m[1])) return null;
-  return { client: m[1] as AccountClientKind, version: m[2], platform: m[3] ?? "" };
+  if (!m) return null;
+  const platforms = KNOWN_PLATFORMS.get(m[1]);
+  const platform = m[3] ?? "";
+  if (!platforms || !platforms.has(platform)) return null;
+  return { client: m[1] as AccountClientKind, version: m[2], platform };
 }
 
 /**

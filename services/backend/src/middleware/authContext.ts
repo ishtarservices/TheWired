@@ -128,7 +128,11 @@ export function createAuthContext(opts: AuthContextOptions) {
       (request as any).pubkey = pubkey;
       // Which of our apps this account uses (activity report). Throttled and
       // fire-and-forget inside; a missing or malformed header is a no-op.
-      recordAccountClient(pubkey, headerString(request, WIRED_CLIENT_HEADER) || undefined);
+      try {
+        recordAccountClient(pubkey, headerString(request, WIRED_CLIENT_HEADER) || undefined);
+      } catch {
+        // Informational only: never let it fail the request.
+      }
     }
     done();
   };
