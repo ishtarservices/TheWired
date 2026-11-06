@@ -7,7 +7,7 @@ import { nanoid } from "../lib/id.js";
 import { getMeilisearchClient } from "../lib/meilisearch.js";
 import { parseCoordinate } from "../lib/reports/reportInput.js";
 import { musicService } from "./musicService.js";
-import { suspensionService } from "./suspensionService.js";
+import { suspensionService, type SuspensionMode } from "./suspensionService.js";
 import { purgeAndDenylistBlobs } from "./blobStore.js";
 
 /**
@@ -251,25 +251,35 @@ export async function removeMusic(
   return { ok: true, removed: rows.map((r) => r.id), pubkey: c.pubkey, music: true };
 }
 
-/** Suspend an account: the relay refuses its writes, the API hides it. */
-export async function suspendPubkey(pubkey: string, ctx: ActionContext): Promise<void> {
+/**
+ * Suspend an account: the relay refuses its writes, the API hides it. With
+ * `mode = "shadowed"` the relay keeps accepting its writes but serves them
+ * only to the author (relay migration 008), and the API hides it the same
+ * way — the account is not told. Re-running with the other mode switches
+ * tiers in place.
+ */
+export async function suspendPubkey(
+  pubkey: string,
+  ctx: ActionContext,
+  mode: SuspensionMode = "suspended",
+): Promise<void> {
   await db.execute(
-    sql`INSERT INTO relay.suspended_pubkeys (pubkey, reason, report_id, suspended_by)
-        VALUES (${pubkey}, ${ctx.note ?? null}, ${ctx.reportId ?? null}, ${ctx.actor})
+    sql`INSERT INTO relay.suspended_pubkeys (pubkey, reason, report_id, suspended_by, mode)
+        VALUES (${pubkey}, ${ctx.note ?? null}, ${ctx.reportId ?? null}, ${ctx.actor}, ${mode})
         ON CONFLICT (pubkey) DO UPDATE
           SET lifted_at = NULL, lifted_by = NULL, suspended_at = NOW(),
               suspended_by = EXCLUDED.suspended_by, reason = EXCLUDED.reason,
-              report_id = EXCLUDED.report_id`,
+              report_id = EXCLUDED.report_id, mode = EXCLUDED.mode`,
   );
   suspensionService.invalidate();
   await suspensionService.purgeSearchDocs(pubkey);
-  await logPlatformAudit(ctx.actor, "report_suspend_pubkey", pubkey, {
+  await logPlatformAudit(ctx.actor, mode === "shadowed" ? "report_shadow_pubkey" : "report_suspend_pubkey", pubkey, {
     reportId: ctx.reportId,
     note: ctx.note ?? undefined,
   });
 }
 
-/** Lift a suspension. False when the pubkey was not suspended. */
+/** Lift a suspension or a shadow. False when the pubkey had neither. */
 export async function liftSuspension(pubkey: string, actor: string, note?: string | null): Promise<boolean> {
   const rows = (await db.execute(
     sql`UPDATE relay.suspended_pubkeys SET lifted_at = NOW(), lifted_by = ${actor}

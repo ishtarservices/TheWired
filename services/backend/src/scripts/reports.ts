@@ -5,8 +5,10 @@
  * Dev (repo root or services/backend):
  *   pnpm reports:list [open|actioned|dismissed]
  *   pnpm reports:show <id>
- *   pnpm reports:resolve <id> <dismiss|remove_event|remove_music|suspend_pubkey|escalate> [note…]
- *   pnpm reports:lift <pubkey> [note…]        (reverses suspend_pubkey)
+ *   pnpm reports:resolve <id> <dismiss|remove_event|remove_music|suspend_pubkey|shadow_pubkey|escalate> [note…]
+ *   pnpm reports suspend <pubkey> [note…]     (no report needed: relay refuses writes, API hides)
+ *   pnpm reports shadow <pubkey> [note…]      (no report needed: writes accepted, served only to the author)
+ *   pnpm reports:lift <pubkey> [note…]        (reverses suspend / shadow)
  *   pnpm reports:restore <eventId> [note…]    (reverses remove_event / remove_music)
  * Production (inside the backend container):
  *   node dist/scripts/reports.js <command> …
@@ -16,14 +18,18 @@
  */
 import { config } from "../config.js";
 import { REPORT_ACTIONS, reportService, serializeReport, type ReportAction } from "../services/reportService.js";
-import { liftSuspension, restoreEvent } from "../services/platformModeration.js";
+import { liftSuspension, restoreEvent, suspendPubkey } from "../services/platformModeration.js";
 
 const USAGE = `usage:
   reports list [open|actioned|dismissed]
   reports show <id>
   reports resolve <id> <${REPORT_ACTIONS.join("|")}> [note…]
+  reports suspend <pubkey> [note…]
+  reports shadow <pubkey> [note…]
   reports lift <pubkey> [note…]
   reports restore <eventId> [note…]`;
+
+const HEX_PUBKEY = /^[0-9a-f]{64}$/;
 
 const actor = process.env.REPORTS_ACTOR || config.adminPubkeys[0] || "cli";
 
@@ -69,6 +75,15 @@ async function main(): Promise<void> {
       const result = await reportService.resolve(id, action as ReportAction, actor, note.join(" ") || null);
       if (!result.ok) throw new Error(`${result.code}: ${result.error}`);
       console.log(JSON.stringify({ report: serializeReport(result.report), closedSiblings: result.siblings, ...result.detail }, null, 2));
+      return;
+    }
+    case "suspend":
+    case "shadow": {
+      const [pubkey, ...note] = args;
+      if (!pubkey || !HEX_PUBKEY.test(pubkey)) throw new Error(`${command}: expected a 64-char hex pubkey\n${USAGE}`);
+      if (config.adminPubkeys.includes(pubkey)) throw new Error(`${command}: refusing an ADMIN_PUBKEYS account`);
+      await suspendPubkey(pubkey, { actor, note: note.join(" ") || null }, command === "shadow" ? "shadowed" : "suspended");
+      console.log(command === "shadow" ? "shadowed" : "suspended");
       return;
     }
     case "lift": {

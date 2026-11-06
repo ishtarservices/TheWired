@@ -556,6 +556,10 @@ pub async fn handle_connection(
                         if !is_event_visible_to_ctx(&event, &ctx, &space_memberships) {
                             continue;
                         }
+                        // Shadowed author (migration 008): only they see it live.
+                        if state.is_shadowed_for(&event.pubkey, ctx.authed) {
+                            continue;
+                        }
                         // Gate in `warn` mode: the wrap is being served to a
                         // non-recipient; count it so we know when to enforce.
                         if event.kind == wrap_gate::KIND_GIFT_WRAP

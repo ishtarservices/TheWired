@@ -120,11 +120,21 @@ impl Db {
     /// Operator moderation state for a write: `(tombstoned, suspended)`. The
     /// embedded relay has no operator moderation and always answers
     /// `(false, false)`.
-    pub async fn moderation_state(&self, event_id: &str, pubkey: &str) -> anyhow::Result<(bool, bool)> {
+    pub async fn moderation_state(&self, event_id: &str, pubkey: &str) -> anyhow::Result<moderation::ModerationState> {
         match self {
             Db::Pg(p) => moderation::moderation_state(p, event_id, pubkey).await,
             #[cfg(feature = "embedded")]
-            Db::Sqlite(_) => Ok((false, false)),
+            Db::Sqlite(_) => Ok(moderation::ModerationState::default()),
+        }
+    }
+
+    /// Every currently shadowed pubkey (migration 008). The embedded relay
+    /// has no operator moderation, so its set is always empty.
+    pub async fn shadowed_pubkeys(&self) -> anyhow::Result<std::collections::HashSet<String>> {
+        match self {
+            Db::Pg(p) => moderation::shadowed_pubkeys(p).await,
+            #[cfg(feature = "embedded")]
+            Db::Sqlite(_) => Ok(Default::default()),
         }
     }
 
