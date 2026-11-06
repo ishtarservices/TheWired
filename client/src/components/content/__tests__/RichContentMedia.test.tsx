@@ -7,7 +7,10 @@ import { EmbedDepthContext } from "../embedDepth";
 import { RichContent } from "../RichContent";
 import type { NostrEvent } from "@/types/nostr";
 
-vi.mock("@/lib/api/nip98", () => ({ buildNip98Header: vi.fn(async () => "Nostr test") }));
+vi.mock("@/lib/api/nip98", () => ({
+  buildNip98Header: vi.fn(async () => "Nostr test"),
+  buildAuthHeaders: vi.fn(async () => ({ Authorization: "Nostr test", "X-Wired-Client": "desktop/0.0.0-test (macos)" })),
+}));
 vi.mock("@/features/profile/useProfile", () => ({ useProfile: () => ({ profile: null }) }));
 
 const OWN = "http://localhost:9080";

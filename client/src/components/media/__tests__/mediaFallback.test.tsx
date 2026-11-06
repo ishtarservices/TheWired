@@ -4,7 +4,10 @@ import { clearMediaGrant, currentGrantExp } from "@/lib/media/mediaGrant";
 import { SmartImage } from "../SmartImage";
 import { MediaGrid } from "../MediaGrid";
 
-vi.mock("@/lib/api/nip98", () => ({ buildNip98Header: vi.fn(async () => "Nostr test") }));
+vi.mock("@/lib/api/nip98", () => ({
+  buildNip98Header: vi.fn(async () => "Nostr test"),
+  buildAuthHeaders: vi.fn(async () => ({ Authorization: "Nostr test", "X-Wired-Client": "desktop/0.0.0-test (macos)" })),
+}));
 const authorServers = vi.fn(async (_pubkey: string) => ["https://author.example"]);
 vi.mock("@/lib/media/authorServers", () => ({ fetchAuthorServers: (pk: string) => authorServers(pk) }));
 

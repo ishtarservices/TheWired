@@ -9,6 +9,7 @@ import type { NostrEvent } from "@/types/nostr";
 
 vi.mock("@/lib/api/nip98", () => ({
   buildNip98Header: vi.fn(async () => "Nostr test"),
+  buildAuthHeaders: vi.fn(async () => ({ Authorization: "Nostr test", "X-Wired-Client": "desktop/0.0.0-test (macos)" })),
 }));
 
 const OWN = "http://localhost:9080";

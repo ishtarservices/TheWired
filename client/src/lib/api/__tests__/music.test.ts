@@ -6,6 +6,7 @@ import { getAudioVariants } from "../music";
 
 vi.mock("../nip98", () => ({
   buildNip98Header: vi.fn().mockResolvedValue("Nostr dGVzdA=="),
+  buildAuthHeaders: vi.fn().mockResolvedValue({ Authorization: "Nostr dGVzdA==", "X-Wired-Client": "desktop/0.0.0-test (macos)" }),
 }));
 
 const BASE = "http://test-api.local";

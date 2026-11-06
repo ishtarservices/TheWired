@@ -1,5 +1,5 @@
 import { getApiBaseUrl } from "./client";
-import { buildNip98Header, type AuthSignerOptions } from "./nip98";
+import { buildAuthHeaders, type AuthSignerOptions } from "./nip98";
 import type { TrackInsights, ArtistSummary } from "@/types/music";
 
 interface UploadAudioResponse {
@@ -35,7 +35,7 @@ export async function uploadAudio(
   form.append("file", file);
 
   const headers: Record<string, string> = {};
-  headers["Authorization"] = await buildNip98Header(url, "POST", auth);
+  Object.assign(headers, await buildAuthHeaders(url, "POST", auth));
 
   const res = await fetch(url, { method: "POST", headers, body: form });
   if (!res.ok) throw new Error(`Upload failed: ${res.statusText}`);
@@ -52,7 +52,7 @@ export async function uploadCoverArt(file: File, auth?: AuthSignerOptions): Prom
   form.append("file", file);
 
   const headers: Record<string, string> = {};
-  headers["Authorization"] = await buildNip98Header(url, "POST", auth);
+  Object.assign(headers, await buildAuthHeaders(url, "POST", auth));
 
   const res = await fetch(url, { method: "POST", headers, body: form });
   if (!res.ok) throw new Error(`Upload failed: ${res.statusText}`);
@@ -85,7 +85,7 @@ export async function getMyUploads(
   const url = `${getApiBaseUrl()}/music/uploads${params.toString() ? `?${params}` : ""}`;
 
   const headers: Record<string, string> = {};
-  headers["Authorization"] = await buildNip98Header(url, "GET");
+  Object.assign(headers, await buildAuthHeaders(url, "GET"));
 
   const res = await fetch(url, { headers });
   if (!res.ok) throw new Error(`Failed to fetch uploads: ${res.statusText}`);
@@ -158,7 +158,7 @@ export async function getMusicAccess(addressableId: string): Promise<MusicAccess
     const url = `${getApiBaseUrl()}/music/access/${pubkey}/${encodeURIComponent(dTag)}`;
     try {
       const headers: Record<string, string> = {};
-      headers["Authorization"] = await buildNip98Header(url, "GET");
+      Object.assign(headers, await buildAuthHeaders(url, "GET"));
       const res = await fetch(url, { headers });
       if (!res.ok) return null; // 404 (unauthorized / not found) → caller shows unavailable
       const json = await res.json();
@@ -182,7 +182,7 @@ export async function reportPlay(addressableId: string): Promise<void> {
   const headers: Record<string, string> = {
     "Content-Type": "application/json",
   };
-  headers["Authorization"] = await buildNip98Header(url, "POST");
+  Object.assign(headers, await buildAuthHeaders(url, "POST"));
 
   fetch(url, {
     method: "POST",
@@ -249,7 +249,7 @@ export async function resolveMusic(
   const headers: Record<string, string> = {};
   if (opts.auth) {
     try {
-      headers.Authorization = await buildNip98Header(url, "GET");
+      Object.assign(headers, await buildAuthHeaders(url, "GET"));
     } catch {
       // Signed out / no signer — resolve anonymously.
     }
@@ -336,7 +336,7 @@ export async function deleteMusic(
 ): Promise<void> {
   const url = `${getApiBaseUrl()}/music/${type}/${pubkey}/${encodeURIComponent(slug)}`;
   const headers: Record<string, string> = {};
-  headers["Authorization"] = await buildNip98Header(url, "DELETE", auth);
+  Object.assign(headers, await buildAuthHeaders(url, "DELETE", auth));
 
   const res = await fetch(url, { method: "DELETE", headers });
   if (!res.ok && res.status !== 404) {
@@ -350,7 +350,7 @@ export async function deleteMusic(
 export async function rebuildMusicCounts(): Promise<{ data: { genres: number; tags: number; tracksAndAlbums: number } }> {
   const url = `${getApiBaseUrl()}/music/rebuild-counts`;
   const headers: Record<string, string> = {};
-  headers["Authorization"] = await buildNip98Header(url, "POST");
+  Object.assign(headers, await buildAuthHeaders(url, "POST"));
 
   const res = await fetch(url, { method: "POST", headers });
   if (!res.ok) throw new Error(`Rebuild failed: ${res.statusText}`);
@@ -386,7 +386,7 @@ export async function getTrackInsights(
 export async function getArtistSummary(): Promise<{ data: ArtistSummary }> {
   const url = `${getApiBaseUrl()}/music/insights-summary`;
   const headers: Record<string, string> = {};
-  headers["Authorization"] = await buildNip98Header(url, "GET");
+  Object.assign(headers, await buildAuthHeaders(url, "GET"));
 
   const res = await fetch(url, { headers });
   if (!res.ok) throw new Error("Failed to fetch artist summary");

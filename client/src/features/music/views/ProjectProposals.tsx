@@ -9,7 +9,7 @@ import { CreateProposalModal } from "../CreateProposalModal";
 import { getApiBaseUrl } from "@/lib/api/client";
 import { parseProposalRows } from "../proposalRows";
 import { isListenRequest } from "../listenRequestWire";
-import { buildNip98Header } from "@/lib/api/nip98";
+import { buildAuthHeaders } from "@/lib/api/nip98";
 
 export function ProjectProposals() {
   const dispatch = useAppDispatch();
@@ -60,7 +60,7 @@ export function ProjectProposals() {
       const url = `${getApiBaseUrl()}/music/proposals/${proposalId}/resolve`;
       const headers: Record<string, string> = {
         "Content-Type": "application/json",
-        Authorization: await buildNip98Header(url, "POST"),
+        ...(await buildAuthHeaders(url, "POST")),
       };
       const res = await fetch(url, {
         method: "POST",

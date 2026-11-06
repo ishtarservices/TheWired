@@ -67,6 +67,12 @@ UNION ALL SELECT 'app: nip05 name@thewired.app', count(*) FROM app.nip05_identit
 UNION ALL SELECT 'app: member of a space', count(DISTINCT pubkey) FROM app.space_members
 UNION ALL SELECT 'app: notification prefs row', count(*) FROM app.notification_preferences
 UNION ALL SELECT 'app: mobile push device (soot)', count(DISTINCT pubkey) FROM app.push_devices
+UNION ALL SELECT 'app: seen on Wired desktop (X-Wired-Client)', count(DISTINCT pubkey) FROM app.account_clients WHERE client = 'desktop'
+UNION ALL SELECT 'app: seen on mobile (X-Wired-Client)', count(DISTINCT pubkey) FROM app.account_clients WHERE client = 'mobile'
+UNION ALL SELECT 'relay: authors last :days days with NO app record (external client, or pre-tracking)',
+       count(DISTINCT pubkey) FROM relay.events e
+       WHERE created_at > extract(epoch FROM now() - :days * interval '1 day')
+         AND NOT EXISTS (SELECT 1 FROM app.account_clients c WHERE c.pubkey = e.pubkey)
 UNION ALL SELECT 'app: web push subscription', count(DISTINCT pubkey) FROM app.push_subscriptions
 UNION ALL SELECT 'app: cached profile', count(*) FROM app.cached_profiles
 UNION ALL SELECT 'app: music uploader', count(DISTINCT pubkey) FROM app.music_uploads
@@ -80,6 +86,21 @@ SELECT platform, provider, count(*) AS devices, count(DISTINCT pubkey) AS pubkey
 FROM app.push_devices GROUP BY 1,2 ORDER BY devices DESC;
 
 \echo
+\echo '== Accounts by app (X-Wired-Client on authenticated API calls; first_seen / last_seen) =='
+\echo '   our apps only — an account never seen here used an external Nostr client (or predates tracking)'
+SELECT client, platform, count(DISTINCT pubkey) AS pubkeys,
+       count(DISTINCT pubkey) FILTER (WHERE last_seen > now() - :days * interval '1 day') AS active_recent,
+       min(first_seen)::date AS first_seen, max(last_seen)::date AS last_seen,
+       string_agg(DISTINCT version, ',') AS versions
+FROM app.account_clients GROUP BY 1,2 ORDER BY pubkeys DESC;
+SELECT count(DISTINCT pubkey) AS app_accounts,
+       count(DISTINCT pubkey) FILTER (WHERE client = 'desktop') AS desktop,
+       count(DISTINCT pubkey) FILTER (WHERE client = 'mobile') AS mobile,
+       count(DISTINCT pubkey) FILTER (WHERE pubkey IN (SELECT pubkey FROM app.account_clients WHERE client = 'desktop')
+                                        AND pubkey IN (SELECT pubkey FROM app.account_clients WHERE client = 'mobile')) AS both
+FROM app.account_clients;
+
+\echo
 \echo '== "client" tag on relay events (our apps set none; a value = external client or bot script) =='
 SELECT coalesce((SELECT e->>1 FROM jsonb_array_elements(tags) e WHERE e->>0 = 'client' LIMIT 1), '(none)') AS client,
        count(*) AS events, count(DISTINCT pubkey) AS pubkeys
@@ -88,7 +109,8 @@ GROUP BY 1 ORDER BY events DESC LIMIT 15;
 
 \echo
 \echo '== Per-account activity, last :days days (top 40 by events) =='
-\echo '   app_signals: N=nip05 S=space member P=push device/sub F=notif prefs L=login kinds(10002/10050)  X=SUSPENDED'
+\echo '   app_signals: D=Wired desktop M=mobile (X-Wired-Client) N=nip05 S=space member P=push device/sub F=notif prefs L=login kinds(10002/10050)  X=SUSPENDED'
+\echo '   no D and no M = external Nostr client (or last seen before app tracking shipped)'
 \echo '   minutes = distinct minute-of-hour the account posts at; 1-3 with many posts = cron bot'
 WITH recent AS (
   SELECT * FROM relay.events
@@ -116,6 +138,8 @@ SELECT left(p.pubkey, 12) AS pubkey,
        (SELECT to_timestamp(min(created_at))::date FROM relay.events a WHERE a.pubkey = p.pubkey) AS first_seen,
        to_char(to_timestamp(p.last_at), 'MM-DD HH24:MI') AS last_seen,
        concat_ws('',
+         CASE WHEN EXISTS (SELECT 1 FROM app.account_clients c WHERE c.pubkey = p.pubkey AND c.client = 'desktop') THEN 'D' END,
+         CASE WHEN EXISTS (SELECT 1 FROM app.account_clients c WHERE c.pubkey = p.pubkey AND c.client = 'mobile') THEN 'M' END,
          CASE WHEN EXISTS (SELECT 1 FROM app.nip05_identities n WHERE n.pubkey = p.pubkey) THEN 'N' END,
          CASE WHEN EXISTS (SELECT 1 FROM app.space_members m WHERE m.pubkey = p.pubkey) THEN 'S' END,
          CASE WHEN EXISTS (SELECT 1 FROM app.push_devices d WHERE d.pubkey = p.pubkey)

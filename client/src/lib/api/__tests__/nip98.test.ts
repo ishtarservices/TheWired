@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, afterEach } from "vitest";
 import { verifyEvent, type Event } from "nostr-tools";
-import { buildNip98Header } from "../nip98";
+import { buildAuthHeaders, buildNip98Header } from "../nip98";
 
 // Real signing (nostr-tools finalizeEvent) behind the loginFlow seam — the
 // regression under test is the event-id hash, so the signer must be genuine.
@@ -62,5 +62,37 @@ describe("buildNip98Header", () => {
     // Still verifiable — the gateway ignores unknown tags but re-hashes them all.
     expect(verifyEvent(a)).toBe(true);
     expect(verifyEvent(b)).toBe(true);
+  });
+});
+
+describe("buildAuthHeaders", () => {
+  it("adds X-Wired-Client only for our own API, never for a third-party URL", async () => {
+    const { setApiBaseUrl } = await import("../apiBase");
+    setApiBaseUrl("https://api.thewired.app/api");
+
+    const own = await buildAuthHeaders("https://api.thewired.app/api/music/uploads?page=2", "GET");
+    expect(own.Authorization.startsWith("Nostr ")).toBe(true);
+    expect(own["X-Wired-Client"]).toMatch(/^desktop\/0\.0\.0-test \(\w+\)$/);
+
+    for (const thirdParty of [
+      "https://blossom.primal.net/upload",
+      "https://walletofsatoshi.com/.well-known/lnurlp/alice",
+      "https://relay.example.org/api/music/uploads", // same path shape, other host
+      "https://api.thewired.app.evil.example/api/spaces",
+      "https://api.thewired.app/apix/spaces", // prefix collision past the base
+      "https://api.thewired.app/upload", // Blossom on our host, outside /api
+    ]) {
+      const headers = await buildAuthHeaders(thirdParty, "PUT");
+      expect(headers.Authorization.startsWith("Nostr ")).toBe(true);
+      expect(headers, thirdParty).not.toHaveProperty("X-Wired-Client");
+      expect(Object.keys(headers)).toEqual(["Authorization"]);
+    }
+  });
+
+  it("the header value carries no account data: identical across signers", async () => {
+    const a = await buildAuthHeaders("https://api.thewired.app/api/spaces", "GET");
+    const b = await buildAuthHeaders("https://api.thewired.app/api/spaces", "GET");
+    expect(a["X-Wired-Client"]).toBe(b["X-Wired-Client"]);
+    expect(a["X-Wired-Client"]).not.toMatch(/[0-9a-f]{64}/);
   });
 });

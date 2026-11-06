@@ -11,7 +11,10 @@ import {
 import { musicTokenCache } from "@/lib/cache/tokenCache";
 import { performCleanup } from "@/lib/nostr/loginFlow";
 
-vi.mock("@/lib/api/nip98", () => ({ buildNip98Header: vi.fn(async () => "Nostr test") }));
+vi.mock("@/lib/api/nip98", () => ({
+  buildNip98Header: vi.fn(async () => "Nostr test"),
+  buildAuthHeaders: vi.fn(async () => ({ Authorization: "Nostr test", "X-Wired-Client": "desktop/0.0.0-test (macos)" })),
+}));
 
 const WEEK = 604_800;
 

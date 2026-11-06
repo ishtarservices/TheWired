@@ -3,6 +3,7 @@ package cors
 import (
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 )
 
@@ -65,5 +66,17 @@ func TestCORS_PreflightShortCircuits(t *testing.T) {
 	h.ServeHTTP(rr, req)
 	if rr.Code != http.StatusNoContent || called {
 		t.Fatalf("preflight: %d called=%v", rr.Code, called)
+	}
+}
+
+// X-Wired-Client (which of our apps an authenticated call comes from) is a
+// custom header, so a browser-context client (Vite dev, tauri localhost) only
+// sends it when the preflight allows it.
+func TestCORS_AllowsWiredClientHeader(t *testing.T) {
+	got := corsProbe(t, []string{"https://thewired.app"}, "https://thewired.app").Get("Access-Control-Allow-Headers")
+	for _, want := range []string{"Authorization", "Content-Type", "X-Wired-Client"} {
+		if !strings.Contains(got, want) {
+			t.Errorf("Access-Control-Allow-Headers = %q, missing %s", got, want)
+		}
 	}
 }
