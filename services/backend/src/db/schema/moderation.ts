@@ -33,7 +33,8 @@ export const reputation = appSchema.table("reputation", {
 /** Audit log for moderation and role management actions (migration 0030).
  *  `spaceId` is null for platform-level actions (report resolutions:
  *  report_dismiss, report_remove_event, report_remove_music,
- *  report_suspend_pubkey, report_escalate, suspension_lift, event_restore). */
+ *  report_suspend_pubkey, report_shadow_pubkey, report_escalate,
+ *  suspension_lift, event_restore). */
 export const moderationAuditLog = appSchema.table("moderation_audit_log", {
   id: text("id").primaryKey(),
   spaceId: text("space_id").references(() => spaces.id, { onDelete: "cascade" }),

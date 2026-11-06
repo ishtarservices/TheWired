@@ -14,6 +14,7 @@ import { resolve } from "node:path";
 
 export function relayTestSchemaSql(): string {
   const moderation = readFileSync(resolve(process.cwd(), "../relay/migrations/006_moderation.sql"), "utf-8");
+  const shadow = readFileSync(resolve(process.cwd(), "../relay/migrations/008_shadow_mode.sql"), "utf-8");
   return `
     CREATE SCHEMA IF NOT EXISTS relay;
     CREATE TABLE IF NOT EXISTS relay.events (
@@ -45,5 +46,6 @@ export function relayTestSchemaSql(): string {
       PRIMARY KEY (group_id, pubkey, role)
     );
     ${moderation}
+    ${shadow}
   `;
 }

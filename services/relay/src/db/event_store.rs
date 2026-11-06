@@ -1,6 +1,7 @@
 use serde_json::Value;
 use sqlx::{PgPool, Postgres};
 
+use crate::db::moderation;
 use crate::nostr::access;
 use crate::nostr::event::Event;
 use crate::nostr::filter::Filter;
@@ -322,6 +323,8 @@ fn build_conditions(filter: &Filter, ctx: &ReadCtx<'_>) -> (Vec<String>, Vec<Bin
             if !ctx.serve_all_reports {
                 conditions.push(format!("(kind <> {KIND_REPORT} OR pubkey = ${auth_param}[1])"));
             }
+            // Shadowed authors (migration 008) are served only to themselves.
+            conditions.push(moderation::pg_not_shadowed_predicate(Some(&pk)));
         }
         None => {
             // Unauthenticated: only public events (no visibility tag, no h_tag)
@@ -332,6 +335,7 @@ fn build_conditions(filter: &Filter, ctx: &ReadCtx<'_>) -> (Vec<String>, Vec<Bin
             if !ctx.serve_all_reports {
                 conditions.push(format!("kind <> {KIND_REPORT}"));
             }
+            conditions.push(moderation::pg_not_shadowed_predicate(None));
         }
     }
 

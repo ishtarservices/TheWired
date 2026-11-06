@@ -22,6 +22,7 @@ pub async fn run_migrations(pool: &PgPool) -> anyhow::Result<()> {
         include_str!("../../migrations/005_expiration_selfwrap.sql"),
         include_str!("../../migrations/006_moderation.sql"),
         include_str!("../../migrations/007_deletions.sql"),
+        include_str!("../../migrations/008_shadow_mode.sql"),
     ];
     for migration in &migrations {
         sqlx::raw_sql(migration).execute(pool).await?;

@@ -27,7 +27,7 @@ import { suspensionService } from "./suspensionService.js";
  * inbox (GET /admin/reports, GET /admin/reports/:id, POST …/resolve).
  */
 
-export const REPORT_ACTIONS = ["dismiss", "remove_event", "remove_music", "suspend_pubkey", "escalate"] as const;
+export const REPORT_ACTIONS = ["dismiss", "remove_event", "remove_music", "suspend_pubkey", "shadow_pubkey", "escalate"] as const;
 export type ReportAction = (typeof REPORT_ACTIONS)[number];
 
 /** How far back "prior reports" against the same target look. */
@@ -259,7 +259,13 @@ export const reportService = {
     if (event) target.event = event;
     if (removed) target.removed = true;
     if (profile) target.profile = profile;
-    if (pubkey) target.suspended = await suspensionService.isSuspended(pubkey);
+    if (pubkey) {
+      const mode = await suspensionService.modeOf(pubkey);
+      // `suspended` keeps its original meaning for soot's inbox (hidden from
+      // the API); `suspensionMode` says which tier.
+      target.suspended = mode !== null;
+      target.suspensionMode = mode;
+    }
     return { report: serializeReport(row), target };
   },
 
@@ -327,7 +333,8 @@ export const reportService = {
           : byId;
         break;
       }
-      case "suspend_pubkey": {
+      case "suspend_pubkey":
+      case "shadow_pubkey": {
         let pubkey = row.targetPubkey;
         if (!pubkey && row.targetEventId && row.targetType !== "dm") {
           pubkey = (await getRelayEvent(row.targetEventId))?.pubkey ?? null;
@@ -335,8 +342,8 @@ export const reportService = {
         if (!pubkey) {
           return { ok: false, status: 400, code: "NO_TARGET_ACCOUNT", error: "This report does not name an account" };
         }
-        await suspendPubkey(pubkey, ctx);
-        detail.suspended = pubkey;
+        await suspendPubkey(pubkey, ctx, action === "shadow_pubkey" ? "shadowed" : "suspended");
+        detail[action === "shadow_pubkey" ? "shadowed" : "suspended"] = pubkey;
         siblingScope = sql`target_pubkey = ${pubkey}`;
         break;
       }

@@ -300,3 +300,53 @@ async fn a_tombstoned_event_is_never_stored_again_until_restored() {
         .unwrap();
     assert_eq!(publish(&state, &tx, &mut conn, &note).await[2], true);
 }
+
+/// Migration 008: a *shadowed* account keeps publishing (normal OK, event
+/// stored, it reads its own posts back) but nobody else is served them —
+/// not by stored query, not by NIP-50 search, not live.
+#[tokio::test]
+async fn a_shadowed_account_is_served_only_to_itself() {
+    let pool = match setup_test_pool().await { Ok(p) => p, Err(e) => { eprintln!("skip: {e}"); return; } };
+    let (state, tx) = make_app_state_with(pool.clone(), |_| {});
+    let bot = TestIdentity::from_seed(21);
+    let carol = TestIdentity::from_seed(22);
+
+    sqlx::query("INSERT INTO relay.suspended_pubkeys (pubkey, suspended_by, mode) VALUES ($1, 'admin', 'shadowed')")
+        .bind(&bot.pubkey)
+        .execute(&pool)
+        .await
+        .unwrap();
+
+    // The bot publishes as usual and gets a normal OK: it must not learn anything.
+    let mut as_bot = Conn::new(Some(&bot.pubkey));
+    let note = sign_event(&bot, 1, vec![], "block 920000 mined zebra quokka", now());
+    let ok = publish(&state, &tx, &mut as_bot, &note).await;
+    assert_eq!(ok[2], true, "{ok}");
+    // The EVENT path primes the live filter before the refresh task runs.
+    assert!(state.is_shadowed_for(&bot.pubkey, None));
+    assert!(!state.is_shadowed_for(&bot.pubkey, Some(&bot.pubkey)));
+
+    let req = r#"["REQ","s1",{"kinds":[1]}]"#;
+    // The author reads its own post back.
+    assert_eq!(event_ids(&as_bot.send(&state, &tx, req).await), vec![note.id.clone()]);
+    // Nobody else does: anonymous, another authed user, by author filter, by search.
+    let mut anon = Conn::new(None);
+    assert!(event_ids(&anon.send(&state, &tx, req).await).is_empty());
+    let mut as_carol = Conn::new(Some(&carol.pubkey));
+    assert!(event_ids(&as_carol.send(&state, &tx, req).await).is_empty());
+    let by_author = format!(r#"["REQ","s2",{{"kinds":[1],"authors":["{}"]}}]"#, bot.pubkey);
+    assert!(event_ids(&as_carol.send(&state, &tx, &by_author).await).is_empty());
+    let search = r#"["REQ","s3",{"kinds":[1],"search":"quokka"}]"#;
+    assert!(event_ids(&anon.send(&state, &tx, search).await).is_empty());
+    assert_eq!(event_ids(&as_bot.send(&state, &tx, search).await), vec![note.id.clone()]);
+
+    // Lifting it restores the account for everyone once the set refreshes.
+    sqlx::query("UPDATE relay.suspended_pubkeys SET lifted_at = NOW(), lifted_by = 'admin' WHERE pubkey = $1")
+        .bind(&bot.pubkey)
+        .execute(&pool)
+        .await
+        .unwrap();
+    state.refresh_shadowed().await;
+    assert!(!state.is_shadowed_for(&bot.pubkey, None));
+    assert_eq!(event_ids(&anon.send(&state, &tx, req).await), vec![note.id.clone()]);
+}
