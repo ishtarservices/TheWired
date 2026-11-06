@@ -5,6 +5,8 @@
  *   only as a keyed hash. NIP-98 callers are attributed to their pubkey.
  * - Ids only: unknown body fields (e.g. message text) are dropped.
  * - Deduped on (reporter, target) while open; a repeat notifies nobody.
+ * - A signed-in reporter may have REPORTS_MAX_OPEN_PER_REPORTER open reports
+ *   at once (429 REPORTER_LIMIT past it); guests are capped per IP upstream.
  * - Every new report pushes each ADMIN_PUBKEYS account (payload: reportId +
  *   category only) and posts the webhook (no reporter, no note).
  *
@@ -35,12 +37,18 @@ afterAll(async () => {
   await closeTestServer();
 });
 
-const mutableConfig = config as unknown as { adminPubkeys: string[]; reportWebhookUrl: string };
+const mutableConfig = config as unknown as {
+  adminPubkeys: string[];
+  reportWebhookUrl: string;
+  reportsMaxOpenPerReporter: number;
+};
 const savedAdmins = [...config.adminPubkeys];
 const savedWebhook = config.reportWebhookUrl;
+const savedCap = config.reportsMaxOpenPerReporter;
 afterEach(() => {
   mutableConfig.adminPubkeys = [...savedAdmins];
   mutableConfig.reportWebhookUrl = savedWebhook;
+  mutableConfig.reportsMaxOpenPerReporter = savedCap;
   vi.restoreAllMocks();
 });
 
@@ -186,6 +194,70 @@ describe("POST /reports — signed in", () => {
   it("refuses a self-report", async () => {
     const res = await post({ target: "user", category: "spam", pubkey: LUNA.pubkey }, { "x-auth-pubkey": LUNA.pubkey });
     expect(res.statusCode).toBe(400);
+  });
+});
+
+describe("POST /reports — per-reporter cap", () => {
+  const asLuna = { "x-auth-pubkey": LUNA.pubkey };
+  let seq = 0;
+  const targetId = () => `ca${(seq++).toString(16).padStart(4, "0")}`.padEnd(64, "0");
+  const report = (eventId: string, headers: Record<string, string> = asLuna) =>
+    post({ target: "event", category: "spam", eventId, eventKind: 1, pubkey: MARCUS.pubkey }, headers);
+
+  it("defaults to 10 open reports", () => {
+    expect(savedCap).toBe(10);
+  });
+
+  it("accepts the 10th open report and refuses the 11th, until one closes", async () => {
+    const ids: string[] = [];
+    for (let i = 0; i < 10; i++) {
+      const res = await report(targetId());
+      expect(res.statusCode).toBe(201);
+      ids.push(res.json().data.id);
+    }
+    const refused = await report(targetId());
+    expect(refused.statusCode).toBe(429);
+    expect(refused.json()).toEqual({ error: expect.any(String), code: "REPORTER_LIMIT" });
+    expect(await db.select().from(reports)).toHaveLength(10);
+
+    // A repeat of an open report is not a new one: it still folds in.
+    const first = await db.select().from(reports).where(eq(reports.id, ids[0]));
+    const repeat = await report(first[0].targetEventId!);
+    expect(repeat.statusCode).toBe(200);
+    expect(repeat.json().data.id).toBe(ids[0]);
+
+    // A reviewer closes one: the next report goes through.
+    await db.update(reports).set({ status: "dismissed", resolution: "dismiss" }).where(eq(reports.id, ids[0]));
+    expect((await report(targetId())).statusCode).toBe(201);
+    expect((await report(targetId())).statusCode).toBe(429);
+  });
+
+  it("counts open reports only", async () => {
+    for (let i = 0; i < 10; i++) {
+      await db.insert(reports).values({
+        id: `cap-closed-${i}`, source: "http", reporterPubkey: LUNA.pubkey, targetType: "event", targetEventId: targetId(),
+        targetPubkey: MARCUS.pubkey, category: "spam", status: i % 2 ? "actioned" : "dismissed", resolution: i % 2 ? "remove_event" : "dismiss",
+      });
+    }
+    expect((await report(targetId())).statusCode).toBe(201);
+  });
+
+  it("is per account: another reporter and guests are unaffected", async () => {
+    mutableConfig.reportsMaxOpenPerReporter = 2;
+    expect((await report(targetId())).statusCode).toBe(201);
+    expect((await report(targetId())).statusCode).toBe(201);
+    expect((await report(targetId())).statusCode).toBe(429);
+    expect((await report(targetId(), { "x-auth-pubkey": DECKARD.pubkey })).statusCode).toBe(201);
+    for (let i = 0; i < 3; i++) {
+      expect((await report(targetId(), { "x-client-ip": "203.0.113.42" })).statusCode).toBe(201);
+    }
+  });
+
+  it("0 means unlimited", async () => {
+    mutableConfig.reportsMaxOpenPerReporter = 0;
+    for (let i = 0; i < 12; i++) {
+      expect((await report(targetId())).statusCode).toBe(201);
+    }
   });
 });
 

@@ -16,7 +16,7 @@ import { reports, accountDeletions } from "../../src/db/schema/reports.js";
 import { nip05Identities } from "../../src/db/schema/nip05.js";
 import { notificationQueue } from "../../src/db/schema/notifications.js";
 import { config } from "../../src/config.js";
-import { reportService, FOREIGN_RESOLUTION, SYSTEM_ACTOR } from "../../src/services/reportService.js";
+import { reportService, FOREIGN_RESOLUTION, REPORTER_LIMIT_RESOLUTION, SYSTEM_ACTOR } from "../../src/services/reportService.js";
 import { getMeilisearchClient } from "../../src/lib/meilisearch.js";
 import { authorBlocked, planIngest, processEvent, type IngestContext } from "../../src/workers/ingestHandlers.js";
 import { accountDeletionService } from "../../src/services/accountDeletionService.js";
@@ -311,6 +311,85 @@ describe("foreign reports", () => {
       const [after] = await db.select().from(reports).where(eq(reports.id, row.id));
       expect(after).toMatchObject({ status: "actioned", resolution: "escalate" });
     });
+  });
+});
+
+/**
+ * The per-reporter cap at the nostr door: a kind 1984 past the reporter's
+ * open-report cap is stored closed (resolution reporter_limit, by the
+ * system) and notifies nobody, so a replay is still a no-op.
+ */
+describe("per-reporter cap at ingest", () => {
+  const mutableConfig = config as unknown as { adminPubkeys: string[]; reportsMaxOpenPerReporter: number };
+  const saved = { admins: [...config.adminPubkeys], cap: config.reportsMaxOpenPerReporter };
+  let seq = 0;
+  const targetId = () => `ca${(seq++).toString(16).padStart(4, "0")}`.padEnd(64, "0");
+
+  beforeEach(async () => {
+    mutableConfig.adminPubkeys = [SAGE.pubkey];
+    await db.insert(nip05Identities).values({ username: "luna", pubkey: LUNA.pubkey });
+  });
+  afterEach(() => {
+    mutableConfig.adminPubkeys = saved.admins;
+    mutableConfig.reportsMaxOpenPerReporter = saved.cap;
+  });
+
+  async function openCount() {
+    return (await db.select().from(reports).where(eq(reports.status, "open"))).length;
+  }
+
+  it("stores the 11th open report closed, without a notification; a closed report frees a slot", async () => {
+    for (let i = 0; i < 10; i++) await processEvent(sootReport(targetId()), own);
+    expect(await openCount()).toBe(10);
+    await vi.waitFor(async () => {
+      expect(await db.select().from(notificationQueue)).toHaveLength(10);
+    });
+
+    const eleventh = sootReport(targetId());
+    await processEvent(eleventh, own);
+    const [row] = await db.select().from(reports).where(eq(reports.reportEventId, eleventh.id));
+    expect(row).toMatchObject({
+      status: "dismissed",
+      resolution: REPORTER_LIMIT_RESOLUTION,
+      resolvedBy: SYSTEM_ACTOR,
+      reporterPubkey: LUNA.pubkey,
+      triage: { origin: "local", signals: ["reporter_app_user"] },
+    });
+    expect(row.resolvedAt).not.toBeNull();
+    expect(await openCount()).toBe(10);
+    expect(await db.select().from(notificationQueue)).toHaveLength(10);
+
+    // Replay: no second row.
+    await processEvent(eleventh, own);
+    expect(await db.select().from(reports)).toHaveLength(11);
+
+    // A reviewer closes one: the next report is open again.
+    const [first] = await db.select().from(reports).where(eq(reports.status, "open")).limit(1);
+    await db.update(reports).set({ status: "actioned", resolution: "remove_event" }).where(eq(reports.id, first.id));
+    const twelfth = sootReport(targetId());
+    await processEvent(twelfth, own);
+    const [opened] = await db.select().from(reports).where(eq(reports.reportEventId, twelfth.id));
+    expect(opened).toMatchObject({ status: "open", resolution: null });
+  });
+
+  it("a repeat of an open report folds in even at the cap", async () => {
+    mutableConfig.reportsMaxOpenPerReporter = 1;
+    const target = targetId();
+    await processEvent(sootReport(target), own);
+    // The same report through the HTTP door (publish fallback) matches the open row.
+    const again = await reportService.file({
+      source: "http", reporterPubkey: LUNA.pubkey, reporterIpHash: null, targetType: "event", targetEventId: target,
+      targetCoordinate: null, targetPubkey: MARCUS.pubkey, targetKind: 1, targetContext: null, category: "spam", note: null,
+      reportEventId: null,
+    });
+    expect(again).toMatchObject({ limited: false, created: false });
+    expect(await db.select().from(reports)).toHaveLength(1);
+  });
+
+  it("0 means unlimited", async () => {
+    mutableConfig.reportsMaxOpenPerReporter = 0;
+    for (let i = 0; i < 11; i++) await processEvent(sootReport(targetId()), own);
+    expect(await openCount()).toBe(11);
   });
 });
 

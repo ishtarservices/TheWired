@@ -5,6 +5,7 @@ import {
   classifyReportOrigin,
   listNamesRelay,
   relayUrlKey,
+  FOREIGN_RESOLUTION,
   LOOKUP_FAILED_VERDICT,
   type OriginVerdict,
   type ReportFootprint,
@@ -89,6 +90,86 @@ export async function hasContentHere(pubkey: string | null): Promise<boolean> {
         ) AS present`,
   )) as unknown as Array<{ present: boolean }>;
   return rows[0]?.present === true;
+}
+
+/** What the reviewer sees about the account that filed a report. */
+export interface ReporterFootprint {
+  /** Earliest trace of the account here: a space joined, a push device or web
+   *  push subscription, a nip05 name, a report filed, or an event on the relay. */
+  firstSeenAt: Date | null;
+  spacesJoined: number;
+  /** Events by the account on this relay other than wraps and reports, counted
+   *  up to CONTENT_COUNT_CAP. */
+  contentEventsHere: number;
+  /** Every report by the account, the one being viewed included. */
+  reportsFiled: number;
+  reportsFiledLast24h: number;
+  reportsDismissedAsForeign: number;
+  reportsActioned: number;
+}
+
+/** Where the relay content count stops: past it the number says "a lot". */
+export const CONTENT_COUNT_CAP = 1000;
+
+const EMPTY_REPORTER_FOOTPRINT: ReporterFootprint = {
+  firstSeenAt: null,
+  spacesJoined: 0,
+  contentEventsHere: 0,
+  reportsFiled: 0,
+  reportsFiledLast24h: 0,
+  reportsDismissedAsForeign: 0,
+  reportsActioned: 0,
+};
+
+/**
+ * One statement: the earliest trace of the account across the app tables and
+ * the relay, plus the counts. app.reports is read through idx_reports_reporter,
+ * relay.events through idx_events_pubkey_kind (the content count is LIMITed).
+ */
+export async function reporterFootprint(pubkey: string): Promise<ReporterFootprint> {
+  if (!HEX64.test(pubkey)) return EMPTY_REPORTER_FOOTPRINT;
+  const nonContent = sql`ARRAY[${sql.join(NON_CONTENT_KINDS.map((k) => sql`${k}`), sql`, `)}]::int[]`;
+  const rows = (await db.execute(
+    sql`SELECT
+          LEAST(
+            (SELECT MIN(joined_at)::timestamptz FROM app.space_members WHERE pubkey = ${pubkey}),
+            (SELECT MIN(created_at)::timestamptz FROM app.push_devices WHERE pubkey = ${pubkey}),
+            (SELECT MIN(created_at)::timestamptz FROM app.push_subscriptions WHERE pubkey = ${pubkey}),
+            (SELECT MIN(created_at)::timestamptz FROM app.nip05_identities WHERE pubkey = ${pubkey}),
+            (SELECT MIN(created_at) FROM app.reports WHERE reporter_pubkey = ${pubkey}),
+            (SELECT to_timestamp(MIN(created_at)) FROM relay.events WHERE pubkey = ${pubkey})
+          ) AS first_seen_at,
+          (SELECT COUNT(*)::int FROM app.space_members WHERE pubkey = ${pubkey}) AS spaces_joined,
+          (SELECT COUNT(*)::int FROM (
+             SELECT 1 FROM relay.events WHERE pubkey = ${pubkey} AND kind <> ALL(${nonContent})
+             LIMIT ${CONTENT_COUNT_CAP}) c) AS content_events,
+          (SELECT COUNT(*)::int FROM app.reports WHERE reporter_pubkey = ${pubkey}) AS reports_filed,
+          (SELECT COUNT(*)::int FROM app.reports
+             WHERE reporter_pubkey = ${pubkey} AND created_at >= NOW() - INTERVAL '24 hours') AS reports_24h,
+          (SELECT COUNT(*)::int FROM app.reports
+             WHERE reporter_pubkey = ${pubkey} AND status = 'dismissed' AND resolution = ${FOREIGN_RESOLUTION}) AS reports_foreign,
+          (SELECT COUNT(*)::int FROM app.reports
+             WHERE reporter_pubkey = ${pubkey} AND status = 'actioned') AS reports_actioned`,
+  )) as unknown as Array<{
+    first_seen_at: Date | string | null;
+    spaces_joined: number;
+    content_events: number;
+    reports_filed: number;
+    reports_24h: number;
+    reports_foreign: number;
+    reports_actioned: number;
+  }>;
+  const r = rows[0];
+  if (!r) return EMPTY_REPORTER_FOOTPRINT;
+  return {
+    firstSeenAt: r.first_seen_at ? new Date(r.first_seen_at) : null,
+    spacesJoined: r.spaces_joined,
+    contentEventsHere: r.content_events,
+    reportsFiled: r.reports_filed,
+    reportsFiledLast24h: r.reports_24h,
+    reportsDismissedAsForeign: r.reports_foreign,
+    reportsActioned: r.reports_actioned,
+  };
 }
 
 export async function reportFootprint(input: ReportInput): Promise<ReportFootprint> {

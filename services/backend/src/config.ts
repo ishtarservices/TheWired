@@ -19,6 +19,12 @@ function spaceMediaGate(): "off" | "log" | "enforce" {
   return v === "off" || v === "enforce" ? v : "log";
 }
 
+/** A non-negative integer env value, else the default. */
+function nonNegativeInt(raw: string | undefined, fallback: number): number {
+  const n = raw === undefined || raw.trim() === "" ? NaN : Number(raw);
+  return Number.isInteger(n) && n >= 0 ? n : fallback;
+}
+
 function gatewayAuthMode(): "off" | "warn" | "enforce" {
   const v = (process.env.GATEWAY_AUTH_MODE ?? "off").trim().toLowerCase();
   return v === "warn" || v === "enforce" ? v : "off";
@@ -93,6 +99,10 @@ export const config = {
    *  MEDIA_TOKEN_SECRET so no new secret is required; the hash only has to be
    *  stable, not secret from the operator. */
   reportIpSalt: process.env.REPORT_IP_SALT || process.env.MEDIA_TOKEN_SECRET || "dev-report-ip-salt",
+  /** Open reports one account may have at once (POST /reports answers 429
+   *  past it; a kind 1984 is stored closed). 0 = unlimited. Guests are capped
+   *  by the gateway per IP instead. */
+  reportsMaxOpenPerReporter: nonNegativeInt(process.env.REPORTS_MAX_OPEN_PER_REPORTER, 10),
   /** Gateway-signed identity headers (gateway internal/gatewayauth). The
    *  gateway MACs X-Auth-Pubkey / X-Client-Ip with GATEWAY_SHARED_SECRET into
    *  X-Gateway-Auth; `mode` says what the backend does with it: off = trust
