@@ -27,11 +27,11 @@
   },
   "dependencies": {
     "@ishtarservices/shared-types": "workspace:*",
-    "@noble/ciphers": "^2.1.1",
+    "@noble/ciphers": "^2.4.0",
     "@noble/curves": "^1.9.7",
     "@noble/hashes": "^1.8.0",
-    "lru-cache": "^11.2.6",
-    "nostr-tools": "^2.23.1"
+    "lru-cache": "^11.5.3",
+    "nostr-tools": "^2.25.5"
   },
   "devDependencies": {
     "typescript": "^5.9.3",
