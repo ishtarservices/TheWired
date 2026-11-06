@@ -78,7 +78,7 @@
     "msw": "^2.13.2",
     "tailwindcss": "^4.1.18",
     "terser": "^5.46.1",
-    "typescript": "^5.9.3",
+    "typescript": "^7.0.2",
     "vite": "^6.4.5",
     "vitest": "^4.1.4"
   }
