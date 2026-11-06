@@ -29,6 +29,7 @@ import { config } from "../../src/config.js";
 import { getMeilisearchClient } from "../../src/lib/meilisearch.js";
 import { reportService } from "../../src/services/reportService.js";
 import { suspensionService } from "../../src/services/suspensionService.js";
+import { suspendPubkey } from "../../src/services/platformModeration.js";
 import type { ReportInput } from "../../src/lib/reports/reportInput.js";
 
 let server: FastifyInstance;
@@ -371,5 +372,40 @@ describe("restoring a removed event", () => {
     } finally {
       await new Promise((r) => relay.close(r));
     }
+  });
+});
+
+describe("shadow_pubkey (relay migration 008)", () => {
+  it("writes mode = shadowed, hides the account like a suspension, reports the tier, and lift reverses it", async () => {
+    const r = await file({ targetType: "user", targetKind: null });
+    const res = await resolve(r.id, "shadow_pubkey", "hourly bot");
+    expect(res.statusCode).toBe(200);
+    expect(res.json().data.report).toMatchObject({ status: "actioned", resolution: "shadow_pubkey" });
+
+    const [row] = (await db.execute(
+      sql`SELECT mode, lifted_at FROM relay.suspended_pubkeys WHERE pubkey = ${MARCUS.pubkey}`,
+    )) as unknown as Array<{ mode: string; lifted_at: Date | null }>;
+    expect(row).toEqual({ mode: "shadowed", lifted_at: null });
+
+    suspensionService.invalidate();
+    expect(await suspensionService.isSuspended(MARCUS.pubkey)).toBe(true);
+    expect(await suspensionService.modeOf(MARCUS.pubkey)).toBe("shadowed");
+
+    const detail = await server.inject({ method: "GET", url: `/admin/reports/${r.id}`, headers: asAdmin });
+    expect(detail.json().data.target).toMatchObject({ suspended: true, suspensionMode: "shadowed" });
+
+    const [audit] = await db.select().from(moderationAuditLog);
+    expect(audit.action).toBe("report_shadow_pubkey");
+
+    // Shadowed, not suspended: a plain suspend upgrades the row in place.
+    await suspendPubkey(MARCUS.pubkey, { actor: DECKARD.pubkey });
+    suspensionService.invalidate();
+    expect(await suspensionService.modeOf(MARCUS.pubkey)).toBe("suspended");
+
+    const lift = await server.inject({ method: "POST", url: `/admin/suspensions/${MARCUS.pubkey}/lift`, headers: asAdmin });
+    expect(lift.statusCode).toBe(200);
+    suspensionService.invalidate();
+    expect(await suspensionService.modeOf(MARCUS.pubkey)).toBeNull();
+    expect(await suspensionService.isSuspended(MARCUS.pubkey)).toBe(false);
   });
 });
