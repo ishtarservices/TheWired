@@ -69,7 +69,7 @@
         {
           "heading": "deleting your account",
           "body": [
-            "You can delete your account in settings, under account & security. That blanks your profile, asks relays to erase what you published, and removes your key and data from the device. For anything held on our servers you can also write to privacy@thewired.app."
+            "You can delete your account in settings, under account & security. That blanks your profile, asks relays to erase what you published, and removes your key and data from the device. The full process is at thewired.app/delete-account. For anything held on our servers you can also write to privacy@thewired.app."
           ]
         },
         {
@@ -129,6 +129,60 @@
           "body": [
             "Press and hold any post, message, track or person to report or block. Blocking is immediate and private.",
             "You can also write to abuse@thewired.app."
+          ]
+        }
+      ]
+    },
+    "delete-account": {
+      "id": "delete-account",
+      "title": "deleting your account",
+      "updated": "2026-11-05",
+      "sections": [
+        {
+          "heading": "the short version",
+          "body": [
+            "You can delete your soot account from inside the app. Open the you tab, then settings, then account & security, and press delete account. Deletion is permanent.",
+            "If you no longer have the app, write to privacy@thewired.app with your public key (your npub) and we will remove what our servers hold."
+          ]
+        },
+        {
+          "heading": "in the app",
+          "body": [
+            "Go to settings, then account & security. Under danger zone, press delete account and confirm. If this account created spaces, the app asks whether to hand them to their admins or delete them too. Deleted spaces are gone for every member.",
+            "There is no password and no cooling-off period. Your account is a key pair that only you hold, so once the key is removed from your device there is no way back in."
+          ]
+        },
+        {
+          "heading": "what our servers remove",
+          "body": [
+            "Ummi Labs, LLC runs the soot app's default servers at thewired.app. When you delete your account they remove: your uploads and the streaming versions we made of them, your releases and playlists, our copy of your profile and your verified handle, your space memberships, roles and invites, your push devices and notification settings, your play history and recommendations, and everything you published to our relay up to the moment of the request, including encrypted messages addressed to you.",
+            "Deletion starts as soon as our servers accept the request and finishes on its own. Deleted data can survive in a database backup for up to about three months before it is gone for good."
+          ]
+        },
+        {
+          "heading": "what we keep",
+          "body": [
+            "A record that you asked, which is the signed request itself, so nothing from the deleted account can be re-published to our servers. Moderation records such as reports and bans in spaces that still exist, and reports you filed, with your key removed from them. Aggregate counts such as plays, which do not identify you."
+          ]
+        },
+        {
+          "heading": "what is published to other relays",
+          "body": [
+            "soot is a client for Nostr, an open network, so your posts also live on relays run by other people. Before the app removes your key it publishes two signed events: a blank profile, which replaces your name, picture and bio wherever the newest profile wins, and a request to vanish, which asks every relay to erase what this account published and to refuse copies of it afterwards.",
+            "Relays and apps run by other people decide for themselves whether to honour that request. Some may keep copies, and anyone who already saved a copy of a public post still has it."
+          ]
+        },
+        {
+          "heading": "what leaves this device",
+          "body": [
+            "The account's secret key and everything it left on the phone: messages, drafts, downloads, assistant chats and the wallet connection. If other accounts are signed in on the device, they stay."
+          ]
+        },
+        {
+          "heading": "without the app",
+          "body": [
+            "Write to privacy@thewired.app from any address, with the public key of the account (the npub, or the hex key). We remove what our servers hold, as listed above, and reply when it is done.",
+            "We cannot publish the request to vanish for you, because only your secret key can sign it. If you still have the key, any Nostr app that supports requests to vanish can send one."
           ]
         }
       ]
