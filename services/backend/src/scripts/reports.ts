@@ -10,6 +10,8 @@
  *   pnpm reports shadow <pubkey> [note…]      (no report needed: writes accepted, served only to the author)
  *   pnpm reports:lift <pubkey> [note…]        (reverses suspend / shadow)
  *   pnpm reports:restore <eventId> [note…]    (reverses remove_event / remove_music)
+ *   pnpm reports triage [--apply]             (close the open reports that are foreign: outside reporter,
+ *                                              outside target, nothing of theirs on this relay)
  * Production (inside the backend container):
  *   node dist/scripts/reports.js <command> …
  *
@@ -27,7 +29,8 @@ const USAGE = `usage:
   reports suspend <pubkey> [note…]
   reports shadow <pubkey> [note…]
   reports lift <pubkey> [note…]
-  reports restore <eventId> [note…]`;
+  reports restore <eventId> [note…]
+  reports triage [--apply]       (open relay-sourced reports: list the foreign ones; --apply closes them)`;
 
 const HEX_PUBKEY = /^[0-9a-f]{64}$/;
 
@@ -96,6 +99,17 @@ async function main(): Promise<void> {
       const [eventId, ...note] = args;
       if (!eventId) throw new Error(USAGE);
       console.log(JSON.stringify(await restoreEvent(eventId, actor, note.join(" ") || null)));
+      return;
+    }
+    case "triage": {
+      const apply = args.includes("--apply");
+      if (args.some((a) => a !== "--apply")) throw new Error(USAGE);
+      const result = await reportService.triageOpenForeign({ apply, actor });
+      for (const id of result.foreign) console.log(`${id}  foreign${apply ? "  → dismissed" : ""}`);
+      console.log(
+        `${result.checked} open relay-sourced report(s) checked, ${result.foreign.length} foreign` +
+          (apply ? `, ${result.closed} closed` : " (dry run; pass --apply to close them)"),
+      );
       return;
     }
     default:

@@ -215,8 +215,9 @@ SELECT (SELECT count(*) FROM relay.events WHERE kind = 31683) AS tracks,
        (SELECT count(DISTINCT pubkey) FROM app.music_play_listeners) AS listeners;
 
 \echo
-\echo '== Moderation =='
-SELECT status, category, count(*) FROM app.reports GROUP BY 1,2 ORDER BY 1,2;
+\echo '== Moderation (resolution "foreign" = outside reporter about outside content, closed at ingest) =='
+SELECT status, coalesce(resolution, '-') AS resolution, category, count(*) FROM app.reports GROUP BY 1,2,3 ORDER BY 1,2,3;
+SELECT coalesce(triage->>'origin', 'unclassified') AS origin, source, count(*) FROM app.reports GROUP BY 1,2 ORDER BY 3 DESC;
 SELECT left(pubkey, 16) AS pubkey, left(reason, 40) AS reason, suspended_by, suspended_at::date
 FROM relay.suspended_pubkeys WHERE lifted_at IS NULL ORDER BY suspended_at DESC;
 SELECT count(*) AS tombstoned_events FROM relay.tombstones WHERE restored_at IS NULL;

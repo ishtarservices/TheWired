@@ -18,6 +18,7 @@ import { LUNA, MARCUS, DECKARD } from "../helpers/testUsers.js";
 import { db } from "../../src/db/connection.js";
 import { reports } from "../../src/db/schema/reports.js";
 import { notificationQueue } from "../../src/db/schema/notifications.js";
+import { nip05Identities } from "../../src/db/schema/nip05.js";
 import { config } from "../../src/config.js";
 import { hashReporterIp, reportService } from "../../src/services/reportService.js";
 import { WEBHOOK_BURST, webhookMessage } from "../../src/services/reportNotifier.js";
@@ -156,6 +157,9 @@ describe("POST /reports — signed in", () => {
         LUNA.secretKey,
       );
     const own = { relayUrl: "ws://own", isOwnRelay: true, allowedSpaceIds: null };
+    // The reporter is a soot user (a name here); an outsider's 1984 about
+    // outside content is stored closed instead — see workers/ingestReports.
+    await db.insert(nip05Identities).values({ username: "luna", pubkey: LUNA.pubkey });
     const http = (targetId: string) =>
       post(
         { target: "event", category: "spam", eventId: targetId, eventKind: 1, pubkey: MARCUS.pubkey },
