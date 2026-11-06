@@ -98,6 +98,10 @@ pub struct Metrics {
     pub broadcast_lagged_connections: AtomicU64,
     pub broadcast_skipped_events: AtomicU64,
     pub rate_limited_frames: AtomicU64,
+    /// Kind-1059 wraps the intake gate refused (`enforce`).
+    pub wrap_intake_refused: AtomicU64,
+    /// Kind-1059 wraps stored under `warn` that `enforce` would have refused.
+    pub wrap_intake_would_refuse: AtomicU64,
 }
 
 /// NIP-40 sweep cadence.
@@ -621,10 +625,12 @@ async fn health() -> &'static str {
 async fn metrics(State(state): State<Arc<AppState>>) -> String {
     let m = &state.metrics;
     format!(
-        "relay_connections_active {}\nrelay_broadcast_lagged_connections_total {}\nrelay_broadcast_skipped_events_total {}\nrelay_rate_limited_frames_total {}\n",
+        "relay_connections_active {}\nrelay_broadcast_lagged_connections_total {}\nrelay_broadcast_skipped_events_total {}\nrelay_rate_limited_frames_total {}\nrelay_wrap_intake_refused_total {}\nrelay_wrap_intake_would_refuse_total {}\n",
         state.active_connections.load(Ordering::Relaxed),
         m.broadcast_lagged_connections.load(Ordering::Relaxed),
         m.broadcast_skipped_events.load(Ordering::Relaxed),
         m.rate_limited_frames.load(Ordering::Relaxed),
+        m.wrap_intake_refused.load(Ordering::Relaxed),
+        m.wrap_intake_would_refuse.load(Ordering::Relaxed),
     )
 }
