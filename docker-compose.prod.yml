@@ -95,6 +95,11 @@ services:
       RELAY_INGEST_PUBKEYS: ${RELAY_INGEST_PUBKEYS:-}
       RELAY_WRAP_AUTH_GATE: ${RELAY_WRAP_AUTH_GATE:-warn}
       RELAY_WRAP_RETENTION_DAYS: ${RELAY_WRAP_RETENTION_DAYS:-0}
+      # Kind-1059 intake: store a wrap only when a p-tagged recipient's
+      # kind-10050 names this relay or the recipient publishes it over its
+      # own AUTH. warn = store everything but log each wrap enforce would
+      # refuse; flip to enforce once the log shows only foreign traffic.
+      RELAY_WRAP_INTAKE_GATE: ${RELAY_WRAP_INTAKE_GATE:-warn}
       # Kind-1984 reports are served only to their author and the ingest role
       # (App Store 1.2). "off" only as an emergency lever.
       RELAY_REPORT_READ_GATE: ${RELAY_REPORT_READ_GATE:-on}

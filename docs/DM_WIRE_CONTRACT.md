@@ -164,6 +164,12 @@ Content = `nip44(self → self, JSON)`; tags `[["d","thewired:dm_read_state"]]`;
 - The relay sends `["AUTH", challenge]` on connect. Clients MUST answer it (kind 22242 with `["relay", <url as dialed>]`, `["challenge", …]`) before or immediately after the 1059 REQ and MUST re-send the REQ after `["OK", …, true]` if it was `CLOSED` with the `auth-required:` prefix. Desktop and soot both already answer AUTH; both need the CLOSED → re-REQ step.
 - Gate mode is an env on the relay (`RELAY_WRAP_AUTH_GATE=warn|enforce`); prod runs `warn` for one release, then `enforce`. Clients should not depend on the mode.
 
+### 7.1a Intake gate on kind 1059 (`RELAY_WRAP_INTAKE_GATE`)
+- The relay stores an inbound kind 1059 only when at least one `p`-tagged recipient has a kind-10050 DM relay list **stored on this relay** whose `relay` tags name it (matched like a 22242 `relay` tag: scheme, case, trailing slash and default port do not matter), or when the publishing connection is authenticated as a recipient (the sender's own copy).
+- Otherwise: `["OK", <id>, false, "restricted: this relay only stores DMs for accounts that list it as a DM relay"]` and nothing is stored. The `restricted:` prefix is the stable part.
+- Hence §1 "publish the kind-10050 naming this relay on login" is load-bearing: a Wired user whose 10050 never reached this relay receives no DMs here. Both clients already publish it to this relay.
+- Mode is an env on the relay (`RELAY_WRAP_INTAKE_GATE=enforce|warn|off`, default `warn` = store but log each would-be refusal). The embedded (personal) relay never gates intake.
+
 ### 7.2 What AUTH changes for NIP-46 (bunker) users
 A bunker prompts for the 22242 signature. Clients MUST request `sign_event:22242` in the NIP-46 connect permissions (desktop does) so it is silent after first approval. Until AUTH completes the DM inbox is empty, not stale — show "connecting".
 

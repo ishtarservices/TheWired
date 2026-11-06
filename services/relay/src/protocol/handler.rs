@@ -11,7 +11,7 @@ use crate::nostr::membership_gate::{
 use crate::nostr::moderation_gate;
 use crate::nostr::report_gate;
 use crate::nostr::verify::verify_event;
-use crate::nostr::wrap_gate::{self, ReadCtx, WrapAuthGate};
+use crate::nostr::wrap_gate::{self, ReadCtx, WrapAuthGate, WrapIntake, WrapIntakeGate};
 use crate::protocol::subscription::SubscriptionManager;
 use crate::server::AppState;
 
@@ -274,6 +274,14 @@ async fn handle_event(
                 event.id
             )];
         }
+    }
+
+    // Gift-wrap intake (`RELAY_WRAP_INTAKE_GATE`): a public relay with no
+    // write auth is otherwise everyone's DM inbox. A kind-1059 lands here only
+    // when a recipient's kind-10050 names this relay, or when its recipient is
+    // the authenticated publisher. Postgres only; the embedded relay skips it.
+    if let Some(frame) = wrap_intake_refusal(state, &event, authed_pubkey.as_deref()).await {
+        return vec![frame];
     }
 
     // Deletions stick (security audit 2026-10): an event a prior NIP-09 /
@@ -569,6 +577,57 @@ async fn handle_event(
                 "Failed to store event"
             );
             vec![format!(r#"["OK","{}",false,"error: {e}"]"#, event.id)]
+        }
+    }
+}
+
+/// The `OK false` frame for a kind-1059 the intake gate refuses, or `None`
+/// when the event is to be stored (every non-wrap, gate off, embedded relay,
+/// a recipient that lists this relay, a self-wrap, or `warn` mode — which
+/// logs the would-be refusal instead). Like the moderation gate, `enforce`
+/// fails closed on a lookup error; `warn` keeps accepting.
+async fn wrap_intake_refusal(state: &Arc<AppState>, event: &Event, authed: Option<&str>) -> Option<String> {
+    let gate = state.config.wrap_intake_gate;
+    if !wrap_gate::intake_needs_dm_relay_lookup(gate, event, authed) {
+        return None;
+    }
+    let recipients = wrap_gate::wrap_recipients(event);
+    let listed = match state.pool.dm_relays_listed_by(&recipients).await {
+        Ok(Some(urls)) => urls,
+        // A backend without an intake gate (embedded SQLite): personal relay,
+        // every wrap is welcome.
+        Ok(None) => return None,
+        Err(e) => {
+            tracing::error!(error = %e, event_id = log_prefix(&event.id), "DM relay list lookup failed");
+            if gate == WrapIntakeGate::Enforce {
+                return Some(format!(
+                    r#"["OK","{}",false,"error: could not check DM relay lists"]"#,
+                    event.id
+                ));
+            }
+            return None;
+        }
+    };
+    let own_urls = state.auth_relay_urls.read().unwrap_or_else(|e| e.into_inner()).clone();
+    match wrap_gate::wrap_intake(gate, event, authed, &listed, &own_urls) {
+        WrapIntake::Store => None,
+        WrapIntake::StoreAndLog => {
+            tracing::info!(
+                event_id = log_prefix(&event.id),
+                recipient = recipients.first().map(|p| log_prefix(p)).unwrap_or_default(),
+                recipients = recipients.len(),
+                "wrap intake (warn): no recipient lists this relay in a kind 10050; enforce would refuse"
+            );
+            None
+        }
+        WrapIntake::Refuse => {
+            tracing::info!(
+                event_id = log_prefix(&event.id),
+                recipient = recipients.first().map(|p| log_prefix(p)).unwrap_or_default(),
+                recipients = recipients.len(),
+                "Rejected publish: wrap intake"
+            );
+            Some(format!(r#"["OK","{}",false,"{}"]"#, event.id, wrap_gate::WRAP_INTAKE_REFUSED))
         }
     }
 }

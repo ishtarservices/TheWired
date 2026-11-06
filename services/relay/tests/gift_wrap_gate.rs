@@ -1,6 +1,7 @@
 //! DM wire contract §7 on the Postgres backend: the kind-1059 AUTH gate on the
-//! stored-query path, the self-wrap flag, NIP-40 expiration, and a full NIP-77
-//! negentropy round trip driven through `handle_message`.
+//! stored-query path, the self-wrap flag, NIP-40 expiration, the kind-10050
+//! intake gate on the write path, and a full NIP-77 negentropy round trip
+//! driven through `handle_message`.
 //!
 //! Needs the test Postgres (`pnpm dev:infra`); skips with a warning otherwise.
 
@@ -12,7 +13,7 @@ use std::sync::Arc;
 use thewired_relay::config::Config;
 use thewired_relay::nostr::event::Event;
 use thewired_relay::nostr::filter::Filter;
-use thewired_relay::nostr::wrap_gate::{ReadCtx, WrapAuthGate};
+use thewired_relay::nostr::wrap_gate::{ReadCtx, WrapAuthGate, WrapIntakeGate, WRAP_INTAKE_REFUSED};
 use thewired_relay::protocol::handler::handle_message;
 use thewired_relay::protocol::subscription::SubscriptionManager;
 use thewired_relay::server::AppState;
@@ -185,6 +186,98 @@ async fn self_wrap_is_flagged_only_when_published_by_its_recipient() {
     let mut anon = Conn::new(None);
     publish(&state, &tx, &mut anon, &anon_wrap).await;
     assert!(!state.pool.is_self_published(&anon_wrap.id).await.unwrap());
+}
+
+/// Publish `who`'s kind-10050 DM relay list naming `relays`.
+async fn publish_dm_relay_list(state: &Arc<AppState>, tx: &broadcast::Sender<Event>, who: &TestIdentity, relays: &[&str]) {
+    let tags = relays.iter().map(|r| vec!["relay".to_string(), r.to_string()]).collect();
+    let list = sign_event(who, 10050, tags, "", now());
+    let mut conn = Conn::new(Some(&who.pubkey));
+    let ok = publish(state, tx, &mut conn, &list).await;
+    assert_eq!(ok[2], true, "{ok}");
+}
+
+async fn stored(state: &Arc<AppState>, id: &str) -> bool {
+    state.pool.get_event_by_id(id).await.unwrap().is_some()
+}
+
+// ── kind-1059 intake gate (RELAY_WRAP_INTAKE_GATE) ──────────────────────
+
+#[tokio::test]
+async fn intake_enforce_stores_wraps_for_recipients_that_list_this_relay() {
+    let pool = match setup_test_pool().await { Ok(p) => p, Err(e) => { eprintln!("skip: {e}"); return; } };
+    let (state, tx) = make_app_state_with(pool, |c: &mut Config| c.wrap_intake_gate = WrapIntakeGate::Enforce);
+    let bob = TestIdentity::from_seed(2);
+    // Another spelling of the test relay's `ws://localhost:7777`: a list
+    // written by a client that normalizes URLs its own way must still count.
+    publish_dm_relay_list(&state, &tx, &bob, &["wss://nos.lol", "WS://127.0.0.1:7777/"]).await;
+
+    let mut anon = Conn::new(None);
+    let wrap = wrap_for(&bob.pubkey, 30, now(), vec![]);
+    let ok = publish(&state, &tx, &mut anon, &wrap).await;
+    assert_eq!(ok[2], true, "{ok}");
+    assert!(stored(&state, &wrap.id).await);
+
+    // A multi-recipient wrap qualifies through ANY listed recipient.
+    let carol = TestIdentity::from_seed(3);
+    let multi = wrap_for(&carol.pubkey, 31, now(), vec![vec!["p".into(), bob.pubkey.clone()]]);
+    let ok = publish(&state, &tx, &mut anon, &multi).await;
+    assert_eq!(ok[2], true, "{ok}");
+    assert!(stored(&state, &multi.id).await);
+}
+
+#[tokio::test]
+async fn intake_refuses_unlisted_recipients_under_enforce_and_accepts_under_warn() {
+    let pool = match setup_test_pool().await { Ok(p) => p, Err(e) => { eprintln!("skip: {e}"); return; } };
+    let (state, tx) = make_app_state_with(pool.clone(), |c: &mut Config| c.wrap_intake_gate = WrapIntakeGate::Enforce);
+    let bob = TestIdentity::from_seed(2);
+    let carol = TestIdentity::from_seed(3);
+    // Carol has a list, but it names other relays; bob has none at all.
+    publish_dm_relay_list(&state, &tx, &carol, &["wss://nos.lol", "wss://relay.damus.io"]).await;
+
+    let mut anon = Conn::new(None);
+    for (seed, recipient) in [(40u8, &bob.pubkey), (41, &carol.pubkey)] {
+        let wrap = wrap_for(recipient, seed, now(), vec![]);
+        let ok = publish(&state, &tx, &mut anon, &wrap).await;
+        assert_eq!(ok[2], false, "{ok}");
+        assert_eq!(ok[3].as_str().unwrap(), WRAP_INTAKE_REFUSED, "{ok}");
+        assert!(!stored(&state, &wrap.id).await, "refused wrap must not be stored");
+    }
+    // A stranger's AUTH does not stand in for the recipient's.
+    let dave = TestIdentity::from_seed(4);
+    let mut as_dave = Conn::new(Some(&dave.pubkey));
+    let wrap = wrap_for(&bob.pubkey, 42, now(), vec![]);
+    let ok = publish(&state, &tx, &mut as_dave, &wrap).await;
+    assert_eq!(ok[2], false, "{ok}");
+    assert!(!stored(&state, &wrap.id).await);
+
+    // Non-wraps are untouched by the intake gate.
+    let note = sign_event(&dave, 1, vec![vec!["p".into(), bob.pubkey.clone()]], "hi", now());
+    let ok = publish(&state, &tx, &mut anon, &note).await;
+    assert_eq!(ok[2], true, "{ok}");
+
+    // warn: the same wrap is stored (and logged, not asserted here).
+    let (state, tx) = make_app_state_with(pool, |c: &mut Config| c.wrap_intake_gate = WrapIntakeGate::Warn);
+    let wrap = wrap_for(&bob.pubkey, 43, now(), vec![]);
+    let ok = publish(&state, &tx, &mut anon, &wrap).await;
+    assert_eq!(ok[2], true, "{ok}");
+    assert!(stored(&state, &wrap.id).await);
+}
+
+#[tokio::test]
+async fn intake_lets_the_authenticated_recipient_publish_its_own_wrap() {
+    let pool = match setup_test_pool().await { Ok(p) => p, Err(e) => { eprintln!("skip: {e}"); return; } };
+    let alice = TestIdentity::from_seed(1);
+    for gate in [WrapIntakeGate::Enforce, WrapIntakeGate::Warn] {
+        let (state, tx) = make_app_state_with(pool.clone(), move |c: &mut Config| c.wrap_intake_gate = gate);
+        // No kind-10050 anywhere: alice's self-wrap still lands on her own AUTH.
+        let mut as_alice = Conn::new(Some(&alice.pubkey));
+        let self_wrap = wrap_for(&alice.pubkey, 50 + gate as u8, now(), vec![]);
+        let ok = publish(&state, &tx, &mut as_alice, &self_wrap).await;
+        assert_eq!(ok[2], true, "{gate:?}: {ok}");
+        assert!(stored(&state, &self_wrap.id).await, "{gate:?}");
+        assert!(state.pool.is_self_published(&self_wrap.id).await.unwrap(), "{gate:?}");
+    }
 }
 
 #[tokio::test]

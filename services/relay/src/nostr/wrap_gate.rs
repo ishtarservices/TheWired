@@ -7,12 +7,24 @@
 //! the SQLite store, the NIP-50 search path and the live broadcast filter all
 //! consult it so the two query paths cannot drift.
 //!
+//! It also holds the *intake* side (`RELAY_WRAP_INTAKE_GATE`): a public relay
+//! with no write auth otherwise becomes the DM inbox of every client that ever
+//! heard of it, and the wraps are opaque — nothing but the `p` tag says whom
+//! they are for. The Wired's own clients publish a kind-10050 DM relay list
+//! naming this relay on login, so "does a recipient's 10050 list us" is the
+//! membership test; a self-wrap published by its authenticated recipient
+//! needs no list.
+//!
 //! Pure functions only (no DB, no async) so they are unit-testable and shared.
 
 use crate::nostr::event::Event;
+use crate::protocol::nip42::relay_url_allowed;
 
 /// NIP-59 gift wrap.
 pub const KIND_GIFT_WRAP: i32 = 1059;
+
+/// NIP-17 DM relay list (`["relay", url]` tags).
+pub const KIND_DM_RELAY_LIST: i32 = 10050;
 
 /// How the relay treats kind-1059 reads from a connection that is not the
 /// recipient (`RELAY_WRAP_AUTH_GATE`).
@@ -35,6 +47,103 @@ impl WrapAuthGate {
             "off" | "0" | "false" => WrapAuthGate::Off,
             _ => WrapAuthGate::Enforce,
         }
+    }
+}
+
+/// How the relay treats an inbound kind-1059 whose recipients have not
+/// listed it as a DM relay (`RELAY_WRAP_INTAKE_GATE`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum WrapIntakeGate {
+    /// Refuse the wrap with `OK false restricted:` and store nothing.
+    Enforce,
+    /// Store as before but log one line per wrap that `enforce` would have
+    /// refused, so the share of foreign traffic can be measured first (default).
+    Warn,
+    /// No intake check at all (tests / emergencies only).
+    Off,
+}
+
+impl WrapIntakeGate {
+    pub fn parse(raw: &str) -> Self {
+        match raw.trim().to_ascii_lowercase().as_str() {
+            "enforce" | "on" | "1" | "true" => WrapIntakeGate::Enforce,
+            "off" | "0" | "false" => WrapIntakeGate::Off,
+            _ => WrapIntakeGate::Warn,
+        }
+    }
+}
+
+/// What `handle_event` does with a kind-1059 after the intake decision.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum WrapIntake {
+    /// Store it (not a wrap, gate off, a recipient lists this relay, or a
+    /// self-wrap by its authenticated recipient).
+    Store,
+    /// `warn` mode: store it, but log that `enforce` would have refused it.
+    StoreAndLog,
+    /// `enforce` mode: answer `OK false` and store nothing.
+    Refuse,
+}
+
+/// The `OK` reason an `enforce`d intake refusal carries.
+pub const WRAP_INTAKE_REFUSED: &str =
+    "restricted: this relay only stores DMs for accounts that list it as a DM relay";
+
+/// Distinct `p`-tagged recipients of an event, in tag order.
+pub fn wrap_recipients(event: &Event) -> Vec<String> {
+    let mut out: Vec<String> = Vec::new();
+    for p in event.get_tag_values("p") {
+        if !out.contains(&p) {
+            out.push(p);
+        }
+    }
+    out
+}
+
+/// Is the publishing connection authenticated as one of the wrap's
+/// recipients? Broader than [`is_self_published`] (any `p`, not only the
+/// first) because the intake question is "may this land here at all", not
+/// "is it the sender's own copy".
+pub fn authed_is_recipient(event: &Event, authed: Option<&str>) -> bool {
+    match authed {
+        Some(pk) => event
+            .tags
+            .iter()
+            .any(|t| t.first().is_some_and(|k| k == "p") && t.get(1).is_some_and(|v| v == pk)),
+        None => false,
+    }
+}
+
+/// Does the intake decision for this event need the recipients' kind-10050
+/// lists at all? False for non-wraps, with the gate off, and for a wrap
+/// published by an authenticated recipient — those never hit the DB.
+pub fn intake_needs_dm_relay_lookup(gate: WrapIntakeGate, event: &Event, authed: Option<&str>) -> bool {
+    event.kind == KIND_GIFT_WRAP && gate != WrapIntakeGate::Off && !authed_is_recipient(event, authed)
+}
+
+/// The intake decision. `listed_dm_relays` are the `relay` tag values of the
+/// kind-10050 events stored here for ANY of the wrap's recipients (empty when
+/// no lookup was needed or nothing was found); `own_relay_urls` every address
+/// this relay answers to. Both sides go through `nip42::normalize_relay_url`,
+/// exactly as a kind-22242 `relay` tag is matched, so scheme, case, a
+/// trailing slash or a default port never make a Wired user's list miss.
+pub fn wrap_intake(
+    gate: WrapIntakeGate,
+    event: &Event,
+    authed: Option<&str>,
+    listed_dm_relays: &[String],
+    own_relay_urls: &[String],
+) -> WrapIntake {
+    if !intake_needs_dm_relay_lookup(gate, event, authed) {
+        return WrapIntake::Store;
+    }
+    if listed_dm_relays.iter().any(|u| relay_url_allowed(u, own_relay_urls)) {
+        return WrapIntake::Store;
+    }
+    match gate {
+        WrapIntakeGate::Enforce => WrapIntake::Refuse,
+        WrapIntakeGate::Warn => WrapIntake::StoreAndLog,
+        WrapIntakeGate::Off => WrapIntake::Store,
     }
 }
 
@@ -199,6 +308,76 @@ mod tests {
         assert!(is_self_published(&w, Some(&bob)));
         assert!(!is_self_published(&w, Some(&"c".repeat(64))));
         assert!(!is_self_published(&w, None));
+    }
+
+    #[test]
+    fn intake_gate_parses_leniently_and_defaults_to_warn() {
+        assert_eq!(WrapIntakeGate::parse("enforce"), WrapIntakeGate::Enforce);
+        assert_eq!(WrapIntakeGate::parse(" WARN "), WrapIntakeGate::Warn);
+        assert_eq!(WrapIntakeGate::parse("off"), WrapIntakeGate::Off);
+        assert_eq!(WrapIntakeGate::parse(""), WrapIntakeGate::Warn);
+        assert_eq!(WrapIntakeGate::parse("garbage"), WrapIntakeGate::Warn);
+    }
+
+    fn own() -> Vec<String> {
+        vec!["wss://relay.thewired.app".to_string()]
+    }
+
+    #[test]
+    fn intake_stores_when_a_recipient_lists_this_relay_in_any_spelling() {
+        let bob = "b".repeat(64);
+        let w = wrap(&bob, vec![]);
+        for spelling in ["wss://relay.thewired.app", "WSS://Relay.TheWired.app/", "ws://relay.thewired.app:443"] {
+            let listed = vec!["wss://nos.lol".to_string(), spelling.to_string()];
+            assert_eq!(wrap_intake(WrapIntakeGate::Enforce, &w, None, &listed, &own()), WrapIntake::Store, "{spelling}");
+        }
+    }
+
+    #[test]
+    fn intake_refuses_or_logs_when_no_recipient_lists_this_relay() {
+        let bob = "b".repeat(64);
+        let w = wrap(&bob, vec![]);
+        let foreign = vec!["wss://nos.lol".to_string(), "wss://relay.damus.io".to_string()];
+        assert_eq!(wrap_intake(WrapIntakeGate::Enforce, &w, None, &foreign, &own()), WrapIntake::Refuse);
+        assert_eq!(wrap_intake(WrapIntakeGate::Enforce, &w, None, &[], &own()), WrapIntake::Refuse);
+        assert_eq!(wrap_intake(WrapIntakeGate::Warn, &w, None, &foreign, &own()), WrapIntake::StoreAndLog);
+        assert_eq!(wrap_intake(WrapIntakeGate::Off, &w, None, &foreign, &own()), WrapIntake::Store);
+        // A stranger's AUTH is not the recipient's.
+        let carol = "c".repeat(64);
+        assert_eq!(wrap_intake(WrapIntakeGate::Enforce, &w, Some(&carol), &[], &own()), WrapIntake::Refuse);
+        // A wrap with no recipient at all can never qualify.
+        let mut orphan = w.clone();
+        orphan.tags.clear();
+        assert_eq!(wrap_intake(WrapIntakeGate::Enforce, &orphan, None, &[], &own()), WrapIntake::Refuse);
+    }
+
+    #[test]
+    fn intake_lets_an_authenticated_recipient_publish_without_a_list() {
+        let bob = "b".repeat(64);
+        let carol = "c".repeat(64);
+        let w = wrap(&bob, vec![vec!["p".into(), carol.clone()]]);
+        assert!(!intake_needs_dm_relay_lookup(WrapIntakeGate::Enforce, &w, Some(&bob)));
+        assert!(!intake_needs_dm_relay_lookup(WrapIntakeGate::Enforce, &w, Some(&carol)), "any p tag, not only the first");
+        assert!(intake_needs_dm_relay_lookup(WrapIntakeGate::Enforce, &w, None));
+        assert!(intake_needs_dm_relay_lookup(WrapIntakeGate::Warn, &w, None));
+        assert!(!intake_needs_dm_relay_lookup(WrapIntakeGate::Off, &w, None));
+        assert_eq!(wrap_intake(WrapIntakeGate::Enforce, &w, Some(&carol), &[], &own()), WrapIntake::Store);
+    }
+
+    #[test]
+    fn intake_never_touches_non_wraps() {
+        let mut e = wrap(&"b".repeat(64), vec![]);
+        e.kind = 1;
+        assert!(!intake_needs_dm_relay_lookup(WrapIntakeGate::Enforce, &e, None));
+        assert_eq!(wrap_intake(WrapIntakeGate::Enforce, &e, None, &[], &own()), WrapIntake::Store);
+    }
+
+    #[test]
+    fn wrap_recipients_are_distinct_in_tag_order() {
+        let bob = "b".repeat(64);
+        let carol = "c".repeat(64);
+        let w = wrap(&bob, vec![vec!["p".into(), carol.clone()], vec!["p".into(), bob.clone()], vec!["e".into(), "x".into()]]);
+        assert_eq!(wrap_recipients(&w), vec![bob, carol]);
     }
 
     #[test]

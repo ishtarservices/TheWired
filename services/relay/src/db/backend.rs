@@ -32,7 +32,7 @@ use std::collections::HashSet;
 #[cfg(feature = "embedded")]
 use sqlx::SqlitePool;
 
-use super::{event_store, group_store, membership_source, moderation, space_permissions};
+use super::{dm_relay_list, event_store, group_store, membership_source, moderation, space_permissions};
 use crate::protocol::nip50;
 
 #[cfg(feature = "embedded")]
@@ -125,6 +125,19 @@ impl Db {
             Db::Pg(p) => moderation::moderation_state(p, event_id, pubkey).await,
             #[cfg(feature = "embedded")]
             Db::Sqlite(_) => Ok((false, false)),
+        }
+    }
+
+    /// `relay` URLs from the kind-10050 DM relay lists stored for any of
+    /// `pubkeys`, for the gift-wrap intake gate. `None` on a backend that has
+    /// no intake gate: the embedded relay is a personal relay and keeps
+    /// accepting every wrap, so the handler skips the gate entirely rather
+    /// than treating "no list found" as a refusal.
+    pub async fn dm_relays_listed_by(&self, pubkeys: &[String]) -> anyhow::Result<Option<Vec<String>>> {
+        match self {
+            Db::Pg(p) => dm_relay_list::dm_relays_listed_by(p, pubkeys).await.map(Some),
+            #[cfg(feature = "embedded")]
+            Db::Sqlite(_) => Ok(None),
         }
     }
 

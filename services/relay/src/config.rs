@@ -1,4 +1,4 @@
-use crate::nostr::wrap_gate::WrapAuthGate;
+use crate::nostr::wrap_gate::{WrapAuthGate, WrapIntakeGate};
 
 #[derive(Debug, Clone)]
 pub struct Config {
@@ -19,6 +19,17 @@ pub struct Config {
     /// Server-side retention for kind-1059 by `first_seen`, in days.
     /// `RELAY_WRAP_RETENTION_DAYS`; 0 = keep forever (default).
     pub wrap_retention_days: u32,
+    /// Intake gate for kind-1059 (Postgres only; the embedded relay is a
+    /// personal relay and takes every wrap). A wrap is stored only when one of
+    /// its `p`-tagged recipients has a kind-10050 DM relay list stored here
+    /// that names this relay (`RELAY_URL` / `RELAY_AUTH_RELAY_URLS`, compared
+    /// like a NIP-42 `relay` tag), or when the publishing socket is NIP-42
+    /// authenticated as a recipient. Otherwise `enforce` answers
+    /// `OK false restricted:` and stores nothing; `warn` (default) stores it
+    /// and logs one line per wrap `enforce` would refuse, so the foreign share
+    /// can be measured before flipping; `off` skips the check.
+    /// `RELAY_WRAP_INTAKE_GATE` = enforce | warn (default) | off.
+    pub wrap_intake_gate: WrapIntakeGate,
     /// Serve kind-1984 reports only to their author and the ingest role
     /// (`nostr::report_gate`). `RELAY_REPORT_READ_GATE` = on (default) | off;
     /// `off` is for local dev without an ingest key.
@@ -82,6 +93,7 @@ impl Default for Config {
             ingest_pubkeys: Vec::new(),
             wrap_auth_gate: WrapAuthGate::Enforce,
             wrap_retention_days: 0,
+            wrap_intake_gate: WrapIntakeGate::Warn,
             report_read_gate: true,
             rate_max_msgs: 300,
             rate_window_secs: 10,
@@ -131,6 +143,9 @@ impl Config {
                 &std::env::var("RELAY_WRAP_AUTH_GATE").unwrap_or_else(|_| "enforce".into()),
             ),
             wrap_retention_days: env_or("RELAY_WRAP_RETENTION_DAYS", d.wrap_retention_days),
+            wrap_intake_gate: WrapIntakeGate::parse(
+                &std::env::var("RELAY_WRAP_INTAKE_GATE").unwrap_or_else(|_| "warn".into()),
+            ),
             report_read_gate: !matches!(
                 std::env::var("RELAY_REPORT_READ_GATE")
                     .unwrap_or_default()
