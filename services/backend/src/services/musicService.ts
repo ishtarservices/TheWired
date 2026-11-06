@@ -73,6 +73,92 @@ function wholeSeconds(sec: number | null | undefined): number | undefined {
   return Math.max(1, Math.round(sec));
 }
 
+/**
+ * Listed public releases straight from relay.events, newest first: the
+ * fallback when the search engine is unreachable, so browse degrades to plain
+ * recency instead of a 500. Same bar as the index's listed docs
+ * (isListedPublicMusic): no visibility/h, not catalog:none, not a moved stub.
+ * Genre/tag match case-insensitively, like the engine's filters.
+ */
+async function recentListedFromPostgres(
+  kind: 31683 | 33123,
+  params: { genre?: string; tag?: string; limit: number; offset: number },
+): Promise<{ hits: { id: string; addressableId: string }[]; total: number }> {
+  const where = [
+    sql`kind = ${kind}`,
+    sql`visibility IS NULL`,
+    sql`h_tag IS NULL`,
+    sql`NOT (tags @> '[["catalog","none"]]'::jsonb)`,
+    sql`NOT jsonb_path_exists(tags, '$[*] ? (@[0] == "moved")')`,
+  ];
+  if (params.genre) {
+    where.push(sql`EXISTS (SELECT 1 FROM jsonb_array_elements(tags) g
+                           WHERE g->>0 = 'genre' AND lower(g->>1) = lower(${params.genre}))`);
+  }
+  if (params.tag) {
+    where.push(sql`EXISTS (SELECT 1 FROM jsonb_array_elements(tags) t
+                           WHERE t->>0 = 't' AND lower(t->>1) = lower(${params.tag}))`);
+  }
+  const rows = (await db.execute(
+    sql`SELECT id, pubkey, d_tag, COUNT(*) OVER()::int AS total
+        FROM relay.events
+        WHERE ${sql.join(where, sql` AND `)}
+        ORDER BY created_at DESC
+        LIMIT ${params.limit} OFFSET ${params.offset}`,
+  )) as unknown as { id: string; pubkey: string; d_tag: string | null; total: number }[];
+  return {
+    hits: rows.map((r) => ({ id: r.id, addressableId: `${kind}:${r.pubkey}:${r.d_tag ?? ""}` })),
+    total: rows[0]?.total ?? 0,
+  };
+}
+
+type MusicIndex = "tracks" | "albums";
+
+/**
+ * Delete the docs in a music index that no longer stand for an indexable
+ * event. Every candidate (a doc the rebuild didn't just write) is re-checked
+ * against Postgres before it goes, so a release ingested while the rebuild was
+ * scanning (indexed by ingest, missed by the scan) is never pruned.
+ */
+async function pruneMusicDocs(
+  index: MusicIndex,
+  keep: Set<string>,
+  suspended: Set<string>,
+): Promise<number> {
+  const { getMeilisearchClient } = await import("../lib/meilisearch.js");
+  const msIndex = getMeilisearchClient().index(index);
+  const PAGE = 1000;
+
+  const candidates: string[] = [];
+  try {
+    for (let offset = 0; ; offset += PAGE) {
+      const page = await msIndex.getDocuments<{ id: string }>({ fields: ["id"], limit: PAGE, offset });
+      for (const doc of page.results) if (!keep.has(doc.id)) candidates.push(doc.id);
+      if (page.results.length < PAGE) break;
+    }
+  } catch (err) {
+    // A fresh engine with no releases of this kind has no index yet: nothing to prune.
+    if ((err as { cause?: { code?: string } }).cause?.code === "index_not_found") return 0;
+    throw err;
+  }
+
+  const stale: string[] = [];
+  for (let i = 0; i < candidates.length; i += PAGE) {
+    const chunk = candidates.slice(i, i + PAGE);
+    const live = (await db.execute(
+      sql`SELECT id, pubkey, tags FROM relay.events
+          WHERE id IN (${sql.join(chunk.map((id) => sql`${id}`), sql`, `)})`,
+    )) as unknown as { id: string; pubkey: string; tags: string[][] }[];
+    const backed = new Set(
+      live.filter((r) => !suspended.has(r.pubkey) && isIndexableMusic(r.tags)).map((r) => r.id),
+    );
+    stale.push(...chunk.filter((id) => !backed.has(id)));
+  }
+
+  if (stale.length > 0) await msIndex.deleteDocuments(stale);
+  return stale.length;
+}
+
 export const musicService = {
   async uploadAudio(
     file: { filename: string; mimetype: string; file: NodeJS.ReadableStream },
@@ -329,9 +415,14 @@ export const musicService = {
   },
 
   /**
-   * Full reindex: scan relay.events (Postgres) for all music events,
-   * repopulate Meilisearch tracks/albums indexes, and rebuild Redis counts.
-   * This is the recovery path when Meilisearch is out of sync with the relay DB.
+   * Full reindex: scan relay.events (Postgres) for all music events, upsert
+   * them into the Meilisearch tracks/albums indexes, prune docs Postgres no
+   * longer backs, and rebuild the Redis counts. The recovery path when
+   * Meilisearch is out of sync with the relay DB, and it runs on every boot,
+   * so it must never blank anything mid-rebuild: docs are upserted by event id
+   * (no delete-all first) and the counts are swapped in one MULTI. The counts
+   * come from Postgres alone, so they are rebuilt even when the engine is
+   * unreachable; its error is rethrown afterwards.
    */
   async rebuildCounts() {
     const { getMeilisearchClient } = await import("../lib/meilisearch.js");
@@ -339,18 +430,24 @@ export const musicService = {
     const ms = getMeilisearchClient();
     const redis = getRedis();
 
-    // Clear stale data
-    await redis.del("music:genre_counts", "music:tag_counts", "music:counted_events");
-
-    // Clear stale Meilisearch documents so we don't keep ghosts
-    try { await ms.index("tracks").deleteAllDocuments(); } catch { /* index may not exist */ }
-    try { await ms.index("albums").deleteAllDocuments(); } catch { /* index may not exist */ }
-
     const genreCounts = new Map<string, number>();
     const tagCounts = new Map<string, number>();
     const eventIds: string[] = [];
     const BATCH = 200;
     const suspended = await suspensionService.suspendedSet();
+
+    // Doc ids this rebuild wrote; anything else in an index is a prune candidate.
+    const indexed: Record<MusicIndex, Set<string>> = { tracks: new Set(), albums: new Set() };
+    let engineError: unknown = null;
+    const upsert = async (index: MusicIndex, docs: ReturnType<typeof buildMusicSearchDoc>[]) => {
+      for (const doc of docs) indexed[index].add(doc.id);
+      if (docs.length === 0 || engineError) return;
+      try {
+        await ms.index(index).addDocuments(docs);
+      } catch (err) {
+        engineError = err;
+      }
+    };
 
     // --- Reindex tracks (kind:31683) from relay.events ---
     let lastId = "";
@@ -392,9 +489,7 @@ export const musicService = {
         }
       }
 
-      if (msDocs.length > 0) {
-        await ms.index("tracks").addDocuments(msDocs);
-      }
+      await upsert("tracks", msDocs);
 
       lastId = rows[rows.length - 1].id;
       if (rows.length < BATCH) break;
@@ -437,31 +532,44 @@ export const musicService = {
         }
       }
 
-      if (msDocs.length > 0) {
-        await ms.index("albums").addDocuments(msDocs);
-      }
+      await upsert("albums", msDocs);
 
       lastId = rows[rows.length - 1].id;
       if (rows.length < BATCH) break;
     }
 
-    // Write fresh counts to Redis
-    const pipeline = redis.pipeline();
+    // Swap the fresh counts in atomically: genre/tag chips never read empty.
+    const tx = redis.multi();
+    tx.del("music:genre_counts", "music:tag_counts", "music:counted_events");
     for (const [genre, count] of genreCounts) {
-      pipeline.zadd("music:genre_counts", count, genre);
+      tx.zadd("music:genre_counts", count, genre);
     }
     for (const [tag, count] of tagCounts) {
-      pipeline.zadd("music:tag_counts", count, tag);
+      tx.zadd("music:tag_counts", count, tag);
     }
     if (eventIds.length > 0) {
-      pipeline.sadd("music:counted_events", ...eventIds);
+      tx.sadd("music:counted_events", ...eventIds);
     }
-    await pipeline.exec();
+    await tx.exec();
+
+    // Prune only after every upsert landed: a partial rebuild must not delete
+    // docs it merely failed to rewrite.
+    let pruned = 0;
+    if (!engineError) {
+      try {
+        pruned += await pruneMusicDocs("tracks", indexed.tracks, suspended);
+        pruned += await pruneMusicDocs("albums", indexed.albums, suspended);
+      } catch (err) {
+        engineError = err;
+      }
+    }
+    if (engineError) throw engineError;
 
     return {
       genres: genreCounts.size,
       tags: tagCounts.size,
       tracksAndAlbums: eventIds.length,
+      pruned,
     };
   },
 
@@ -510,17 +618,24 @@ export const musicService = {
       if (params.genre) filters.push(`genre = "${escapeMsFilter(params.genre)}"`);
       if (params.tag) filters.push(`hashtags = "${escapeMsFilter(params.tag)}"`);
 
-      const results = await ms.index("tracks").search("", {
-        filter: filters.join(" AND "),
-        limit: 500, // fetch a large pool to sort by plays
-      });
-
       // Extract both eventId and addressableId from hits
-      const candidates = results.hits.map((h: Record<string, unknown>) => ({
-        eventId: h.id as string,
-        addressableId: h.addressable_id as string,
-      }));
-      total = results.estimatedTotalHits ?? 0;
+      let candidates: { eventId: string; addressableId: string }[];
+      try {
+        const results = await ms.index("tracks").search("", {
+          filter: filters.join(" AND "),
+          limit: 500, // fetch a large pool to sort by plays
+        });
+        candidates = results.hits.map((h: Record<string, unknown>) => ({
+          eventId: h.id as string,
+          addressableId: h.addressable_id as string,
+        }));
+        total = results.estimatedTotalHits ?? 0;
+      } catch {
+        // Engine down: rank the newest listed releases instead of failing.
+        const pool = await recentListedFromPostgres(31683, { ...params, limit: 500, offset: 0 });
+        candidates = pool.hits.map((h) => ({ eventId: h.id, addressableId: h.addressableId }));
+        total = pool.total;
+      }
 
       if (candidates.length > 0) {
         // Batch-fetch play counts from Redis keyed by addressableId
@@ -549,15 +664,21 @@ export const musicService = {
       if (params.genre) filters.push(`genre = "${escapeMsFilter(params.genre)}"`);
       if (params.tag) filters.push(`hashtags = "${escapeMsFilter(params.tag)}"`);
 
-      const results = await ms.index("tracks").search("", {
-        filter: filters.join(" AND "),
-        sort: ["created_at:desc"],
-        limit,
-        offset,
-      });
-
-      eventIds = results.hits.map((h: Record<string, unknown>) => h.id as string);
-      total = results.estimatedTotalHits ?? 0;
+      try {
+        const results = await ms.index("tracks").search("", {
+          filter: filters.join(" AND "),
+          sort: ["created_at:desc"],
+          limit,
+          offset,
+        });
+        eventIds = results.hits.map((h: Record<string, unknown>) => h.id as string);
+        total = results.estimatedTotalHits ?? 0;
+      } catch {
+        // Engine down: recency needs no search engine, so serve it from Postgres.
+        const recent = await recentListedFromPostgres(31683, { ...params, limit, offset });
+        eventIds = recent.hits.map((h) => h.id);
+        total = recent.total;
+      }
     }
 
     if (eventIds.length === 0) {
@@ -617,15 +738,21 @@ export const musicService = {
       if (params.genre) filters.push(`genre = "${escapeMsFilter(params.genre)}"`);
       if (params.tag) filters.push(`hashtags = "${escapeMsFilter(params.tag)}"`);
 
-      const results = await ms.index("albums").search("", {
-        filter: filters.length > 0 ? filters.join(" AND ") : undefined,
-        sort: ["created_at:desc"],
-        limit,
-        offset,
-      });
-
-      eventIds = results.hits.map((h: Record<string, unknown>) => h.id as string);
-      total = results.estimatedTotalHits ?? 0;
+      try {
+        const results = await ms.index("albums").search("", {
+          filter: filters.length > 0 ? filters.join(" AND ") : undefined,
+          sort: ["created_at:desc"],
+          limit,
+          offset,
+        });
+        eventIds = results.hits.map((h: Record<string, unknown>) => h.id as string);
+        total = results.estimatedTotalHits ?? 0;
+      } catch {
+        // Engine down: same Postgres recency fallback as track browse.
+        const recent = await recentListedFromPostgres(33123, { ...params, limit, offset });
+        eventIds = recent.hits.map((h) => h.id);
+        total = recent.total;
+      }
     }
 
     if (eventIds.length === 0) {

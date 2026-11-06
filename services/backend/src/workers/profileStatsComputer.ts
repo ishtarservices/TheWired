@@ -8,6 +8,21 @@ const INTERVAL_MS = 30 * 60 * 1000; // 30 minutes
 /** Meilisearch document batch size — keeps a single HTTP body reasonable. */
 const BATCH_SIZE = 1000;
 
+/**
+ * What this process last pushed per pubkey (`note_count:has_nip05`). Rewriting
+ * every known profile each run made the profiles index re-index the whole set
+ * every 30 minutes — a burst that grows with the profile cache, not with use —
+ * so only rows whose values moved are pushed. In-memory on purpose: a restart
+ * (or the lock moving to another instance) starts empty and re-pushes once,
+ * which also heals any documents the engine lost while this process ran.
+ */
+const pushed = new Map<string, string>();
+
+/** Forget what was pushed, so the next run writes every profile again. */
+export function invalidateProfileStatsCache(): void {
+  pushed.clear();
+}
+
 interface ProfileStatsRow {
   pubkey: string;
   note_count: number;
@@ -32,7 +47,7 @@ interface ProfileStatsRow {
  * the filter until their owner happened to republish a kind:0. Driving it off
  * app.cached_profiles (the same row ingest writes) makes it self-healing.
  */
-export async function computeProfileStats(): Promise<{ profiles: number }> {
+export async function computeProfileStats(): Promise<{ profiles: number; pushed: number }> {
   const since = Math.floor(Date.now() / 1000) - 30 * 24 * 3600;
 
   // Every known profile, not just the ones who posted — a verified handle with
@@ -59,29 +74,43 @@ export async function computeProfileStats(): Promise<{ profiles: number }> {
   // update here would re-create it (updateDocuments upserts).
   const rows = await suspensionService.withoutSuspended(allRows, (r) => r.pubkey);
 
-  if (rows.length === 0) return { profiles: 0 };
+  // Profiles that left the set (suspended, deleted) are forgotten, so one that
+  // comes back is pushed again rather than assumed current.
+  const known = new Set(rows.map((r) => r.pubkey));
+  for (const pubkey of pushed.keys()) {
+    if (!known.has(pubkey)) pushed.delete(pubkey);
+  }
+
+  if (rows.length === 0) return { profiles: 0, pushed: 0 };
+
+  const changed = rows
+    .map((r) => ({
+      pubkey: r.pubkey,
+      note_count: Number(r.note_count),
+      has_nip05: !!r.has_nip05,
+    }))
+    .filter((d) => pushed.get(d.pubkey) !== `${d.note_count}:${d.has_nip05}`);
 
   const ms = getMeilisearchClient();
   const index = ms.index("profiles");
 
-  for (let i = 0; i < rows.length; i += BATCH_SIZE) {
-    const batch = rows.slice(i, i + BATCH_SIZE).map((r) => ({
-      pubkey: r.pubkey,
-      note_count: Number(r.note_count),
-      has_nip05: !!r.has_nip05,
-    }));
+  for (let i = 0; i < changed.length; i += BATCH_SIZE) {
+    const batch = changed.slice(i, i + BATCH_SIZE);
     // Partial update: never clobber the name/about/nip05 fields ingest owns.
     await index.updateDocuments(batch);
+    // Recorded only once the engine accepted the batch: a failed run leaves
+    // these rows "changed", so the next run retries them.
+    for (const d of batch) pushed.set(d.pubkey, `${d.note_count}:${d.has_nip05}`);
   }
 
-  return { profiles: rows.length };
+  return { profiles: rows.length, pushed: changed.length };
 }
 
 export function startProfileStatsComputer(): { stop: () => void } {
   async function compute() {
     try {
-      const { profiles } = await computeProfileStats();
-      console.log(`[profileStats] Updated ranking fields for ${profiles} profiles`);
+      const { profiles, pushed: changed } = await computeProfileStats();
+      console.log(`[profileStats] Updated ranking fields for ${changed} of ${profiles} profiles`);
     } catch (err) {
       console.error("[profileStats] Error:", (err as Error).message);
     }

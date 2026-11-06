@@ -19,6 +19,7 @@ import {
 } from "../services/musicVisibility.js";
 import { authorizeProtectedRefs, getProtectedRefsForBlob } from "../services/blobAccess.js";
 import { recordUploadBytes, takeUploadSlot, uploadQuota } from "../lib/uploadGuard.js";
+import { invalidateProfileStatsCache } from "../workers/profileStatsComputer.js";
 import type { UploadLimits } from "../services/musicService.js";
 
 /**
@@ -364,6 +365,9 @@ export const musicRoutes: FastifyPluginAsync = async (server) => {
     if (!pubkey || !config.adminPubkeys.includes(pubkey)) {
       return reply.status(403).send({ error: "Admin only", code: "FORBIDDEN" });
     }
+    // A rebuild usually follows a search-index wipe: forget which profile
+    // ranking fields were already pushed so the next stats run re-sends all.
+    invalidateProfileStatsCache();
     const result = await musicService.rebuildCounts();
     return { data: result };
   });

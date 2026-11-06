@@ -65,6 +65,7 @@ vi.mock("../src/lib/meilisearch.js", () => {
     updateDocuments: vi.fn().mockResolvedValue({ taskUid: 0 }),
     deleteDocument: vi.fn().mockResolvedValue({ taskUid: 0 }),
     deleteDocuments: vi.fn().mockResolvedValue({ taskUid: 0 }),
+    getDocuments: vi.fn().mockResolvedValue({ results: [], total: 0 }),
     search: vi.fn().mockResolvedValue({ hits: [], estimatedTotalHits: 0 }),
     waitForTask: vi.fn().mockResolvedValue({ status: "succeeded" }),
     updateSettings: vi.fn().mockResolvedValue({ taskUid: 0 }),
@@ -72,11 +73,14 @@ vi.mock("../src/lib/meilisearch.js", () => {
     updateFilterableAttributes: vi.fn().mockResolvedValue({ taskUid: 0 }),
     updateSortableAttributes: vi.fn().mockResolvedValue({ taskUid: 0 }),
   };
+  // Shared so a test can make the engine look down (GET /health).
+  const health = vi.fn().mockResolvedValue({ status: "available" });
   return {
     getMeilisearchClient: () => ({
       index: () => mockIndex,
       createIndex: noop,
       getIndex: () => mockIndex,
+      health,
     }),
     ensureMeilisearchIndex: vi.fn().mockResolvedValue(undefined),
   };

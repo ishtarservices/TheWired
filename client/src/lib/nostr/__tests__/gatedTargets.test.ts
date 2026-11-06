@@ -1,6 +1,7 @@
 import { describe, it, expect } from "vitest";
 import { APP_RELAY } from "../constants";
 import {
+  devLocalTargets,
   gatedSpaceIds,
   gatedTargetRelays,
   isGatedTags,
@@ -64,5 +65,20 @@ describe("resolvePublishTargets", () => {
   it("substitutes the gated set when a protected event has no targets", () => {
     expect(resolvePublishTargets([["h", "space-b"]], undefined, spaces)).toEqual([APP_RELAY, "wss://host-b.example"]);
     expect(resolvePublishTargets([["visibility", "unlisted"]], undefined, spaces)).toEqual([APP_RELAY]);
+  });
+});
+
+describe("devLocalTargets", () => {
+  it("keeps a dev build's public music on the app relay", () => {
+    expect(devLocalTargets(31683, true)).toEqual([APP_RELAY]);
+    expect(devLocalTargets(33123, true)).toEqual([APP_RELAY]);
+    expect(devLocalTargets(30119, true)).toEqual([APP_RELAY]);
+  });
+  it("leaves other kinds on the default write relays", () => {
+    expect(devLocalTargets(1, true)).toBeUndefined();
+    expect(devLocalTargets(0, true)).toBeUndefined();
+  });
+  it("never scopes a release build", () => {
+    expect(devLocalTargets(31683, false)).toBeUndefined();
   });
 });
