@@ -494,6 +494,7 @@ pub fn make_app_state_with(
         ip_conns: std::sync::Mutex::new(Default::default()),
         ip_last_connect: std::sync::Mutex::new(Default::default()),
         metrics: Default::default(),
+        shadowed: std::sync::RwLock::new(Default::default()),
     };
     (Arc::new(state), tx)
 }

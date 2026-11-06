@@ -258,8 +258,9 @@ export async function processEvent(event: NostrEvent, ctx: IngestContext): Promi
 /**
  * Events the platform no longer indexes or pushes for:
  *  - a suspended author's (the relay refuses their new writes; an external
- *    relay or a backfill can still replay old ones) — except kind 5, so a
- *    suspended account's own deletions still clean up search;
+ *    relay or a backfill can still replay old ones) or a shadowed author's
+ *    (the relay keeps storing those, so they arrive here on every post) —
+ *    except kind 5, so the account's own deletions still clean up search;
  *  - a deleted account's events dated at or before its vanish, and gift wraps
  *    addressed to it (the re-ingest block of the account-deletion tombstone).
  */

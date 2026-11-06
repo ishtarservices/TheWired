@@ -1,0 +1,22 @@
+---
+/**
+ * How to delete a soot account and what is removed: the page Google Play's
+ * account-deletion policy asks for (readable without the app), and the
+ * expansion of the "deleting your account" section of the terms. The text is
+ * the app's own, via legal.json.
+ */
+import LegalLayout from "../layouts/LegalLayout.astro";
+import LegalDocument from "../components/LegalDocument.astro";
+import legal from "../data/legal.json";
+
+const doc = legal.documents["delete-account"];
+---
+
+<LegalLayout
+  title={doc.title}
+  description="How to delete your soot account, in the app or by email, and what is removed from our servers, other relays and your device."
+  path="/delete-account"
+  updated={doc.updated}
+>
+  <LegalDocument id="delete-account" />
+</LegalLayout>

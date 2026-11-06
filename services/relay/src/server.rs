@@ -54,6 +54,42 @@ pub struct AppState {
     /// receiver lagged, live events skipped by lag (then resynced from
     /// storage), and frames refused by the per-connection rate limiter.
     pub metrics: Metrics,
+    /// Currently shadowed pubkeys (`relay.suspended_pubkeys.mode = 'shadowed'`,
+    /// migration 008): the live-broadcast filter's copy of what the stored
+    /// query path reads from the table. Refreshed every
+    /// [`SHADOW_REFRESH_INTERVAL`] and primed on the EVENT path, so a lift
+    /// takes at most one interval to reach live subscribers.
+    pub shadowed: std::sync::RwLock<std::collections::HashSet<String>>,
+}
+
+impl AppState {
+    /// Is `author` shadowed for a reader authenticated as `authed`? The author
+    /// always sees its own events.
+    pub fn is_shadowed_for(&self, author: &str, authed: Option<&str>) -> bool {
+        if authed == Some(author) {
+            return false;
+        }
+        self.shadowed.read().map(|s| s.contains(author)).unwrap_or(false)
+    }
+
+    /// Record a pubkey the EVENT path just learned is shadowed.
+    pub fn note_shadowed(&self, pubkey: &str) {
+        if let Ok(mut s) = self.shadowed.write() {
+            s.insert(pubkey.to_string());
+        }
+    }
+
+    /// Reload the shadowed set from the database.
+    pub async fn refresh_shadowed(&self) {
+        match self.pool.shadowed_pubkeys().await {
+            Ok(set) => {
+                if let Ok(mut s) = self.shadowed.write() {
+                    *s = set;
+                }
+            }
+            Err(e) => tracing::warn!(error = %e, "Shadowed-pubkey refresh failed"),
+        }
+    }
 }
 
 /// Process-wide counters for the paths that used to drop silently.
@@ -66,6 +102,20 @@ pub struct Metrics {
 
 /// NIP-40 sweep cadence.
 const SWEEP_INTERVAL: Duration = Duration::from_secs(300);
+/// How often the live-broadcast filter reloads the shadowed set.
+const SHADOW_REFRESH_INTERVAL: Duration = Duration::from_secs(30);
+
+/// Background task: keep [`AppState::shadowed`] in step with the table. The
+/// first load runs at boot.
+pub fn spawn_shadow_refresh(state: Arc<AppState>) -> tokio::task::JoinHandle<()> {
+    tokio::spawn(async move {
+        let mut interval = tokio::time::interval(SHADOW_REFRESH_INTERVAL);
+        loop {
+            interval.tick().await;
+            state.refresh_shadowed().await;
+        }
+    })
+}
 
 /// Background task: delete expired events every [`SWEEP_INTERVAL`] and apply
 /// the gift-wrap retention policy (`RELAY_WRAP_RETENTION_DAYS`). The first
@@ -147,9 +197,11 @@ pub async fn run(config: Config, pool: Db) -> anyhow::Result<()> {
         ip_conns: std::sync::Mutex::new(HashMap::new()),
         ip_last_connect: std::sync::Mutex::new(HashMap::new()),
         metrics: Metrics::default(),
+        shadowed: std::sync::RwLock::new(Default::default()),
     });
 
     let _sweeper = spawn_sweeper(state.clone());
+    let _shadow_refresh = spawn_shadow_refresh(state.clone());
 
     let listener = tokio::net::TcpListener::bind(format!("0.0.0.0:{}", port)).await?;
     tracing::info!("Relay listening on 0.0.0.0:{}", port);
@@ -327,6 +379,7 @@ pub async fn run_embedded(
         ip_conns: std::sync::Mutex::new(HashMap::new()),
         ip_last_connect: std::sync::Mutex::new(HashMap::new()),
         metrics: Metrics::default(),
+        shadowed: std::sync::RwLock::new(Default::default()),
     });
 
     let sweeper = spawn_sweeper(state.clone());

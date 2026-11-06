@@ -14,46 +14,65 @@ import { escapeMsFilter } from "../lib/meiliFilter.js";
  * readable over the relay — the owner chose API-only hiding — so lifting a
  * suspension restores everything by re-indexing.
  *
+ * A row with `mode = 'shadowed'` (relay migration 008, `shadow_pubkey`) is
+ * the softer tier: the relay keeps accepting the account's writes and serves
+ * them only to the author, and this module hides it exactly like a
+ * suspension. Every "is suspended" read here therefore means "suspended OR
+ * shadowed"; `modeOf` tells them apart where it matters (the admin detail).
+ *
  * Reads go through a short in-process cache so the hot paths never add a
  * query, and fail OPEN to "nobody is suspended" (logged) — a missing relay
  * table during a deploy must not take search down.
  */
+
+export type SuspensionMode = "suspended" | "shadowed";
 
 const CACHE_TTL_MS = 30_000;
 /** Kinds the ingester puts in the `events` search index (ingestHandlers SEARCHABLE_KINDS). */
 const SEARCHABLE_KINDS = [1, 9, 22, 30023, 34236, 30119];
 const REINDEX_LIMIT = 5000;
 
-let cache: { set: Set<string>; at: number } | null = null;
+let cache: { modes: Map<string, SuspensionMode>; set: Set<string>; at: number } | null = null;
 let warned = false;
 
-async function load(): Promise<Set<string>> {
+async function load(): Promise<Map<string, SuspensionMode>> {
   try {
     const rows = (await db.execute(
-      sql`SELECT pubkey FROM relay.suspended_pubkeys WHERE lifted_at IS NULL`,
-    )) as unknown as Array<{ pubkey: string }>;
+      sql`SELECT pubkey, mode FROM relay.suspended_pubkeys WHERE lifted_at IS NULL`,
+    )) as unknown as Array<{ pubkey: string; mode: string | null }>;
     warned = false;
-    return new Set(rows.map((r) => r.pubkey));
+    return new Map(rows.map((r) => [r.pubkey, r.mode === "shadowed" ? "shadowed" : "suspended"]));
   } catch (err) {
     if (!warned) {
       console.warn("[suspensions] could not read relay.suspended_pubkeys:", (err as Error).message);
       warned = true;
     }
-    return new Set();
+    return new Map();
   }
 }
 
+async function modes(): Promise<Map<string, SuspensionMode>> {
+  if (cache && Date.now() - cache.at < CACHE_TTL_MS) return cache.modes;
+  const m = await load();
+  cache = { modes: m, set: new Set(m.keys()), at: Date.now() };
+  return m;
+}
+
 export const suspensionService = {
-  /** Currently suspended pubkeys (cached ≤ 30 s). */
+  /** Pubkeys hidden from the API right now — suspended or shadowed (cached ≤ 30 s). */
   async suspendedSet(): Promise<Set<string>> {
-    if (cache && Date.now() - cache.at < CACHE_TTL_MS) return cache.set;
-    const set = await load();
-    cache = { set, at: Date.now() };
-    return set;
+    await modes();
+    return cache!.set;
   },
 
+  /** Suspended or shadowed. */
   async isSuspended(pubkey: string): Promise<boolean> {
     return (await this.suspendedSet()).has(pubkey);
+  },
+
+  /** The active tier for `pubkey`, or null when it is neither. */
+  async modeOf(pubkey: string): Promise<SuspensionMode | null> {
+    return (await modes()).get(pubkey) ?? null;
   },
 
   /** Drop items authored by a suspended account. No query when nobody is. */

@@ -17,10 +17,12 @@ export const profilesRoutes: FastifyPluginAsync = async (server) => {
     const params = validate(pubkeyParams, request.params, reply);
     if (!params) return;
 
-    // A suspended account is hidden from API responses (suspend_pubkey).
-    const profile = (await suspensionService.isSuspended(params.pubkey))
-      ? null
-      : await profileCacheService.getProfile(params.pubkey);
+    // A suspended or shadowed account is hidden from API responses
+    // (suspend_pubkey / shadow_pubkey) — except to itself, so a shadowed
+    // account still sees its own profile and learns nothing.
+    const caller = (request.headers["x-auth-pubkey"] as string | undefined) ?? null;
+    const hidden = caller !== params.pubkey && (await suspensionService.isSuspended(params.pubkey));
+    const profile = hidden ? null : await profileCacheService.getProfile(params.pubkey);
     if (!profile) {
       return reply.status(404).send({ error: "Profile not found", code: "NOT_FOUND", statusCode: 404 });
     }
