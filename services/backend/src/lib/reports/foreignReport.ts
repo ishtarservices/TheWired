@@ -49,6 +49,14 @@ export type OriginMissing =
   | "target_event_absent"
   | "target_content_absent";
 
+/** Resolution string of a report closed as foreign (never a reviewer action). */
+export const FOREIGN_RESOLUTION = "foreign";
+/** Resolution of a report stored closed because its reporter was over the
+ *  open-report cap (config.reportsMaxOpenPerReporter). */
+export const REPORTER_LIMIT_RESOLUTION = "reporter_limit";
+/** `resolved_by` of a report the system closed at ingest. */
+export const SYSTEM_ACTOR = "system";
+
 /** Stored in app.reports.triage as `{ origin, signals }`. */
 export interface OriginVerdict {
   origin: ReportOrigin;

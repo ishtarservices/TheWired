@@ -12,7 +12,8 @@ import { hashReporterIp, reportService } from "../services/reportService.js";
  *
  * Unauthenticated requests are accepted; the gateway caps them hard per IP
  * (RATE_LIMIT_REPORT_ANON_PER_HOUR) and forwards the IP in X-Client-Ip, which
- * is stored only as a keyed hash. NIP-98 requests are attributed to the pubkey.
+ * is stored only as a keyed hash. NIP-98 requests are attributed to the pubkey
+ * and capped at REPORTS_MAX_OPEN_PER_REPORTER open reports (429 REPORTER_LIMIT).
  */
 const reportBody = z.object({
   target: z.enum(REPORT_TARGET_TYPES),
@@ -47,7 +48,7 @@ export const reportsRoutes: FastifyPluginAsync = async (server) => {
       ipHash = hashReporterIp(typeof forwarded === "string" && forwarded ? forwarded : request.ip);
     }
 
-    const { report, created } = await reportService.file({
+    const result = await reportService.file({
       source: "http",
       reporterPubkey: pubkey,
       reporterIpHash: ipHash,
@@ -56,6 +57,11 @@ export const reportsRoutes: FastifyPluginAsync = async (server) => {
       note: capNote(body.note),
       reportEventId: null,
     });
-    return reply.status(created ? 201 : 200).send({ data: { id: report.id } });
+    if (result.limited) {
+      return reply
+        .status(429)
+        .send({ error: "You have too many open reports; wait for them to be reviewed", code: "REPORTER_LIMIT" });
+    }
+    return reply.status(result.created ? 201 : 200).send({ data: { id: result.report.id } });
   });
 };
