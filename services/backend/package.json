@@ -26,7 +26,7 @@
     "@fastify/multipart": "^9.4.0",
     "@ishtarservices/shared-types": "workspace:*",
     "@livekit/protocol": "^1.45.0",
-    "@noble/curves": "^1.9.7",
+    "@noble/curves": "^2.4.0",
     "@noble/hashes": "^1.8.0",
     "bullmq": "^5.34.0",
     "drizzle-orm": "^0.45.4",
