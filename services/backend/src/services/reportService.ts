@@ -19,6 +19,26 @@ import {
 } from "./platformModeration.js";
 import { notifyNewReport } from "./reportNotifier.js";
 import { suspensionService } from "./suspensionService.js";
+import { classifyOrigin } from "./reportFootprint.js";
+import type { OriginVerdict } from "../lib/reports/foreignReport.js";
+
+/** A stored row as the classifier's input (the backfill re-judges rows). */
+function rowToInput(r: ReportRow): ReportInput {
+  return {
+    source: r.source,
+    reporterPubkey: r.reporterPubkey,
+    reporterIpHash: r.reporterIpHash,
+    targetType: r.targetType,
+    targetEventId: r.targetEventId,
+    targetCoordinate: r.targetCoordinate,
+    targetPubkey: r.targetPubkey,
+    targetKind: r.targetKind,
+    targetContext: r.targetContext,
+    category: r.category,
+    note: r.note,
+    reportEventId: r.reportEventId,
+  };
+}
 
 /**
  * User reports (App Store 1.2). Reports are input, not verdicts: nothing is
@@ -116,12 +136,31 @@ export interface FileResult {
   notified: Promise<void>;
 }
 
+/** Resolution string of a report closed as foreign (never a reviewer action). */
+export const FOREIGN_RESOLUTION = "foreign";
+/** `resolved_by` of a report the system closed at ingest. */
+export const SYSTEM_ACTOR = "system";
+
+export interface FileOptions {
+  /** The ingest path's origin verdict (lib/reports/foreignReport.ts). A
+   *  foreign report is stored closed — dismissed, resolution "foreign" — and
+   *  notifies nobody; the verdict is kept in `triage` either way. */
+  origin?: OriginVerdict;
+}
+
 export const reportService = {
   /**
    * File a report. Deduped on (reporter, target) while open — a repeat (or a
    * re-ingested kind 1984) returns the existing row and notifies nobody.
    */
-  async file(input: ReportInput, attempt = 0): Promise<FileResult> {
+  async file(input: ReportInput, opts: FileOptions = {}, attempt = 0): Promise<FileResult> {
+    const foreign = opts.origin?.origin === "foreign";
+    if (foreign) {
+      // An open report by the same reporter on the same target was judged
+      // local (or came through the app): this copy folds into it.
+      const open = await findOpenDuplicate(input);
+      if (open) return { report: open, created: false, notified: Promise.resolve() };
+    }
     const inserted = await db
       .insert(reports)
       .values({
@@ -138,12 +177,17 @@ export const reportService = {
         category: input.category,
         note: input.note,
         reportEventId: input.reportEventId,
+        triage: opts.origin ? { origin: opts.origin.origin, signals: opts.origin.signals } : undefined,
+        ...(foreign
+          ? { status: "dismissed" as const, resolution: FOREIGN_RESOLUTION, resolvedBy: SYSTEM_ACTOR, resolvedAt: new Date() }
+          : {}),
       })
       .onConflictDoNothing()
       .returning();
 
     if (inserted[0]) {
       const report = inserted[0];
+      if (foreign) return { report, created: true, notified: Promise.resolve() };
       const notified = notifyNewReport(report).catch((err) => {
         console.error("[reports] notify failed:", (err as Error).message);
       });
@@ -160,10 +204,58 @@ export const reportService = {
     if (!existing) {
       // The open duplicate was resolved between the conflict and the lookup:
       // the target is no longer deduped, so this report files fresh.
-      if (attempt === 0) return this.file(input, 1);
+      if (attempt === 0) return this.file(input, opts, 1);
       throw new Error("report conflicted but no matching row was found");
     }
     return { report: existing, created: false, notified: Promise.resolve() };
+  },
+
+  /**
+   * Re-judge the OPEN relay-sourced reports with the current footprint and
+   * close the foreign ones (dismissed, resolution "foreign"). For the queue
+   * that filled up before classification existed. `apply: false` only
+   * reports what would close.
+   */
+  async triageOpenForeign(opts: {
+    apply: boolean;
+    actor: string;
+    classify?: (input: ReportInput) => Promise<OriginVerdict>;
+  }): Promise<{ checked: number; foreign: string[]; closed: number }> {
+    const classify = opts.classify ?? classifyOrigin;
+    const open = await db
+      .select()
+      .from(reports)
+      .where(and(eq(reports.status, "open"), eq(reports.source, "nostr")))
+      .orderBy(desc(reports.createdAt), desc(reports.id));
+    const foreign: string[] = [];
+    let closed = 0;
+    for (const row of open) {
+      const verdict = await classify(rowToInput(row));
+      if (verdict.origin !== "foreign") continue;
+      foreign.push(row.id);
+      if (!opts.apply) continue;
+      const updated = await db
+        .update(reports)
+        .set({
+          status: "dismissed",
+          resolution: FOREIGN_RESOLUTION,
+          resolvedBy: opts.actor,
+          resolvedAt: new Date(),
+          triage: { ...(row.triage ?? {}), origin: verdict.origin, signals: verdict.signals },
+        })
+        // Still open: a reviewer may have acted on it since the select.
+        .where(and(eq(reports.id, row.id), eq(reports.status, "open")))
+        .returning({ id: reports.id });
+      if (updated.length === 0) continue;
+      closed += 1;
+      await logPlatformAudit(opts.actor, "report_foreign", row.targetPubkey, {
+        reportId: row.id,
+        category: row.category,
+        targetType: row.targetType,
+        signals: verdict.signals,
+      });
+    }
+    return { checked: open.length, foreign, closed };
   },
 
   async get(id: string): Promise<ReportRow | null> {
