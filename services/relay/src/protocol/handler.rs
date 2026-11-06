@@ -278,7 +278,8 @@ async fn handle_event(
 
     // Gift-wrap intake (`RELAY_WRAP_INTAKE_GATE`): a public relay with no
     // write auth is otherwise everyone's DM inbox. A kind-1059 lands here only
-    // when a recipient's kind-10050 names this relay, or when its recipient is
+    // when a recipient has a relay list stored here that admits it (a 10050
+    // naming this relay, or a 10002 with no 10050), or when its recipient is
     // the authenticated publisher. Postgres only; the embedded relay skips it.
     if let Some(frame) = wrap_intake_refusal(state, &event, authed_pubkey.as_deref()).await {
         return vec![frame];
@@ -583,51 +584,63 @@ async fn handle_event(
 
 /// The `OK false` frame for a kind-1059 the intake gate refuses, or `None`
 /// when the event is to be stored (every non-wrap, gate off, embedded relay,
-/// a recipient that lists this relay, a self-wrap, or `warn` mode — which
-/// logs the would-be refusal instead). Like the moderation gate, `enforce`
-/// fails closed on a lookup error; `warn` keeps accepting.
+/// a recipient with a qualifying list here, a self-wrap, or `warn` mode —
+/// which logs and counts the would-be refusal instead). One list lookup per
+/// wrap, never per recipient; none at all for a self-wrap or an over-cap
+/// wrap. Like the moderation gate, `enforce` fails closed on a lookup error;
+/// `warn` keeps accepting.
 async fn wrap_intake_refusal(state: &Arc<AppState>, event: &Event, authed: Option<&str>) -> Option<String> {
     let gate = state.config.wrap_intake_gate;
     if !wrap_gate::intake_needs_dm_relay_lookup(gate, event, authed) {
         return None;
     }
     let recipients = wrap_gate::wrap_recipients(event);
-    let listed = match state.pool.dm_relays_listed_by(&recipients).await {
-        Ok(Some(urls)) => urls,
-        // A backend without an intake gate (embedded SQLite): personal relay,
-        // every wrap is welcome.
-        Ok(None) => return None,
-        Err(e) => {
-            tracing::error!(error = %e, event_id = log_prefix(&event.id), "DM relay list lookup failed");
-            if gate == WrapIntakeGate::Enforce {
-                return Some(format!(
-                    r#"["OK","{}",false,"error: could not check DM relay lists"]"#,
-                    event.id
-                ));
+    let lists = if recipients.is_empty() || recipients.len() > wrap_gate::MAX_WRAP_RECIPIENTS {
+        // Settled from the event alone; no lookup.
+        Vec::new()
+    } else {
+        match state.pool.relay_lists_for(&recipients).await {
+            Ok(Some(lists)) => lists,
+            // A backend without an intake gate (embedded SQLite): the
+            // personal relay's own write policy applies instead.
+            Ok(None) => return None,
+            Err(e) => {
+                tracing::error!(error = %e, event_id = log_prefix(&event.id), "Relay list lookup failed");
+                if gate == WrapIntakeGate::Enforce {
+                    return Some(format!(
+                        r#"["OK","{}",false,"error: could not check DM relay lists"]"#,
+                        event.id
+                    ));
+                }
+                return None;
             }
-            return None;
         }
     };
     let own_urls = state.auth_relay_urls.read().unwrap_or_else(|e| e.into_inner()).clone();
-    match wrap_gate::wrap_intake(gate, event, authed, &listed, &own_urls) {
+    let recipient = recipients.first().map(|p| log_prefix(p)).unwrap_or_default();
+    match wrap_gate::wrap_intake(gate, event, authed, &lists, &own_urls) {
         WrapIntake::Store => None,
-        WrapIntake::StoreAndLog => {
+        WrapIntake::StoreAndLog(why) => {
+            state.metrics.wrap_intake_would_refuse.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
             tracing::info!(
                 event_id = log_prefix(&event.id),
-                recipient = recipients.first().map(|p| log_prefix(p)).unwrap_or_default(),
+                recipient,
                 recipients = recipients.len(),
-                "wrap intake (warn): no recipient lists this relay in a kind 10050; enforce would refuse"
+                reason = why.label(),
+                "wrap intake (warn): enforce would refuse this kind 1059"
             );
             None
         }
-        WrapIntake::Refuse => {
+        WrapIntake::Refuse(why) => {
+            state.metrics.wrap_intake_refused.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
             tracing::info!(
                 event_id = log_prefix(&event.id),
-                recipient = recipients.first().map(|p| log_prefix(p)).unwrap_or_default(),
+                recipient,
                 recipients = recipients.len(),
+                reason = why.label(),
                 "Rejected publish: wrap intake"
             );
-            Some(format!(r#"["OK","{}",false,"{}"]"#, event.id, wrap_gate::WRAP_INTAKE_REFUSED))
+            Some(format!(r#"["OK","{}",false,"{}"]"#, event.id, why.message()))
         }
     }
 }

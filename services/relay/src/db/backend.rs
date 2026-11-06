@@ -25,7 +25,7 @@ use crate::nostr::event::Event;
 use crate::nostr::filter::Filter;
 use crate::nostr::membership_gate::SpaceMembership;
 use crate::nostr::mod_delete::{ChannelRef, ManageMessagesFacts};
-use crate::nostr::wrap_gate::ReadCtx;
+use crate::nostr::wrap_gate::{ReadCtx, StoredRelayList};
 use sqlx::PgPool;
 use std::collections::HashSet;
 
@@ -128,14 +128,14 @@ impl Db {
         }
     }
 
-    /// `relay` URLs from the kind-10050 DM relay lists stored for any of
-    /// `pubkeys`, for the gift-wrap intake gate. `None` on a backend that has
-    /// no intake gate: the embedded relay is a personal relay and keeps
-    /// accepting every wrap, so the handler skips the gate entirely rather
-    /// than treating "no list found" as a refusal.
-    pub async fn dm_relays_listed_by(&self, pubkeys: &[String]) -> anyhow::Result<Option<Vec<String>>> {
+    /// The kind-10002/10050 relay lists stored for any of `pubkeys`, for the
+    /// gift-wrap intake gate. `None` on a backend that has no intake gate: the
+    /// embedded relay is a personal relay whose own write policy (hosted-only)
+    /// applies, so the handler skips the gate entirely rather than treating
+    /// "no list found" as a refusal.
+    pub async fn relay_lists_for(&self, pubkeys: &[String]) -> anyhow::Result<Option<Vec<StoredRelayList>>> {
         match self {
-            Db::Pg(p) => dm_relay_list::dm_relays_listed_by(p, pubkeys).await.map(Some),
+            Db::Pg(p) => dm_relay_list::relay_lists_for(p, pubkeys).await.map(Some),
             #[cfg(feature = "embedded")]
             Db::Sqlite(_) => Ok(None),
         }

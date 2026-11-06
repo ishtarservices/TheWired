@@ -20,14 +20,15 @@ pub struct Config {
     /// `RELAY_WRAP_RETENTION_DAYS`; 0 = keep forever (default).
     pub wrap_retention_days: u32,
     /// Intake gate for kind-1059 (Postgres only; the embedded relay is a
-    /// personal relay and takes every wrap). A wrap is stored only when one of
-    /// its `p`-tagged recipients has a kind-10050 DM relay list stored here
-    /// that names this relay (`RELAY_URL` / `RELAY_AUTH_RELAY_URLS`, compared
-    /// like a NIP-42 `relay` tag), or when the publishing socket is NIP-42
-    /// authenticated as a recipient. Otherwise `enforce` answers
-    /// `OK false restricted:` and stores nothing; `warn` (default) stores it
-    /// and logs one line per wrap `enforce` would refuse, so the foreign share
-    /// can be measured before flipping; `off` skips the check.
+    /// personal relay with its own write policy). A wrap is stored only when
+    /// one of its `p`-tagged recipients has a relay list stored here that
+    /// admits it — a kind-10050 DM relay list naming this relay (`RELAY_URL` /
+    /// `RELAY_AUTH_RELAY_URLS`, compared like a NIP-42 `relay` tag), or a
+    /// kind-10002 when no 10050 is stored here — or when the publishing socket
+    /// is NIP-42 authenticated as a recipient. Otherwise `enforce` answers
+    /// `OK false blocked:` and stores nothing; `warn` (default) stores it and
+    /// logs + counts one line per wrap `enforce` would refuse, so the foreign
+    /// share can be measured before flipping; `off` skips the check.
     /// `RELAY_WRAP_INTAKE_GATE` = enforce | warn (default) | off.
     pub wrap_intake_gate: WrapIntakeGate,
     /// Serve kind-1984 reports only to their author and the ingest role
