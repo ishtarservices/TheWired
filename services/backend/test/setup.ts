@@ -60,14 +60,19 @@ vi.mock("../src/lib/redis.js", async () => {
 // Mock Meilisearch by default for unit tests.
 vi.mock("../src/lib/meilisearch.js", () => {
   const noop = () => Promise.resolve({});
+  // `addDocuments` resolves to the enqueued task and also carries `waitTask`,
+  // like meilisearch-js's EnqueuedTaskPromise.
+  const enqueued = () =>
+    Object.assign(Promise.resolve({ taskUid: 0 }), {
+      waitTask: vi.fn().mockResolvedValue({ status: "succeeded" }),
+    });
   const mockIndex = {
-    addDocuments: vi.fn().mockResolvedValue({ taskUid: 0 }),
+    addDocuments: vi.fn().mockImplementation(enqueued),
     updateDocuments: vi.fn().mockResolvedValue({ taskUid: 0 }),
     deleteDocument: vi.fn().mockResolvedValue({ taskUid: 0 }),
     deleteDocuments: vi.fn().mockResolvedValue({ taskUid: 0 }),
     getDocuments: vi.fn().mockResolvedValue({ results: [], total: 0 }),
     search: vi.fn().mockResolvedValue({ hits: [], estimatedTotalHits: 0 }),
-    waitForTask: vi.fn().mockResolvedValue({ status: "succeeded" }),
     updateSettings: vi.fn().mockResolvedValue({ taskUid: 0 }),
     updateSearchableAttributes: vi.fn().mockResolvedValue({ taskUid: 0 }),
     updateFilterableAttributes: vi.fn().mockResolvedValue({ taskUid: 0 }),

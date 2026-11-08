@@ -1,4 +1,4 @@
-import { createSlice, current, isDraft, type PayloadAction } from "@reduxjs/toolkit";
+import { createSlice, current, isDraft, type Draft, type PayloadAction } from "@reduxjs/toolkit";
 import {
   applyLibraryIntent,
   deleteFolderDoc,
@@ -286,7 +286,7 @@ const nowSec = (): number => Math.floor(Date.now() / 1000);
 /** Core helpers never mutate their input, so they can work on the plain
  *  (frozen) value behind a draft instead of the proxy. */
 function plain<T>(value: T): T {
-  return isDraft(value) ? (current(value) as T) : value;
+  return isDraft(value) ? (current(value as Draft<T>) as T) : value;
 }
 
 /** Prepare callback for a user action: stamp it now. */

@@ -44,9 +44,9 @@
     "@noble/curves": "^1.9.7",
     "@noble/hashes": "^1.8.0",
     "concurrently": "^10.0.6",
-    "nostr-tools": "^2.23.1",
+    "nostr-tools": "^2.25.5",
     "postgres": "^3.4.5",
-    "tsx": "^4.19.2"
+    "tsx": "^4.23.15"
   },
   "packageManager": "pnpm@10.29.3"
 }
