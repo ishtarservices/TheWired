@@ -18,7 +18,7 @@ use thewired_relay::db::{sqlite, Db};
 use thewired_relay::nostr::event::Event;
 use thewired_relay::nostr::filter::Filter;
 use thewired_relay::nostr::firehose::FirehosePolicy;
-use thewired_relay::protocol::handler::handle_message;
+use thewired_relay::protocol::handler::{handle_message, read_ctx};
 use thewired_relay::protocol::subscription::SubscriptionManager;
 use thewired_relay::relay_identity::RelayIdentity;
 use thewired_relay::server::AppState;
@@ -90,7 +90,7 @@ async fn embedded_relay_has_no_community_and_serves_everyone() {
     let fire: Filter = serde_json::from_value(serde_json::json!({"kinds": [1]})).unwrap();
     subs.add("fire".into(), vec![fire]).unwrap();
     let guest_note = sign_event(&guest, 1, vec![vec!["h".into(), "g1".into()]], "hi", now());
-    assert_eq!(live_matching_subs(&state, &subs, &guest_note, Some(&owner.pubkey)), vec!["fire"]);
+    assert_eq!(live_matching_subs(&state, &subs, &guest_note, &read_ctx(&state, &Some(owner.pubkey.clone()))), vec!["fire"]);
 
     // Stored: the owner creates a group, admits the guest, and reads the
     // guest's note back through an untargeted kind-1 REQ.

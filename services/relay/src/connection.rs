@@ -319,16 +319,17 @@ fn is_event_visible_to_ctx(
 /// The subscriptions of a connection that receive `event` live: every one a
 /// filter matches — except, under `RELAY_FIREHOSE_POLICY=community`, that a
 /// firehose filter (`nostr::firehose`) does not count for an author outside
-/// the community unless the reader is that author. A subscription whose
-/// targeted filter (author, mention, thread…) matches is still served, so
-/// the live path agrees with the stored one.
+/// the community unless the reader is that author (or holds the ingest role,
+/// whose context carries policy `all`). A subscription whose targeted filter
+/// (author, mention, thread…) matches is still served, so the live path
+/// agrees with the stored one.
 pub fn live_matching_subs(
     state: &AppState,
     subs: &crate::protocol::subscription::SubscriptionManager,
     event: &Event,
-    authed: Option<&str>,
+    ctx: &ReadCtx<'_>,
 ) -> Vec<String> {
-    if state.firehose_serves(&event.pubkey, authed) {
+    if state.firehose_serves_ctx(&event.pubkey, ctx) {
         subs.matching_subs(event)
     } else {
         subs.matching_subs_where(event, |f| !crate::nostr::firehose::is_firehose(f))
@@ -590,7 +591,7 @@ pub async fn handle_connection(
                         }
 
                         let subs = subscriptions.lock().await;
-                        let matching = live_matching_subs(&state, &subs, &event, ctx.authed);
+                        let matching = live_matching_subs(&state, &subs, &event, &ctx);
                         drop(subs);
 
                         for sub_id in matching {

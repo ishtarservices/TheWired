@@ -71,10 +71,22 @@ pub struct AppState {
 
 impl AppState {
     /// Does a firehose subscription of a reader authenticated as `authed`
-    /// receive `author`'s notes? Always for the author's own, always under
-    /// policy `all`, otherwise only for a community author.
+    /// receive `author`'s notes under the configured policy? Always for the
+    /// author's own, always under policy `all`, otherwise only for a
+    /// community author.
     pub fn firehose_serves(&self, author: &str, authed: Option<&str>) -> bool {
-        if self.config.firehose_policy == crate::nostr::firehose::FirehosePolicy::All || authed == Some(author) {
+        self.firehose_serves_under(self.config.firehose_policy, author, authed)
+    }
+
+    /// [`firehose_serves`](Self::firehose_serves) for a connection's read
+    /// context, whose policy may be `all` where the configured one is
+    /// `community` (the ingest role, `protocol::handler::read_ctx`).
+    pub fn firehose_serves_ctx(&self, author: &str, ctx: &crate::nostr::wrap_gate::ReadCtx<'_>) -> bool {
+        self.firehose_serves_under(ctx.firehose_policy, author, ctx.authed)
+    }
+
+    fn firehose_serves_under(&self, policy: crate::nostr::firehose::FirehosePolicy, author: &str, authed: Option<&str>) -> bool {
+        if policy == crate::nostr::firehose::FirehosePolicy::All || authed == Some(author) {
             return true;
         }
         match self.community.read() {
@@ -99,7 +111,7 @@ impl AppState {
     pub async fn refresh_community(&self) {
         let start = std::time::Instant::now();
         let own = self.own_relay_urls();
-        match self.pool.refresh_community_authors(&own).await {
+        match self.pool.refresh_community_authors(&own, &self.relay_identity.pubkey).await {
             Ok(Some(set)) => {
                 tracing::debug!(
                     community = set.len(),

@@ -139,13 +139,16 @@ impl Db {
     }
 
     /// The community author set for the firehose policy (`db::community`),
-    /// recomputed from every source and mirrored into
-    /// `relay.community_authors`. `None` on a backend without a community:
-    /// the embedded relay is a personal relay whose firehose is everyone.
-    pub async fn refresh_community_authors(&self, own_relay_urls: &[String]) -> anyhow::Result<Option<HashSet<String>>> {
+    /// recomputed from every source plus `relay_pubkey` (the relay's own
+    /// NIP-29 signing key, so relay-generated group metadata is never hidden)
+    /// and mirrored into `relay.community_authors`. `None` on a backend
+    /// without a community: the embedded relay is a personal relay whose
+    /// firehose is everyone.
+    pub async fn refresh_community_authors(&self, own_relay_urls: &[String], relay_pubkey: &str) -> anyhow::Result<Option<HashSet<String>>> {
         match self {
             Db::Pg(p) => {
-                let set = community::community_authors(p, own_relay_urls).await?;
+                let mut set = community::community_authors(p, own_relay_urls).await?;
+                set.insert(relay_pubkey.to_string());
                 community::sync_community_table(p, &set).await?;
                 Ok(Some(set))
             }

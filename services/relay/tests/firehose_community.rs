@@ -17,7 +17,7 @@ use thewired_relay::nostr::event::Event;
 use thewired_relay::nostr::filter::Filter;
 use thewired_relay::nostr::firehose::FirehosePolicy;
 use thewired_relay::nostr::wrap_gate::ReadCtx;
-use thewired_relay::protocol::handler::handle_message;
+use thewired_relay::protocol::handler::{handle_message, read_ctx};
 use thewired_relay::protocol::subscription::SubscriptionManager;
 use thewired_relay::server::AppState;
 use tokio::sync::{broadcast, Mutex};
@@ -426,19 +426,19 @@ async fn live_broadcast_skips_strangers_on_firehose_filters_only() {
     let ours = note(&member, "community");
 
     // Anonymous reader: the stranger reaches only targeted filters.
-    assert_eq!(sorted(live_matching_subs(&state, &subs, &mention, None)), vec!["by-author", "mixed"]);
-    assert_eq!(sorted(live_matching_subs(&state, &subs, &plain, None)), vec!["by-author"]);
-    assert_eq!(sorted(live_matching_subs(&state, &subs, &reaction, None)), vec!["by-author", "reactions"], "kinds [7] is not a firehose");
+    assert_eq!(sorted(live_matching_subs(&state, &subs, &mention, &read_ctx(&state, &None))), vec!["by-author", "mixed"]);
+    assert_eq!(sorted(live_matching_subs(&state, &subs, &plain, &read_ctx(&state, &None))), vec!["by-author"]);
+    assert_eq!(sorted(live_matching_subs(&state, &subs, &reaction, &read_ctx(&state, &None))), vec!["by-author", "reactions"], "kinds [7] is not a firehose");
     // A community author reaches everything that matches.
-    assert_eq!(sorted(live_matching_subs(&state, &subs, &ours, None)), vec!["fire", "mixed"]);
+    assert_eq!(sorted(live_matching_subs(&state, &subs, &ours, &read_ctx(&state, &None))), vec!["fire", "mixed"]);
     // The stranger, authenticated, receives their own note on the firehose.
-    assert_eq!(sorted(live_matching_subs(&state, &subs, &plain, Some(&stranger.pubkey))), vec!["by-author", "fire", "mixed"]);
+    assert_eq!(sorted(live_matching_subs(&state, &subs, &plain, &read_ctx(&state, &Some(stranger.pubkey.clone())))), vec!["by-author", "fire", "mixed"]);
     // Another authenticated reader does not.
-    assert_eq!(sorted(live_matching_subs(&state, &subs, &plain, Some(&reader.pubkey))), vec!["by-author"]);
+    assert_eq!(sorted(live_matching_subs(&state, &subs, &plain, &read_ctx(&state, &Some(reader.pubkey.clone())))), vec!["by-author"]);
 
     // Policy `all`: today's fan-out.
     let (all, _) = make_app_state_with(pool, |_| {});
-    assert_eq!(sorted(live_matching_subs(&all, &subs, &plain, None)), vec!["by-author", "fire", "mixed"]);
+    assert_eq!(sorted(live_matching_subs(&all, &subs, &plain, &read_ctx(&all, &None))), vec!["by-author", "fire", "mixed"]);
 }
 
 #[tokio::test]
@@ -608,8 +608,8 @@ async fn reposts_and_picture_posts_follow_the_policy() {
     let f = |json: serde_json::Value| -> Filter { serde_json::from_value(json).unwrap() };
     let mut subs = SubscriptionManager::new();
     subs.add("pics".into(), vec![f(serde_json::json!({"kinds": [20]}))]).unwrap();
-    assert!(live_matching_subs(&state, &subs, &their_pic, None).is_empty());
-    assert_eq!(live_matching_subs(&state, &subs, &our_pic, None), vec!["pics"]);
+    assert!(live_matching_subs(&state, &subs, &their_pic, &read_ctx(&state, &None)).is_empty());
+    assert_eq!(live_matching_subs(&state, &subs, &our_pic, &read_ctx(&state, &None)), vec!["pics"]);
 }
 
 /// Relay-list oddities: a URL with userinfo or a path is not ours, a tag
@@ -681,4 +681,67 @@ async fn leaving_every_source_removes_the_author_on_the_next_refresh() {
     assert!(Conn::new(None).req(&state, &tx, FIREHOSE).await.is_empty());
     // Their notes are still there for anyone who asks for them.
     assert!(Conn::new(None).req(&state, &tx, &format!(r#"{{"ids":["{}","{}"]}}"#, n1.id, n2.id)).await.len() == 2);
+}
+
+/// The backend ingest role reads the relay whole: its own-relay REQ asks for
+/// kinds 0/1/5/7/9/… in one filter, and indexing, deletions and moderation
+/// need every author. Its stored and live reads ignore the policy; any other
+/// authenticated key with the same filter does not.
+#[tokio::test]
+async fn the_ingest_role_is_exempt_from_the_policy() {
+    let pool = match setup_test_pool().await { Ok(p) => p, Err(e) => { eprintln!("skip: {e}"); return; } };
+    let backend = TestIdentity::from_seed(9);
+    let member = TestIdentity::from_seed(1);
+    let stranger = TestIdentity::from_seed(2);
+    let other = TestIdentity::from_seed(3);
+    make_space_member(&pool, &member.pubkey).await;
+    let (state, tx) = make_app_state_with(pool.clone(), |c: &mut Config| {
+        c.firehose_policy = FirehosePolicy::Community;
+        c.ingest_pubkeys = vec![backend.pubkey.clone()];
+    });
+    state.refresh_community().await;
+    let ours = note(&member, "ours");
+    let theirs = note(&stranger, "theirs");
+    let their_profile = sign_event(&stranger, 0, vec![], r#"{"name":"s"}"#, now());
+    let their_deletion = sign_event(&stranger, 5, vec![vec!["e".into(), "0".repeat(64)]], "", now());
+    for e in [&ours, &theirs, &their_profile, &their_deletion] {
+        publish(&state, &tx, e).await;
+    }
+    // The ingester's own-relay shape: many kinds, no authors.
+    let ingest_req = r#"{"kinds":[0,1,5,7,9,31683,9735,39000]}"#;
+    let got = Conn::new(Some(&backend.pubkey)).req(&state, &tx, ingest_req).await;
+    for e in [&ours, &theirs, &their_profile, &their_deletion] {
+        assert!(got.contains(&e.id), "the ingest role must see {}", e.kind);
+    }
+    let got = Conn::new(Some(&other.pubkey)).req(&state, &tx, ingest_req).await;
+    assert!(got.contains(&ours.id) && !got.contains(&theirs.id) && !got.contains(&their_profile.id));
+    let got = Conn::new(None).req(&state, &tx, ingest_req).await;
+    assert_eq!(got, HashSet::from([ours.id.clone()]));
+
+    let f = |json: serde_json::Value| -> Filter { serde_json::from_value(json).unwrap() };
+    let mut subs = SubscriptionManager::new();
+    subs.add("ingest".into(), vec![f(serde_json::from_str(ingest_req).unwrap())]).unwrap();
+    let as_backend = Some(backend.pubkey.clone());
+    let as_other = Some(other.pubkey.clone());
+    assert_eq!(live_matching_subs(&state, &subs, &theirs, &read_ctx(&state, &as_backend)), vec!["ingest"]);
+    assert_eq!(live_matching_subs(&state, &subs, &their_profile, &read_ctx(&state, &as_backend)), vec!["ingest"]);
+    assert!(live_matching_subs(&state, &subs, &theirs, &read_ctx(&state, &as_other)).is_empty());
+    assert!(live_matching_subs(&state, &subs, &theirs, &read_ctx(&state, &None)).is_empty());
+    assert_eq!(live_matching_subs(&state, &subs, &ours, &read_ctx(&state, &None)), vec!["ingest"]);
+}
+
+/// Relay-generated events (NIP-29 group metadata signed by the relay's own
+/// key) are never hidden: the relay's pubkey is always in the set.
+#[tokio::test]
+async fn the_relay_identity_is_always_a_community_author() {
+    let pool = match setup_test_pool().await { Ok(p) => p, Err(e) => { eprintln!("skip: {e}"); return; } };
+    let (state, _tx) = community_state(pool.clone());
+    let relay_pk = state.relay_identity.pubkey.clone();
+    state.refresh_community().await;
+    assert!(state.firehose_serves(&relay_pk, None));
+    assert_eq!(table_rows(&pool).await, HashSet::from([relay_pk.clone()]));
+    // …even when operator moderation names it by mistake: the relay key is
+    // added after the suspension pass. (Nothing else is in the set, so a
+    // stranger is still excluded.)
+    assert!(!state.firehose_serves(&TestIdentity::from_seed(5).pubkey, None));
 }
