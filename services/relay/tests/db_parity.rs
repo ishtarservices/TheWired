@@ -74,6 +74,12 @@ struct Obs {
     expiring_visible_before: usize,
     expiring_visible_after: usize,
     expired_swept: u64,
+    // --- space-scoped (h-only) events vs the ingest role ---
+    space_anon_count: usize,
+    space_stranger_count: usize,
+    space_author_count: usize,
+    space_ingest_count: usize,
+    space_ingest_sees_only_chat: bool,
 }
 
 /// Drive a full relay-native lifecycle through `db` and capture observations.
@@ -194,7 +200,7 @@ async fn exercise(db: &Db, alice: &TestIdentity, bob: &TestIdentity) -> Obs {
     let wrap = sign_event(&ephemeral, 1059, vec![vec!["p".into(), bob.pubkey.clone()]], "cipher", 200);
     db.store_event_flagged(&wrap, true).await.unwrap();
     let wrap_filter = filt(serde_json::json!({ "kinds": [1059], "#p": [bob.pubkey] }));
-    let ctx = |authed: Option<&'static str>, all: bool| ReadCtx { authed, serve_all_wraps: all, serve_all_reports: all, now: 300 };
+    let ctx = |authed: Option<&'static str>, all: bool| ReadCtx { authed, serve_all_wraps: all, serve_all_reports: all, serve_all_spaces: all, now: 300 };
     let bob_pk: &'static str = Box::leak(bob.pubkey.clone().into_boxed_str());
     let carol_pk: &'static str = Box::leak(TestIdentity::from_seed(3).pubkey.into_boxed_str());
     let wrap_anon_count = db.query_events_ctx(&wrap_filter, &ctx(None, false)).await.unwrap().len();
@@ -210,11 +216,43 @@ async fn exercise(db: &Db, alice: &TestIdentity, bob: &TestIdentity) -> Obs {
     let exp_filter = filt(serde_json::json!({ "ids": [expiring.id] }));
     let expiring_visible_before = db.query_events_ctx(&exp_filter, &ctx(None, false)).await.unwrap().len();
     let expiring_visible_after = db
-        .query_events_ctx(&exp_filter, &ReadCtx { authed: None, serve_all_wraps: false, serve_all_reports: false, now: 400 })
+        .query_events_ctx(&exp_filter, &ReadCtx { authed: None, serve_all_wraps: false, serve_all_reports: false, serve_all_spaces: false, now: 400 })
         .await
         .unwrap()
         .len();
     let expired_swept = db.delete_expired(400).await.unwrap();
+
+    // --- space-scoped events: the ingest role reads every space's h-only
+    //     events without membership; a visibility-tagged one stays closed to it ---
+    let chat = sign_event(alice, 9, vec![vec!["h".into(), "g1".into()]], "hi", 201);
+    db.store_event(&chat).await.unwrap();
+    let private_track = sign_event(
+        alice,
+        31683,
+        vec![
+            vec!["d".into(), "t".into()],
+            vec!["title".into(), "T".into()],
+            vec!["h".into(), "g1".into()],
+            vec!["visibility".into(), "private".into()],
+        ],
+        "",
+        202,
+    );
+    db.store_event(&private_track).await.unwrap();
+    let space_filter = filt(serde_json::json!({ "#h": ["g1"] }));
+    let alice_pk: &'static str = Box::leak(alice.pubkey.clone().into_boxed_str());
+    let space_anon_count = db.query_events_ctx(&space_filter, &ctx(None, false)).await.unwrap().len();
+    let space_stranger_count = db.query_events_ctx(&space_filter, &ctx(Some(carol_pk), false)).await.unwrap().len();
+    let space_author_count = db.query_events_ctx(&space_filter, &ctx(Some(alice_pk), false)).await.unwrap().len();
+    let space_ingest: Vec<String> = db
+        .query_events_ctx(&space_filter, &ctx(Some(carol_pk), true))
+        .await
+        .unwrap()
+        .into_iter()
+        .map(|e| e.id)
+        .collect();
+    let space_ingest_count = space_ingest.len();
+    let space_ingest_sees_only_chat = space_ingest == vec![chat.id.clone()];
 
     Obs {
         inserted_first,
@@ -262,6 +300,11 @@ async fn exercise(db: &Db, alice: &TestIdentity, bob: &TestIdentity) -> Obs {
         expiring_visible_before,
         expiring_visible_after,
         expired_swept,
+        space_anon_count,
+        space_stranger_count,
+        space_author_count,
+        space_ingest_count,
+        space_ingest_sees_only_chat,
     }
 }
 
@@ -323,6 +366,11 @@ fn expected(alice: &TestIdentity, bob: &TestIdentity, note_a_id: &str, note_b_id
         expiring_visible_before: 1,
         expiring_visible_after: 0,
         expired_swept: 1,
+        space_anon_count: 0,
+        space_stranger_count: 0,
+        space_author_count: 2,
+        space_ingest_count: 1,
+        space_ingest_sees_only_chat: true,
     }
 }
 
