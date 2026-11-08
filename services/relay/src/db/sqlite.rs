@@ -491,7 +491,7 @@ fn push_visibility_gate(qb: &mut QueryBuilder<Sqlite>, ctx: &ReadCtx<'_>) {
         }
     }
     match ctx.authed {
-        Some(pk) => push_authed_gate(qb, pk, "events", ""),
+        Some(pk) => push_authed_gate(qb, pk, "events", "", ctx.serve_all_spaces),
         None => {
             qb.push(" AND visibility IS NULL AND h_tag IS NULL");
         }
@@ -501,9 +501,11 @@ fn push_visibility_gate(qb: &mut QueryBuilder<Sqlite>, ctx: &ReadCtx<'_>) {
 /// The one authenticated read predicate (nostr::access), spelled in SQLite:
 /// author, or an access-granting p tag (role-aware via JSON1 over `tags`,
 /// pre-filtered by the indexed `event_tags`), or — for `h`-only events — a
-/// relay-native member of ANY listed group. `table` is the events table name
-/// or alias used by the enclosing query; `p` its column prefix (`""` or `"e."`).
-fn push_authed_gate(qb: &mut QueryBuilder<Sqlite>, pk: &str, table: &str, p: &str) {
+/// relay-native member of ANY listed group, or any reader when `all_spaces`
+/// (the ingest role, `ReadCtx::serve_all_spaces`). `table` is the events table
+/// name or alias used by the enclosing query; `p` its column prefix (`""` or
+/// `"e."`).
+fn push_authed_gate(qb: &mut QueryBuilder<Sqlite>, pk: &str, table: &str, p: &str, all_spaces: bool) {
     let roles = access::sql_granting_roles();
     qb.push(format!(" AND ({p}pubkey = "))
         .push_bind(pk.to_string())
@@ -518,8 +520,13 @@ fn push_authed_gate(qb: &mut QueryBuilder<Sqlite>, pk: &str, table: &str, p: &st
         .push_bind(pk.to_string())
         .push(format!(
             " AND COALESCE(json_extract(pt.value, '$[3]'), '') IN ({roles})))"
-        ))
-        .push(format!(
+        ));
+    if all_spaces {
+        // Rule 6 for every space; the `visibility` leg (rule 5) is unchanged.
+        qb.push(format!(" OR {p}visibility IS NULL)"));
+        return;
+    }
+    qb.push(format!(
             " OR ({p}visibility IS NULL AND ({p}h_tag IS NULL OR EXISTS (\
                  SELECT 1 FROM event_tags t JOIN group_members gm ON gm.group_id = t.tag_value \
                  WHERE t.event_id = {table}.id AND t.tag_name = 'h' AND gm.pubkey = "
@@ -593,7 +600,7 @@ pub async fn search_events_ctx(
         .push_bind(ctx.now)
         .push(")");
     match ctx.authed {
-        Some(pk) => push_authed_gate(&mut qb, pk, "e", "e."),
+        Some(pk) => push_authed_gate(&mut qb, pk, "e", "e.", ctx.serve_all_spaces),
         None => {
             qb.push(" AND e.visibility IS NULL AND e.h_tag IS NULL");
         }

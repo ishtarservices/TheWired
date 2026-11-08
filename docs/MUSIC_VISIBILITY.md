@@ -159,6 +159,15 @@ on this relay). The backend queries the same union
 track over the relay can also resolve it, mint a token and fetch its media.
 The embedded SQLite relay has only the relay-native world.
 
+**The backend ingest role** (`RELAY_INGEST_PUBKEYS`, the pubkey of the backend's
+`INGEST_SECRET_KEY`) is treated as a member of **every** space for rule 6
+(`ReadCtx::serve_all_spaces`, honoured by REQ, NIP-50 search, live broadcast
+and the SQLite build alike): that is how the backend ingester sees kind-9 space
+chat to plan space-mention pushes and keep live space activity. It gets
+nothing under rule 5 — a `visibility`-tagged event stays author/grantee-only
+for the role too. Anonymous sockets and authenticated non-members are
+unchanged.
+
 Removal takes effect immediately on every DB-backed path (publish, REQ, search,
 backend). Live broadcast uses a per-connection membership cache refreshed
 lazily every 30 s, so a kicked member may receive live events for up to 30 s.

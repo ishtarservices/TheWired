@@ -20,7 +20,8 @@ const NEG_FRAME_SIZE_LIMIT: u64 = 60_000;
 
 /// The read context of a connection: who it is, whether it may read every
 /// gift wrap (ingest role, or a gate mode other than `enforce`), every report
-/// (ingest role, or the report gate off), and "now".
+/// (ingest role, or the report gate off), every space-scoped event (ingest
+/// role only — no gate mode opens space chat to strangers), and "now".
 pub fn read_ctx<'a>(state: &'a AppState, authed_pubkey: &'a Option<String>) -> ReadCtx<'a> {
     let authed = authed_pubkey.as_deref();
     let ingest = authed.is_some_and(|pk| state.config.is_ingest(pk));
@@ -28,6 +29,7 @@ pub fn read_ctx<'a>(state: &'a AppState, authed_pubkey: &'a Option<String>) -> R
         authed,
         serve_all_wraps: ingest || state.config.wrap_auth_gate != WrapAuthGate::Enforce,
         serve_all_reports: ingest || !state.config.report_read_gate,
+        serve_all_spaces: ingest,
         now: wrap_gate::unix_now(),
     }
 }

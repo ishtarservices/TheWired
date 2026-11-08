@@ -355,6 +355,9 @@ export function startRelayIngester(opts: RelayIngesterOptions = {}): { stop: () 
 
       if (isOwn(url)) {
         // Behavior-preserving: identical to the original single-relay ingester.
+        // The space-scoped kinds here (9, 7, 9021, 9022) only arrive because the
+        // relay grants the ingest role every space (ReadCtx::serve_all_spaces);
+        // without the role this socket is a non-member and never sees them.
         ws.send(
           JSON.stringify([
             "REQ",
