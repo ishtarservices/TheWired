@@ -122,7 +122,8 @@ export function fetchDMRelayList(pubkey: string): Promise<string[]> {
 
 /**
  * Get the relay URLs to publish a gift wrap to a recipient.
- * Fetches their kind:10050, connects to those relays, and waits briefly for connections.
+ * Fetches their kind:10050, connects to those relays (peer-only unless the user
+ * chose them too — see relayManager.connectPeer), and waits briefly for connections.
  * Returns those relays plus APP_RELAY if found, or undefined to fall back to all write relays.
  */
 export async function getDMRelaysForPublish(
@@ -136,10 +137,17 @@ export async function getDMRelaysForPublish(
   // that AUTH-gates wraps to their recipient (docs/DM_WIRE_CONTRACT.md §7, §8).
   const relays = [...new Set([...inbox, APP_RELAY_URL])];
 
-  // Connect to any relays we're not already connected to (APP_RELAY is
-  // normally already up; dialing it again is a no-op)
+  // Dial what isn't connected yet (APP_RELAY is normally already up; dialing
+  // it again is a no-op). A relay only the recipient's list names is dialed
+  // peer-only: the socket never answers NIP-42 AUTH as the user and carries
+  // nothing but the wrap, so the sender stays as anonymous there as the
+  // ephemeral wrap key makes them (docs/DM_WIRE_CONTRACT.md §1). The platform
+  // relay and the account's own DM relays are the user's choice and AUTH as
+  // usual; connectPeer treats bootstrap and NIP-65 relays the same way.
+  const own = new Set(getOwnDMRelays().map(relayKey));
   for (const url of relays) {
-    relayManager.connect(url);
+    if (url === APP_RELAY_URL || own.has(url)) relayManager.connect(url);
+    else relayManager.connectPeer(url);
   }
 
   // Wait briefly for connections to establish

@@ -32,11 +32,10 @@ pub async fn search_events_ctx(
     // $1 = query, $2 = limit, $3 = now, $4 = authed pubkey (when present).
     let visibility = match ctx.authed {
         Some(_) => {
-            let members_any = "h_tags && ARRAY(SELECT space_id FROM app.space_members WHERE pubkey = $4) \
-                 OR h_tags && ARRAY(SELECT group_id FROM relay.group_members WHERE pubkey = $4)";
+            let members_any = access::pg_members_any("$4", ctx.serve_all_spaces);
             format!(
                 " AND {} AND {}",
-                access::pg_visible_predicate("$4", members_any, ""),
+                access::pg_visible_predicate("$4", &members_any, ""),
                 moderation::pg_not_shadowed_predicate(Some("$4"))
             )
         }

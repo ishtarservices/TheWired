@@ -309,9 +309,10 @@ fn is_event_visible_to_ctx(
     }
     // The shared read policy (nostr::access): author / role-aware p-tag grant
     // / any-of membership for h-only events. The per-connection membership
-    // cache stands in for the DB lookup the stored-query SQL does.
+    // cache stands in for the DB lookup the stored-query SQL does; the ingest
+    // role (`serve_all_spaces`) counts as a member of every space.
     access::is_visible_to(event, ctx.authed, |h_tags| {
-        h_tags.iter().any(|h| space_memberships.contains(h))
+        ctx.serve_all_spaces || h_tags.iter().any(|h| space_memberships.contains(h))
     })
 }
 
@@ -854,7 +855,7 @@ mod tests {
         assert!(!is_event_visible_to(&evt, &None, &empty_set()));
         assert!(is_event_visible_to(&evt, &Some("bob".into()), &empty_set()));
         assert!(!is_event_visible_to(&evt, &Some("carol".into()), &empty_set()));
-        let ingest = ReadCtx { authed: Some("backend"), serve_all_wraps: true, serve_all_reports: true, now: 0, firehose_policy: Default::default() };
+        let ingest = ReadCtx { authed: Some("backend"), serve_all_wraps: true, serve_all_reports: true, serve_all_spaces: true, now: 0, firehose_policy: Default::default() };
         assert!(is_event_visible_to_ctx(&evt, &ingest, &empty_set()));
     }
 
@@ -866,16 +867,49 @@ mod tests {
         assert!(!is_event_visible_to(&evt, &None, &empty_set()));
         assert!(is_event_visible_to(&evt, &Some("alice".into()), &empty_set()));
         assert!(!is_event_visible_to(&evt, &Some("mallory".into()), &empty_set()));
-        let ingest = ReadCtx { authed: Some("backend"), serve_all_wraps: true, serve_all_reports: true, now: 0, firehose_policy: Default::default() };
+        let ingest = ReadCtx { authed: Some("backend"), serve_all_wraps: true, serve_all_reports: true, serve_all_spaces: true, now: 0, firehose_policy: Default::default() };
         assert!(is_event_visible_to_ctx(&evt, &ingest, &empty_set()));
+    }
+
+    /// The backend ingest role reads every space's chat live without being a
+    /// member (space-mention pushes, live activity). A `visibility`-tagged
+    /// event is not a space event: it stays author/grantee-only for the role
+    /// too, whether or not it also carries an `h` tag.
+    #[test]
+    fn ingest_role_reads_space_chat_but_not_private_events() {
+        let ingest = ReadCtx {
+            authed: Some("backend"),
+            serve_all_wraps: true,
+            serve_all_reports: true,
+            serve_all_spaces: true,
+            now: 0,
+            firehose_policy: Default::default(),
+        };
+        let chat = event_with(9, "alice", vec![vec!["h".into(), "space_x".into()]]);
+        assert!(is_event_visible_to_ctx(&chat, &ingest, &empty_set()));
+        assert!(
+            !is_event_visible_to(&chat, &Some("backend".into()), &empty_set()),
+            "the same key without the role is an ordinary non-member"
+        );
+        let private = event_with(31683, "alice", vec![vec!["visibility".into(), "private".into()]]);
+        assert!(!is_event_visible_to_ctx(&private, &ingest, &empty_set()));
+        let unlisted_in_space = event_with(
+            31683,
+            "alice",
+            vec![
+                vec!["h".into(), "space_x".into()],
+                vec!["visibility".into(), "unlisted".into()],
+            ],
+        );
+        assert!(!is_event_visible_to_ctx(&unlisted_in_space, &ingest, &empty_set()));
     }
 
     /// NIP-40: an expired event is never forwarded, even a public one.
     #[test]
     fn expired_events_are_never_broadcast() {
         let evt = event_with(1, "alice", vec![vec!["expiration".into(), "100".into()]]);
-        let live = ReadCtx { authed: None, serve_all_wraps: false, serve_all_reports: false, now: 99, firehose_policy: Default::default() };
-        let dead = ReadCtx { authed: None, serve_all_wraps: false, serve_all_reports: false, now: 100, firehose_policy: Default::default() };
+        let live = ReadCtx { authed: None, serve_all_wraps: false, serve_all_reports: false, serve_all_spaces: false, now: 99, firehose_policy: Default::default() };
+        let dead = ReadCtx { authed: None, serve_all_wraps: false, serve_all_reports: false, serve_all_spaces: false, now: 100, firehose_policy: Default::default() };
         assert!(is_event_visible_to_ctx(&evt, &live, &empty_set()));
         assert!(!is_event_visible_to_ctx(&evt, &dead, &empty_set()));
     }

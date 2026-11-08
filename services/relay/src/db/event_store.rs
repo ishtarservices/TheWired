@@ -306,14 +306,13 @@ fn build_conditions(filter: &Filter, ctx: &ReadCtx<'_>) -> (Vec<String>, Vec<Bin
             // One predicate for every protected shape (nostr::access): the
             // author, an access-granting p tag (role-aware), or — for `h`-only
             // events — a member of ANY listed space in EITHER the backend world
-            // (app.space_members) OR the relay-native one (relay.group_members).
+            // (app.space_members) OR the relay-native one (relay.group_members);
+            // the ingest role (`serve_all_spaces`) is a member of every space.
             // `h_tags && ARRAY(...)` is the any-of leg for multi-space events.
             // The indexed `p_tags` text[] pre-filters the jsonb role check so
             // the per-row scan only runs for rows that name the reader (#114).
             let pk = format!("${auth_param}[1]");
-            let members_any = format!(
-                "h_tags && ARRAY(SELECT space_id FROM app.space_members WHERE pubkey = {pk})                  OR h_tags && ARRAY(SELECT group_id FROM relay.group_members WHERE pubkey = {pk})"
-            );
+            let members_any = access::pg_members_any(&pk, ctx.serve_all_spaces);
             conditions.push(access::pg_visible_predicate(&pk, &members_any, ""));
 
             if !ctx.serve_all_wraps {
