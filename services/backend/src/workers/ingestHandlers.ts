@@ -691,10 +691,11 @@ async function syncMusicSearchDocs(event: NostrEvent, kind: 31683 | 33123) {
     // Every public track is indexed (the doc carries `unlisted`, so browse/search
     // filter it while insights still enumerate it)...
     const ms = getMeilisearchClient();
-    const task = await ms.index(index).addDocuments([buildMusicSearchDoc(event, kind)]);
+    const write = ms.index(index).addDocuments([buildMusicSearchDoc(event, kind)]);
+    await write;
     try {
       // ...and applied before the next version of this address looks for it.
-      await ms.index(index).waitForTask(task.taskUid, { timeOutMs: 10_000 });
+      await write.waitTask({ timeout: 10_000 });
     } catch (err) {
       console.error(`[ingester] ${index} write still pending:`, (err as Error).message);
     }
