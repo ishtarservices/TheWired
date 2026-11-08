@@ -2,7 +2,7 @@
  * Admin review of reports (ADMIN_PUBKEYS, NIP-98) — the contract soot's
  * in-app inbox is built against:
  *   GET  /admin/reports?status=&cursor=   → { reports, nextCursor }
- *   GET  /admin/reports/:id               → { report, target: { event?, profile?, priorReports } }
+ *   GET  /admin/reports/:id               → { report, target: { event?, profile?, priorReports }, reporter? }
  *   POST /admin/reports/:id/resolve       → { report }  (resolution echoes the action)
  * plus the actions' effects (tombstone + delete, deleteMusic, suspension,
  * API hiding), sibling closing, the audit trail, and both reversals.
@@ -24,6 +24,10 @@ import {
 import { db } from "../../src/db/connection.js";
 import { reports } from "../../src/db/schema/reports.js";
 import { cachedProfiles } from "../../src/db/schema/profiles.js";
+import { nip05Identities } from "../../src/db/schema/nip05.js";
+import { pushDevices } from "../../src/db/schema/notifications.js";
+import { spaces } from "../../src/db/schema/spaces.js";
+import { spaceMembers } from "../../src/db/schema/members.js";
 import { moderationAuditLog } from "../../src/db/schema/moderation.js";
 import { config } from "../../src/config.js";
 import { getMeilisearchClient } from "../../src/lib/meilisearch.js";
@@ -39,8 +43,10 @@ const saved = { admins: [...config.adminPubkeys], relayUrl: config.relayUrl };
 beforeAll(async () => {
   server = await buildTestServer();
 });
+/** A file-unique reporter (relay.events is shared across test files). */
+const REPORTER = "c0".repeat(32);
 afterAll(async () => {
-  await deleteRelayEventsByPubkey([MARCUS.pubkey, SAGE.pubkey]);
+  await deleteRelayEventsByPubkey([MARCUS.pubkey, SAGE.pubkey, REPORTER]);
   await resetRelayModeration();
   await closeTestServer();
 });
@@ -49,7 +55,7 @@ beforeEach(async () => {
   // restoreEvent re-publishes to the relay; point it at nothing in tests.
   mutable.relayUrl = "ws://127.0.0.1:9";
   await resetRelayModeration();
-  await deleteRelayEventsByPubkey([MARCUS.pubkey, SAGE.pubkey]);
+  await deleteRelayEventsByPubkey([MARCUS.pubkey, SAGE.pubkey, REPORTER]);
   suspensionService.invalidate();
 });
 afterEach(() => {
@@ -176,6 +182,137 @@ describe("GET /admin/reports/:id", () => {
     const r = await file({ targetType: "dm", targetEventId: wrapId, targetKind: 1059 });
     const { target } = (await server.inject({ method: "GET", url: `/admin/reports/${r.id}`, headers: asAdmin })).json().data;
     expect(target.event).toBeUndefined();
+  });
+});
+
+describe("GET /admin/reports/:id — reporter", () => {
+  async function detailOf(id: string) {
+    const res = await server.inject({ method: "GET", url: `/admin/reports/${id}`, headers: asAdmin });
+    expect(res.statusCode).toBe(200);
+    return res.json().data as { reporter?: Record<string, unknown> };
+  }
+  let seq = 0;
+  const targetId = () => `ad${(seq++).toString(16).padStart(4, "0")}`.padEnd(64, "0");
+  function relayRow(pubkey: string, kind: number, createdAt: number, tags: string[][] = []) {
+    return { id: targetId(), pubkey, kind, tags, content: "", created_at: createdAt, sig: "0".repeat(128) };
+  }
+
+  it("is omitted for a guest report", async () => {
+    const r = await file({ source: "http", reporterPubkey: null, reporterIpHash: "guest-hash", targetType: "user", targetKind: null });
+    const { reporter } = await detailOf(r.id);
+    expect(reporter).toBeUndefined();
+  });
+
+  it("describes an account that has nothing here but the report itself", async () => {
+    const r = await file({ reporterPubkey: REPORTER, targetType: "user", targetKind: null });
+    const { reporter } = await detailOf(r.id);
+    expect(reporter).toEqual({
+      pubkey: REPORTER,
+      appUser: false,
+      firstSeenAt: r.createdAt.toISOString(),
+      spacesJoined: 0,
+      contentEventsHere: 0,
+      reportsFiled: 1,
+      reportsFiledLast24h: 1,
+      reportsDismissedAsForeign: 0,
+      reportsActioned: 0,
+    });
+    // Nothing in the block is ever null except firstSeenAt.
+    expect(Object.entries(reporter!).filter(([k, v]) => v === null && k !== "firstSeenAt")).toEqual([]);
+  });
+
+  it("counts every signal: spaces, content, reports by status and recency, with firstSeenAt from the earliest source", async () => {
+    const now = Math.floor(Date.now() / 1000);
+    // The relay has the earliest trace: a note from 2024, long before any app row.
+    const earliest = Math.floor(Date.UTC(2024, 0, 15, 12, 0, 0) / 1000);
+    await insertRelayEvent(relayRow(REPORTER, 1, earliest));
+    await insertRelayEvent(relayRow(REPORTER, 7, now - 60, [["e", targetId()]]));
+    // Wraps and reports are not content.
+    await insertRelayEvent(relayRow(REPORTER, 1059, now - 50, [["p", MARCUS.pubkey]]));
+    await insertRelayEvent(relayRow(REPORTER, 1984, now - 40, [["p", MARCUS.pubkey, "spam"]]));
+
+    await db.insert(spaces).values([
+      { id: "ad-space-1", hostRelay: "wss://relay.thewired.app", name: "one", createdAt: Date.now() },
+      { id: "ad-space-2", hostRelay: "wss://relay.thewired.app", name: "two", createdAt: Date.now() },
+    ]);
+    await db.insert(spaceMembers).values([
+      { spaceId: "ad-space-1", pubkey: REPORTER, joinedAt: new Date("2025-06-01T00:00:00Z") },
+      { spaceId: "ad-space-2", pubkey: REPORTER },
+      { spaceId: "ad-space-1", pubkey: SAGE.pubkey },
+    ]);
+
+    // Reports by the reporter: the viewed one (open), one open from 3 days
+    // ago, one actioned, one dismissed as foreign, one dismissed by a person.
+    const viewed = await file({ reporterPubkey: REPORTER, targetEventId: targetId() });
+    const [old] = await db
+      .insert(reports)
+      .values({ id: "ad-old", source: "nostr", reporterPubkey: REPORTER, targetType: "event", targetEventId: targetId(),
+        targetPubkey: MARCUS.pubkey, category: "spam", reportEventId: targetId(),
+        createdAt: new Date(Date.now() - 3 * 86_400_000) })
+      .returning();
+    expect(old.status).toBe("open");
+    await db.insert(reports).values([
+      { id: "ad-actioned", source: "nostr", reporterPubkey: REPORTER, targetType: "event", targetEventId: targetId(),
+        targetPubkey: MARCUS.pubkey, category: "spam", reportEventId: targetId(), status: "actioned", resolution: "remove_event" },
+      { id: "ad-foreign", source: "nostr", reporterPubkey: REPORTER, targetType: "event", targetEventId: targetId(),
+        targetPubkey: SAGE.pubkey, category: "spam", reportEventId: targetId(), status: "dismissed", resolution: "foreign", resolvedBy: "system" },
+      { id: "ad-dismissed", source: "nostr", reporterPubkey: REPORTER, targetType: "user",
+        targetPubkey: SAGE.pubkey, category: "other", reportEventId: targetId(), status: "dismissed", resolution: "dismiss", resolvedBy: DECKARD.pubkey },
+      // Someone else's reports never count.
+      { id: "ad-other", source: "nostr", reporterPubkey: SAGE.pubkey, targetType: "user",
+        targetPubkey: MARCUS.pubkey, category: "spam", reportEventId: targetId() },
+    ]);
+
+    const { reporter } = await detailOf(viewed.id);
+    expect(reporter).toEqual({
+      pubkey: REPORTER,
+      appUser: true,
+      firstSeenAt: new Date(earliest * 1000).toISOString(),
+      spacesJoined: 2,
+      contentEventsHere: 2,
+      reportsFiled: 5,
+      reportsFiledLast24h: 4,
+      reportsDismissedAsForeign: 1,
+      reportsActioned: 1,
+    });
+  });
+
+  it("takes firstSeenAt from whichever app table is earliest when the relay has nothing", async () => {
+    await db.insert(nip05Identities).values({ username: "ad-reporter", pubkey: REPORTER, createdAt: new Date("2025-03-03T03:03:03.000Z") });
+    await db.insert(pushDevices).values({ id: "ad-dev", pubkey: REPORTER, provider: "expo", token: "ad-token", platform: "ios",
+      createdAt: new Date("2025-02-02T02:02:02.000Z") });
+    const r = await file({ reporterPubkey: REPORTER, targetType: "user", targetKind: null });
+    const { reporter } = await detailOf(r.id);
+    expect(reporter).toMatchObject({ appUser: true, firstSeenAt: "2025-02-02T02:02:02.000Z", spacesJoined: 0, contentEventsHere: 0 });
+  });
+
+  it("an account whose only footprint is a relay event is not an app user, but is seen from that event", async () => {
+    const when = Math.floor(Date.UTC(2025, 7, 8, 9, 10, 11) / 1000);
+    await insertRelayEvent(relayRow(REPORTER, 1, when));
+    const r = await file({ reporterPubkey: REPORTER, targetType: "user", targetKind: null });
+    const { reporter } = await detailOf(r.id);
+    expect(reporter).toMatchObject({
+      appUser: false,
+      firstSeenAt: new Date(when * 1000).toISOString(),
+      contentEventsHere: 1,
+      reportsFiled: 1,
+    });
+  });
+
+  it("an HTTP report makes its reporter an app user", async () => {
+    const r = await file({ source: "http", reporterPubkey: REPORTER, targetType: "user", targetKind: null });
+    const { reporter } = await detailOf(r.id);
+    expect(reporter).toMatchObject({ appUser: true, reportsFiled: 1 });
+  });
+
+  it("copes with a malformed reporter pubkey in a stored row", async () => {
+    const [row] = await db
+      .insert(reports)
+      .values({ id: "ad-malformed", source: "nostr", reporterPubkey: "not a pubkey'; --", targetType: "user",
+        targetPubkey: MARCUS.pubkey, category: "spam", reportEventId: targetId() })
+      .returning();
+    const { reporter } = await detailOf(row.id);
+    expect(reporter).toMatchObject({ pubkey: "not a pubkey'; --", appUser: false, firstSeenAt: null, reportsFiled: 0, contentEventsHere: 0 });
   });
 });
 

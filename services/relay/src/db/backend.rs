@@ -32,7 +32,7 @@ use std::collections::HashSet;
 #[cfg(feature = "embedded")]
 use sqlx::SqlitePool;
 
-use super::{dm_relay_list, event_store, group_store, membership_source, moderation, space_permissions};
+use super::{community, dm_relay_list, event_store, group_store, membership_source, moderation, space_permissions};
 use crate::protocol::nip50;
 
 #[cfg(feature = "embedded")]
@@ -135,6 +135,25 @@ impl Db {
             Db::Pg(p) => moderation::shadowed_pubkeys(p).await,
             #[cfg(feature = "embedded")]
             Db::Sqlite(_) => Ok(Default::default()),
+        }
+    }
+
+    /// The community author set for the firehose policy (`db::community`),
+    /// recomputed from every source plus `relay_pubkey` (the relay's own
+    /// NIP-29 signing key, so relay-generated group metadata is never hidden)
+    /// and mirrored into `relay.community_authors`. `None` on a backend
+    /// without a community: the embedded relay is a personal relay whose
+    /// firehose is everyone.
+    pub async fn refresh_community_authors(&self, own_relay_urls: &[String], relay_pubkey: &str) -> anyhow::Result<Option<HashSet<String>>> {
+        match self {
+            Db::Pg(p) => {
+                let mut set = community::community_authors(p, own_relay_urls).await?;
+                set.insert(relay_pubkey.to_string());
+                community::sync_community_table(p, &set).await?;
+                Ok(Some(set))
+            }
+            #[cfg(feature = "embedded")]
+            Db::Sqlite(_) => Ok(None),
         }
     }
 

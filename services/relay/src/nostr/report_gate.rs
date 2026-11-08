@@ -55,7 +55,7 @@ mod tests {
     }
 
     fn ctx(authed: Option<&str>, all: bool) -> ReadCtx<'_> {
-        ReadCtx { authed, serve_all_wraps: false, serve_all_reports: all, now: 0 }
+        ReadCtx { authed, serve_all_wraps: false, serve_all_reports: all, serve_all_spaces: false, now: 0, firehose_policy: Default::default() }
     }
 
     #[test]
@@ -75,7 +75,7 @@ mod tests {
         // Production runs the wrap gate in `warn` (serve_all_wraps = true for
         // everyone); reports must stay closed regardless.
         let r = report(&"a".repeat(64));
-        let warn_mode = ReadCtx { authed: None, serve_all_wraps: true, serve_all_reports: false, now: 0 };
+        let warn_mode = ReadCtx { authed: None, serve_all_wraps: true, serve_all_reports: false, serve_all_spaces: false, now: 0, firehose_policy: Default::default() };
         assert!(!report_visible(&r, &warn_mode));
     }
 

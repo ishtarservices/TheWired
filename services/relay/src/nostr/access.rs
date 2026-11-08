@@ -13,7 +13,10 @@
 //! 4. An access-granting `p` tag always does (see [`p_tag_grants_access`]).
 //! 5. `visibility` private/unlisted admits nobody else — an `h` tag on a
 //!    private event does not widen it to the space.
-//! 6. Otherwise (`h` only) a member of ANY listed space does.
+//! 6. Otherwise (`h` only) a member of ANY listed space does. The backend
+//!    ingest role (`RELAY_INGEST_PUBKEYS`, `ReadCtx::serve_all_spaces`) counts
+//!    as a member of every space here — and only here: it is how the backend
+//!    indexes space activity and plans space-mention pushes from kind-9 chat.
 //!
 //! The SQL fragments below spell out exactly the same predicate so that a
 //! REQ, a search, and a live push can never disagree about one event.
@@ -95,6 +98,22 @@ pub fn pg_visible_predicate(pk: &str, members_any: &str, col_prefix: &str) -> St
                WHERE pt->>0 = 'p' AND pt->>1 = {pk} AND COALESCE(pt->>3, '') IN ({roles}))) \
           OR ({p}visibility IS NULL AND ({p}h_tag IS NULL OR {members_any})))",
         p = col_prefix
+    )
+}
+
+/// The Postgres `members_any` leg for [`pg_visible_predicate`]: the row's
+/// `h_tags` overlap the reader's spaces in BOTH worlds the relay knows —
+/// `app.space_members` (Platform / A-lite) and `relay.group_members`
+/// (NIP-29-native). With `all_spaces` (the ingest role) the leg is simply
+/// `TRUE`: rule 6 admits the role to every space-scoped event, while rules
+/// 1–5 are untouched (a `visibility`-tagged event still needs author/grant).
+pub fn pg_members_any(pk: &str, all_spaces: bool) -> String {
+    if all_spaces {
+        return "TRUE".to_string();
+    }
+    format!(
+        "h_tags && ARRAY(SELECT space_id FROM app.space_members WHERE pubkey = {pk}) \
+         OR h_tags && ARRAY(SELECT group_id FROM relay.group_members WHERE pubkey = {pk})"
     )
 }
 
@@ -195,5 +214,16 @@ mod tests {
         let p = pg_visible_predicate("$4", "h_tags && ARRAY[]::text[]", "e.");
         assert!(p.contains("e.pubkey = $4"));
         assert!(p.contains("e.visibility IS NULL AND (e.h_tag IS NULL OR h_tags && ARRAY[]::text[])"));
+    }
+
+    #[test]
+    fn members_any_is_true_only_for_the_ingest_role() {
+        assert_eq!(pg_members_any("$4", true), "TRUE");
+        let m = pg_members_any("$4", false);
+        assert!(m.contains("app.space_members WHERE pubkey = $4"));
+        assert!(m.contains("relay.group_members WHERE pubkey = $4"));
+        // The private leg of the predicate is untouched by the ingest flag.
+        let p = pg_visible_predicate("$4", &pg_members_any("$4", true), "");
+        assert!(p.contains("visibility IS NULL AND (h_tag IS NULL OR TRUE)"));
     }
 }

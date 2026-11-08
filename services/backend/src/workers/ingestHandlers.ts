@@ -29,6 +29,7 @@ import { escapeMsFilter } from "../lib/meiliFilter.js";
 import { isIndexableMusic, isListedPublicMusic } from "../lib/musicListing.js";
 import { KIND_REPORT, parseReportEvent } from "../lib/reports/reportInput.js";
 import { reportService } from "../services/reportService.js";
+import { classifyOrigin } from "../services/reportFootprint.js";
 import { suspensionService } from "../services/suspensionService.js";
 import { accountDeletionService } from "../services/accountDeletionService.js";
 
@@ -280,7 +281,11 @@ export async function authorBlocked(event: NostrEvent): Promise<boolean> {
 async function indexReport(event: NostrEvent) {
   const input = parseReportEvent(event);
   if (!input) return;
-  await reportService.file(input);
+  // Clients publish a kind 1984 to every relay they know: a report by an
+  // outside account about content that is not here is stored closed
+  // (lib/reports/foreignReport.ts) so the queue holds only what an operator
+  // can act on.
+  await reportService.file(input, { origin: await classifyOrigin(input) });
 }
 
 // ─── Push notifications ──────────────────────────────────────────────
@@ -691,10 +696,11 @@ async function syncMusicSearchDocs(event: NostrEvent, kind: 31683 | 33123) {
     // Every public track is indexed (the doc carries `unlisted`, so browse/search
     // filter it while insights still enumerate it)...
     const ms = getMeilisearchClient();
-    const task = await ms.index(index).addDocuments([buildMusicSearchDoc(event, kind)]);
+    const write = ms.index(index).addDocuments([buildMusicSearchDoc(event, kind)]);
+    await write;
     try {
       // ...and applied before the next version of this address looks for it.
-      await ms.index(index).waitForTask(task.taskUid, { timeOutMs: 10_000 });
+      await write.waitTask({ timeout: 10_000 });
     } catch (err) {
       console.error(`[ingester] ${index} write still pending:`, (err as Error).message);
     }

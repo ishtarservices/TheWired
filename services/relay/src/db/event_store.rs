@@ -1,10 +1,11 @@
 use serde_json::Value;
 use sqlx::{PgPool, Postgres};
 
-use crate::db::moderation;
+use crate::db::{community, moderation};
 use crate::nostr::access;
 use crate::nostr::event::Event;
 use crate::nostr::filter::Filter;
+use crate::nostr::firehose::{self, FirehosePolicy};
 use crate::nostr::report_gate::KIND_REPORT;
 use crate::nostr::wrap_gate::{event_expiration, ReadCtx, KIND_GIFT_WRAP};
 
@@ -305,14 +306,13 @@ fn build_conditions(filter: &Filter, ctx: &ReadCtx<'_>) -> (Vec<String>, Vec<Bin
             // One predicate for every protected shape (nostr::access): the
             // author, an access-granting p tag (role-aware), or — for `h`-only
             // events — a member of ANY listed space in EITHER the backend world
-            // (app.space_members) OR the relay-native one (relay.group_members).
+            // (app.space_members) OR the relay-native one (relay.group_members);
+            // the ingest role (`serve_all_spaces`) is a member of every space.
             // `h_tags && ARRAY(...)` is the any-of leg for multi-space events.
             // The indexed `p_tags` text[] pre-filters the jsonb role check so
             // the per-row scan only runs for rows that name the reader (#114).
             let pk = format!("${auth_param}[1]");
-            let members_any = format!(
-                "h_tags && ARRAY(SELECT space_id FROM app.space_members WHERE pubkey = {pk})                  OR h_tags && ARRAY(SELECT group_id FROM relay.group_members WHERE pubkey = {pk})"
-            );
+            let members_any = access::pg_members_any(&pk, ctx.serve_all_spaces);
             conditions.push(access::pg_visible_predicate(&pk, &members_any, ""));
 
             if !ctx.serve_all_wraps {
@@ -337,6 +337,16 @@ fn build_conditions(filter: &Filter, ctx: &ReadCtx<'_>) -> (Vec<String>, Vec<Bin
             }
             conditions.push(moderation::pg_not_shadowed_predicate(None));
         }
+    }
+
+    // Firehose policy (`nostr::firehose`): an untargeted timeline request
+    // under `community` returns community authors and the reader's own notes.
+    // Targeted filters never reach this branch, so threads, mentions,
+    // profiles and ids are served exactly as above.
+    if ctx.firehose_policy == FirehosePolicy::Community && firehose::is_firehose(filter) {
+        param_counter += 1;
+        conditions.push(community::pg_community_firehose_predicate(&format!("${param_counter}")));
+        binds.push(BindValue::StringVec(ctx.authed.map(|pk| vec![pk.to_string()]).unwrap_or_default()));
     }
 
     (conditions, binds)

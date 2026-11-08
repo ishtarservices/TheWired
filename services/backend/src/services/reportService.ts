@@ -19,6 +19,34 @@ import {
 } from "./platformModeration.js";
 import { notifyNewReport } from "./reportNotifier.js";
 import { suspensionService } from "./suspensionService.js";
+import { classifyOrigin, isAppUser, reporterFootprint } from "./reportFootprint.js";
+import {
+  FOREIGN_RESOLUTION,
+  REPORTER_LIMIT_RESOLUTION,
+  SYSTEM_ACTOR,
+  type OriginVerdict,
+} from "../lib/reports/foreignReport.js";
+
+/** Re-exported for the CLI and tests; defined beside the classifier. */
+export { FOREIGN_RESOLUTION, REPORTER_LIMIT_RESOLUTION, SYSTEM_ACTOR };
+
+/** A stored row as the classifier's input (the backfill re-judges rows). */
+function rowToInput(r: ReportRow): ReportInput {
+  return {
+    source: r.source,
+    reporterPubkey: r.reporterPubkey,
+    reporterIpHash: r.reporterIpHash,
+    targetType: r.targetType,
+    targetEventId: r.targetEventId,
+    targetCoordinate: r.targetCoordinate,
+    targetPubkey: r.targetPubkey,
+    targetKind: r.targetKind,
+    targetContext: r.targetContext,
+    category: r.category,
+    note: r.note,
+    reportEventId: r.reportEventId,
+  };
+}
 
 /**
  * User reports (App Store 1.2). Reports are input, not verdicts: nothing is
@@ -52,6 +80,39 @@ export interface ReportDTO {
   createdAt: string;
   resolvedAt?: string;
   triage?: Record<string, unknown>;
+}
+
+/**
+ * The account that filed the report, for the reviewer (GET /admin/reports/:id
+ * `reporter`; absent for a guest report). Counts are of this reporter's own
+ * reports, the one being viewed included; `firstSeenAt` is the earliest trace
+ * of the account in the app tables or on the relay, null when there is none.
+ */
+export interface ReporterDTO {
+  pubkey: string;
+  appUser: boolean;
+  firstSeenAt: string | null;
+  spacesJoined: number;
+  contentEventsHere: number;
+  reportsFiled: number;
+  reportsFiledLast24h: number;
+  reportsDismissedAsForeign: number;
+  reportsActioned: number;
+}
+
+async function reporterContext(pubkey: string): Promise<ReporterDTO> {
+  const [appUser, fp] = await Promise.all([isAppUser(pubkey), reporterFootprint(pubkey)]);
+  return {
+    pubkey,
+    appUser,
+    firstSeenAt: fp.firstSeenAt ? fp.firstSeenAt.toISOString() : null,
+    spacesJoined: fp.spacesJoined,
+    contentEventsHere: fp.contentEventsHere,
+    reportsFiled: fp.reportsFiled,
+    reportsFiledLast24h: fp.reportsFiledLast24h,
+    reportsDismissedAsForeign: fp.reportsDismissedAsForeign,
+    reportsActioned: fp.reportsActioned,
+  };
 }
 
 export function serializeReport(r: ReportRow): ReportDTO {
@@ -109,11 +170,52 @@ async function findOpenDuplicate(input: ReportInput): Promise<ReportRow | null> 
   return row ?? null;
 }
 
-export interface FileResult {
-  report: ReportRow;
-  created: boolean;
-  /** Settles when the operator notification (push enqueue + webhook) is done. */
-  notified: Promise<void>;
+export type FileResult =
+  | {
+      limited: false;
+      report: ReportRow;
+      created: boolean;
+      /** Settles when the operator notification (push enqueue + webhook) is done. */
+      notified: Promise<void>;
+    }
+  | {
+      /** The reporter is over config.reportsMaxOpenPerReporter. Through the
+       *  HTTP door nothing is stored (`report` null; the route answers 429);
+       *  a kind 1984 is stored closed with REPORTER_LIMIT_RESOLUTION. */
+      limited: true;
+      report: ReportRow | null;
+      created: boolean;
+      notified: Promise<void>;
+    };
+
+const NOT_NOTIFIED = Promise.resolve();
+
+/** The reporter already has `cap` open reports (counted up to the cap). */
+async function reporterAtCap(pubkey: string, cap: number): Promise<boolean> {
+  const [row] = (await db.execute(
+    sql`SELECT COUNT(*)::int AS n FROM (
+          SELECT 1 FROM app.reports WHERE reporter_pubkey = ${pubkey} AND status = 'open' LIMIT ${cap}) o`,
+  )) as unknown as Array<{ n: number }>;
+  return (row?.n ?? 0) >= cap;
+}
+
+/** The row an input repeats: its own kind 1984 (replay), else the open
+ *  (reporter, target) duplicate. */
+async function findExisting(input: ReportInput): Promise<ReportRow | null> {
+  // A replayed kind 1984 matches its own report_event_id; the same report
+  // through the other door (soot falls back to POST /reports when the relay
+  // publish fails) matches the open (reporter, target) duplicate instead.
+  const byEvent = input.reportEventId
+    ? (await db.select().from(reports).where(eq(reports.reportEventId, input.reportEventId)).limit(1))[0]
+    : undefined;
+  return byEvent ?? (await findOpenDuplicate(input));
+}
+
+export interface FileOptions {
+  /** The ingest path's origin verdict (lib/reports/foreignReport.ts). A
+   *  foreign report is stored closed — dismissed, resolution "foreign" — and
+   *  notifies nobody; the verdict is kept in `triage` either way. */
+  origin?: OriginVerdict;
 }
 
 export const reportService = {
@@ -121,7 +223,30 @@ export const reportService = {
    * File a report. Deduped on (reporter, target) while open — a repeat (or a
    * re-ingested kind 1984) returns the existing row and notifies nobody.
    */
-  async file(input: ReportInput, attempt = 0): Promise<FileResult> {
+  async file(input: ReportInput, opts: FileOptions = {}, attempt = 0): Promise<FileResult> {
+    const foreign = opts.origin?.origin === "foreign";
+    if (foreign) {
+      // An open report by the same reporter on the same target was judged
+      // local (or came through the app): this copy folds into it.
+      const open = await findOpenDuplicate(input);
+      if (open) return { limited: false, report: open, created: false, notified: NOT_NOTIFIED };
+    }
+    // The per-account cap. A foreign report never counts (stored closed), a
+    // guest is capped per IP at the gateway, and a repeat of an existing
+    // report is not a new one — it folds in as it would below the cap.
+    const cap = config.reportsMaxOpenPerReporter;
+    const limited =
+      !foreign && cap > 0 && !!input.reporterPubkey && (await reporterAtCap(input.reporterPubkey, cap));
+    if (limited) {
+      const existing = await findExisting(input);
+      if (existing) return { limited: false, report: existing, created: false, notified: NOT_NOTIFIED };
+      if (input.source === "http") return { limited: true, report: null, created: false, notified: NOT_NOTIFIED };
+    }
+    const closed = foreign
+      ? { status: "dismissed" as const, resolution: FOREIGN_RESOLUTION, resolvedBy: SYSTEM_ACTOR, resolvedAt: new Date() }
+      : limited
+        ? { status: "dismissed" as const, resolution: REPORTER_LIMIT_RESOLUTION, resolvedBy: SYSTEM_ACTOR, resolvedAt: new Date() }
+        : {};
     const inserted = await db
       .insert(reports)
       .values({
@@ -138,32 +263,78 @@ export const reportService = {
         category: input.category,
         note: input.note,
         reportEventId: input.reportEventId,
+        triage: opts.origin ? { origin: opts.origin.origin, signals: opts.origin.signals } : undefined,
+        ...closed,
       })
       .onConflictDoNothing()
       .returning();
 
     if (inserted[0]) {
       const report = inserted[0];
+      if (foreign) return { limited: false, report, created: true, notified: NOT_NOTIFIED };
+      if (limited) return { limited: true, report, created: true, notified: NOT_NOTIFIED };
       const notified = notifyNewReport(report).catch((err) => {
         console.error("[reports] notify failed:", (err as Error).message);
       });
-      return { report, created: true, notified };
+      return { limited: false, report, created: true, notified };
     }
 
-    // A replayed kind 1984 matches its own report_event_id; the same report
-    // through the other door (soot falls back to POST /reports when the relay
-    // publish fails) matches the open (reporter, target) duplicate instead.
-    const byEvent = input.reportEventId
-      ? (await db.select().from(reports).where(eq(reports.reportEventId, input.reportEventId)).limit(1))[0]
-      : undefined;
-    const existing = byEvent ?? (await findOpenDuplicate(input));
+    const existing = await findExisting(input);
     if (!existing) {
       // The open duplicate was resolved between the conflict and the lookup:
       // the target is no longer deduped, so this report files fresh.
-      if (attempt === 0) return this.file(input, 1);
+      if (attempt === 0) return this.file(input, opts, 1);
       throw new Error("report conflicted but no matching row was found");
     }
-    return { report: existing, created: false, notified: Promise.resolve() };
+    return { limited: false, report: existing, created: false, notified: NOT_NOTIFIED };
+  },
+
+  /**
+   * Re-judge the OPEN relay-sourced reports with the current footprint and
+   * close the foreign ones (dismissed, resolution "foreign"). For the queue
+   * that filled up before classification existed. `apply: false` only
+   * reports what would close.
+   */
+  async triageOpenForeign(opts: {
+    apply: boolean;
+    actor: string;
+    classify?: (input: ReportInput) => Promise<OriginVerdict>;
+  }): Promise<{ checked: number; foreign: string[]; closed: number }> {
+    const classify = opts.classify ?? classifyOrigin;
+    const open = await db
+      .select()
+      .from(reports)
+      .where(and(eq(reports.status, "open"), eq(reports.source, "nostr")))
+      .orderBy(desc(reports.createdAt), desc(reports.id));
+    const foreign: string[] = [];
+    let closed = 0;
+    for (const row of open) {
+      const verdict = await classify(rowToInput(row));
+      if (verdict.origin !== "foreign") continue;
+      foreign.push(row.id);
+      if (!opts.apply) continue;
+      const updated = await db
+        .update(reports)
+        .set({
+          status: "dismissed",
+          resolution: FOREIGN_RESOLUTION,
+          resolvedBy: opts.actor,
+          resolvedAt: new Date(),
+          triage: { ...(row.triage ?? {}), origin: verdict.origin, signals: verdict.signals },
+        })
+        // Still open: a reviewer may have acted on it since the select.
+        .where(and(eq(reports.id, row.id), eq(reports.status, "open")))
+        .returning({ id: reports.id });
+      if (updated.length === 0) continue;
+      closed += 1;
+      await logPlatformAudit(opts.actor, "report_foreign", row.targetPubkey, {
+        reportId: row.id,
+        category: row.category,
+        targetType: row.targetType,
+        signals: verdict.signals,
+      });
+    }
+    return { checked: open.length, foreign, closed };
   },
 
   async get(id: string): Promise<ReportRow | null> {
@@ -198,8 +369,9 @@ export const reportService = {
     };
   },
 
-  /** The report plus what the reviewer needs to judge it. */
-  async detail(row: ReportRow) {
+  /** The report plus what the reviewer needs to judge it: the target, and
+   *  the reporter's own footprint (`reporter`, omitted for a guest). */
+  async detail(row: ReportRow): Promise<{ report: ReportDTO; target: Record<string, unknown>; reporter?: ReporterDTO }> {
     let event: RelayEventRow | null = null;
     let removed = false;
     if (row.targetType !== "dm" && (row.targetEventId || row.targetCoordinate)) {
@@ -266,7 +438,12 @@ export const reportService = {
       target.suspended = mode !== null;
       target.suspensionMode = mode;
     }
-    return { report: serializeReport(row), target };
+    const out: { report: ReportDTO; target: Record<string, unknown>; reporter?: ReporterDTO } = {
+      report: serializeReport(row),
+      target,
+    };
+    if (row.reporterPubkey) out.reporter = await reporterContext(row.reporterPubkey);
+    return out;
   },
 
   /**
