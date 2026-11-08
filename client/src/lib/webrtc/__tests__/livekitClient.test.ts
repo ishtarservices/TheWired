@@ -138,7 +138,7 @@ vi.mock("@/features/listenTogether/listenTogetherService", () => ({
 // crypto.subtle.importKey rejects it here; production runs in one realm.
 const realCrypto = globalThis.crypto;
 vi.stubGlobal("crypto", {
-  getRandomValues: (a: Uint8Array) => realCrypto.getRandomValues(a),
+  getRandomValues: (a: Uint8Array<ArrayBuffer>) => realCrypto.getRandomValues(a),
   randomUUID: () => realCrypto.randomUUID(),
   subtle: { importKey: async (_f: string, _b: ArrayBuffer, algo: unknown) => ({ algo }) },
 });
