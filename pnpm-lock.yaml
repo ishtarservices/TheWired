@@ -21,8 +21,8 @@ importers:
         specifier: ^2.25.5
         version: 2.25.5(nostr-wasm@0.1.0)(typescript@5.9.3)
       postgres:
-        specifier: ^3.4.5
-        version: 3.4.8
+        specifier: ^4.0.0
+        version: 4.0.0
       tsx:
         specifier: ^4.23.15
         version: 4.23.15
@@ -282,7 +282,7 @@ importers:
         version: 5.75.2
       drizzle-orm:
         specifier: ^0.45.4
-        version: 0.45.4(gel@2.2.0)(postgres@3.4.8)
+        version: 0.45.4(gel@2.2.0)(postgres@4.0.0)
       fastify:
         specifier: ^5.12.8
         version: 5.12.8
@@ -305,8 +305,8 @@ importers:
         specifier: ^9.6.0
         version: 9.14.0
       postgres:
-        specifier: ^3.4.5
-        version: 3.4.8
+        specifier: ^4.0.0
+        version: 4.0.0
       sharp:
         specifier: ^0.35.5
         version: 0.35.5(@types/node@22.19.11)
@@ -4008,9 +4008,9 @@ packages:
     resolution: {integrity: sha512-YUbWYCgErwnMAVkjUnYa+KlMBzGpHwiIt/DE7f0G33AuX2LH9UcTk6KgWxd3zRU+pN3u/C+Xl3EnMLM4Hea7Sg==}
     engines: {node: ^10 || ^12 || >=14}
 
-  postgres@3.4.8:
-    resolution: {integrity: sha512-d+JFcLM17njZaOLkv6SCev7uoLaBtfK86vMUXhW1Z4glPWh4jozno9APvW/XKFJ3CCxVoC7OL38BqRydtu5nGg==}
-    engines: {node: '>=12'}
+  postgres@4.0.0:
+    resolution: {integrity: sha512-kBh8qXtcvvIAc00DftQyOxz7M/3Zxww1tRMXZPLzipNXXl5PIzHml+9zB3Mrge2U8ldc0WF1ZdLp1iYQi7Kh3A==}
+    engines: {node: '>=20'}
 
   pretty-format@27.5.1:
     resolution: {integrity: sha512-Qb1gy5OrP5+zDf2Bvnzdl3jsTf1qXVMazbvCoKhtKqVs4/YK4ozX4gKQJJVyNe+cajNPn0KoC0MC3FUmaHWEmQ==}
@@ -7175,10 +7175,10 @@ snapshots:
       esbuild: 0.25.12
       tsx: 4.23.15
 
-  drizzle-orm@0.45.4(gel@2.2.0)(postgres@3.4.8):
+  drizzle-orm@0.45.4(gel@2.2.0)(postgres@4.0.0):
     optionalDependencies:
       gel: 2.2.0
-      postgres: 3.4.8
+      postgres: 4.0.0
 
   dset@3.1.4: {}
 
@@ -8560,7 +8560,7 @@ snapshots:
       picocolors: 1.1.1
       source-map-js: 1.2.2
 
-  postgres@3.4.8: {}
+  postgres@4.0.0: {}
 
   pretty-format@27.5.1:
     dependencies:
