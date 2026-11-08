@@ -31,10 +31,19 @@ updates:
     open-pull-requests-limit: 10
     versioning-strategy: increase
     groups:
+      # @vitejs/plugin-react 6 imports vite 7 internals, so the two majors
+      # only build together.
+      vite:
+        patterns: ["vite", "@vitejs/*"]
+        update-types: ["major"]
       npm-minor-patch:
         update-types: ["minor", "patch"]
     # Planned migrations, not drop-in bumps: zod 4 and tiptap 3 change their
-    # APIs, and astro 7 moves the landing site's sharp/vite with it.
+    # APIs, astro 7 moves the landing site's sharp/vite with it, and
+    # @noble/curves 2 renames its subpaths (`/secp256k1` → `/secp256k1.js`) and
+    # drops hex inputs across the published core package and the client. The
+    # @types/node major follows the Node runtime (`node:22-slim` images, CI
+    # `node-version: 22`), like the Docker rule below.
     ignore:
       - dependency-name: zod
         update-types: ["version-update:semver-major"]
@@ -43,6 +52,10 @@ updates:
       - dependency-name: astro
         update-types: ["version-update:semver-major"]
       - dependency-name: "@astrojs/*"
+        update-types: ["version-update:semver-major"]
+      - dependency-name: "@noble/curves"
+        update-types: ["version-update:semver-major"]
+      - dependency-name: "@types/node"
         update-types: ["version-update:semver-major"]
     commit-message:
       prefix: chore(deps)
