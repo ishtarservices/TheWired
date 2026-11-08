@@ -26,6 +26,7 @@ vi.mock("../relayManager", () => ({
     }),
     closeSubscription: vi.fn(),
     connect: vi.fn(),
+    connectPeer: vi.fn(),
     waitForConnection: vi.fn(async () => true),
     getWriteRelays: vi.fn(() => [{ url: "wss://write.example" }]),
   },
@@ -44,6 +45,7 @@ import { normalizeRelayUrl } from "../relayUrl";
 
 const subscribeMock = relayManager.subscribe as unknown as Mock;
 const connectMock = relayManager.connect as unknown as Mock;
+const connectPeerMock = relayManager.connectPeer as unknown as Mock;
 
 const APP = normalizeRelayUrl(APP_RELAY) ?? APP_RELAY;
 const PEER = "b".repeat(64);
@@ -71,9 +73,12 @@ describe("getDMRelaysForPublish — recipient wraps always reach the platform re
     expect(targets).toEqual(["wss://inbox.example", "wss://inbox2.example", APP]);
     // Their own inbox relays are still dialed before publishing — and so is
     // the platform relay, so its copy is not lost mid-reconnect.
-    expect(connectMock).toHaveBeenCalledWith("wss://inbox.example");
-    expect(connectMock).toHaveBeenCalledWith("wss://inbox2.example");
+    // Recipient-chosen relays are dialed peer-only (no AUTH as the user);
+    // the platform relay is ours and AUTHs as usual.
+    expect(connectPeerMock).toHaveBeenCalledWith("wss://inbox.example");
+    expect(connectPeerMock).toHaveBeenCalledWith("wss://inbox2.example");
     expect(connectMock).toHaveBeenCalledWith(APP);
+    expect(connectMock).not.toHaveBeenCalledWith("wss://inbox.example");
     expect(relayManager.waitForConnection).toHaveBeenCalledWith(APP, 3000);
   });
 

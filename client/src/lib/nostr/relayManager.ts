@@ -85,6 +85,16 @@ class RelayManagerImpl {
    *  group to import) we suppress AUTH until they actually join. */
   private authSuppressed = new Set<string>();
 
+  /** Relays dialed only to hand a gift wrap to a recipient's kind-10050 inbox
+   *  (AUTH-privacy, docs/DM_WIRE_CONTRACT.md §1). The wrap is signed by an
+   *  ephemeral key, so a kind 22242 signed by the identity key would be the one
+   *  frame on that socket naming the sender — to a relay the *recipient* chose.
+   *  Never answer AUTH there, and keep the socket out of the read/write pools
+   *  so no broadcast REQ (`authors=[me]`) and no untargeted publish reaches it
+   *  either. A later plain connect() for the same URL (user relay list, space
+   *  host, group import) lifts the restriction: the user chose it after all. */
+  private peerOnly = new Set<string>();
+
   /** Relays that have reached "connected" at least once this session — lets us
    *  tell a reconnect apart from a first connect. */
   private everConnected = new Set<string>();
@@ -119,6 +129,9 @@ class RelayManagerImpl {
     const k = this.key(url);
     const existing = this.connections.get(k);
     if (existing) {
+      // A relay first dialed for a peer's inbox is now wanted for the user's
+      // own reasons: allow AUTH and answer any challenge it already sent.
+      if (this.peerOnly.delete(k)) existing.tryAuth();
       existing.connect();
       return existing;
     }
@@ -158,7 +171,7 @@ class RelayManagerImpl {
       onAuth: async (challenge: string, relayUrl: string): Promise<NostrEvent | null> => {
         // AUTH-privacy: never reveal the user's pubkey to a relay they haven't
         // opted into (e.g. one we dialed just to preview a group for import).
-        if (this.authSuppressed.has(relayUrl)) return null;
+        if (this.authSuppressed.has(relayUrl) || this.peerOnly.has(relayUrl)) return null;
         // Lazy imports to avoid circular dependency
         const { getSigner } = await import("./loginFlow");
         const { store } = await import("../../store");
@@ -190,12 +203,43 @@ class RelayManagerImpl {
     return conn;
   }
 
+  /** Dial a relay only because a DM recipient's kind-10050 list names it
+   *  (docs/DM_WIRE_CONTRACT.md §1). Unlike connect(), the socket never answers
+   *  NIP-42 AUTH as the user and joins neither the read nor the write pool:
+   *  only explicitly targeted frames (the wrap) go there. Relays the user or
+   *  the app already chose — an existing connection, the platform relay (it
+   *  needs AUTH for self-wrap detection, §7.3), bootstrap and NIP-65 relays —
+   *  are dialed like connect(), since they carry the user's signed events
+   *  anyway. Callers that know further user-chosen relays (the own 10050 list)
+   *  route those through connect() themselves. */
+  connectPeer(url: string): RelayConnection {
+    const k = this.key(url);
+    const existing = this.connections.get(k);
+    if (existing) {
+      existing.connect();
+      return existing;
+    }
+    const chosen =
+      k === this.key(APP_RELAY) ||
+      BOOTSTRAP_RELAYS.some((b) => this.key(b) === k) ||
+      this.userRelayUrls.has(k);
+    if (chosen) return this.connect(url);
+    this.peerOnly.add(k);
+    return this.connect(url, "write");
+  }
+
+  /** True while `url` is held only for a peer's inbox (see connectPeer). */
+  isPeerOnly(url: string): boolean {
+    return this.peerOnly.has(this.key(url));
+  }
+
   disconnect(url: string): void {
     const k = this.key(url);
     const conn = this.connections.get(k);
     if (conn) {
       conn.disconnect();
       this.connections.delete(k);
+      this.peerOnly.delete(k);
       // Forget the connect history so a future re-add counts as a first
       // connect, not a "reconnect" (no needless publishOutbox replay).
       this.everConnected.delete(k);
@@ -219,6 +263,7 @@ class RelayManagerImpl {
     this.onEventCallbacks.clear();
     this.onEOSECallbacks.clear();
     this.authSuppressed.clear();
+    this.peerOnly.clear();
     // User relay config is per-account — clear it so an account switch starts
     // clean (the next login reloads its own list + disabled set).
     this.userRelayUrls.clear();
@@ -328,19 +373,23 @@ class RelayManagerImpl {
     }
   }
 
+  /** Connected write relays — never a peer-only socket (connectPeer). */
   getWriteRelays(): RelayConnection[] {
     return [...this.connections.values()].filter(
       (c) =>
         (c.mode === "write" || c.mode === "read+write") &&
-        c.getStatus() === "connected",
+        c.getStatus() === "connected" &&
+        !this.peerOnly.has(c.url),
     );
   }
 
+  /** Connected read relays — never a peer-only socket (connectPeer). */
   getReadRelays(): RelayConnection[] {
     return [...this.connections.values()].filter(
       (c) =>
         (c.mode === "read" || c.mode === "read+write") &&
-        c.getStatus() === "connected",
+        c.getStatus() === "connected" &&
+        !this.peerOnly.has(c.url),
     );
   }
 
@@ -670,8 +719,9 @@ class RelayManagerImpl {
       if (conn.hasSubscription(subId)) continue;
       if (!this.onEventCallbacks.has(subId)) continue;
       if (pending.broadcast) {
-        // Broadcast subs go to any read relay allowed to carry them.
-        if (!isReadRelay) continue;
+        // Broadcast subs go to any read relay allowed to carry them — never a
+        // peer-only socket (connectPeer), whatever its mode.
+        if (!isReadRelay || this.peerOnly.has(relayUrl)) continue;
         if (!pending.indexerSafe && INDEXER_SET.has(relayUrl)) continue;
       } else if (!pending.intendedUrls.includes(relayUrl)) {
         continue;
