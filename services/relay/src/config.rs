@@ -1,3 +1,4 @@
+use crate::nostr::firehose::FirehosePolicy;
 use crate::nostr::wrap_gate::{WrapAuthGate, WrapIntakeGate};
 
 #[derive(Debug, Clone)]
@@ -35,6 +36,19 @@ pub struct Config {
     /// (`nostr::report_gate`). `RELAY_REPORT_READ_GATE` = on (default) | off;
     /// `off` is for local dev without an ingest key.
     pub report_read_gate: bool,
+
+    // ── Firehose (`nostr::firehose`) ──
+    /// What an untargeted kind-1 REQ shows (Postgres only; the embedded
+    /// relay has no community and serves everyone). `all` is today's
+    /// behaviour; `community` restricts firehose requests to community
+    /// authors (`db::community`) while every targeted request is unchanged.
+    /// `RELAY_FIREHOSE_POLICY` = all (default) | community.
+    pub firehose_policy: FirehosePolicy,
+    /// The relay's public address when it differs from `RELAY_URL` (a relay
+    /// configured with its internal URL behind a proxy). Only used to
+    /// recognise this relay in stored kind-10002/10050 lists for the
+    /// community set. `PUBLIC_RELAY_URL`.
+    pub public_relay_url: Option<String>,
 
     // ── Rate limits (always on; the Caddy proxy routes the relay around the
     //    gateway, so nothing else limits WebSocket traffic) ──
@@ -96,6 +110,8 @@ impl Default for Config {
             wrap_retention_days: 0,
             wrap_intake_gate: WrapIntakeGate::Warn,
             report_read_gate: true,
+            firehose_policy: FirehosePolicy::All,
+            public_relay_url: None,
             rate_max_msgs: 300,
             rate_window_secs: 10,
             rate_cold_start_max_msgs: 900,
@@ -155,6 +171,11 @@ impl Config {
                     .as_str(),
                 "off" | "0" | "false"
             ),
+            firehose_policy: FirehosePolicy::parse(&std::env::var("RELAY_FIREHOSE_POLICY").unwrap_or_default()),
+            public_relay_url: std::env::var("PUBLIC_RELAY_URL")
+                .ok()
+                .map(|s| s.trim().to_string())
+                .filter(|s| !s.is_empty()),
             rate_max_msgs: env_or("RELAY_RATE_MAX_MSGS", d.rate_max_msgs),
             rate_window_secs: env_or("RELAY_RATE_WINDOW_SECS", d.rate_window_secs),
             rate_cold_start_max_msgs: env_or("RELAY_RATE_COLD_START_MAX_MSGS", d.rate_cold_start_max_msgs),

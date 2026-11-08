@@ -51,6 +51,7 @@ async fn embedded_state(gate: WrapIntakeGate, owner: &TestIdentity) -> (Arc<AppS
         ip_last_connect: std::sync::Mutex::new(Default::default()),
         metrics: Default::default(),
         shadowed: std::sync::RwLock::new(Default::default()),
+        community: std::sync::RwLock::new(None),
     };
     (Arc::new(state), tx)
 }

@@ -1,4 +1,5 @@
 pub mod backend;
+pub mod community;
 pub mod dm_relay_list;
 pub mod event_store;
 pub mod group_store;

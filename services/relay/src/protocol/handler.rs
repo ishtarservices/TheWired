@@ -5,6 +5,7 @@ use tokio::sync::Mutex;
 
 use crate::nostr::event::Event;
 use crate::nostr::filter::Filter;
+use crate::nostr::firehose::FirehosePolicy;
 use crate::nostr::membership_gate::{
     distinct_h_tags, evaluate_publish_gate, PublishVerdict, SpaceMembership,
 };
@@ -31,6 +32,12 @@ pub fn read_ctx<'a>(state: &'a AppState, authed_pubkey: &'a Option<String>) -> R
         serve_all_reports: ingest || !state.config.report_read_gate,
         serve_all_spaces: ingest,
         now: wrap_gate::unix_now(),
+        // The ingest role reads the relay whole: its own-relay REQ asks for
+        // kinds 0/1/5/7/9/… in one filter, and the backend must keep seeing
+        // every author's profiles, deletions and group metadata to index and
+        // moderate correctly. What the community timeline shows is decided
+        // again on the backend's own surfaces.
+        firehose_policy: if ingest { FirehosePolicy::All } else { state.config.firehose_policy },
     }
 }
 
