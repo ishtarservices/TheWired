@@ -48,15 +48,22 @@ const meili = vi.hoisted(() => {
     tasks.set(++taskUid, queue);
     return { taskUid };
   };
+  // Like meilisearch-js's EnqueuedTaskPromise: resolves to the task, and
+  // `waitTask()` resolves once that write is applied.
+  const enqueued = (apply: () => void) => {
+    const { taskUid } = enqueue(apply);
+    const applied = tasks.get(taskUid)!;
+    return Object.assign(Promise.resolve({ taskUid }), {
+      waitTask: async () => {
+        await applied;
+        return { status: "succeeded" };
+      },
+    });
+  };
   const index = (name: string) => ({
-    addDocuments: async (batch: Doc[]) =>
-      enqueue(() => batch.forEach((d) => docs(name).set(d.id as string, d))),
-    deleteDocuments: async (ids: string[]) => enqueue(() => ids.forEach((id) => docs(name).delete(id))),
-    deleteDocument: async (id: string) => enqueue(() => docs(name).delete(id)),
-    waitForTask: async (uid: number) => {
-      await tasks.get(uid);
-      return { status: "succeeded" };
-    },
+    addDocuments: (batch: Doc[]) => enqueued(() => batch.forEach((d) => docs(name).set(d.id as string, d))),
+    deleteDocuments: (ids: string[]) => enqueued(() => ids.forEach((id) => docs(name).delete(id))),
+    deleteDocument: (id: string) => enqueued(() => docs(name).delete(id)),
     search: async (_q: string, opts: { filter?: string; limit?: number } = {}) => {
       await sleep(10);
       const hits = [...docs(name).values()].filter((d) => matches(d, opts.filter)).slice(0, opts.limit ?? 20);

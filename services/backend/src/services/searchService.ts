@@ -33,7 +33,7 @@ function normalizePeopleSort(sort: string | undefined): string | undefined {
 export const searchService = {
   async search(query: string, opts: { kind?: number; limit?: number }) {
     const client = getMeilisearchClient();
-    const index = client.index("events");
+    const index = client.index<{ pubkey?: string }>("events");
     const filters: string[] = [];
     if (opts.kind !== undefined) filters.push(`kind = ${opts.kind}`);
 
@@ -41,7 +41,7 @@ export const searchService = {
       limit: opts.limit ?? 20,
       filter: filters.length > 0 ? filters.join(" AND ") : undefined,
     });
-    return suspensionService.withoutSuspended(results.hits, (h) => h.pubkey as string | undefined);
+    return suspensionService.withoutSuspended(results.hits, (h) => h.pubkey);
   },
 
   /**

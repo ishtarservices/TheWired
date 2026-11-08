@@ -95,7 +95,7 @@ const decoder = new TextDecoder();
 
 export const LISTEN_TOGETHER_TOPIC = LT_TOPIC;
 
-export function encodeLTMessage(msg: LTMessage): Uint8Array {
+export function encodeLTMessage(msg: LTMessage): Uint8Array<ArrayBuffer> {
   return encoder.encode(JSON.stringify(msg));
 }
 

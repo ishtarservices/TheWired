@@ -1,11 +1,11 @@
-import { MeiliSearch } from "meilisearch";
+import { Meilisearch } from "meilisearch";
 import { config } from "../config.js";
 
-let client: MeiliSearch | null = null;
+let client: Meilisearch | null = null;
 
-export function getMeilisearchClient(): MeiliSearch {
+export function getMeilisearchClient(): Meilisearch {
   if (!client) {
-    client = new MeiliSearch({
+    client = new Meilisearch({
       host: config.meilisearchUrl,
       apiKey: config.meilisearchKey,
     });
