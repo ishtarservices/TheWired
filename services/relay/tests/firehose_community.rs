@@ -143,9 +143,11 @@ async fn suspend(pool: &PgPool, pubkey: &str, mode: &str) {
         .unwrap();
 }
 
-async fn table_rows(pool: &PgPool) -> HashSet<String> {
+/// Every row of `relay.community_authors` except the relay's own signing
+/// key, which is always present (see `the_relay_identity_is_always_a_community_author`).
+async fn table_rows(pool: &PgPool, state: &AppState) -> HashSet<String> {
     let rows: Vec<(String,)> = sqlx::query_as("SELECT pubkey FROM relay.community_authors").fetch_all(pool).await.unwrap();
-    rows.into_iter().map(|r| r.0).collect()
+    rows.into_iter().map(|r| r.0).filter(|pk| *pk != state.relay_identity.pubkey).collect()
 }
 
 const FIREHOSE: &str = r#"{"kinds":[1],"limit":50}"#;
@@ -258,7 +260,7 @@ async fn every_source_makes_a_community_author() {
     }
     assert!(!state.firehose_serves(&stranger.pubkey, None));
     let expected: HashSet<String> = members.iter().map(|m| m.pubkey.clone()).collect();
-    assert_eq!(table_rows(&pool).await, expected, "the table mirrors the set");
+    assert_eq!(table_rows(&pool, &state).await, expected, "the table mirrors the set");
 
     // And the firehose agrees, stored.
     let notes: Vec<Event> = members.iter().map(|m| note(m, "hi")).collect();
@@ -329,7 +331,7 @@ async fn read_markers_and_lookalike_urls_do_not_count() {
         assert!(!state.firehose_serves(&id.pubkey, None), "{}", lookalikes[i]);
         assert!(!state.firehose_serves(&TestIdentity::from_seed(30 + i as u8).pubkey, None), "{}", lookalikes[i]);
     }
-    assert!(table_rows(&pool).await.is_empty());
+    assert!(table_rows(&pool, &state).await.is_empty());
 
     // Marker spellings that do count: none, `write`, and an empty marker.
     let w1 = TestIdentity::from_seed(40);
@@ -358,7 +360,7 @@ async fn shadowed_and_suspended_community_authors_are_excluded() {
     assert!(state.firehose_serves(&fine.pubkey, None));
     assert!(!state.firehose_serves(&shadowed.pubkey, None));
     assert!(!state.firehose_serves(&suspended.pubkey, None));
-    assert_eq!(table_rows(&pool).await, HashSet::from([fine.pubkey.clone()]));
+    assert_eq!(table_rows(&pool, &state).await, HashSet::from([fine.pubkey.clone()]));
     // The shadowed author still sees their own note in the firehose.
     let n = note(&shadowed, "still here for me");
     publish(&state, &tx, &n).await;
@@ -450,7 +452,7 @@ async fn a_missing_account_clients_table_does_not_fail_the_refresh() {
     let (state, _tx) = community_state(pool.clone());
     state.refresh_community().await;
     let served = state.firehose_serves(&member.pubkey, None);
-    let table = table_rows(&pool).await;
+    let table = table_rows(&pool, &state).await;
     // Put the table back before asserting so a failure here cannot cascade.
     sqlx::raw_sql(
         "CREATE TABLE app.account_clients (pubkey TEXT NOT NULL, client TEXT NOT NULL, platform TEXT NOT NULL DEFAULT '', \
@@ -644,7 +646,7 @@ async fn relay_list_oddities_are_handled() {
     assert!(state.firehose_serves(&long_list.pubkey, None), "last of 61 entries");
     assert!(!state.firehose_serves(&empty_list.pubkey, None));
     assert!(state.firehose_serves(&via_public.pubkey, None), "PUBLIC_RELAY_URL counts as us");
-    assert_eq!(table_rows(&pool).await, HashSet::from([long_list.pubkey.clone(), via_public.pubkey.clone()]));
+    assert_eq!(table_rows(&pool, &state).await, HashSet::from([long_list.pubkey.clone(), via_public.pubkey.clone()]));
 }
 
 /// Leaving every source removes an author on the next refresh — from the
@@ -677,7 +679,7 @@ async fn leaving_every_source_removes_the_author_on_the_next_refresh() {
     // …then both are gone everywhere.
     assert!(!state.firehose_serves(&kicked.pubkey, None));
     assert!(!state.firehose_serves(&deleter.pubkey, None));
-    assert!(table_rows(&pool).await.is_empty());
+    assert!(table_rows(&pool, &state).await.is_empty());
     assert!(Conn::new(None).req(&state, &tx, FIREHOSE).await.is_empty());
     // Their notes are still there for anyone who asks for them.
     assert!(Conn::new(None).req(&state, &tx, &format!(r#"{{"ids":["{}","{}"]}}"#, n1.id, n2.id)).await.len() == 2);
@@ -739,7 +741,9 @@ async fn the_relay_identity_is_always_a_community_author() {
     let relay_pk = state.relay_identity.pubkey.clone();
     state.refresh_community().await;
     assert!(state.firehose_serves(&relay_pk, None));
-    assert_eq!(table_rows(&pool).await, HashSet::from([relay_pk.clone()]));
+    let raw: Vec<(String,)> = sqlx::query_as("SELECT pubkey FROM relay.community_authors").fetch_all(&pool).await.unwrap();
+    assert_eq!(raw, vec![(relay_pk.clone(),)]);
+    assert!(table_rows(&pool, &state).await.is_empty());
     // …even when operator moderation names it by mistake: the relay key is
     // added after the suspension pass. (Nothing else is in the set, so a
     // stranger is still excluded.)
