@@ -315,6 +315,25 @@ fn is_event_visible_to_ctx(
     })
 }
 
+/// The subscriptions of a connection that receive `event` live: every one a
+/// filter matches — except, under `RELAY_FIREHOSE_POLICY=community`, that a
+/// firehose filter (`nostr::firehose`) does not count for an author outside
+/// the community unless the reader is that author. A subscription whose
+/// targeted filter (author, mention, thread…) matches is still served, so
+/// the live path agrees with the stored one.
+pub fn live_matching_subs(
+    state: &AppState,
+    subs: &crate::protocol::subscription::SubscriptionManager,
+    event: &Event,
+    authed: Option<&str>,
+) -> Vec<String> {
+    if state.firehose_serves(&event.pubkey, authed) {
+        subs.matching_subs(event)
+    } else {
+        subs.matching_subs_where(event, |f| !crate::nostr::firehose::is_firehose(f))
+    }
+}
+
 /// Per-client WebSocket connection handler
 pub async fn handle_connection(
     socket: WebSocket,
@@ -570,7 +589,7 @@ pub async fn handle_connection(
                         }
 
                         let subs = subscriptions.lock().await;
-                        let matching = subs.matching_subs(&event);
+                        let matching = live_matching_subs(&state, &subs, &event, ctx.authed);
                         drop(subs);
 
                         for sub_id in matching {
@@ -835,7 +854,7 @@ mod tests {
         assert!(!is_event_visible_to(&evt, &None, &empty_set()));
         assert!(is_event_visible_to(&evt, &Some("bob".into()), &empty_set()));
         assert!(!is_event_visible_to(&evt, &Some("carol".into()), &empty_set()));
-        let ingest = ReadCtx { authed: Some("backend"), serve_all_wraps: true, serve_all_reports: true, now: 0 };
+        let ingest = ReadCtx { authed: Some("backend"), serve_all_wraps: true, serve_all_reports: true, now: 0, firehose_policy: Default::default() };
         assert!(is_event_visible_to_ctx(&evt, &ingest, &empty_set()));
     }
 
@@ -847,7 +866,7 @@ mod tests {
         assert!(!is_event_visible_to(&evt, &None, &empty_set()));
         assert!(is_event_visible_to(&evt, &Some("alice".into()), &empty_set()));
         assert!(!is_event_visible_to(&evt, &Some("mallory".into()), &empty_set()));
-        let ingest = ReadCtx { authed: Some("backend"), serve_all_wraps: true, serve_all_reports: true, now: 0 };
+        let ingest = ReadCtx { authed: Some("backend"), serve_all_wraps: true, serve_all_reports: true, now: 0, firehose_policy: Default::default() };
         assert!(is_event_visible_to_ctx(&evt, &ingest, &empty_set()));
     }
 
@@ -855,8 +874,8 @@ mod tests {
     #[test]
     fn expired_events_are_never_broadcast() {
         let evt = event_with(1, "alice", vec![vec!["expiration".into(), "100".into()]]);
-        let live = ReadCtx { authed: None, serve_all_wraps: false, serve_all_reports: false, now: 99 };
-        let dead = ReadCtx { authed: None, serve_all_wraps: false, serve_all_reports: false, now: 100 };
+        let live = ReadCtx { authed: None, serve_all_wraps: false, serve_all_reports: false, now: 99, firehose_policy: Default::default() };
+        let dead = ReadCtx { authed: None, serve_all_wraps: false, serve_all_reports: false, now: 100, firehose_policy: Default::default() };
         assert!(is_event_visible_to_ctx(&evt, &live, &empty_set()));
         assert!(!is_event_visible_to_ctx(&evt, &dead, &empty_set()));
     }

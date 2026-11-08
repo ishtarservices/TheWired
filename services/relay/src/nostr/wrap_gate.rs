@@ -309,13 +309,23 @@ pub struct ReadCtx<'a> {
     pub serve_all_reports: bool,
     /// Unix seconds "now" for NIP-40 checks.
     pub now: i64,
+    /// What a firehose filter returns (`nostr::firehose`): everything, or
+    /// community authors plus the reader's own notes.
+    pub firehose_policy: crate::nostr::firehose::FirehosePolicy,
 }
 
 impl<'a> ReadCtx<'a> {
     /// The plain, pre-contract context (used by callers that predate the
-    /// gate and by tests): no ingest role, gates enforced, wall-clock now.
+    /// gate and by tests): no ingest role, gates enforced, wall-clock now,
+    /// firehose policy `all`.
     pub fn plain(authed: Option<&'a str>) -> Self {
-        ReadCtx { authed, serve_all_wraps: false, serve_all_reports: false, now: unix_now() }
+        ReadCtx {
+            authed,
+            serve_all_wraps: false,
+            serve_all_reports: false,
+            now: unix_now(),
+            firehose_policy: Default::default(),
+        }
     }
 }
 
@@ -418,11 +428,11 @@ mod tests {
     fn wrap_only_visible_to_its_recipient() {
         let bob = "b".repeat(64);
         let w = wrap(&bob, vec![]);
-        let anon = ReadCtx { authed: None, serve_all_wraps: false, serve_all_reports: false, now: 0 };
-        let as_bob = ReadCtx { authed: Some(&bob), serve_all_wraps: false, serve_all_reports: false, now: 0 };
+        let anon = ReadCtx { authed: None, serve_all_wraps: false, serve_all_reports: false, now: 0, firehose_policy: Default::default() };
+        let as_bob = ReadCtx { authed: Some(&bob), serve_all_wraps: false, serve_all_reports: false, now: 0, firehose_policy: Default::default() };
         let stranger = "c".repeat(64);
-        let as_stranger = ReadCtx { authed: Some(&stranger), serve_all_wraps: false, serve_all_reports: false, now: 0 };
-        let ingest = ReadCtx { authed: Some(&stranger), serve_all_wraps: true, serve_all_reports: true, now: 0 };
+        let as_stranger = ReadCtx { authed: Some(&stranger), serve_all_wraps: false, serve_all_reports: false, now: 0, firehose_policy: Default::default() };
+        let ingest = ReadCtx { authed: Some(&stranger), serve_all_wraps: true, serve_all_reports: true, now: 0, firehose_policy: Default::default() };
         assert!(!wrap_visible(&w, &anon));
         assert!(wrap_visible(&w, &as_bob));
         assert!(!wrap_visible(&w, &as_stranger));
@@ -433,7 +443,7 @@ mod tests {
     fn non_wraps_are_not_gated_here() {
         let mut e = wrap(&"b".repeat(64), vec![]);
         e.kind = 1;
-        assert!(wrap_visible(&e, &ReadCtx { authed: None, serve_all_wraps: false, serve_all_reports: false, now: 0 }));
+        assert!(wrap_visible(&e, &ReadCtx { authed: None, serve_all_wraps: false, serve_all_reports: false, now: 0, firehose_policy: Default::default() }));
     }
 
     #[test]

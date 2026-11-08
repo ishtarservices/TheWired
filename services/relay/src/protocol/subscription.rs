@@ -70,9 +70,17 @@ impl SubscriptionManager {
 
     /// Check which subscriptions match a given event (any filter matches).
     pub fn matching_subs(&self, event: &Event) -> Vec<String> {
+        self.matching_subs_where(event, |_| true)
+    }
+
+    /// Like [`matching_subs`](Self::matching_subs), counting only the filters
+    /// `eligible` admits — the firehose policy drops a subscription's
+    /// firehose filters for an author outside the community while its
+    /// targeted filters (by author, mention, thread…) still match.
+    pub fn matching_subs_where(&self, event: &Event, eligible: impl Fn(&Filter) -> bool) -> Vec<String> {
         self.subscriptions
             .iter()
-            .filter(|(_, filters)| filters.iter().any(|f| f.matches(event)))
+            .filter(|(_, filters)| filters.iter().any(|f| eligible(f) && f.matches(event)))
             .map(|(id, _)| id.clone())
             .collect()
     }
@@ -170,6 +178,31 @@ mod tests {
         assert_eq!(subs.matching_subs(&mk(1)), vec!["s"]); // matches f1
         assert_eq!(subs.matching_subs(&mk(9)), vec!["s"]); // matches f2
         assert!(subs.matching_subs(&mk(7)).is_empty()); // matches neither
+    }
+
+    /// `matching_subs_where` counts only eligible filters: a subscription whose
+    /// only matching filter is ruled out is not matched, one with another
+    /// matching filter still is.
+    #[test]
+    fn matching_subs_where_ignores_ineligible_filters() {
+        use crate::nostr::event::Event;
+        let mut subs = SubscriptionManager::new();
+        let fire = Filter { kinds: vec![1], ..Default::default() };
+        let by_author = Filter { authors: vec!["a".into()], ..Default::default() };
+        subs.add("fire".to_string(), vec![fire.clone()]).unwrap();
+        subs.add("mixed".to_string(), vec![fire, by_author.clone()]).unwrap();
+        subs.add("author".to_string(), vec![by_author]).unwrap();
+        let ev = Event {
+            id: "e".into(), pubkey: "a".into(), created_at: 1, kind: 1,
+            tags: vec![], content: "".into(), sig: "s".into(),
+        };
+        let mut all = subs.matching_subs(&ev);
+        all.sort();
+        assert_eq!(all, vec!["author", "fire", "mixed"]);
+        let mut targeted = subs.matching_subs_where(&ev, |f| f.kinds.is_empty());
+        targeted.sort();
+        assert_eq!(targeted, vec!["author", "mixed"]);
+        assert!(subs.matching_subs_where(&ev, |_| false).is_empty());
     }
 
     #[test]

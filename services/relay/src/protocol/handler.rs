@@ -29,6 +29,7 @@ pub fn read_ctx<'a>(state: &'a AppState, authed_pubkey: &'a Option<String>) -> R
         serve_all_wraps: ingest || state.config.wrap_auth_gate != WrapAuthGate::Enforce,
         serve_all_reports: ingest || !state.config.report_read_gate,
         now: wrap_gate::unix_now(),
+        firehose_policy: state.config.firehose_policy,
     }
 }
 

@@ -155,6 +155,29 @@ pub async fn setup_test_pool() -> Result<PgPool, String> {
                 banned_by TEXT NOT NULL,
                 expires_at BIGINT
             );
+            -- The account tables the community author set reads (db/community.rs).
+            CREATE TABLE app.nip05_identities (
+                username TEXT PRIMARY KEY,
+                pubkey TEXT NOT NULL,
+                created_at TIMESTAMPTZ DEFAULT NOW()
+            );
+            CREATE TABLE app.push_devices (
+                id TEXT PRIMARY KEY,
+                pubkey TEXT NOT NULL,
+                provider TEXT NOT NULL DEFAULT 'expo',
+                token TEXT NOT NULL UNIQUE,
+                platform TEXT NOT NULL DEFAULT 'ios',
+                created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+            );
+            CREATE TABLE app.account_clients (
+                pubkey TEXT NOT NULL,
+                client TEXT NOT NULL,
+                platform TEXT NOT NULL DEFAULT '',
+                version TEXT NOT NULL DEFAULT '',
+                first_seen TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+                last_seen TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+                PRIMARY KEY (pubkey, client, platform)
+            );
             "#,
         )
         .execute(&init_pool)
@@ -174,6 +197,15 @@ pub async fn setup_test_pool() -> Result<PgPool, String> {
 /// TRUNCATE every per-test table. We deliberately leave `app.schema_migrations`
 /// (managed by the backend) untouched — the relay test crate doesn't own it.
 async fn truncate_all(pool: &PgPool) -> sqlx::Result<()> {
+    // `app.account_clients` is dropped and recreated by one firehose test (the
+    // relay must work before the backend migration creates it), so it is
+    // truncated only when present.
+    sqlx::raw_sql(
+        "DO $$ BEGIN IF to_regclass('app.account_clients') IS NOT NULL THEN \
+             EXECUTE 'TRUNCATE app.account_clients'; END IF; END $$;",
+    )
+    .execute(pool)
+    .await?;
     sqlx::raw_sql(
         r#"
         TRUNCATE
@@ -186,6 +218,9 @@ async fn truncate_all(pool: &PgPool) -> sqlx::Result<()> {
             relay.tombstones,
             relay.deleted_events,
             relay.deleted_addresses,
+            relay.community_authors,
+            app.nip05_identities,
+            app.push_devices,
             app.space_members,
             app.member_roles,
             app.role_permissions,
@@ -495,6 +530,7 @@ pub fn make_app_state_with(
         ip_last_connect: std::sync::Mutex::new(Default::default()),
         metrics: Default::default(),
         shadowed: std::sync::RwLock::new(Default::default()),
+        community: std::sync::RwLock::new(None),
     };
     (Arc::new(state), tx)
 }

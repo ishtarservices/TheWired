@@ -60,9 +60,60 @@ pub struct AppState {
     /// [`SHADOW_REFRESH_INTERVAL`] and primed on the EVENT path, so a lift
     /// takes at most one interval to reach live subscribers.
     pub shadowed: std::sync::RwLock<std::collections::HashSet<String>>,
+    /// Community authors (`db::community`), the live fan-out's copy of what
+    /// the stored query joins (`relay.community_authors`). `None` means no
+    /// community — everyone: the embedded relay, or a Postgres relay before
+    /// its first successful refresh. Refreshed every
+    /// [`COMMUNITY_REFRESH_INTERVAL`] while the policy is `community`,
+    /// primed at boot; a failed refresh keeps the previous set.
+    pub community: std::sync::RwLock<Option<std::collections::HashSet<String>>>,
 }
 
 impl AppState {
+    /// Does a firehose subscription of a reader authenticated as `authed`
+    /// receive `author`'s notes? Always for the author's own, always under
+    /// policy `all`, otherwise only for a community author.
+    pub fn firehose_serves(&self, author: &str, authed: Option<&str>) -> bool {
+        if self.config.firehose_policy == crate::nostr::firehose::FirehosePolicy::All || authed == Some(author) {
+            return true;
+        }
+        match self.community.read() {
+            Ok(guard) => guard.as_ref().is_none_or(|set| set.contains(author)),
+            Err(_) => true,
+        }
+    }
+
+    /// Every address this relay answers to, for recognising itself in a
+    /// stored relay list: the NIP-42 allow-set plus `PUBLIC_RELAY_URL`.
+    fn own_relay_urls(&self) -> Vec<String> {
+        let mut urls = self.auth_relay_urls.read().unwrap_or_else(|e| e.into_inner()).clone();
+        if let Some(public) = &self.config.public_relay_url {
+            urls.push(public.clone());
+        }
+        urls
+    }
+
+    /// Recompute the community author set and mirror it into the table. A
+    /// failure (a transient DB error) is logged and leaves the previous set
+    /// in place, in memory and in the table.
+    pub async fn refresh_community(&self) {
+        let start = std::time::Instant::now();
+        let own = self.own_relay_urls();
+        match self.pool.refresh_community_authors(&own).await {
+            Ok(Some(set)) => {
+                tracing::debug!(
+                    community = set.len(),
+                    elapsed_ms = start.elapsed().as_millis() as u64,
+                    "Community author set refreshed"
+                );
+                if let Ok(mut c) = self.community.write() {
+                    *c = Some(set);
+                }
+            }
+            Ok(None) => {}
+            Err(e) => tracing::warn!(error = %e, "Community author refresh failed; keeping the previous set"),
+        }
+    }
     /// Is `author` shadowed for a reader authenticated as `authed`? The author
     /// always sees its own events.
     pub fn is_shadowed_for(&self, author: &str, authed: Option<&str>) -> bool {
@@ -108,6 +159,21 @@ pub struct Metrics {
 const SWEEP_INTERVAL: Duration = Duration::from_secs(300);
 /// How often the live-broadcast filter reloads the shadowed set.
 const SHADOW_REFRESH_INTERVAL: Duration = Duration::from_secs(30);
+/// How often the community author set is recomputed (`RELAY_FIREHOSE_POLICY=community`).
+const COMMUNITY_REFRESH_INTERVAL: Duration = Duration::from_secs(30);
+
+/// Background task: keep [`AppState::community`] and `relay.community_authors`
+/// in step with the account tables and the stored relay lists. The caller
+/// primes the set before spawning; the first tick here runs right away too.
+pub fn spawn_community_refresh(state: Arc<AppState>) -> tokio::task::JoinHandle<()> {
+    tokio::spawn(async move {
+        let mut interval = tokio::time::interval(COMMUNITY_REFRESH_INTERVAL);
+        loop {
+            interval.tick().await;
+            state.refresh_community().await;
+        }
+    })
+}
 
 /// Background task: keep [`AppState::shadowed`] in step with the table. The
 /// first load runs at boot.
@@ -202,10 +268,21 @@ pub async fn run(config: Config, pool: Db) -> anyhow::Result<()> {
         ip_last_connect: std::sync::Mutex::new(HashMap::new()),
         metrics: Metrics::default(),
         shadowed: std::sync::RwLock::new(Default::default()),
+        community: std::sync::RwLock::new(None),
     });
 
     let _sweeper = spawn_sweeper(state.clone());
     let _shadow_refresh = spawn_shadow_refresh(state.clone());
+    tracing::info!(policy = ?state.config.firehose_policy, "Firehose policy");
+    let _community_refresh = if state.config.firehose_policy == crate::nostr::firehose::FirehosePolicy::Community {
+        // Primed before the first REQ so the firehose is never empty for
+        // want of a set; the table keeps the previous run's set across a
+        // restart either way.
+        state.refresh_community().await;
+        Some(spawn_community_refresh(state.clone()))
+    } else {
+        None
+    };
 
     let listener = tokio::net::TcpListener::bind(format!("0.0.0.0:{}", port)).await?;
     tracing::info!("Relay listening on 0.0.0.0:{}", port);
@@ -384,6 +461,7 @@ pub async fn run_embedded(
         ip_last_connect: std::sync::Mutex::new(HashMap::new()),
         metrics: Metrics::default(),
         shadowed: std::sync::RwLock::new(Default::default()),
+        community: std::sync::RwLock::new(None),
     });
 
     let sweeper = spawn_sweeper(state.clone());
@@ -624,13 +702,16 @@ async fn health() -> &'static str {
 /// are hitting the rate limiter without grepping logs.
 async fn metrics(State(state): State<Arc<AppState>>) -> String {
     let m = &state.metrics;
+    // Community size: 0 while no set is loaded (policy `all`, or not yet primed).
+    let community = state.community.read().map(|c| c.as_ref().map_or(0, |s| s.len())).unwrap_or(0);
     format!(
-        "relay_connections_active {}\nrelay_broadcast_lagged_connections_total {}\nrelay_broadcast_skipped_events_total {}\nrelay_rate_limited_frames_total {}\nrelay_wrap_intake_refused_total {}\nrelay_wrap_intake_would_refuse_total {}\n",
+        "relay_connections_active {}\nrelay_broadcast_lagged_connections_total {}\nrelay_broadcast_skipped_events_total {}\nrelay_rate_limited_frames_total {}\nrelay_wrap_intake_refused_total {}\nrelay_wrap_intake_would_refuse_total {}\nrelay_community_authors {}\n",
         state.active_connections.load(Ordering::Relaxed),
         m.broadcast_lagged_connections.load(Ordering::Relaxed),
         m.broadcast_skipped_events.load(Ordering::Relaxed),
         m.rate_limited_frames.load(Ordering::Relaxed),
         m.wrap_intake_refused.load(Ordering::Relaxed),
         m.wrap_intake_would_refuse.load(Ordering::Relaxed),
+        community,
     )
 }

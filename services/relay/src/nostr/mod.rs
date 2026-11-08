@@ -1,6 +1,7 @@
 pub mod access;
 pub mod event;
 pub mod filter;
+pub mod firehose;
 pub mod membership_gate;
 pub mod mod_delete;
 pub mod moderation_gate;

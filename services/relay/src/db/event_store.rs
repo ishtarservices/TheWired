@@ -1,10 +1,11 @@
 use serde_json::Value;
 use sqlx::{PgPool, Postgres};
 
-use crate::db::moderation;
+use crate::db::{community, moderation};
 use crate::nostr::access;
 use crate::nostr::event::Event;
 use crate::nostr::filter::Filter;
+use crate::nostr::firehose::{self, FirehosePolicy};
 use crate::nostr::report_gate::KIND_REPORT;
 use crate::nostr::wrap_gate::{event_expiration, ReadCtx, KIND_GIFT_WRAP};
 
@@ -337,6 +338,16 @@ fn build_conditions(filter: &Filter, ctx: &ReadCtx<'_>) -> (Vec<String>, Vec<Bin
             }
             conditions.push(moderation::pg_not_shadowed_predicate(None));
         }
+    }
+
+    // Firehose policy (`nostr::firehose`): an untargeted timeline request
+    // under `community` returns community authors and the reader's own notes.
+    // Targeted filters never reach this branch, so threads, mentions,
+    // profiles and ids are served exactly as above.
+    if ctx.firehose_policy == FirehosePolicy::Community && firehose::is_firehose(filter) {
+        param_counter += 1;
+        conditions.push(community::pg_community_firehose_predicate(&format!("${param_counter}")));
+        binds.push(BindValue::StringVec(ctx.authed.map(|pk| vec![pk.to_string()]).unwrap_or_default()));
     }
 
     (conditions, binds)
