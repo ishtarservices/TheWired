@@ -21,14 +21,14 @@
     "test:coverage": "vitest run --coverage"
   },
   "dependencies": {
-    "@fastify/cors": "^11.4.0",
+    "@fastify/cors": "^11.4.1",
     "@fastify/helmet": "^13.2.0",
     "@fastify/multipart": "^9.4.0",
     "@ishtarservices/shared-types": "workspace:*",
-    "@livekit/protocol": "^1.53.1",
+    "@livekit/protocol": "^1.53.4",
     "@noble/curves": "^1.9.7",
     "@noble/hashes": "^1.8.0",
-    "bullmq": "^6.7.0",
+    "bullmq": "^6.7.1",
     "drizzle-orm": "^0.45.4",
     "fastify": "^5.12.8",
     "file-type": "^22.3.0",
@@ -37,13 +37,13 @@
     "meilisearch": "^0.62.0",
     "nostr-tools": "^2.25.5",
     "pino": "^9.6.0",
-    "postgres": "^4.0.0",
+    "postgres": "^4.1.0",
     "sharp": "^0.35.5",
     "web-push": "^3.6.7",
     "zod": "^3.24.2"
   },
   "devDependencies": {
-    "@types/node": "^22.12.0",
+    "@types/node": "^22.20.5",
     "@types/web-push": "^3.6.4",
     "@types/ws": "^8.18.2",
     "@vitest/coverage-v8": "^4.1.12",
