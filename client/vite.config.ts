@@ -23,6 +23,9 @@ export default defineConfig({
     },
   },
   build: {
+    // Vite 8's default floor is Safari 16.4; the Tauri bundle still installs
+    // on macOS 13.0, whose WKWebView is Safari 16.0. Keep the Vite 7 defaults.
+    target: ["chrome107", "edge107", "firefox104", "safari16"],
     sourcemap: false,
     minify: 'terser',
     terserOptions: {
