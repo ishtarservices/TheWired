@@ -108,6 +108,10 @@ services:
       # warn = store everything but log + count each wrap enforce would
       # refuse; flip to enforce once the log shows only foreign traffic.
       RELAY_WRAP_INTAKE_GATE: ${RELAY_WRAP_INTAKE_GATE:-warn}
+      # Untargeted timeline requests (kinds 1/6/20, no ids/authors/tags): all
+      # (every author on the relay) or community (app users and accounts whose
+      # own relay list names this relay). Targeted requests are unaffected.
+      RELAY_FIREHOSE_POLICY: ${RELAY_FIREHOSE_POLICY:-all}
       # Kind-1984 reports are served only to their author and the ingest role
       # (App Store 1.2). "off" only as an emergency lever.
       RELAY_REPORT_READ_GATE: ${RELAY_REPORT_READ_GATE:-on}
@@ -252,6 +256,9 @@ services:
       # POST /api/reports per hour: guests by IP, signed-in callers by pubkey.
       RATE_LIMIT_REPORT_ANON_PER_HOUR: ${RATE_LIMIT_REPORT_ANON_PER_HOUR:-5}
       RATE_LIMIT_REPORT_PER_HOUR: ${RATE_LIMIT_REPORT_PER_HOUR:-30}
+      # Whose X-Forwarded-For the gateway believes (the proxy's Docker subnets).
+      # Empty = trust nobody: every client is then keyed by the proxy's address.
+      TRUSTED_PROXIES: ${TRUSTED_PROXIES:-}
     depends_on:
       backend:
         condition: service_started
