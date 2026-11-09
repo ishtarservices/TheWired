@@ -22,7 +22,7 @@
     "@ishtarservices/shared-types": "workspace:*",
     "@noble/curves": "^1.9.7",
     "@noble/hashes": "^1.8.0",
-    "@reduxjs/toolkit": "^2.13.0",
+    "@reduxjs/toolkit": "^2.14.0",
     "@scure/base": "2.4.0",
     "@tauri-apps/api": "^2.12.4",
     "@tauri-apps/plugin-fs": "^2.7.1",
@@ -63,7 +63,7 @@
     "tiptap-markdown": "^0.8.10"
   },
   "devDependencies": {
-    "@playwright/test": "^1.64.1",
+    "@playwright/test": "^1.65.0",
     "@tailwindcss/vite": "^4.3.4",
     "@tauri-apps/cli": "^2.12.4",
     "@testing-library/jest-dom": "^7.0.1",
