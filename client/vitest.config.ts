@@ -31,7 +31,7 @@ export default defineConfig({
     },
     deps: {
       optimizer: {
-        web: {
+        client: {
           include: ["nostr-tools", "@noble/curves", "@noble/hashes"],
         },
       },
