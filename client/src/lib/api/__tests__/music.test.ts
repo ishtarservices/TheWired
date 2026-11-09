@@ -16,7 +16,7 @@ const server = setupServer();
 
 beforeAll(() => {
   setApiBaseUrl(BASE);
-  server.listen({ onUnhandledRequest: "error" });
+  server.listen({ onUnhandledFrame: "error" });
 });
 
 afterEach(() => {
@@ -81,7 +81,7 @@ describe("getAudioVariants", () => {
   });
 
   it("rejects invalid sha256 input without even hitting the network", async () => {
-    // If the client tried to fetch, MSW would throw "onUnhandledRequest: error".
+    // If the client tried to fetch, MSW would throw "onUnhandledFrame: error".
     // The guard short-circuits → null.
     expect(await getAudioVariants("not-a-sha")).toBeNull();
     expect(await getAudioVariants("")).toBeNull();
