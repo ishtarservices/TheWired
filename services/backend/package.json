@@ -23,7 +23,7 @@
   "dependencies": {
     "@fastify/cors": "^11.4.0",
     "@fastify/helmet": "^13.2.0",
-    "@fastify/multipart": "^9.4.0",
+    "@fastify/multipart": "^10.1.8",
     "@ishtarservices/shared-types": "workspace:*",
     "@livekit/protocol": "^1.53.1",
     "@noble/curves": "^1.9.7",
