@@ -1,5 +1,5 @@
 import { Queue } from "bullmq";
-import type { RedisOptions } from "ioredis";
+import type { ConnectionOptions } from "bullmq";
 import { config } from "../config.js";
 
 export const TRANSCODE_QUEUE = "transcode";
@@ -14,8 +14,11 @@ export interface TranscodeJobData {
 /**
  * BullMQ requires its own Redis connection settings — don't share the
  * `getRedis()` client (BullMQ needs `maxRetriesPerRequest: null`).
+ *
+ * Typed with BullMQ's own `ConnectionOptions`: BullMQ pins its ioredis, so
+ * the shape has to follow that copy, not the backend's.
  */
-export function getRedisConnectionOptions(): RedisOptions {
+export function getRedisConnectionOptions(): ConnectionOptions {
   const u = new URL(config.redisUrl);
   return {
     host: u.hostname,
