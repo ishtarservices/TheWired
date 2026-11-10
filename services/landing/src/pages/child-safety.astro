@@ -1,0 +1,23 @@
+---
+/**
+ * soot's published child safety standards: what counts as child sexual abuse
+ * and exploitation, how to report it from the app or by mail, what the
+ * operator does on actual knowledge, and the designated point of contact.
+ * The page Google Play's child safety standards policy asks for from apps
+ * in the Social category. The text is the app's own, via legal.json.
+ */
+import LegalLayout from "../layouts/LegalLayout.astro";
+import LegalDocument from "../components/LegalDocument.astro";
+import legal from "../data/legal.json";
+
+const doc = legal.documents["child-safety"];
+---
+
+<LegalLayout
+  title={doc.title}
+  description="soot's standards against child sexual abuse and exploitation: what is prohibited, how to report it, what we do, and whom to contact."
+  path="/child-safety"
+  updated={doc.updated}
+>
+  <LegalDocument id="child-safety" />
+</LegalLayout>

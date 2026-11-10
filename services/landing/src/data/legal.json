@@ -107,7 +107,7 @@
         {
           "heading": "not allowed",
           "body": [
-            "Sexual content involving minors, or anything that sexualises them. We report it to the authorities.",
+            "Sexual content involving minors, or anything that sexualises them. We report it to the authorities. Our child safety standards are at thewired.app/child-safety.",
             "Threats, harassment, stalking, and encouraging others to harm themselves or anyone else.",
             "Hate directed at people for their race, ethnicity, religion, gender, sexual orientation, disability or origin.",
             "Sexually explicit media that is not marked as sensitive, and any sexual media shared without the consent of the people in it.",
@@ -183,6 +183,65 @@
           "body": [
             "Write to privacy@thewired.app from any address, with the public key of the account (the npub, or the hex key). We remove what our servers hold, as listed above, and reply when it is done.",
             "We cannot publish the request to vanish for you, because only your secret key can sign it. If you still have the key, any Nostr app that supports requests to vanish can send one."
+          ]
+        }
+      ]
+    },
+    "child-safety": {
+      "id": "child-safety",
+      "title": "child safety standards",
+      "updated": "2026-11-10",
+      "sections": [
+        {
+          "heading": "the short version",
+          "body": [
+            "soot is made by Ummi Labs, LLC for adults who make and follow underground music. Child sexual abuse and exploitation has no place here. We remove it the moment we know about it, we remove the people behind it for good, and we report it to the National Center for Missing and Exploited Children (NCMEC) and to law enforcement.",
+            "To report it, press and hold the post, track, message or profile in the app and choose report, or write to abuse@thewired.app. A person reads every report."
+          ]
+        },
+        {
+          "heading": "what is prohibited",
+          "body": [
+            "Child sexual abuse material (CSAM): any picture, video, drawing or computer-generated image that shows a minor in sexually explicit conduct, or that presents a minor in a sexual way. Age-play, captions or edits that present an adult as a minor in sexual content count too.",
+            "Grooming: befriending or building trust with a minor in order to sexualise the contact, including asking a minor for sexual images or conversation, or arranging to meet one for that purpose.",
+            "Sextortion: threatening or blackmailing a minor with real or claimed intimate images.",
+            "Trafficking: advertising, offering or asking for a minor for any sexual purpose.",
+            "Anything else that sexualises a minor, encourages or instructs abuse, or helps people find, make or share such material, including links, codes and coded language.",
+            "These rules apply everywhere on soot: posts, tracks, artwork, releases, profiles, spaces, text channels, voice and video rooms, live streams and direct messages, whether the material is public or private, real or generated."
+          ]
+        },
+        {
+          "heading": "who soot is for",
+          "body": [
+            "soot is rated for people aged 17 and over and is not directed at children. When we learn that an account belongs to someone younger, we remove it from our servers."
+          ]
+        },
+        {
+          "heading": "how to report",
+          "body": [
+            "In the app, press and hold any post, track, message or person and choose report. Pick the closest reason, usually nudity or sexual content, or violence or illegal content, and say in the note that a minor is involved. The report reaches us even when the account that posted it is on another relay.",
+            "Without the app, or for anything the report sheet cannot carry, write to abuse@thewired.app. Include a link or the public key (npub) of the account and what you saw. Do not send us copies of the material itself; a description and the location are enough.",
+            "If a child is in immediate danger, contact your local emergency services first."
+          ]
+        },
+        {
+          "heading": "what we do",
+          "body": [
+            "Reports about children go to the front of the queue. Once we have actual knowledge of CSAM or of conduct listed above, we remove the material from our servers and our relay, remove the account that posted it from our servers permanently, and block it from coming back.",
+            "Ummi Labs, LLC is a United States company, so we report confirmed CSAM to NCMEC's CyberTipline, as United States federal law requires, and to the relevant national authority where another country's law applies. We keep what that law requires us to keep for the report, and we hand it over to law enforcement on a lawful request.",
+            "soot is a client for Nostr, an open network, so the same account may have published to relays run by other people. Our relay refuses the removed account and material; we pass what we know to other relay operators where we can, and we do not host, index or recommend it anywhere."
+          ]
+        },
+        {
+          "heading": "encrypted messages",
+          "body": [
+            "Direct messages on soot are end-to-end encrypted, so we cannot read them. The person who receives a message can still report it from the app, and that report tells us who sent it and which message it was. Describe what happened in the note so a person can act on it."
+          ]
+        },
+        {
+          "heading": "point of contact",
+          "body": [
+            "abuse@thewired.app is the designated child safety contact for soot and Ummi Labs, LLC. It is read by a person who can speak about these standards, our enforcement and review process, and who can act when Google Play, NCMEC or law enforcement get in touch."
           ]
         }
       ]
