@@ -53,6 +53,7 @@ const gatedRoutes = (id: string) => [
   `/spaces/${id}/members/${LUNA.pubkey}/roles`,
   `/spaces/${id}/roles`,
   `/spaces/${id}/channels`,
+  `/spaces/${id}/channels/layout`,
   `/spaces/${id}/feed-sources`,
   `/spaces/${id}/onboarding/preview`,
 ];
