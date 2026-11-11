@@ -36,7 +36,7 @@ export function NotificationsTab({ spaceId }: NotificationsTabProps) {
   const dispatch = useAppDispatch();
   const isMuted = useSpaceMuted(spaceId);
   const settings = useSpaceNotifSettings(spaceId);
-  const { channels } = useSpaceChannels(spaceId);
+  const { channels, tree } = useSpaceChannels(spaceId);
 
   const mode = settings?.mode ?? "all";
   const suppressEveryone = settings?.suppressEveryone ?? false;
@@ -137,13 +137,21 @@ export function NotificationsTab({ spaceId }: NotificationsTabProps) {
       {channels.length > 0 && (
         <Section title="Channel Overrides" description="Override notification settings for individual channels.">
           <div className="space-y-1">
-            {[...channels].sort((a, b) => a.position - b.position).map((ch) => (
-              <ChannelOverrideRow
-                key={ch.id}
-                channelId={`${spaceId}:${ch.id}`}
-                label={ch.label}
-              />
+            {tree.uncategorized.map((ch) => (
+              <ChannelOverrideRow key={ch.id} channelId={`${spaceId}:${ch.id}`} label={ch.label} />
             ))}
+            {tree.categories
+              .filter((node) => node.channels.length > 0)
+              .map((node) => (
+                <div key={node.category.id} className="pt-2">
+                  <div className="px-3 pb-1 text-[10px] font-semibold uppercase tracking-wider text-muted">
+                    {node.category.name}
+                  </div>
+                  {node.channels.map((ch) => (
+                    <ChannelOverrideRow key={ch.id} channelId={`${spaceId}:${ch.id}`} label={ch.label} />
+                  ))}
+                </div>
+              ))}
           </div>
         </Section>
       )}

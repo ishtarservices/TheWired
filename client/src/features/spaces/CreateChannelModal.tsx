@@ -1,9 +1,10 @@
-import { useState, useMemo } from "react";
+import { useState, useEffect } from "react";
 import { X } from "lucide-react";
 import { Button } from "../../components/ui/Button";
 import { Modal } from "../../components/ui/Modal";
 import { useSpaceChannels } from "./useSpaceChannels";
-import type { SpaceChannel, SpaceChannelType, ChannelFeedMode } from "../../types/space";
+import { CategorySelect, categoryChoiceError, choiceForCategory, type CategoryChoice } from "./CategorySelect";
+import type { SpaceChannelType, ChannelFeedMode } from "../../types/space";
 
 /** Feed types that only allow one channel per space */
 const UNIQUE_FEED_TYPES = new Set<SpaceChannelType>(["notes", "media", "articles"]);
@@ -22,19 +23,15 @@ interface CreateChannelModalProps {
   open: boolean;
   onClose: () => void;
   spaceId: string;
-  existingChannels: SpaceChannel[];
+  /** Preselect a subfolder (e.g. opened from that subfolder's "+"). */
+  defaultCategoryId?: string | null;
 }
 
-export function CreateChannelModal({
-  open,
-  onClose,
-  spaceId,
-  existingChannels,
-}: CreateChannelModalProps) {
-  const { createChannel } = useSpaceChannels(spaceId);
+export function CreateChannelModal({ open, onClose, spaceId, defaultCategoryId }: CreateChannelModalProps) {
+  const { channels, tree, native, layoutManageable, createChannel, createCategory } = useSpaceChannels(spaceId);
   const [name, setName] = useState("");
   const [type, setType] = useState<SpaceChannelType>("chat");
-  const [category, setCategory] = useState("");
+  const [category, setCategory] = useState<CategoryChoice>(() => choiceForCategory(defaultCategoryId));
   const [adminOnly, setAdminOnly] = useState(false);
   const [slowModeSeconds, setSlowModeSeconds] = useState(0);
   const [temporary, setTemporary] = useState(false);
@@ -42,50 +39,62 @@ export function CreateChannelModal({
   const [error, setError] = useState<string | null>(null);
   const [creating, setCreating] = useState(false);
 
+  // Each opening starts from the subfolder it was opened for.
+  useEffect(() => {
+    if (open) {
+      setCategory(choiceForCategory(defaultCategoryId));
+      setError(null);
+    }
+  }, [open, defaultCategoryId]);
+
   const isVoiceOrVideo = type === "voice" || type === "video";
 
-  // Collect existing categories for suggestions
-  const existingCategories = useMemo(() => {
-    const cats = new Set<string>();
-    for (const ch of existingChannels) {
-      if (ch.categoryId) cats.add(ch.categoryId);
-    }
-    return Array.from(cats).sort();
-  }, [existingChannels]);
-
   // Determine which types are disabled (already exist for unique feed types)
-  const existingTypes = new Set(existingChannels.map((c) => c.type));
+  const existingTypes = new Set(channels.map((c) => c.type));
   const disabledTypes = new Set(
     ALL_TYPES
       .filter((t) => UNIQUE_FEED_TYPES.has(t.value) && existingTypes.has(t.value))
       .map((t) => t.value),
   );
 
+  const categoryError = categoryChoiceError(category, tree);
+
+  function reset() {
+    setName("");
+    setType("chat");
+    setCategory(choiceForCategory(defaultCategoryId));
+    setAdminOnly(false);
+    setSlowModeSeconds(0);
+    setTemporary(false);
+    setFeedMode("all");
+  }
+
   async function handleCreate() {
-    if (!name.trim()) return;
+    const label = name.trim().replace(/^#+/, "");
+    if (!label || categoryError) return;
     setError(null);
     setCreating(true);
 
     try {
+      // A new subfolder is created first and the channel goes into it by id —
+      // never by name, which could match another subfolder's legacy id.
+      let categoryId: string | null = null;
+      if (category.kind === "existing") categoryId = category.id;
+      if (category.kind === "new") {
+        categoryId = layoutManageable ? await createCategory(category.name) : category.name.trim();
+      }
       await createChannel({
         type,
-        label: name.startsWith("#") ? name.trim() : `#${name.trim()}`,
-        ...(category.trim() ? { categoryId: category.trim() } : {}),
-        adminOnly,
-        slowModeSeconds,
-        ...(isVoiceOrVideo && temporary ? { temporary: true } : {}),
+        label: `#${label}`,
+        categoryId,
+        ...(native ? {} : { adminOnly, slowModeSeconds }),
+        ...(!native && isVoiceOrVideo && temporary ? { temporary: true } : {}),
         ...(type === "music" ? { feedMode } : {}),
       });
-      setName("");
-      setType("chat");
-      setCategory("");
-      setAdminOnly(false);
-      setSlowModeSeconds(0);
-      setTemporary(false);
-      setFeedMode("all");
+      reset();
       onClose();
-    } catch (err: any) {
-      setError(err.message ?? "Failed to create channel");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to create channel");
     } finally {
       setCreating(false);
     }
@@ -98,6 +107,7 @@ export function CreateChannelModal({
           <h2 className="text-lg font-bold text-heading">Create Channel</h2>
           <button
             onClick={onClose}
+            aria-label="Close"
             className="rounded-full p-1 text-soft hover:bg-card-hover hover:text-heading transition-colors"
           >
             <X size={18} />
@@ -106,26 +116,30 @@ export function CreateChannelModal({
 
         <div className="space-y-4">
           <div>
-            <label className="mb-1 block text-xs font-medium text-soft">
+            <label htmlFor="create-channel-name" className="mb-1 block text-xs font-medium text-soft">
               Channel Name *
             </label>
             <div className="flex items-center gap-1">
               <span className="text-sm text-muted">#</span>
               <input
+                id="create-channel-name"
                 type="text"
                 value={name.replace(/^#/, "")}
                 onChange={(e) => setName(e.target.value.replace(/\s+/g, "-").toLowerCase())}
+                onKeyDown={(e) => e.key === "Enter" && handleCreate()}
                 placeholder="general"
+                maxLength={99}
                 className="w-full rounded-xl bg-field border border-border px-3 py-1.5 text-sm text-heading placeholder-muted focus:border-primary focus:outline-none transition-colors"
               />
             </div>
           </div>
 
           <div>
-            <label className="mb-1 block text-xs font-medium text-soft">
+            <label htmlFor="create-channel-type" className="mb-1 block text-xs font-medium text-soft">
               Type
             </label>
             <select
+              id="create-channel-type"
               value={type}
               onChange={(e) => setType(e.target.value as SpaceChannelType)}
               className="w-full rounded-xl bg-field border border-border px-3 py-1.5 text-sm text-heading focus:border-primary focus:outline-none transition-colors"
@@ -141,9 +155,7 @@ export function CreateChannelModal({
 
           {type === "music" && (
             <div>
-              <label className="mb-1 block text-xs font-medium text-soft">
-                Feed Mode
-              </label>
+              <span className="mb-1 block text-xs font-medium text-soft">Feed Mode</span>
               <div className="flex gap-2">
                 <button
                   type="button"
@@ -176,60 +188,41 @@ export function CreateChannelModal({
             </div>
           )}
 
-          <div>
-            <label className="mb-1 block text-xs font-medium text-soft">
-              Category
-            </label>
-            <input
-              type="text"
-              value={category}
-              onChange={(e) => setCategory(e.target.value)}
-              placeholder="e.g. General, Social, Dev"
-              list="channel-categories"
-              className="w-full rounded-xl bg-field border border-border px-3 py-1.5 text-sm text-heading placeholder-muted focus:border-primary focus:outline-none transition-colors"
-            />
-            {existingCategories.length > 0 && (
-              <datalist id="channel-categories">
-                {existingCategories.map((cat) => (
-                  <option key={cat} value={cat} />
-                ))}
-              </datalist>
-            )}
-            <p className="mt-1 text-[11px] text-muted">
-              Group channels under a collapsible section. Leave empty for no category.
-            </p>
-          </div>
+          <CategorySelect tree={tree} value={category} onChange={setCategory} allowCreate />
 
-          <div className="flex items-center gap-2">
-            <input
-              type="checkbox"
-              id="adminOnly"
-              checked={adminOnly}
-              onChange={(e) => setAdminOnly(e.target.checked)}
-              className="rounded border-border"
-            />
-            <label htmlFor="adminOnly" className="text-sm text-soft">
-              Admin-only channel
-            </label>
-          </div>
+          {!native && (
+            <div className="flex items-center gap-2">
+              <input
+                type="checkbox"
+                id="adminOnly"
+                checked={adminOnly}
+                onChange={(e) => setAdminOnly(e.target.checked)}
+                className="rounded border-border"
+              />
+              <label htmlFor="adminOnly" className="text-sm text-soft">
+                Admin-only channel
+              </label>
+            </div>
+          )}
 
-          {type === "chat" && (
+          {!native && type === "chat" && (
             <div>
-              <label className="mb-1 block text-xs font-medium text-soft">
+              <label htmlFor="create-channel-slowmode" className="mb-1 block text-xs font-medium text-soft">
                 Slow Mode (seconds)
               </label>
               <input
+                id="create-channel-slowmode"
                 type="number"
                 min="0"
-                max="3600"
+                max="21600"
                 value={slowModeSeconds}
-                onChange={(e) => setSlowModeSeconds(Math.max(0, parseInt(e.target.value) || 0))}
+                onChange={(e) => setSlowModeSeconds(Math.min(21_600, Math.max(0, parseInt(e.target.value) || 0)))}
                 className="w-full rounded-xl bg-field border border-border px-3 py-1.5 text-sm text-heading placeholder-muted focus:border-primary focus:outline-none transition-colors"
               />
             </div>
           )}
 
-          {isVoiceOrVideo && (
+          {!native && isVoiceOrVideo && (
             <div className="flex items-center gap-2">
               <input
                 type="checkbox"
@@ -245,9 +238,7 @@ export function CreateChannelModal({
             </div>
           )}
 
-          {error && (
-            <p className="text-xs text-red-400">{error}</p>
-          )}
+          {error && <p className="text-xs text-red-400">{error}</p>}
         </div>
 
         <div className="mt-6 flex justify-end gap-2">
@@ -258,7 +249,7 @@ export function CreateChannelModal({
             variant="primary"
             size="md"
             onClick={handleCreate}
-            disabled={!name.trim() || creating}
+            disabled={!name.trim().replace(/^#+/, "") || !!categoryError || creating}
           >
             {creating ? "Creating..." : "Create Channel"}
           </Button>

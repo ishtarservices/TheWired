@@ -66,6 +66,9 @@ describe("syncSpaceMembers thunk", () => {
         subscriptions: {},
         channels: {},
         channelsLoading: {},
+        categories: {},
+        layoutRevision: {},
+        layoutSupported: {},
         pendingInvites: [],
       },
     });
@@ -91,6 +94,9 @@ describe("syncSpaceMembers thunk", () => {
         subscriptions: {},
         channels: {},
         channelsLoading: {},
+        categories: {},
+        layoutRevision: {},
+        layoutSupported: {},
         pendingInvites: [],
       },
     });
@@ -132,6 +138,9 @@ describe("syncSpaceMembers thunk", () => {
         subscriptions: {},
         channels: {},
         channelsLoading: {},
+        categories: {},
+        layoutRevision: {},
+        layoutSupported: {},
         pendingInvites: [],
       },
       spaceConfig: {
@@ -164,6 +173,9 @@ describe("syncSpaceMembers thunk", () => {
         subscriptions: {},
         channels: {},
         channelsLoading: {},
+        categories: {},
+        layoutRevision: {},
+        layoutSupported: {},
         pendingInvites: [],
       },
       spaceConfig: {
@@ -195,6 +207,9 @@ describe("syncSpaceMembers thunk", () => {
         subscriptions: {},
         channels: {},
         channelsLoading: {},
+        categories: {},
+        layoutRevision: {},
+        layoutSupported: {},
         pendingInvites: [],
       },
     });
@@ -215,6 +230,9 @@ describe("syncSpaceMembers thunk", () => {
         subscriptions: {},
         channels: {},
         channelsLoading: {},
+        categories: {},
+        layoutRevision: {},
+        layoutSupported: {},
         pendingInvites: [],
       },
     });
@@ -246,6 +264,9 @@ describe("syncSpaceMembers thunk", () => {
         subscriptions: {},
         channels: {},
         channelsLoading: {},
+        categories: {},
+        layoutRevision: {},
+        layoutSupported: {},
         pendingInvites: [],
       },
     });

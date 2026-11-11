@@ -65,12 +65,12 @@ import {
   updateSpace,
   removeSpace,
   setChannels,
+  setChannelLayout,
   setActiveSpace,
 } from "../../store/slices/spacesSlice";
 import { trackPendingDeletion, restoreDeletedAddrIds } from "../../store/slices/eventsSlice";
 import { addNotification } from "../../store/slices/notificationSlice";
 import { fetchMySpaces } from "../api/spaces";
-import { saveChannels } from "../db/channelStore";
 import {
   addTracks,
   addAlbums,
@@ -103,7 +103,8 @@ import { resetEventPipelineCaches } from "./eventPipeline";
 import { verifyBridge } from "./verifyWorkerBridge";
 import { startBackgroundChatSubs, openBgChatSub, closeBgChatSub, stopAllBgChatSubs } from "./groupSubscriptions";
 import { publishOutbox } from "./publishOutbox";
-import { loadChannels } from "../db/channelStore";
+import { loadChannels, loadCategories } from "../db/channelStore";
+import { hydrateChannelLayout } from "../../store/thunks/channelLayout";
 import { initLastChannelCache, clearLastChannelCache } from "../db/lastChannelCache";
 import { clearAllUserState } from "../db/userStateStore";
 import { resetAll } from "../../store";
@@ -488,8 +489,9 @@ async function reconcileMySpaces(cachedSpaces: Space[]): Promise<void> {
     await addSpaceToStore(space);
     const channels = normalizeChannels(entry.channels);
     if (channels.length > 0) {
-      await saveChannels(space.id, channels);
-      store.dispatch(setChannels({ spaceId: space.id, channels }));
+      store.dispatch(
+        hydrateChannelLayout({ spaceId: space.id, channels, categories: entry.categories, revision: entry.layoutRevision }),
+      );
     }
     // Wire the always-on chat sub + member sync the same way a local join does.
     openBgChatSub(space);
@@ -849,8 +851,14 @@ export async function performLogin(
         for (const entry of res.data) {
           if (entry.channels.length > 0) {
             const channels = normalizeChannels(entry.channels);
-            await saveChannels(entry.space.id, channels);
-            store.dispatch(setChannels({ spaceId: entry.space.id, channels }));
+            store.dispatch(
+              hydrateChannelLayout({
+                spaceId: entry.space.id,
+                channels,
+                categories: entry.categories,
+                revision: entry.layoutRevision,
+              }),
+            );
           }
         }
       }
@@ -902,9 +910,23 @@ export async function performLogin(
     await Promise.all(
       savedSpaces.map(async (space) => {
         try {
-          const cached = await loadChannels(space.id);
+          const [cached, cachedCategories] = await Promise.all([
+            loadChannels(space.id),
+            loadCategories(space.id).catch(() => undefined),
+          ]);
           if (cached && cached.length > 0) {
-            store.dispatch(setChannels({ spaceId: space.id, channels: cached }));
+            if (cachedCategories) {
+              store.dispatch(
+                setChannelLayout({
+                  spaceId: space.id,
+                  channels: cached,
+                  categories: cachedCategories.categories,
+                  revision: cachedCategories.revision,
+                }),
+              );
+            } else {
+              store.dispatch(setChannels({ spaceId: space.id, channels: cached }));
+            }
           }
         } catch {
           // IndexedDB read failed — channels will be fetched from backend later

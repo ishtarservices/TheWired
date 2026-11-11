@@ -86,6 +86,45 @@ export async function setChannelOverrides(
   });
 }
 
+/** Set one role's overrides on one channel (empty lists clear them). Only
+ *  that channel stops following its subfolder's permissions. */
+export async function setChannelOverride(
+  spaceId: string,
+  roleId: string,
+  channelId: string,
+  override: { allow: string[]; deny: string[] },
+): Promise<void> {
+  await api(`/spaces/${spaceId}/roles/${roleId}/overrides/${encodeURIComponent(channelId)}`, {
+    method: "PUT",
+    body: override,
+  });
+}
+
+export interface CategoryPermissionOverride {
+  roleId: string;
+  categoryId: string;
+  allow: string[];
+  deny: string[];
+}
+
+/** A role's subfolder permission templates. */
+export async function fetchCategoryOverrides(spaceId: string, roleId: string): Promise<CategoryPermissionOverride[]> {
+  const res = await api<CategoryPermissionOverride[]>(`/spaces/${spaceId}/roles/${roleId}/category-overrides`);
+  return res.data;
+}
+
+/** Replace a role's subfolder templates; synced channels in the touched subfolders follow. */
+export async function setCategoryOverrides(
+  spaceId: string,
+  roleId: string,
+  overrides: Array<{ categoryId: string; allow: string[]; deny: string[] }>,
+): Promise<void> {
+  await api(`/spaces/${spaceId}/roles/${roleId}/category-overrides`, {
+    method: "PUT",
+    body: { overrides },
+  });
+}
+
 export async function fetchMyPermissions(spaceId: string): Promise<string[]> {
   const res = await api<string[]>(`/spaces/${spaceId}/permissions/me`);
   return res.data;

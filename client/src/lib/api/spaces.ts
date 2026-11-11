@@ -1,3 +1,4 @@
+import type { SpaceChannelCategory } from "../../types/space";
 import { api } from "./client";
 
 interface Space {
@@ -69,7 +70,13 @@ export async function joinSpaceApi(id: string) {
       adminOnly: boolean;
       slowModeSeconds: number;
       temporary: boolean;
+      categoryId?: string | null;
+      feedMode?: "all" | "curated";
+      permissionsSynced?: boolean;
     }>;
+    /** Absent on backends that predate subfolders. */
+    categories?: SpaceChannelCategory[];
+    layoutRevision?: number;
     feedPubkeys: string[];
   }>(`/spaces/${encodeURIComponent(id)}/members/me`, { method: "POST" });
 }
@@ -116,7 +123,13 @@ export async function fetchMySpaces() {
       adminOnly: boolean;
       slowModeSeconds: number;
       temporary: boolean;
+      categoryId?: string | null;
+      feedMode?: "all" | "curated";
+      permissionsSynced?: boolean;
     }>;
+    /** Absent on backends that predate subfolders. */
+    categories?: SpaceChannelCategory[];
+    layoutRevision?: number;
     feedPubkeys: string[];
   }>>("/spaces/my-spaces");
 }

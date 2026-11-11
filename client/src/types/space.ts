@@ -91,13 +91,28 @@ export type SpaceChannelType = "chat" | "notes" | "media" | "articles" | "music"
 /** Feed mode for channels — "all" shows all members' content, "curated" shows only explicitly shared content */
 export type ChannelFeedMode = "all" | "curated";
 
+/**
+ * A channel subfolder. `id` is stable and opaque — never display it (it is
+ * only unique within its space, and older ids are the legacy free-text names).
+ * See docs/CHANNEL_LAYOUT.md.
+ */
+export interface SpaceChannelCategory {
+  id: string;
+  spaceId: string;
+  name: string;
+  /** Dense 0..n-1 order among the space's categories. */
+  position: number;
+}
+
 /** A backend-managed channel within a space */
 export interface SpaceChannel {
   id: string;
   spaceId: string;
   type: SpaceChannelType;
   label: string;
-  categoryId?: string;
+  /** A `SpaceChannelCategory.id` in this space; null/absent = uncategorized. */
+  categoryId?: string | null;
+  /** Space-wide canonical order: uncategorized first, then each category's channels. */
   position: number;
   isDefault: boolean;
   adminOnly: boolean;
@@ -106,6 +121,8 @@ export interface SpaceChannel {
   temporary?: boolean;
   /** Feed mode: "all" shows all members' content, "curated" shows only explicitly shared content */
   feedMode: ChannelFeedMode;
+  /** Its permission overrides are a copy of its category's and follow it. */
+  permissionsSynced?: boolean;
 }
 
 /** Role within a space */

@@ -6,7 +6,8 @@ import { Button } from "@/components/ui/Button";
 import { Spinner } from "@/components/ui/Spinner";
 import { useAppSelector, useAppDispatch } from "@/store/hooks";
 import { setSidebarMode } from "@/store/slices/uiSlice";
-import { setChannels, setActiveChannel } from "@/store/slices/spacesSlice";
+import { setActiveChannel } from "@/store/slices/spacesSlice";
+import { hydrateChannelLayout, normalizeChannelRows } from "@/store/thunks/channelLayout";
 import { useSpace } from "@/features/spaces/useSpace";
 import { switchSpaceChannel } from "@/lib/nostr/groupSubscriptions";
 import { joinSpaceApi } from "@/lib/api/spaces";
@@ -40,15 +41,14 @@ export function SpacePreviewPanel() {
 
     try {
       const res = await joinSpaceApi(space.id);
-      const { space: spaceData, channels, feedPubkeys } = res.data;
+      const { space: spaceData, channels, feedPubkeys, categories, layoutRevision } = res.data;
 
-      // Store channels in Redux BEFORE joinSpace so they're available
-      // Normalize channels to ensure feedMode is present (backward compat)
-      const normalizedChannels: SpaceChannel[] = channels.map((ch: any) => ({
-        ...ch,
-        feedMode: ch.feedMode ?? "all",
-      }));
-      dispatch(setChannels({ spaceId: space.id, channels: normalizedChannels }));
+      // Store channels (+ subfolders) in Redux BEFORE joinSpace so they're
+      // available; normalization backfills feedMode on older rows.
+      const normalizedChannels = normalizeChannelRows(channels as SpaceChannel[]);
+      dispatch(
+        hydrateChannelLayout({ spaceId: space.id, channels: normalizedChannels, categories, revision: layoutRevision }),
+      );
 
       const spaceMode = (spaceData.mode as "read" | "read-write") ?? "read-write";
 

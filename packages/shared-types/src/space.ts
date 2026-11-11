@@ -71,7 +71,22 @@ export type ChannelType =
   | "live";
 
 /** Channel types available in client-defined spaces */
-export type SpaceChannelType = "chat" | "notes" | "media" | "articles" | "music";
+export type SpaceChannelType = "chat" | "notes" | "media" | "articles" | "music" | "voice" | "video";
+
+/** "all" shows every member's content; "curated" only what's shared to the channel. */
+export type ChannelFeedMode = "all" | "curated";
+
+/**
+ * A channel subfolder (docs/CHANNEL_LAYOUT.md). `id` is stable and opaque —
+ * never display it; it is unique only within its space.
+ */
+export interface SpaceChannelCategory {
+  id: string;
+  spaceId: string;
+  name: string;
+  /** Dense 0..n-1 order among the space's categories. */
+  position: number;
+}
 
 /** A backend-managed channel within a space */
 export interface SpaceChannel {
@@ -79,11 +94,31 @@ export interface SpaceChannel {
   spaceId: string;
   type: SpaceChannelType;
   label: string;
-  categoryId?: string;
+  /** A `SpaceChannelCategory.id` in this space; null/absent = uncategorized. */
+  categoryId?: string | null;
+  /** Space-wide canonical order: uncategorized first, then each category's channels. */
   position: number;
   isDefault: boolean;
   adminOnly: boolean;
   slowModeSeconds: number;
+  temporary?: boolean;
+  feedMode?: ChannelFeedMode;
+  /** Its permission overrides are a copy of its category's and follow it. */
+  permissionsSynced?: boolean;
+}
+
+/** `GET /spaces/:id/channels/layout` */
+export interface ChannelLayout {
+  revision: number;
+  categories: SpaceChannelCategory[];
+  channels: SpaceChannel[];
+}
+
+/** `PUT /spaces/:id/channels/layout` — omit a category's `id` to create it; leave one out to delete it. */
+export interface ChannelLayoutDoc {
+  baseRevision: number;
+  uncategorized: string[];
+  categories: Array<{ id?: string; name: string; channelIds: string[] }>;
 }
 
 /** Channel route configuration */

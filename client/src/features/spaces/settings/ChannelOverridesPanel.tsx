@@ -1,8 +1,10 @@
 import { useState, useEffect, useCallback } from "react";
-import { Check, X, Minus } from "lucide-react";
+import { Check, X, Minus, Link2, Unlink } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useRoles } from "../useRoles";
 import * as rolesApi from "../../../lib/api/roles";
+import { useAppDispatch, useAppSelector } from "../../../store/hooks";
+import { loadChannelLayout, syncChannelPermissions } from "../../../store/thunks/channelLayout";
 
 type OverrideState = "inherit" | "allow" | "deny";
 
@@ -71,16 +73,82 @@ function TriStateToggle({
   );
 }
 
+type OverrideTarget = { kind: "channel"; id: string } | { kind: "category"; id: string };
+
 interface ChannelOverridesPanelProps {
   spaceId: string;
   channelId: string;
 }
 
+/** Per-role permission overrides for one channel, with its subfolder sync state. */
 export function ChannelOverridesPanel({ spaceId, channelId }: ChannelOverridesPanelProps) {
+  return <OverridesPanel spaceId={spaceId} target={{ kind: "channel", id: channelId }} />;
+}
+
+/** Per-role permission templates for a subfolder; its synced channels follow them. */
+export function CategoryOverridesPanel({ spaceId, categoryId }: { spaceId: string; categoryId: string }) {
+  return <OverridesPanel spaceId={spaceId} target={{ kind: "category", id: categoryId }} />;
+}
+
+/** "Synced with ‹subfolder›" / "Not synced · Sync now" for a channel in a subfolder. */
+function SyncBanner({ spaceId, channelId, reloadKey }: { spaceId: string; channelId: string; reloadKey: () => void }) {
+  const dispatch = useAppDispatch();
+  const channel = useAppSelector((s) => s.spaces.channels[spaceId]?.find((c) => c.id === channelId));
+  const category = useAppSelector((s) =>
+    channel?.categoryId ? s.spaces.categories[spaceId]?.find((c) => c.id === channel.categoryId) : undefined,
+  );
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  if (!channel?.categoryId || !category) return null;
+
+  if (channel.permissionsSynced) {
+    return (
+      <p className="flex items-center gap-1.5 rounded-lg bg-primary/5 px-2.5 py-1.5 text-[11px] text-soft">
+        <Link2 size={12} className="shrink-0 text-primary" />
+        Synced with <span className="font-medium text-heading">{category.name}</span>. Editing here unsyncs this channel.
+      </p>
+    );
+  }
+  return (
+    <div className="rounded-lg bg-amber-500/5 px-2.5 py-1.5 text-[11px] text-soft">
+      <div className="flex items-center gap-1.5">
+        <Unlink size={12} className="shrink-0 text-amber-400" />
+        <span className="flex-1">
+          Not synced with <span className="font-medium text-heading">{category.name}</span>.
+        </span>
+        <button
+          disabled={busy}
+          onClick={async () => {
+            setBusy(true);
+            setError(null);
+            try {
+              await dispatch(syncChannelPermissions(spaceId, channelId));
+              reloadKey();
+            } catch (err) {
+              setError(err instanceof Error ? err.message : "Couldn't sync");
+            } finally {
+              setBusy(false);
+            }
+          }}
+          className="rounded-md bg-primary/15 px-2 py-0.5 font-medium text-primary-soft hover:bg-primary/25 disabled:opacity-50"
+        >
+          {busy ? "Syncing…" : "Sync now"}
+        </button>
+      </div>
+      {error && <p className="mt-1 text-red-400">{error}</p>}
+    </div>
+  );
+}
+
+function OverridesPanel({ spaceId, target }: { spaceId: string; target: OverrideTarget }) {
+  const dispatch = useAppDispatch();
   const { roles } = useRoles(spaceId);
   const [selectedRoleId, setSelectedRoleId] = useState<string | null>(null);
   const [overrides, setOverrides] = useState<Record<string, OverrideState>>({});
   const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [saved, setSaved] = useState(false);
+  const [reloadTick, setReloadTick] = useState(0);
 
   // Select first non-admin role by default
   useEffect(() => {
@@ -90,31 +158,36 @@ export function ChannelOverridesPanel({ spaceId, channelId }: ChannelOverridesPa
     }
   }, [roles, selectedRoleId]);
 
-  // Load overrides when role changes
+  // Load overrides when the role (or target) changes
   useEffect(() => {
     if (!selectedRoleId) return;
     let cancelled = false;
+    setError(null);
+    setSaved(false);
 
     (async () => {
       try {
-        const roleOverrides = await rolesApi.fetchChannelOverrides(spaceId, selectedRoleId);
+        const entry =
+          target.kind === "channel"
+            ? (await rolesApi.fetchChannelOverrides(spaceId, selectedRoleId)).find((o) => o.channelId === target.id)
+            : (await rolesApi.fetchCategoryOverrides(spaceId, selectedRoleId)).find((o) => o.categoryId === target.id);
         if (cancelled) return;
-        const channelOv = roleOverrides.find((o) => o.channelId === channelId);
         const state: Record<string, OverrideState> = {};
-        if (channelOv) {
-          for (const p of channelOv.allow) state[p] = "allow";
-          for (const p of channelOv.deny) state[p] = "deny";
+        if (entry) {
+          for (const p of entry.allow) state[p] = "allow";
+          for (const p of entry.deny) state[p] = "deny";
         }
         setOverrides(state);
-      } catch {
-        // Backend unavailable
+      } catch (err) {
+        if (!cancelled) setError(err instanceof Error ? err.message : "Couldn't load overrides");
       }
     })();
 
     return () => { cancelled = true; };
-  }, [spaceId, selectedRoleId, channelId]);
+  }, [spaceId, selectedRoleId, target.kind, target.id, reloadTick]);
 
   const handleToggle = useCallback((permission: string, next: OverrideState) => {
+    setSaved(false);
     setOverrides((prev) => {
       const updated = { ...prev };
       if (next === "inherit") {
@@ -129,6 +202,7 @@ export function ChannelOverridesPanel({ spaceId, channelId }: ChannelOverridesPa
   const handleSave = useCallback(async () => {
     if (!selectedRoleId) return;
     setSaving(true);
+    setError(null);
 
     const allow: string[] = [];
     const deny: string[] = [];
@@ -138,26 +212,43 @@ export function ChannelOverridesPanel({ spaceId, channelId }: ChannelOverridesPa
     }
 
     try {
-      // Fetch existing overrides for other channels, merge with this channel's
-      const existing = await rolesApi.fetchChannelOverrides(spaceId, selectedRoleId);
-      const otherChannels = existing.filter((o) => o.channelId !== channelId);
-      const allOverrides = [
-        ...otherChannels.map((o) => ({ channelId: o.channelId, allow: o.allow, deny: o.deny })),
-        ...(allow.length > 0 || deny.length > 0 ? [{ channelId, allow, deny }] : []),
-      ];
-      await rolesApi.setChannelOverrides(spaceId, selectedRoleId, allOverrides);
+      if (target.kind === "channel") {
+        // Only this channel's rows for this role — other channels (and their
+        // subfolder sync) are untouched.
+        await rolesApi.setChannelOverride(spaceId, selectedRoleId, target.id, { allow, deny });
+      } else {
+        const existing = await rolesApi.fetchCategoryOverrides(spaceId, selectedRoleId);
+        const others = existing.filter((o) => o.categoryId !== target.id);
+        await rolesApi.setCategoryOverrides(spaceId, selectedRoleId, [
+          ...others.map((o) => ({ categoryId: o.categoryId, allow: o.allow, deny: o.deny })),
+          ...(allow.length > 0 || deny.length > 0 ? [{ categoryId: target.id, allow, deny }] : []),
+        ]);
+      }
+      setSaved(true);
+      // Sync badges + inherited channel overrides changed: refresh the layout.
+      void dispatch(loadChannelLayout(spaceId)).catch(() => {});
     } catch (err) {
-      console.error("[ChannelOverrides] Save failed:", err);
+      setError(err instanceof Error ? err.message : "Couldn't save overrides");
     } finally {
       setSaving(false);
     }
-  }, [spaceId, selectedRoleId, channelId, overrides]);
+  }, [dispatch, spaceId, selectedRoleId, target.kind, target.id, overrides]);
 
   const selectedRole = roles.find((r) => r.id === selectedRoleId);
   const nonAdminRoles = roles.filter((r) => !r.isAdmin);
 
   return (
     <div className="space-y-3">
+      {target.kind === "channel" && (
+        <SyncBanner spaceId={spaceId} channelId={target.id} reloadKey={() => setReloadTick((t) => t + 1)} />
+      )}
+      {target.kind === "category" && (
+        <p className="text-[11px] text-muted">
+          Channels synced with this subfolder follow these settings, and new channels in it start with them.
+          A deny on any of someone's roles wins over an allow on another.
+        </p>
+      )}
+
       <div className="flex items-center gap-2">
         <span className="text-[10px] font-semibold uppercase tracking-wider text-muted">
           Role
@@ -206,12 +297,13 @@ export function ChannelOverridesPanel({ spaceId, channelId }: ChannelOverridesPa
             </div>
           ))}
 
+          {error && <p className="text-xs text-red-400">{error}</p>}
           <button
             onClick={handleSave}
             disabled={saving}
             className="w-full rounded-xl bg-primary/15 px-3 py-1.5 text-xs font-medium text-primary-soft hover:bg-primary/25 transition-colors disabled:opacity-50"
           >
-            {saving ? "Saving..." : "Save Overrides"}
+            {saving ? "Saving..." : saved ? "Saved" : "Save Overrides"}
           </button>
         </div>
       )}
