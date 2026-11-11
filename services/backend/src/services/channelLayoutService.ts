@@ -54,18 +54,29 @@ export interface LayoutDocInput {
   categories: Array<{ id?: string; name: string; channelIds: string[] }>;
 }
 
-/** Who may have category overrides copied onto a channel during a move. */
+type RoleRank = { id: string; position: number; isAdmin: boolean };
+
+/** What the acting member may do to other roles' channel permissions. */
 export interface CopyAuthority {
-  mayCopy(roles: Array<{ id: string; position: number; isAdmin: boolean }>): boolean;
+  /**
+   * May a category template be applied to a channel? `addedAllows` are the
+   * allow-permissions it would add (never grantable beyond what the actor
+   * holds). `replacing` = it would overwrite overrides the channel already
+   * has, which also lifts their denies — that takes authority over every role.
+   */
+  mayApply(args: { roles: RoleRank[]; addedAllows: string[]; replacing: boolean }): boolean;
+  /** Authority over every one of these roles' overrides. */
+  mayManage(roles: RoleRank[]): boolean;
 }
 
 type OverrideInput = { allow: string[]; deny: string[] };
 
 // ── Names and ids ────────────────────────────────────────────────────────
 
-// C0/C1 controls, line/paragraph separators, bidi embeddings/overrides/isolates
-// (spoofing), zero-width and BOM characters.
-const FORBIDDEN_NAME_CHARS = /[\u0000-\u001f\u007f-\u009f\u200b-\u200f\u2028-\u202e\u2066-\u2069\ufeff]/;
+// C0/C1 controls, line/paragraph separators, bidi marks/embeddings/overrides/
+// isolates (spoofing), zero-width space and BOM. ZWNJ/ZWJ (U+200C/D) stay
+// allowed: emoji sequences and Persian/Indic text need them.
+const FORBIDDEN_NAME_CHARS = /[\u0000-\u001f\u007f-\u009f\u200b\u200e\u200f\u2028-\u202e\u2066-\u2069\ufeff]/;
 
 /** Trim and validate a category name, or throw a 400. */
 export function normalizeCategoryName(raw: string): string {
@@ -213,10 +224,12 @@ async function rolesFor(tx: Tx, spaceId: string, roleIds: string[]) {
 /**
  * Channels that just moved into `categoryId` start following it when their
  * current overrides are not their own: none at all, or a synced copy of the
- * category they came from. Replacing overrides changes other roles'
- * permissions, so it needs `authority` over every role on either side;
- * without it the channel moves but stays unsynced (someone with authority can
- * "Sync now"). Channels with overrides of their own keep them, unsynced.
+ * category they came from. Applying the template may only add allows the
+ * actor holds; replacing existing copies also needs authority over every role
+ * involved. Otherwise the channel moves but stays unsynced (someone with
+ * authority can "Sync now"). Channels with overrides of their own keep them,
+ * unsynced. `"always"` (a brand-new channel) applies the template as is: the
+ * channel has no permissions of its own to override yet.
  * Returns true when channel_overrides changed.
  */
 async function adoptCategory(
@@ -241,42 +254,43 @@ async function adoptCategory(
         )
     ).map((r) => r.id),
   );
-  const ownRoles = new Map<string, Set<string>>();
-  for (const r of await tx
-    .select({ channelId: channelOverrides.channelId, roleId: channelOverrides.roleId })
+  const ownRows = await tx
+    .select()
     .from(channelOverrides)
-    .where(inArray(channelOverrides.channelId, channelIds))) {
-    (ownRoles.get(r.channelId) ?? ownRoles.set(r.channelId, new Set()).get(r.channelId)!).add(r.roleId);
-  }
-  const templateRoles = new Set(
-    (
-      await tx
-        .select({ roleId: categoryOverrides.roleId })
-        .from(categoryOverrides)
-        .where(and(eq(categoryOverrides.spaceId, spaceId), eq(categoryOverrides.categoryId, categoryId)))
-    ).map((t) => t.roleId),
-  );
+    .where(inArray(channelOverrides.channelId, channelIds));
+  const template = await tx
+    .select()
+    .from(categoryOverrides)
+    .where(and(eq(categoryOverrides.spaceId, spaceId), eq(categoryOverrides.categoryId, categoryId)));
 
   const follow: string[] = [];
   const unsynced: string[] = [];
   let changed = false;
   for (const id of channelIds) {
-    const own = ownRoles.get(id) ?? new Set<string>();
-    if (own.size > 0 && !synced.has(id)) {
+    const own = ownRows.filter((r) => r.channelId === id);
+    if (own.length > 0 && !synced.has(id)) {
       unsynced.push(id);
       continue;
     }
-    const roleIds = [...new Set([...templateRoles, ...own])];
-    const allowed =
-      roleIds.length === 0 || authority === "always" || authority.mayCopy(await rolesFor(tx, spaceId, roleIds));
+    if (own.length === 0 && template.length === 0) {
+      follow.push(id); // nothing to copy either way
+      continue;
+    }
+    let allowed = authority === "always";
+    if (!allowed) {
+      const roleIds = [...new Set([...template, ...own].map((r) => r.roleId))];
+      allowed = (authority as CopyAuthority).mayApply({
+        roles: await rolesFor(tx, spaceId, roleIds),
+        addedAllows: allowsAdded(own, template),
+        replacing: own.length > 0,
+      });
+    }
     if (!allowed) {
       unsynced.push(id);
       continue;
     }
-    if (roleIds.length > 0) {
-      await copyCategoryOverrides(tx, spaceId, categoryId, [id]);
-      changed = true;
-    }
+    await copyCategoryOverrides(tx, spaceId, categoryId, [id]);
+    changed = true;
     follow.push(id);
   }
   if (follow.length > 0) {
@@ -292,6 +306,19 @@ async function adoptCategory(
       .where(and(eq(spaceChannels.spaceId, spaceId), inArray(spaceChannels.id, unsynced)));
   }
   return changed;
+}
+
+/** Allow-permissions a template would add to a channel's current rows (per role). */
+function allowsAdded(
+  current: Array<{ roleId: string; permission: string; effect: string }>,
+  template: Array<{ roleId: string; permission: string; effect: string }>,
+): string[] {
+  const had = new Set(current.filter((r) => r.effect === "allow").map((r) => `${r.roleId}|${r.permission}`));
+  return [
+    ...new Set(
+      template.filter((t) => t.effect === "allow" && !had.has(`${t.roleId}|${t.permission}`)).map((t) => t.permission),
+    ),
+  ];
 }
 
 /**
@@ -459,8 +486,9 @@ export const channelLayoutService = {
         .where(eq(spaceChannels.spaceId, spaceId));
       const categories = await listCategoriesTx(tx, spaceId);
 
-      // Categories
-      if (doc.categories.length > MAX_CATEGORIES) {
+      // Categories. The cap only stops growth: spaces with more legacy
+      // folders than that can still rearrange them.
+      if (doc.categories.length > Math.max(MAX_CATEGORIES, categories.length)) {
         throw new LayoutError(400, "BAD_REQUEST", `A space can have at most ${MAX_CATEGORIES} subfolders`);
       }
       const existingById = new Map(categories.map((c) => [c.id, c]));
@@ -468,13 +496,18 @@ export const channelLayoutService = {
       const seenNames = new Set<string>();
       const target = doc.categories.map((c) => {
         if (c.id !== undefined) {
+          // Unknown with a current revision: the client's list was read in
+          // pieces (channels, then categories). Let it refetch and retry.
           if (!existingById.has(c.id)) {
-            throw new LayoutError(400, "BAD_REQUEST", "Unknown subfolder");
+            throw new LayoutError(409, "LAYOUT_STALE", "That subfolder no longer exists; reload and try again");
           }
           if (seenIds.has(c.id)) throw new LayoutError(400, "BAD_REQUEST", "A subfolder is listed twice");
           seenIds.add(c.id);
         }
-        const name = normalizeCategoryName(c.name);
+        // Only new or renamed names are validated; a legacy name that predates
+        // the rules (an emoji sequence, a tab) can be kept as it is.
+        const before = c.id !== undefined ? existingById.get(c.id)!.name : undefined;
+        const name = before !== undefined && c.name === before ? before : normalizeCategoryName(c.name);
         const key = name.toLowerCase();
         if (seenNames.has(key)) {
           throw new LayoutError(400, "DUPLICATE_NAME", `Two subfolders can't both be named "${name}"`);
@@ -505,6 +538,28 @@ export const channelLayoutService = {
       }
       const keptIds = new Set(target.map((c) => c.id!));
       const deleted = categories.filter((c) => !keptIds.has(c.id)).map((c) => c.id);
+
+      // Deleting a subfolder drops its permission template; one that holds
+      // settings for roles above the actor isn't theirs to drop.
+      if (deleted.length > 0) {
+        const templateRoles = [
+          ...new Set(
+            (
+              await tx
+                .select({ roleId: categoryOverrides.roleId })
+                .from(categoryOverrides)
+                .where(and(eq(categoryOverrides.spaceId, spaceId), inArray(categoryOverrides.categoryId, deleted)))
+            ).map((r) => r.roleId),
+          ),
+        ];
+        if (templateRoles.length > 0 && !authority.mayManage(await rolesFor(tx, spaceId, templateRoles))) {
+          throw new LayoutError(
+            403,
+            "FORBIDDEN",
+            "That subfolder has permission settings for roles you can't manage",
+          );
+        }
+      }
 
       try {
         // 1. Deleted categories: detach their channels, then drop them
@@ -634,7 +689,8 @@ export const channelLayoutService = {
           isDefault: count === 0,
           adminOnly: params.adminOnly ?? false,
           slowModeSeconds: params.slowModeSeconds ?? 0,
-          temporary: params.temporary ?? false,
+          // Temporary = removed once its call room is empty: voice/video only.
+          temporary: (params.type === "voice" || params.type === "video") && params.temporary === true,
           feedMode: params.feedMode ?? "all",
         });
       } catch (err) {
@@ -840,6 +896,16 @@ export const channelLayoutService = {
     overrides: Array<{ categoryId: string; allow: string[]; deny: string[] }>,
     guard: OverrideWriteGuard,
   ) {
+    return this.writeCategoryOverrides(spaceId, roleId, overrides, guard, null);
+  },
+
+  async writeCategoryOverrides(
+    spaceId: string,
+    roleId: string,
+    overrides: Array<{ categoryId: string; allow: string[]; deny: string[] }>,
+    guard: OverrideWriteGuard,
+    onlyCategoryId: string | null,
+  ) {
     return db.transaction(async (tx) => {
       await lockSpace(tx, spaceId);
       const [owned] = await tx
@@ -858,22 +924,19 @@ export const channelLayoutService = {
         assertNoOverlap(o);
       }
 
-      const before = groupOverrides(
-        await tx
-          .select()
-          .from(categoryOverrides)
-          .where(and(eq(categoryOverrides.roleId, roleId), eq(categoryOverrides.spaceId, spaceId))),
-        (r) => r.categoryId,
+      const scope = and(
+        eq(categoryOverrides.roleId, roleId),
+        eq(categoryOverrides.spaceId, spaceId),
+        ...(onlyCategoryId !== null ? [eq(categoryOverrides.categoryId, onlyCategoryId)] : []),
       );
+      const before = groupOverrides(await tx.select().from(categoryOverrides).where(scope), (r) => r.categoryId);
       for (const o of overrides) guard.checkAddedAllows(addedAllows(before.get(o.categoryId), o));
 
       const touched = [...new Set([...before.keys(), ...overrides.map((o) => o.categoryId)])].filter(
         (id) => overrideSignature(before.get(id)) !== overrideSignature(overrides.find((o) => o.categoryId === id)),
       );
 
-      await tx
-        .delete(categoryOverrides)
-        .where(and(eq(categoryOverrides.roleId, roleId), eq(categoryOverrides.spaceId, spaceId)));
+      await tx.delete(categoryOverrides).where(scope);
       const rows = overrides.flatMap((o) => [
         ...[...new Set(o.allow)].map((permission) => ({ roleId, spaceId, categoryId: o.categoryId, permission, effect: "allow" })),
         ...[...new Set(o.deny)].map((permission) => ({ roleId, spaceId, categoryId: o.categoryId, permission, effect: "deny" })),
@@ -901,6 +964,19 @@ export const channelLayoutService = {
     });
   },
 
+  /** Set one role's template on one category (empty lists clear it); its synced channels follow.
+   *  Scoped to that category inside the lock, so concurrent edits to other
+   *  categories of the same role can't overwrite each other. */
+  async setCategoryOverride(
+    spaceId: string,
+    roleId: string,
+    categoryId: string,
+    override: OverrideInput,
+    guard: OverrideWriteGuard,
+  ) {
+    return this.writeCategoryOverrides(spaceId, roleId, [{ categoryId, ...override }], guard, categoryId);
+  },
+
   /**
    * Make a channel follow its category again: replace all of its overrides
    * with the category's. Every role on either side must be manageable.
@@ -917,16 +993,22 @@ export const channelLayoutService = {
       if (!channel.categoryId) throw new LayoutError(400, "BAD_REQUEST", "This channel isn't in a subfolder");
 
       const template = await tx
-        .select({ roleId: categoryOverrides.roleId })
+        .select()
         .from(categoryOverrides)
         .where(and(eq(categoryOverrides.spaceId, spaceId), eq(categoryOverrides.categoryId, channel.categoryId)));
-      const own = await tx
-        .select({ roleId: channelOverrides.roleId })
-        .from(channelOverrides)
-        .where(eq(channelOverrides.channelId, channelId));
+      const own = await tx.select().from(channelOverrides).where(eq(channelOverrides.channelId, channelId));
       const roleIds = [...new Set([...template, ...own].map((r) => r.roleId))];
-      if (!authority.mayCopy(await rolesFor(tx, spaceId, roleIds))) {
-        throw new LayoutError(403, "FORBIDDEN", "You can't change permissions for every role this affects");
+      const ok = authority.mayApply({
+        roles: await rolesFor(tx, spaceId, roleIds),
+        addedAllows: allowsAdded(own, template),
+        replacing: true,
+      });
+      if (!ok) {
+        throw new LayoutError(
+          403,
+          "FORBIDDEN",
+          "Syncing would change permissions for roles you can't manage, or grant ones you don't have",
+        );
       }
       await copyCategoryOverrides(tx, spaceId, channel.categoryId, [channelId]);
       await tx.update(spaceChannels).set({ permissionsSynced: true }).where(eq(spaceChannels.id, channelId));

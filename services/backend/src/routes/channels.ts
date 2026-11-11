@@ -2,7 +2,7 @@ import type { FastifyPluginAsync } from "fastify";
 import { z } from "zod";
 import { validate, nonEmptyString, nonNegativeInt } from "../lib/validation.js";
 import { channelService } from "../services/channelService.js";
-import { channelLayoutService, MAX_CATEGORIES } from "../services/channelLayoutService.js";
+import { channelLayoutService } from "../services/channelLayoutService.js";
 import { permissionService } from "../services/permissionService.js";
 import { gateSpaceRead } from "../lib/spaceReadGate.js";
 import { notifySpaceChanged, type SpaceChange } from "../services/spaceSignalService.js";
@@ -56,7 +56,9 @@ const layoutBody = z.object({
         channelIds: z.array(channelIdRef).max(500),
       }),
     )
-    .max(MAX_CATEGORIES),
+    // Body bound only; the service enforces the cap (and lets spaces with
+    // more legacy folders than MAX_CATEGORIES keep rearranging them).
+    .max(200),
 });
 
 export const channelsRoutes: FastifyPluginAsync = async (server) => {

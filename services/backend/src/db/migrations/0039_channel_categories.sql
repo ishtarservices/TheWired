@@ -11,7 +11,8 @@
 -- (uncategorized first, then categories in order), so clients that sort by
 -- position see the same order the new layout shows.
 --
--- Idempotent: the test harness truncates app.schema_migrations between files.
+-- Idempotent: the test harness truncates app.schema_migrations between files
+-- and replays every migration (older seed files included) on the same DB.
 
 CREATE TABLE IF NOT EXISTS app.space_channel_categories (
   space_id   TEXT NOT NULL REFERENCES app.spaces(id) ON DELETE CASCADE,
@@ -73,6 +74,53 @@ UPDATE app.space_channels c
  WHERE c.category_id IS NOT NULL
    AND c.permissions_synced = false
    AND NOT EXISTS (SELECT 1 FROM app.channel_overrides o WHERE o.channel_id = c.id);
+
+-- Any writer that still stores a category *string* — an older backend after a
+-- rollback, the pre-0039 seed migrations replayed by the test harness, manual
+-- SQL — gets it resolved here the way the API resolves it: an existing id,
+-- else an existing name (ignoring case and surrounding spaces), else a new
+-- category named after it. So category_id always names a real category of the
+-- same space, and nothing written the old way fails the FK below.
+CREATE OR REPLACE FUNCTION app.space_channels_resolve_category() RETURNS trigger AS $fn$
+DECLARE
+  found_id TEXT;
+  wanted   TEXT;
+BEGIN
+  IF NEW.category_id IS NULL THEN
+    RETURN NEW;
+  END IF;
+  SELECT id INTO found_id FROM app.space_channel_categories
+   WHERE space_id = NEW.space_id AND id = NEW.category_id;
+  IF FOUND THEN
+    RETURN NEW;
+  END IF;
+  wanted := btrim(NEW.category_id);
+  IF wanted = '' THEN
+    NEW.category_id := NULL;
+    RETURN NEW;
+  END IF;
+  SELECT id INTO found_id FROM app.space_channel_categories
+   WHERE space_id = NEW.space_id AND lower(name) = lower(wanted)
+   LIMIT 1;
+  IF NOT FOUND THEN
+    INSERT INTO app.space_channel_categories (space_id, id, name, position)
+    VALUES (
+      NEW.space_id, wanted, wanted,
+      COALESCE((SELECT max(position) + 1 FROM app.space_channel_categories WHERE space_id = NEW.space_id), 0)
+    )
+    ON CONFLICT DO NOTHING;
+    SELECT id INTO found_id FROM app.space_channel_categories
+     WHERE space_id = NEW.space_id AND (id = wanted OR lower(name) = lower(wanted))
+     LIMIT 1;
+  END IF;
+  NEW.category_id := found_id;
+  RETURN NEW;
+END
+$fn$ LANGUAGE plpgsql;
+
+CREATE OR REPLACE TRIGGER trg_space_channels_resolve_category
+  BEFORE INSERT OR UPDATE OF category_id ON app.space_channels
+  FOR EACH ROW EXECUTE FUNCTION app.space_channels_resolve_category();
 
 DO $$
 BEGIN

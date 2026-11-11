@@ -12,12 +12,6 @@
 -- after the swap. Safe to re-run (all ON CONFLICT DO NOTHING).
 -- ============================================================================
 
--- Replays (the test harness re-applies every file after truncating) run this
--- after 0039 added the category FK; these seeds still write legacy category
--- strings, so drop it here and let 0039 backfill the categories and re-add it.
--- A no-op on a fresh database and never reached in production.
-ALTER TABLE app.space_channels DROP CONSTRAINT IF EXISTS space_channels_category_fk;
-
 DO $$
 DECLARE
   admin_pk TEXT;

@@ -3,14 +3,19 @@ import { getActorRank, canManageRole, unknownPermissions, ungrantablePermissions
 import { LayoutError, type CopyAuthority, type OverrideWriteGuard } from "../services/channelLayoutService.js";
 
 /**
- * May this actor have category overrides copied onto channels (a move into a
- * category, "Sync now")? Copying rewrites other roles' permissions, so it takes
- * MANAGE_ROLES and the right to manage every role involved.
+ * What this actor may do to other roles' channel permissions when a category
+ * template is applied (a move into a category, "Sync now", deleting a folder):
+ * - never add an allow they don't hold themselves (same rule as override edits);
+ * - replacing existing overrides, or dropping a template, also takes
+ *   MANAGE_ROLES and the right to manage every role involved.
  */
 export function copyAuthority(rank: ActorRank): CopyAuthority {
+  const mayManage: CopyAuthority["mayManage"] = (roles) =>
+    (rank.isCreator || rank.permissions.includes("MANAGE_ROLES")) && roles.every((r) => canManageRole(rank, r));
   return {
-    mayCopy: (roles) =>
-      (rank.isCreator || rank.permissions.includes("MANAGE_ROLES")) && roles.every((r) => canManageRole(rank, r)),
+    mayManage,
+    mayApply: ({ roles, addedAllows, replacing }) =>
+      ungrantablePermissions(rank, addedAllows).length === 0 && (!replacing || mayManage(roles)),
   };
 }
 

@@ -93,6 +93,12 @@ const categoryOverridesBodySchema = z.object({
   })).max(100),
 });
 
+const singleCategoryOverrideBodySchema = z.object({
+  categoryId: z.string().min(1).max(128),
+  allow: permList,
+  deny: permList,
+});
+
 const spaceRoleChannelParamsSchema = z.object({
   spaceId: nonEmptyString,
   roleId: nonEmptyString,
@@ -363,6 +369,46 @@ export const rolesRoutes: FastifyPluginAsync = async (server) => {
   );
 
   // ── Category overrides (templates for the category's synced channels) ──
+
+  /** PUT /:spaceId/roles/:roleId/category-override — Set one role's template on
+   *  one category (body carries the id: category ids aren't URL-safe). */
+  server.put<{ Params: { spaceId: string; roleId: string } }>(
+    "/:spaceId/roles/:roleId/category-override",
+    async (request, reply) => {
+      const params = validate(spaceAndRoleIdParamsSchema, request.params, reply);
+      if (!params) return;
+      const body = validate(singleCategoryOverrideBodySchema, request.body, reply);
+      if (!body) return;
+
+      const pubkey = (request as any).pubkey as string | undefined;
+      if (!pubkey) return reply.status(401).send({ error: "Authentication required", code: "UNAUTHORIZED" });
+
+      const perm = await permissionService.check(params.spaceId, pubkey, "MANAGE_ROLES");
+      if (!perm.allowed) return reply.status(403).send({ error: "Missing MANAGE_ROLES permission", code: "FORBIDDEN" });
+
+      const target = await requireRoleInSpace(params.spaceId, params.roleId, reply);
+      if (!target) return;
+      const rank = await getActorRank(params.spaceId, pubkey);
+      if (!canManageRole(rank, target)) {
+        return reply.status(403).send({ error: "Cannot override a role equal to or above your own", code: "FORBIDDEN" });
+      }
+
+      try {
+        const { channelsChanged } = await channelLayoutService.setCategoryOverride(
+          params.spaceId,
+          params.roleId,
+          body.categoryId,
+          { allow: body.allow, deny: body.deny },
+          overrideGuard(rank),
+        );
+        notifySpaceChanged(params.spaceId, channelsChanged > 0 ? ["roles", "channels"] : "roles");
+        return { data: { success: true, channelsChanged } };
+      } catch (err) {
+        if (sendLayoutError(reply, err)) return;
+        throw err;
+      }
+    },
+  );
 
   /** GET /:spaceId/roles/:roleId/category-overrides (MANAGE_ROLES) */
   server.get<{ Params: { spaceId: string; roleId: string } }>(

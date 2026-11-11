@@ -302,10 +302,53 @@ describe("PUT /:spaceId/channels/layout", () => {
     expect(ok.json().data.categories[0].name).toBe("Spaced");
   });
 
+  it("allows emoji ZWJ sequences, and keeps legacy names that predate the rules", async () => {
+    await createSpace(LUNA);
+    const ids = (await getLayout()).channels.map((c) => c.id);
+    // woman technologist: U+1F469 U+200D U+1F4BB
+    const coder = `${String.fromCodePoint(0x1f469, 0x200d, 0x1f4bb)} dev`;
+    const res = await putLayout(LUNA, { baseRevision: 0, uncategorized: ids, categories: [{ name: coder, channelIds: [] }] });
+    expect(res.statusCode).toBe(200);
+    expect(res.json().data.categories[0].name).toBe(coder);
+
+    // A legacy folder whose name has a tab (the old API allowed it) still rearranges.
+    const tab = String.fromCharCode(9);
+    await db.insert(spaceChannelCategories).values({ spaceId: SPACE, id: "old", name: `old${tab}name`, position: 1 });
+    const layout = await getLayout();
+    const keep = await putLayout(LUNA, {
+      baseRevision: layout.revision,
+      uncategorized: ids,
+      categories: [...layout.categories].reverse().map((c) => ({ id: c.id, name: c.name, channelIds: [] as string[] })),
+    });
+    expect(keep.statusCode).toBe(200);
+    // ...but can't be renamed to another name that breaks them.
+    const again = await getLayout();
+    const bad = await putLayout(LUNA, {
+      baseRevision: again.revision,
+      uncategorized: ids,
+      categories: again.categories.map((c) => ({ id: c.id, name: c.id === "old" ? `new${tab}name` : c.name, channelIds: [] as string[] })),
+    });
+    expect(bad.statusCode).toBe(400);
+  });
+
+  it("lets a space with more legacy folders than the cap keep rearranging, but not grow", async () => {
+    await createSpace(LUNA);
+    const ids = (await getLayout()).channels.map((c) => c.id);
+    for (let i = 0; i < 52; i++) {
+      await db.insert(spaceChannelCategories).values({ spaceId: SPACE, id: `f${i}`, name: `f${i}`, position: i });
+    }
+    const layout = await getLayout();
+    const reversed = [...layout.categories].reverse().map((c) => ({ id: c.id, name: c.name, channelIds: [] as string[] }));
+    expect((await putLayout(LUNA, { baseRevision: layout.revision, uncategorized: ids, categories: reversed })).statusCode).toBe(200);
+    const grown = [...reversed, { name: "one more", channelIds: [] as string[] }];
+    expect((await putLayout(LUNA, { baseRevision: layout.revision + 1, uncategorized: ids, categories: grown })).statusCode).toBe(400);
+  });
+
   it("rejects unknown or repeated category ids", async () => {
     await createSpace(LUNA);
     const ids = (await getLayout()).channels.map((c) => c.id);
-    expect((await putLayout(LUNA, { baseRevision: 0, uncategorized: ids, categories: [{ id: "invented", name: "X", channelIds: [] }] })).statusCode).toBe(400);
+    // Unknown id with a current revision = the client read its list in pieces: 409 so it refetches.
+    expect((await putLayout(LUNA, { baseRevision: 0, uncategorized: ids, categories: [{ id: "invented", name: "X", channelIds: [] }] })).statusCode).toBe(409);
     await putLayout(LUNA, { baseRevision: 0, uncategorized: ids, categories: [{ name: "X", channelIds: [] }] });
     expect(
       (await putLayout(LUNA, {
@@ -326,14 +369,15 @@ describe("PUT /:spaceId/channels/layout", () => {
     const theirs = otherBefore.channels.map((c) => c.id);
     // Their channel ids in my layout → 409, nothing moves.
     expect((await putLayout(LUNA, { baseRevision: mine.revision, uncategorized: theirs, categories: [] })).statusCode).toBe(409);
-    // Their category id in my layout → 400.
+    // Their category id in my layout → refused (409), nothing created or moved.
     expect(
       (await putLayout(LUNA, {
         baseRevision: mine.revision,
         uncategorized: mine.channels.map((c) => c.id),
         categories: [{ id: "Theirs", name: "Theirs", channelIds: [] }],
       })).statusCode,
-    ).toBe(400);
+    ).toBe(409);
+    expect((await getLayout(SPACE)).categories).toEqual([]);
     // Writing their layout without permission → 403.
     expect((await putLayout(LUNA, { baseRevision: otherBefore.revision, uncategorized: theirs, categories: [] }, OTHER)).statusCode).toBe(403);
     expect(await getLayout(OTHER)).toEqual(otherBefore);
@@ -412,6 +456,9 @@ describe("legacy channel endpoints keep working", () => {
     const temp = await createChannel(LUNA, { type: "voice", label: "#pop-up", temporary: true });
     expect(temp.statusCode).toBe(200);
     expect(temp.json().data.temporary).toBe(true);
+    // Temporary only means something for call rooms (the sweep deletes empty ones).
+    const chatTemp = await createChannel(LUNA, { type: "chat", label: "#not-temp", temporary: true });
+    expect(chatTemp.json().data.temporary).toBe(false);
     const ctrl = String.fromCharCode(7);
     expect((await createChannel(LUNA, { type: "chat", label: "#x", categoryId: `bad${ctrl}` })).statusCode).toBe(400);
     expect((await createChannel(LUNA, { type: "chat", label: "#general" })).statusCode).toBe(409);
@@ -545,6 +592,7 @@ describe("0039 backfill", () => {
     const member = await roleByName(SPACE, "Member");
     // Simulate the pre-0039 state: free-text categories, no FK.
     await db.execute(sql`ALTER TABLE app.space_channels DROP CONSTRAINT IF EXISTS space_channels_category_fk`);
+    await db.execute(sql`DROP TRIGGER IF EXISTS trg_space_channels_resolve_category ON app.space_channels`);
     const legacy = [
       { id: "l1", label: "#a", categoryId: " Dev", position: 1 },
       { id: "l2", label: "#b", categoryId: "Ops", position: 2 },
@@ -583,6 +631,27 @@ describe("0039 backfill", () => {
       SELECT conname FROM pg_constraint WHERE conname IN ('space_channels_category_fk', 'channel_overrides_channel_fk')
     `);
     expect([...fks].length).toBe(2);
+  });
+
+  it("resolves category strings written the old way (older backend, replayed seeds, raw SQL)", async () => {
+    await createSpace(LUNA, SPACE, [{ type: "chat", label: "#general" }]);
+    await putLayout(LUNA, await docFor({ uncategorized: ["#general"], categories: [{ name: "Dev Ops", labels: [] }] }));
+    const raw = async (id: string, categoryId: string | null) => {
+      await db.insert(spaceChannels).values({ id, spaceId: SPACE, type: "chat", label: `#${id}`, categoryId, position: 99 });
+      const [row] = await db.select().from(spaceChannels).where(eq(spaceChannels.id, id));
+      return row.categoryId;
+    };
+    expect(await raw("r1", "Dev Ops")).toBe("Dev Ops"); // by id
+    expect(await raw("r2", "  dev ops ")).toBe("Dev Ops"); // by name, ignoring case/spaces
+    expect(await raw("r3", "   ")).toBeNull(); // blank → none
+    expect(await raw("r4", "Brand New")).toBe("Brand New"); // created
+    const cats = await db.select().from(spaceChannelCategories).where(eq(spaceChannelCategories.spaceId, SPACE));
+    expect(cats.map((c) => c.name).sort()).toEqual(["Brand New", "Dev Ops"]);
+    // Another space's folder name never links across spaces.
+    await createSpace(MARCUS, OTHER, [{ type: "chat", label: "#x" }]);
+    await db.insert(spaceChannels).values({ id: "o1", spaceId: OTHER, type: "chat", label: "#o1", categoryId: "Dev Ops", position: 5 });
+    const otherCats = await db.select().from(spaceChannelCategories).where(eq(spaceChannelCategories.spaceId, OTHER));
+    expect(otherCats.map((c) => [c.id, c.spaceId])).toEqual([["Dev Ops", OTHER]]);
   });
 });
 
@@ -733,16 +802,14 @@ describe("category permissions", () => {
     expect(await db.select().from(categoryOverrides).where(eq(categoryOverrides.roleId, modRole))).toEqual([]);
   });
 
-  it("moving a channel in copies the category's overrides only with authority over every role", async () => {
+  it("moving a bare channel in applies the folder's restrictions, even for a MANAGE_CHANNELS-only mover", async () => {
     const { member } = await setup();
     await putCategoryOverrides(LUNA, member.id, [{ categoryId: "Text", allow: [], deny: ["SEND_MESSAGES"] }]);
-    // A mod with MANAGE_CHANNELS only.
     const chanMod = await addRole(SPACE, "ChanMod", 1, ["MANAGE_CHANNELS"]);
     await db.update(spaceRoles).set({ position: 5 }).where(eq(spaceRoles.id, member.id));
     await addMember(SPACE, DECKARD, [chanMod]);
 
     const lounge = byLabel(await getLayout(), "#lounge");
-    const notes = byLabel(await getLayout(), "#notes");
     const byMod = await server.inject({
       method: "PATCH",
       url: `/spaces/${SPACE}/channels/${lounge.id}`,
@@ -750,22 +817,86 @@ describe("category permissions", () => {
       payload: { categoryId: "Text" },
     });
     expect(byMod.statusCode).toBe(200);
-    expect(byMod.json().data.permissionsSynced).toBe(false);
-    expect(await channelOverrideRows(lounge.id)).toEqual([]);
+    // Same as creating it there: it had no permissions of its own, so it now follows the folder.
+    expect(byMod.json().data.permissionsSynced).toBe(true);
+    expect(await can(MARCUS, "SEND_MESSAGES", lounge.id)).toBe(false);
+  });
 
-    // The creator moving one in via the layout copies and syncs.
-    const res = await putLayout(LUNA, await docFor({
-      uncategorized: [],
-      categories: [{ id: "Text", name: "Text", labels: ["#general", "#random", "#lounge", "#notes"] }],
+  it("a move or Sync now can't grant allows the actor doesn't hold (no escalation via folder templates)", async () => {
+    const { member } = await setup();
+    // Mod: MANAGE_ROLES + MANAGE_CHANNELS but NOT MANAGE_MESSAGES; Helper sits below Mod.
+    const modRole = await addRole(SPACE, "Mod", 1, ["MANAGE_ROLES", "MANAGE_CHANNELS"]);
+    const helper = await addRole(SPACE, "Helper", 2, []);
+    await db.update(spaceRoles).set({ position: 5 }).where(eq(spaceRoles.id, member.id));
+    await addMember(SPACE, ZARA, [modRole, helper]);
+    // The creator makes "Text" give Helper MANAGE_MESSAGES.
+    expect((await putCategoryOverrides(LUNA, helper, [{ categoryId: "Text", allow: ["MANAGE_MESSAGES"], deny: [] }])).statusCode).toBe(200);
+
+    const notes = byLabel(await getLayout(), "#notes");
+    // Mod moves #notes into Text: it moves, but the grant is not copied.
+    const res = await putLayout(ZARA, await docFor({
+      uncategorized: ["#lounge"],
+      categories: [{ id: "Text", name: "Text", labels: ["#general", "#random", "#notes"] }],
     }));
     expect(res.statusCode).toBe(200);
-    expect(byLabel(res.json().data, "#notes").permissionsSynced).toBe(true);
-    expect(await can(MARCUS, "SEND_MESSAGES", notes.id)).toBe(false);
-    // #lounge was already in Text (unsynced) — staying put doesn't change it.
-    expect(byLabel(res.json().data, "#lounge").permissionsSynced).toBe(false);
+    expect(byLabel(res.json().data, "#notes").permissionsSynced).toBe(false);
+    expect(await channelOverrideRows(notes.id)).toEqual([]);
+    expect(await can(ZARA, "MANAGE_MESSAGES", notes.id)).toBe(false);
+    // Sync now is refused for the same reason.
+    const sync = await server.inject({ method: "POST", url: `/spaces/${SPACE}/channels/${notes.id}/sync-permissions`, headers: as(ZARA) });
+    expect(sync.statusCode).toBe(403);
+    expect(await channelOverrideRows(notes.id)).toEqual([]);
+    // The creator can.
+    const ok = await server.inject({ method: "POST", url: `/spaces/${SPACE}/channels/${notes.id}/sync-permissions`, headers: as(LUNA) });
+    expect(ok.statusCode).toBe(200);
+    expect(await can(ZARA, "MANAGE_MESSAGES", notes.id)).toBe(true);
+  });
 
-    // Sync now needs MANAGE_ROLES.
-    expect((await server.inject({ method: "POST", url: `/spaces/${SPACE}/channels/${lounge.id}/sync-permissions`, headers: as(DECKARD) })).statusCode).toBe(403);
+  it("deleting a folder whose template covers roles above you is refused", async () => {
+    const { member } = await setup();
+    const senior = await addRole(SPACE, "Senior", 1, []);
+    const chanMod = await addRole(SPACE, "ChanMod", 2, ["MANAGE_CHANNELS", "MANAGE_ROLES"]);
+    await db.update(spaceRoles).set({ position: 5 }).where(eq(spaceRoles.id, member.id));
+    await addMember(SPACE, DECKARD, [chanMod]);
+    await putCategoryOverrides(LUNA, senior, [{ categoryId: "Text", allow: [], deny: ["ADD_REACTIONS"] }]);
+    const doc = await docFor({ uncategorized: ["#lounge", "#notes", "#general", "#random"], categories: [] });
+    expect((await putLayout(DECKARD, doc)).statusCode).toBe(403);
+    expect((await getLayout()).categories.map((c) => c.id)).toEqual(["Text"]);
+    expect((await putLayout(LUNA, doc)).statusCode).toBe(200);
+  });
+
+  it("the per-folder override endpoint only touches that folder", async () => {
+    const { member } = await setup();
+    await putLayout(LUNA, await docFor({
+      uncategorized: ["#notes"],
+      categories: [
+        { id: "Text", name: "Text", labels: ["#general", "#random"] },
+        { name: "Voice", labels: ["#lounge"] },
+      ],
+    }));
+    await putCategoryOverrides(LUNA, member.id, [
+      { categoryId: "Text", allow: [], deny: ["SEND_MESSAGES"] },
+      { categoryId: "Voice", allow: [], deny: ["SPEAK"] },
+    ]);
+    const one = (categoryId: string, deny: string[]) =>
+      server.inject({
+        method: "PUT",
+        url: `/spaces/${SPACE}/roles/${member.id}/category-override`,
+        headers: as(LUNA),
+        payload: { categoryId, allow: [], deny },
+      });
+    expect((await one("Text", ["ADD_REACTIONS"])).statusCode).toBe(200);
+    const after = await server.inject({ method: "GET", url: `/spaces/${SPACE}/roles/${member.id}/category-overrides`, headers: as(LUNA) });
+    const byCat = Object.fromEntries((after.json().data as Array<{ categoryId: string; deny: string[] }>).map((o) => [o.categoryId, o.deny]));
+    expect(byCat).toEqual({ Text: ["ADD_REACTIONS"], Voice: ["SPEAK"] });
+    const general = byLabel(await getLayout(), "#general");
+    expect(await can(MARCUS, "SEND_MESSAGES", general.id)).toBe(true);
+    expect(await can(MARCUS, "ADD_REACTIONS", general.id)).toBe(false);
+    // Clearing one folder leaves the other.
+    expect((await one("Text", [])).statusCode).toBe(200);
+    const cleared = await server.inject({ method: "GET", url: `/spaces/${SPACE}/roles/${member.id}/category-overrides`, headers: as(LUNA) });
+    expect((cleared.json().data as Array<{ categoryId: string }>).map((o) => o.categoryId)).toEqual(["Voice"]);
+    expect((await one("Nope", ["SPEAK"])).statusCode).toBe(400);
   });
 
   it("a synced channel moved to another category follows the new one (with authority)", async () => {
