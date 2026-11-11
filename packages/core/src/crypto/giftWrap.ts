@@ -156,6 +156,22 @@ export interface BuildRumorOptions {
 export interface WrapOptions {
   /** NIP-40 `expiration` (unix seconds) placed on BOTH the seal and the wrap. */
   expiration?: number;
+  /** Lifetime in seconds, stamped as the seal is built (after its content
+   *  is encrypted) and again as the wrap is built (after the seal is
+   *  signed), each from the clock at that moment. Time spent queued behind
+   *  the signer — a NIP-46 bunker round-trips per call — does not eat the
+   *  lifetime, so a short-lived signal (§5) still leaves with all of it.
+   *  Takes precedence over `expiration`. */
+  ttl?: number;
+}
+
+/** The `expiration` tag for a seal or wrap built now. */
+function expirationTagFor(opts?: WrapOptions): string[][] {
+  if (opts?.ttl !== undefined) {
+    return [["expiration", String(Math.floor(Date.now() / 1000) + Math.floor(opts.ttl))]];
+  }
+  if (opts?.expiration !== undefined) return [["expiration", String(Math.floor(opts.expiration))]];
+  return [];
 }
 
 /**
@@ -192,9 +208,6 @@ async function sealAndWrap(
   wrapTo: string,
   opts?: WrapOptions,
 ): Promise<NostrEvent> {
-  const expirationTag: string[][] =
-    opts?.expiration !== undefined ? [["expiration", String(Math.floor(opts.expiration))]] : [];
-
   // Encrypt rumor and create seal (kind:13) with the user's key
   const encryptedRumor = await ctx.signer.nip44Encrypt(sealTo, JSON.stringify(rumor));
 
@@ -202,7 +215,8 @@ async function sealAndWrap(
     pubkey: ctx.myPubkey,
     created_at: randomTimestamp(),
     kind: KIND_SEAL,
-    tags: [...expirationTag],
+    // Stamped now, after the encrypt (which may have queued behind the signer).
+    tags: expirationTagFor(opts),
     content: encryptedRumor,
   };
   const seal = await ctx.signer.signEvent(sealUnsigned);
@@ -216,7 +230,9 @@ async function sealAndWrap(
     pubkey: ephemeralPk,
     created_at: randomTimestamp(),
     kind: KIND_GIFT_WRAP,
-    tags: [["p", wrapTo], ...expirationTag],
+    // Stamped again after the seal was signed: the wrap is what relays sweep
+    // and what the backend reads, so it leaves with its whole lifetime.
+    tags: [["p", wrapTo], ...expirationTagFor(opts)],
     content: encryptedSeal,
   };
   return finalizeEvent(wrapEvent, ephemeralSk) as unknown as NostrEvent;

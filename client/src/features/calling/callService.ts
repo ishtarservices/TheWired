@@ -36,7 +36,7 @@ import {
 } from "@/store/slices/callSlice";
 import { setMediaError } from "@/store/slices/voiceSlice";
 import { createGiftWrappedDM, createSelfWrap } from "@/lib/nostr/giftWrap";
-import { defaultExpirationFor } from "@ishtarservices/core";
+import { defaultExpirationFor, signalTtlFor } from "@ishtarservices/core";
 import { DM_EXPIRATION_SECONDS, type CallDeclinePayload } from "@ishtarservices/shared-types";
 import { relayManager } from "@/lib/nostr/relayManager";
 import { getDMRelaysForPublish, getOwnDMRelays } from "@/lib/nostr/dmRelayList";
@@ -401,8 +401,12 @@ async function sendCallStatus(
   content = "",
 ): Promise<void> {
   try {
+    // Call control, not the invite: a short lifetime keeps it under the
+    // backend's signal line, so a decline never reaches the caller's phone
+    // as a "new message" push (contract 1.5.0). Stamped when the seal and
+    // wrap are built, so a slow signer does not eat it.
     const { wrap } = await createGiftWrappedDM(content, partnerPubkey, [["type", type]], undefined, {
-      expiration: defaultExpirationFor("call", Math.floor(Date.now() / 1000)),
+      ttl: signalTtlFor("call_control"),
     });
     const relays = await getDMRelaysForPublish(partnerPubkey);
     relayManager.publish(wrap, relays);

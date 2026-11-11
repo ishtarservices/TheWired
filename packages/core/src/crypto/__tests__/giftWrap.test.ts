@@ -1,4 +1,4 @@
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, vi, afterEach } from "vitest";
 import {
   buildRumor,
   createGiftWrappedDM,
@@ -293,5 +293,44 @@ describe("wire_version 1 hardening", () => {
     // The seal carries it too (checked by decrypting with the wrap dropped)
     const sealJson = await bob.signer.nip44Decrypt(wrap.pubkey, wrap.content);
     expect(JSON.parse(sealJson).tags).toContainEqual(["expiration", String(now + 30)]);
+  });
+
+  describe("ttl: stamped when the seal and wrap are built", () => {
+    afterEach(() => vi.useRealTimers());
+
+    it("a signer that queues for 30 s does not eat the lifetime of the wrap", async () => {
+      vi.useFakeTimers();
+      const t0 = 1_800_000_000;
+      vi.setSystemTime(t0 * 1000);
+      const alice = makeTestIdentity();
+      const bob = makeTestIdentity();
+      // A bunker-like signer: encrypt takes 10 s, signing 20 s more.
+      const slow = {
+        ...alice.signer,
+        nip44Encrypt: async (peer: string, text: string) => {
+          vi.setSystemTime((t0 + 10) * 1000);
+          return alice.signer.nip44Encrypt(peer, text);
+        },
+        signEvent: async (u: Parameters<typeof alice.signer.signEvent>[0]) => {
+          vi.setSystemTime((t0 + 30) * 1000);
+          return alice.signer.signEvent(u);
+        },
+      };
+      const { wrap } = await createGiftWrappedDM(
+        { myPubkey: alice.pubkey, signer: slow },
+        "key",
+        bob.pubkey,
+        undefined,
+        undefined,
+        { ttl: 45, expiration: t0 + 1 },
+      );
+      // The wrap is stamped after the seal was signed (t0 + 30); `ttl` wins over `expiration`.
+      expect(wrap.tags).toContainEqual(["expiration", String(t0 + 30 + 45)]);
+      // The seal is stamped after the encrypt (t0 + 10), before the signing wait.
+      const sealJson = await bob.signer.nip44Decrypt(wrap.pubkey, wrap.content);
+      expect(JSON.parse(sealJson).tags).toContainEqual(["expiration", String(t0 + 10 + 45)]);
+      const dm = await unwrapGiftWrap(bob.signer, wrap, { now: t0 + 31 });
+      expect(dm.expiration).toBe(t0 + 10 + 45);
+    });
   });
 });
