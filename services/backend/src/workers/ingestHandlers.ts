@@ -32,6 +32,7 @@ import { reportService } from "../services/reportService.js";
 import { classifyOrigin } from "../services/reportFootprint.js";
 import { suspensionService } from "../services/suspensionService.js";
 import { accountDeletionService } from "../services/accountDeletionService.js";
+import { leaveSpace } from "../services/membershipService.js";
 
 /**
  * Per-event ingestion context (Decentralized Spaces, M3). The multi-relay
@@ -556,9 +557,25 @@ async function indexZapReceipt(event: NostrEvent) {
   await recordZapReceipt(redis, event.id, targetEventId, parseZapSats(event.tags));
 }
 
+/** The backend's mode for a space, or null when the backend doesn't know it. */
+async function spaceModeOf(spaceId: string): Promise<string | null> {
+  const [space] = await db
+    .select({ spaceMode: spaces.spaceMode })
+    .from(spaces)
+    .where(eq(spaces.id, spaceId))
+    .limit(1);
+  return space?.spaceMode ?? null;
+}
+
 async function indexJoin(event: NostrEvent) {
   const spaceId = getTagValue(event, "h");
   if (!spaceId) return;
+
+  // Backend-owned membership (platform, A-lite) is granted only through the
+  // REST join paths, which check listing, invites and bans; a relay join
+  // request never adds it. Spaces the backend doesn't know have nothing to
+  // mirror into.
+  if ((await spaceModeOf(spaceId)) !== "nip29") return;
 
   await db.insert(spaceMembers).values({ spaceId, pubkey: event.pubkey }).onConflictDoNothing();
 }
@@ -566,6 +583,20 @@ async function indexJoin(event: NostrEvent) {
 async function indexLeave(event: NostrEvent) {
   const spaceId = getTagValue(event, "h");
   if (!spaceId) return;
+
+  const mode = await spaceModeOf(spaceId);
+  if (mode === null) return;
+  if (mode !== "nip29") {
+    // Same rules as DELETE /spaces/:id/members/me: the last admin stays,
+    // a departing creator hands over ownership, the counter is recounted.
+    const result = await leaveSpace(spaceId, event.pubkey);
+    if (result === "left") {
+      // Dynamic import: spaceSignalService → relayConnectionManager → this file.
+      const { notifySpaceChanged } = await import("../services/spaceSignalService.js");
+      notifySpaceChanged(spaceId, "members");
+    }
+    return;
+  }
 
   await db
     .delete(spaceMembers)

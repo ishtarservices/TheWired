@@ -43,6 +43,12 @@ export interface Space {
   mode: "read" | "read-write";
   creatorPubkey: string;
   createdAt: number;
+  /**
+   * Backend-backed spaces only: whether the space is listed in Discover.
+   * Unlisted spaces are joinable by invite only. Absent when the backend
+   * didn't say (older responses, NIP-29-native spaces).
+   */
+  listed?: boolean;
 
   // ── Decentralized Spaces (optional; absent ⇒ legacy "platform") ──
   /** Governance/source-of-truth mode. Defaults to `platform` when absent. */

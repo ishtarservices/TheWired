@@ -155,7 +155,22 @@ export function GeneralTab({ spaceId }: GeneralTabProps) {
 // ── Discovery Listing Section ───────────────────────────────────
 
 function DiscoverySection({ spaceId }: { spaceId: string }) {
-  const [listed, setListed] = useState<boolean | null>(null);
+  const dispatch = useAppDispatch();
+  const [listed, setListedState] = useState<boolean | null>(null);
+
+  // Mirror the backend's answer into the stored space so the Info panel's
+  // Listed / Unlisted label matches what this section shows. Reads the space
+  // at dispatch time: a member sync may have replaced it since mount.
+  const setListed = (value: boolean) => {
+    setListedState(value);
+    dispatch((d, getState) => {
+      const current = getState().spaces.list.find((sp) => sp.id === spaceId);
+      if (!current || current.listed === value) return;
+      const updated = { ...current, listed: value };
+      d(updateSpace(updated));
+      void updateSpaceInStore(updated).catch(() => {});
+    });
+  };
   const [currentCategory, setCurrentCategory] = useState<string | null>(null);
   const [pendingRequest, setPendingRequest] = useState<ListingRequest | null>(null);
   const [categories, setCategories] = useState<SpaceCategory[]>([]);
@@ -180,8 +195,9 @@ function DiscoverySection({ spaceId }: { spaceId: string }) {
         if (cancelled) return;
 
         // Backend returns full space including listed/category
-        const spaceData = spaceRes?.data as any;
-        setListed(spaceData?.listed ?? false);
+        const spaceData = spaceRes?.data;
+        if (typeof spaceData?.listed === "boolean") setListed(spaceData.listed);
+        else setListedState(false);
         setCurrentCategory(spaceData?.category ?? null);
         setCategories(catsRes.data);
 

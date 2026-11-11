@@ -263,6 +263,8 @@ describe("planNotifications", () => {
       data: { type: "dm", eventId: "1".repeat(64), relay: "wss://relay.test" },
     });
     expect(JSON.stringify(d)).not.toContain("ciphertext");
+    // The payload goes through Expo/APNs/FCM: it must not name the account.
+    expect(JSON.stringify(d?.data)).not.toContain(ME);
   });
 
   it("kind 1059: a typing-style wrap (expiring within a minute) plans no push; a call invite and a receipt still do", () => {
@@ -274,8 +276,14 @@ describe("planNotifications", () => {
     expect(planNotifications(wrapExpiring(SIGNAL_WRAP_MAX_TTL_SEC), own, deps({ nowSec: now }))).toEqual([]);
     // already expired
     expect(planNotifications(wrapExpiring(-5), own, deps({ nowSec: now }))).toEqual([]);
+    // call control and media keys (+45, contract 1.5.0): a room's key fan-out
+    // on every join / leave / reconnect must never ring the phone.
+    expect(planNotifications(wrapExpiring(45), own, deps({ nowSec: now }))).toEqual([]);
     // call invite (+120 s) and receipt (+7 d) push as before
-    expect(planNotifications(wrapExpiring(120), own, deps({ nowSec: now }))).toHaveLength(1);
+    const [invite] = planNotifications(wrapExpiring(120), own, deps({ nowSec: now }));
+    expect(invite).toBeDefined();
+    // The dispatcher retires the row once the wrap itself has expired.
+    expect(invite.data).toMatchObject({ expiresAt: (now + 120) * 1000 });
     expect(planNotifications(wrapExpiring(7 * 86_400), own, deps({ nowSec: now }))).toHaveLength(1);
     // A late-ingested call invite (70 s old) is a stale ring: no push.
     expect(planNotifications(wrapExpiring(120 - 70), own, deps({ nowSec: now }))).toEqual([]);

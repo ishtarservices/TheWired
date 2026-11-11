@@ -6,11 +6,13 @@ import { spaceMembers, memberRoles, spaceFeedSources } from "../db/schema/member
 import { spaces } from "../db/schema/spaces.js";
 import { spaceRoles } from "../db/schema/permissions.js";
 import { spaceChannels } from "../db/schema/channels.js";
-import { eq, and, sql, asc } from "drizzle-orm";
+import { eq, and, asc } from "drizzle-orm";
 import { onboardingService } from "../services/onboardingService.js";
 import { profileCacheService, toMemberProfile, PROFILE_JOIN_CAP } from "../services/profileCacheService.js";
 import { notifySpaceChanged } from "../services/spaceSignalService.js";
 import { moderationService } from "../services/moderationService.js";
+import { leaveSpace, refreshMemberCount } from "../services/membershipService.js";
+import { gateSpaceRead } from "../lib/spaceReadGate.js";
 import { requirePubkey, requireSpace, requireSpacePermission } from "../lib/authz.js";
 
 const idParams = z.object({ id: nonEmptyString });
@@ -32,6 +34,7 @@ export const membersRoutes: FastifyPluginAsync = async (server) => {
       const query = validate(memberListQuery, request.query, reply);
       if (!query) return;
       const { id } = params;
+      if (!(await gateSpaceRead(request, reply, id, "members"))) return;
 
       let membersQuery = db
         .select()
@@ -75,31 +78,27 @@ export const membersRoutes: FastifyPluginAsync = async (server) => {
       return reply.status(403).send({ error: "You are banned from this space", code: "BANNED" });
     }
 
-    // Check if already a member — if so, skip insert but still return space data
-    const [existing] = await db
-      .select()
-      .from(spaceMembers)
-      .where(and(eq(spaceMembers.spaceId, id), eq(spaceMembers.pubkey, pubkey)))
-      .limit(1);
+    // Insert-if-absent: a repeat or concurrent join by the same user is a
+    // no-op that still returns the space, never a primary-key 500.
+    const memberCount = await db.transaction(async (tx) => {
+      const inserted = await tx
+        .insert(spaceMembers)
+        .values({ spaceId: id, pubkey })
+        .onConflictDoNothing()
+        .returning({ pubkey: spaceMembers.pubkey });
+      if (inserted.length === 0) return null;
 
-    if (!existing) {
-      // Insert member
-      await db.insert(spaceMembers).values({ spaceId: id, pubkey });
-
-      // Assign default role
-      const [defaultRole] = await db
+      const [defaultRole] = await tx
         .select({ id: spaceRoles.id })
         .from(spaceRoles)
         .where(and(eq(spaceRoles.spaceId, id), eq(spaceRoles.isDefault, true)))
         .limit(1);
       if (defaultRole) {
-        await db.insert(memberRoles).values({ spaceId: id, pubkey, roleId: defaultRole.id }).onConflictDoNothing();
+        await tx.insert(memberRoles).values({ spaceId: id, pubkey, roleId: defaultRole.id }).onConflictDoNothing();
       }
-
-      // Increment member count
-      await db.update(spaces).set({ memberCount: sql`${spaces.memberCount} + 1` }).where(eq(spaces.id, id));
-      notifySpaceChanged(id, "members");
-    }
+      return refreshMemberCount(tx, id);
+    });
+    if (memberCount !== null) notifySpaceChanged(id, "members");
 
     // Return space info + channels + feed sources for client to hydrate
     const channels = await db.select().from(spaceChannels).where(eq(spaceChannels.spaceId, id)).orderBy(asc(spaceChannels.position));
@@ -124,7 +123,7 @@ export const membersRoutes: FastifyPluginAsync = async (server) => {
           mode: space.mode,
           hostRelay: space.hostRelay,
           creatorPubkey: space.creatorPubkey,
-          memberCount: existing ? (space.memberCount ?? 0) : (space.memberCount ?? 0) + 1,
+          memberCount: memberCount ?? space.memberCount ?? 0,
         },
         channels,
         feedPubkeys,
@@ -144,25 +143,14 @@ export const membersRoutes: FastifyPluginAsync = async (server) => {
     if (!params) return;
     const { id } = params;
 
-    // Remove membership and any role assignments
-    await db
-      .delete(memberRoles)
-      .where(and(eq(memberRoles.spaceId, id), eq(memberRoles.pubkey, pubkey)));
-    const removed = await db
-      .delete(spaceMembers)
-      .where(and(eq(spaceMembers.spaceId, id), eq(spaceMembers.pubkey, pubkey)))
-      .returning({ pubkey: spaceMembers.pubkey });
-
-    // Keep the denormalized counter in step with the rows — join increments,
-    // so leave must decrement (idempotent: a repeat leave removes no row and
-    // decrements nothing; clamped so drifted rows can't go negative).
-    if (removed.length > 0) {
-      await db
-        .update(spaces)
-        .set({ memberCount: sql`GREATEST(${spaces.memberCount} - 1, 0)` })
-        .where(eq(spaces.id, id));
-      notifySpaceChanged(id, "members");
+    const result = await leaveSpace(id, pubkey);
+    if (result === "last_admin") {
+      return reply.status(409).send({
+        error: "You're the only admin. Make someone else an admin first, or delete the space.",
+        code: "LAST_ADMIN",
+      });
     }
+    if (result === "left") notifySpaceChanged(id, "members");
 
     return { data: { left: true } };
   });
@@ -174,6 +162,7 @@ export const membersRoutes: FastifyPluginAsync = async (server) => {
     const params = validate(idParams, request.params, reply);
     if (!params) return;
     const { id } = params;
+    if (!(await gateSpaceRead(request, reply, id, "feed-sources"))) return;
     const rows = await db
       .select()
       .from(spaceFeedSources)

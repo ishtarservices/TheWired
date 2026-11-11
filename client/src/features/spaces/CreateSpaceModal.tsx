@@ -7,6 +7,7 @@ import { Avatar } from "../../components/ui/Avatar";
 import { useAppSelector } from "../../store/hooks";
 import { BOOTSTRAP_RELAYS, APP_RELAY, NIP29_RELAY_PRESETS } from "../../lib/nostr/constants";
 import { registerSpace, addFeedSources } from "../../lib/api/spaces";
+import { ApiRequestError } from "../../lib/api/client";
 import { useAutoResize } from "../../hooks/useAutoResize";
 import { useUserSearch } from "../search/useUserSearch";
 import { useProfile } from "../profile/useProfile";
@@ -217,12 +218,18 @@ export function CreateSpaceModal({
   }
 
   const [creating, setCreating] = useState(false);
+  const [createError, setCreateError] = useState<string | null>(null);
+  // One id per attempt series: a retry after a timeout re-sends the same id,
+  // and the backend treats a repeat create by the same creator as idempotent,
+  // so a slow success can't turn into two spaces.
+  const pendingIdRef = useRef<string | null>(null);
 
   async function handleCreate() {
     if (!name.trim() || !pubkey || creating || pictureUploading) return;
     setCreating(true);
+    setCreateError(null);
 
-    const spaceId = generateId();
+    const spaceId = pendingIdRef.current ?? (pendingIdRef.current = generateId());
 
     // Resolve the space mode from the (toggle-gated) UI choices.
     const decentralized = decentralizedEnabled && spaceKind === "decentralized";
@@ -247,6 +254,8 @@ export function CreateSpaceModal({
       feedPubkeys: !isNative && mode === "read" ? feedPubkeys : [],
       hostRelay: resolvedHostRelay,
       isPrivate: isNative ? privateGroup : false,
+      // New backend spaces start unlisted (invite-only) until a listing request.
+      listed: isNative ? undefined : false,
       createdAt: Math.floor(Date.now() / 1000),
       spaceType,
       channelSource: isNative ? "synthesized" : "backend",
@@ -317,11 +326,21 @@ export function CreateSpaceModal({
           });
         }
       } catch (err) {
-        console.error("[CreateSpace] Backend bootstrap failed:", err);
-        // Still create locally so the space appears even if backend is down
+        // Without the backend row the space has no roles, channels or
+        // membership, so a local-only copy would be a dead space. Keep the
+        // form open so the user can retry.
+        if (err instanceof ApiRequestError && err.code === "SPACE_EXISTS") pendingIdRef.current = null;
+        setCreateError(
+          err instanceof ApiRequestError && err.code === "INVALID_HOST_RELAY"
+            ? "The server doesn't accept that host relay."
+            : `Couldn't create the space: ${err instanceof Error ? err.message : "unknown error"}. Try again.`,
+        );
+        setCreating(false);
+        return;
       }
     }
 
+    pendingIdRef.current = null;
     // Now navigate to the space
     onCreate(space);
 
@@ -338,6 +357,7 @@ export function CreateSpaceModal({
     setSelectedChannels(new Set(["chat", "notes", "media", "articles", "music"]));
     setQuery("");
     setCreating(false);
+    setCreateError(null);
     onClose();
   }
 
@@ -712,6 +732,11 @@ export function CreateSpaceModal({
 
         </div>
 
+        {createError && (
+          <p role="alert" className="mt-4 text-xs text-red-400">
+            {createError}
+          </p>
+        )}
         <div className="mt-6 flex justify-end gap-2">
           <Button variant="ghost" size="md" onClick={onClose}>
             Cancel

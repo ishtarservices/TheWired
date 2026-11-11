@@ -92,4 +92,32 @@ describe("decryptQueue", () => {
     // only the first ever started (concurrency 1); b/c were dropped by clear()
     expect(ran).toBe(1);
   });
+
+  it("hands each wrap the time it reached the queue, not the time it ran", async () => {
+    vi.useFakeTimers();
+    try {
+      vi.setSystemTime(1_800_000_000_000);
+      const seen: Array<[string, number]> = [];
+      let release: () => void = () => {};
+      decryptQueue.setHandler(
+        (event, receivedAt) =>
+          new Promise<void>((resolve) => {
+            seen.push([event.id, receivedAt]);
+            release = resolve;
+          }),
+      );
+      decryptQueue.submit(ev("a"));
+      decryptQueue.submit(ev("b")); // waits behind "a" (nip46 → 1 at a time)
+      vi.setSystemTime(1_800_000_030_000); // the bunker takes 30 s on "a"
+      release();
+      await vi.waitFor(() => expect(seen).toHaveLength(2));
+      expect(seen).toEqual([
+        ["a", 1_800_000_000],
+        ["b", 1_800_000_000],
+      ]);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
 });
+

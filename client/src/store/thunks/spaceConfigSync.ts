@@ -75,6 +75,7 @@ export function syncSpaceConfig(spaceId: string, changes: readonly SpaceChange[]
             name: d.name || current.name,
             about: d.about ?? undefined,
             picture: d.picture ?? undefined,
+            listed: typeof d.listed === "boolean" ? d.listed : current.listed,
           };
           dispatch(updateSpace(updated));
           void updateSpaceInStore(updated).catch(() => {});

@@ -6,6 +6,7 @@ import {
   incrementUnread,
   incrementMention,
   addNotification,
+  DEFAULT_SPACE_NOTIF_MODE,
   type NotificationType,
 } from "../../store/slices/notificationSlice";
 import { addKnownFollower } from "../../store/slices/identitySlice";
@@ -253,7 +254,7 @@ function evaluateChatMessage(
   const spaceSettings = state.notifications.spaceNotifSettings[spaceId];
   const effectiveMode = channelMode && channelMode !== "default"
     ? channelMode
-    : spaceSettings?.mode ?? "all";
+    : spaceSettings?.mode ?? DEFAULT_SPACE_NOTIF_MODE;
 
   // Check if user is currently viewing this channel
   const isViewing =
@@ -276,7 +277,14 @@ function evaluateChatMessage(
   const lastRead = state.notifications.lastReadTimestamps[channelId] ?? 0;
   if (event.created_at <= lastRead) return;
 
-  if (isMentioned && mentionsEnabled) {
+  if (effectiveMode === "nothing") {
+    // "Nothing" mode: unread dot only, mentions included — no mention badge,
+    // no toast. The settings screen promises exactly this, and the server
+    // sends no mention push in this mode either.
+    if (!isViewing) {
+      store.dispatch(incrementUnread({ spaceId, channelId }));
+    }
+  } else if (isMentioned && mentionsEnabled) {
     store.dispatch(incrementMention({ spaceId, channelId }));
 
     if (!isViewing) {
@@ -284,11 +292,6 @@ function evaluateChatMessage(
     }
 
     dispatchToast("mention", "You were mentioned", event, channelId);
-  } else if (effectiveMode === "nothing") {
-    // "Nothing" mode: still track unread (gray dot) but no toast
-    if (!isViewing) {
-      store.dispatch(incrementUnread({ spaceId, channelId }));
-    }
   } else if (effectiveMode === "mentions") {
     // "Mentions only" mode: track unread silently (no toast for regular messages)
     if (!isViewing) {

@@ -3,6 +3,7 @@ import { z } from "zod";
 import { validate, nonEmptyString, nonNegativeInt } from "../lib/validation.js";
 import { channelService } from "../services/channelService.js";
 import { permissionService } from "../services/permissionService.js";
+import { gateSpaceRead } from "../lib/spaceReadGate.js";
 import { notifySpaceChanged } from "../services/spaceSignalService.js";
 
 const spaceIdParams = z.object({ spaceId: nonEmptyString });
@@ -44,6 +45,7 @@ export const channelsRoutes: FastifyPluginAsync = async (server) => {
       const params = validate(spaceIdParams, request.params, reply);
       if (!params) return;
 
+      if (!(await gateSpaceRead(request, reply, params.spaceId, "channels"))) return;
       const channels = await channelService.listChannels(params.spaceId);
       return { data: channels };
     },

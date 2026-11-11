@@ -27,20 +27,25 @@ function concurrencyForSigner(): number {
  * the bunker). The handler (handleGiftWrap) is unchanged and re-reads identity
  * itself, so a wrap that dequeues after an account switch is dropped there.
  */
+/** Handler for one queued wrap. `receivedAt` (unix seconds) is when the wrap
+ *  reached the queue: expiry is judged against it, not against the moment a
+ *  slow signer finally gets to the wrap (DM_WIRE_CONTRACT §5). */
+type WrapHandler = (event: NostrEvent, receivedAt: number) => Promise<void> | void;
+
 class DecryptQueue {
-  private queue: NostrEvent[] = [];
+  private queue: { event: NostrEvent; receivedAt: number }[] = [];
   private active = 0;
-  private handler: ((event: NostrEvent) => Promise<void> | void) | null = null;
+  private handler: WrapHandler | null = null;
 
   /** Wired once by eventPipeline at module init. */
-  setHandler(handler: (event: NostrEvent) => Promise<void> | void): void {
+  setHandler(handler: WrapHandler): void {
     this.handler = handler;
   }
 
   /** Returns false if the queue is saturated (caller should unmark for retry). */
   submit(event: NostrEvent): boolean {
     if (this.queue.length >= MAX_PENDING) return false;
-    this.queue.push(event);
+    this.queue.push({ event, receivedAt: Math.floor(Date.now() / 1000) });
     this.pump();
     return true;
   }
@@ -58,9 +63,9 @@ class DecryptQueue {
   private pump(): void {
     const limit = concurrencyForSigner();
     while (this.active < limit && this.queue.length > 0) {
-      const event = this.queue.shift()!;
+      const { event, receivedAt } = this.queue.shift()!;
       this.active++;
-      Promise.resolve(this.handler?.(event))
+      Promise.resolve(this.handler?.(event, receivedAt))
         .catch(() => {
           /* handler self-handles errors; never let one wrap wedge the queue */
         })
