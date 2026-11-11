@@ -1,6 +1,7 @@
 import { useCallback } from "react";
 import { useAppSelector, useAppDispatch } from "../../store/hooks";
-import { setPinnedNotes } from "../../store/slices/identitySlice";
+import { applyPinnedNoteOp } from "../../store/slices/identitySlice";
+import { store } from "../../store";
 import type { NostrEvent } from "../../types/nostr";
 import { buildRepost, buildReply, buildQuoteNote, buildDeletionEvent } from "../../lib/nostr/eventBuilder";
 import { signAndPublish } from "../../lib/nostr/publish";
@@ -66,21 +67,21 @@ export function useProfileNoteActions(event: NostrEvent) {
 
   // Optimistic flip, then a read-modify-write against the freshest relay copy
   // (pinListWrite) — never a list rebuilt from these ids, which would wipe
-  // pins made on another device or by another client. Nothing published →
-  // the flip rolls back (unless a newer list has landed meanwhile).
+  // pins made on another device or by another client. The flip changes the
+  // ids only (not the list's created_at), so the real list still lands. If
+  // nothing was published, the flip is undone with the inverse op — unless
+  // the account changed meanwhile (the ids on screen are another account's).
   const togglePin = useCallback(async (eventId: string) => {
     if (!pubkey) return;
     const isPinned = pinnedNoteIds.includes(eventId);
-    const newIds = isPinned
-      ? pinnedNoteIds.filter((id) => id !== eventId)
-      : [...pinnedNoteIds, eventId];
-    const now = Math.floor(Date.now() / 1000);
-    dispatch(setPinnedNotes({ noteIds: newIds, createdAt: now }));
+    dispatch(applyPinnedNoteOp({ id: eventId, pin: !isPinned }));
     try {
       await updatePinnedNotes(pubkey, { id: eventId, pin: !isPinned });
     } catch (err) {
       console.warn("[pins] not updated:", err instanceof Error ? err.message : err);
-      dispatch(setPinnedNotes({ noteIds: pinnedNoteIds, createdAt: now }));
+      if (store.getState().identity.pubkey === pubkey) {
+        dispatch(applyPinnedNoteOp({ id: eventId, pin: isPinned }));
+      }
     }
   }, [pubkey, pinnedNoteIds, dispatch]);
 
@@ -89,8 +90,7 @@ export function useProfileNoteActions(event: NostrEvent) {
     // If this note is pinned, unpin it first (same safe write as a tap;
     // best-effort — a deleted pin is hidden on read either way)
     if (pinnedNoteIds.includes(eventId)) {
-      const now = Math.floor(Date.now() / 1000);
-      dispatch(setPinnedNotes({ noteIds: pinnedNoteIds.filter((id) => id !== eventId), createdAt: now }));
+      dispatch(applyPinnedNoteOp({ id: eventId, pin: false }));
       updatePinnedNotes(pubkey, { id: eventId, pin: false }).catch(() => {});
     }
     // Remove from Redux + IndexedDB immediately (optimistic)

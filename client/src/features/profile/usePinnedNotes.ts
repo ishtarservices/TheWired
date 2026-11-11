@@ -7,7 +7,7 @@ import { eventsSelectors } from "@/store/slices/eventsSlice";
 import { EVENT_KINDS } from "@/types/nostr";
 import type { NostrEvent } from "@/types/nostr";
 import { useAuthorWriteRelays } from "./useProfileNotes";
-import { isNewerEvent, pinnedIdsFromTags } from "./pinList";
+import { isNewerEvent, isTrustedPinList, pinnedIdsFromTags } from "./pinList";
 
 /**
  * Hook to fetch and resolve pinned notes for a profile.
@@ -63,7 +63,9 @@ export function usePinnedNotes(pubkey: string) {
       ],
       relayUrls,
       onEvent: (event: NostrEvent) => {
-        if (event.pubkey !== pubkey || event.kind !== EVENT_KINDS.PINNED_NOTES) return;
+        // Signed by the author and not dated far ahead: a forged future copy
+        // from any relay the author lists would otherwise hide the real one.
+        if (!isTrustedPinList(event, pubkey)) return;
         // Only accept newer replaceable events
         if (latest.current && !isNewerEvent(event, latest.current)) return;
         latest.current = event;

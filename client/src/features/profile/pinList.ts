@@ -1,5 +1,6 @@
 import type { NostrEvent } from "@/types/nostr";
 import { EVENT_KINDS } from "@/types/nostr";
+import { verifyEventSync } from "@/lib/nostr/verifyEvent";
 
 /**
  * The NIP-51 pin list (kind:10001) as data — no IO.
@@ -42,6 +43,27 @@ export function pinnedIdsFromTags(tags: readonly (readonly string[])[]): string[
     }
   }
   return out;
+}
+
+/** How far ahead of the local clock a copy may be dated and still count. A
+ *  forged far-future copy would otherwise win every read, and a write based
+ *  on it would sign its tags with the user's key. */
+export const MAX_FUTURE_SEC = 15 * 60;
+
+/** A relay-served copy is usable only when it is `pubkey`'s own kind:10001,
+ *  not dated far ahead, and carries a valid signature: relays are untrusted,
+ *  and a base copy's tags and content get re-signed by the user. */
+export function isTrustedPinList(
+  event: NostrEvent,
+  pubkey: string,
+  nowSec: number = Math.floor(Date.now() / 1000),
+): boolean {
+  return (
+    event.kind === PIN_LIST_KIND &&
+    event.pubkey === pubkey &&
+    event.created_at <= nowSec + MAX_FUTURE_SEC &&
+    verifyEventSync(event)
+  );
 }
 
 /** NIP-01 replaceable order: larger created_at wins, a tie goes to the lower id. */

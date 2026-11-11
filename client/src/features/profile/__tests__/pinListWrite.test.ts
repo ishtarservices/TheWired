@@ -18,6 +18,10 @@ const h = vi.hoisted(() => ({
   accept: true,
   sk: new Uint8Array(32) as Uint8Array,
   pk: "",
+  /** Per-relay behaviour (default: answers at once with relayEvents). */
+  relayCfg: {} as Record<string, { delayMs?: number; answer?: boolean; events?: Ev[]; eoses?: number }>,
+  /** Targets of each publish. */
+  publishTargets: [] as (string[] | undefined)[],
 }));
 
 vi.mock("@/store", async () => {
@@ -34,22 +38,28 @@ vi.mock("@/lib/nostr/relayManager", () => ({
       onEOSE?: (subId: string, url: string) => void;
     }) => {
       const id = `sub-${Math.random()}`;
-      queueMicrotask(() => {
-        if (!h.answer) return;
-        const f = opts.filters[0];
-        for (const e of h.relayEvents) {
-          if ((!f.kinds || f.kinds.includes(e.kind)) && (!f.authors || f.authors.includes(e.pubkey))) {
-            opts.onEvent(e, opts.relayUrls[0]);
+      const f = opts.filters[0];
+      for (const url of opts.relayUrls) {
+        const cfg = h.relayCfg[url] ?? {};
+        const deliver = () => {
+          if (!(cfg.answer ?? h.answer)) return;
+          for (const e of cfg.events ?? h.relayEvents) {
+            if ((!f.kinds || f.kinds.includes(e.kind)) && (!f.authors || f.authors.includes(e.pubkey))) {
+              opts.onEvent(e, url);
+            }
           }
-        }
-        for (const url of opts.relayUrls) opts.onEOSE?.(id, url);
-      });
+          for (let i = 0; i < (cfg.eoses ?? 1); i++) opts.onEOSE?.(id, url);
+        };
+        if (cfg.delayMs) setTimeout(deliver, cfg.delayMs);
+        else queueMicrotask(deliver);
+      }
       return id;
     },
     closeSubscription: vi.fn(),
     getWriteRelays: () => [{ url: "wss://other.test" }],
-    publishWithConfirmation: async (event: Ev) => {
+    publishWithConfirmation: async (event: Ev, targets?: string[]) => {
       h.published.push(event);
+      h.publishTargets.push(targets);
       if (h.accept) h.relayEvents = [...h.relayEvents.filter((e) => e.kind !== event.kind), event];
       return [{ relayUrl: "wss://app.test", success: h.accept, message: "" }];
     },
@@ -61,8 +71,8 @@ vi.mock("@/lib/nostr/publish", () => ({
 vi.mock("@/lib/db/userStateStore", () => ({ saveUserState: vi.fn(async () => {}) }));
 
 import { store } from "@/store";
-import { login, logout } from "@/store/slices/identitySlice";
-import { __resetPinListWriteForTest, updatePinnedNotes } from "../pinListWrite";
+import { applyPinnedNoteOp, login, logout, setPinnedNotes } from "@/store/slices/identitySlice";
+import { __resetPinListWriteForTest, notePinListSeen, updatePinnedNotes } from "../pinListWrite";
 
 const id = (c: string) => c.repeat(64);
 
@@ -77,6 +87,8 @@ beforeEach(() => {
   h.published = [];
   h.answer = true;
   h.accept = true;
+  h.relayCfg = {};
+  h.publishTargets = [];
   __resetPinListWriteForTest();
   store.dispatch(logout());
   store.dispatch(login({ pubkey: h.pk, signerType: "nip07" }));
@@ -167,5 +179,99 @@ describe("updatePinnedNotes", () => {
       /No relay accepted/,
     );
     expect(store.getState().identity.pinnedNoteIds).toEqual([]);
+  });
+
+  it("an unpin with no list anywhere publishes nothing — never an empty list", async () => {
+    await updatePinnedNotes(h.pk, { id: id("1"), pin: false });
+    expect(h.published).toHaveLength(0);
+  });
+
+  it("waits for a slow relay instead of settling on the first empty answer", async () => {
+    vi.useFakeTimers();
+    // The app relay answers at once with nothing; the other relay holds the
+    // list (another client's pins) and answers 2 s later.
+    h.relayCfg["wss://other.test"] = { delayMs: 2_000, events: [pinList([["e", id("7")]], 900)] };
+    h.relayCfg["wss://app.test"] = { events: [] };
+    const run = updatePinnedNotes(h.pk, { id: id("1"), pin: true });
+    await vi.advanceTimersByTimeAsync(2_500);
+    await run;
+    expect(h.published[0].tags).toEqual([["e", id("7")], ["e", id("1"), "wss://app.test"]]);
+  });
+
+  it("a relay's repeated EOSE does not count as every relay answering", async () => {
+    vi.useFakeTimers();
+    h.relayCfg["wss://app.test"] = { events: [], eoses: 2 };
+    h.relayCfg["wss://other.test"] = { delayMs: 1_500, events: [pinList([["e", id("7")]], 900)] };
+    const run = updatePinnedNotes(h.pk, { id: id("1"), pin: true });
+    await vi.advanceTimersByTimeAsync(2_000);
+    await run;
+    expect(h.published[0].tags[0]).toEqual(["e", id("7")]);
+  });
+
+  it("publishes only to the relays that answered the read", async () => {
+    vi.useFakeTimers();
+    h.relayCfg["wss://other.test"] = { answer: false };
+    const run = updatePinnedNotes(h.pk, { id: id("1"), pin: true });
+    await vi.advanceTimersByTimeAsync(7_000);
+    await run;
+    expect(h.publishTargets).toEqual([["wss://app.test"]]);
+  });
+
+  it("ignores a copy with a bad signature or a far-future date", async () => {
+    const forged = { ...pinList([["e", id("1")]], 900), tags: [["e", id("9")]] };
+    const future = pinList([["e", id("8")]], Math.floor(Date.now() / 1000) + 86_400);
+    const real = pinList([["e", id("2")]], 800);
+    h.relayEvents = [forged, future, real];
+    await updatePinnedNotes(h.pk, { id: id("3"), pin: true });
+    expect(h.published[0].tags).toEqual([["e", id("2")], ["e", id("3"), "wss://app.test"]]);
+    expect(h.published[0].created_at).toBeLessThan(Math.floor(Date.now() / 1000) + 60);
+  });
+
+  it("builds on the copy seen at login when the write's own read misses it", async () => {
+    const seen = pinList([["e", id("7")], ["a", `30023:${"b".repeat(64)}:essay`]], 900, "priv");
+    expect(notePinListSeen(seen as never, h.pk)).toBe(true);
+    h.relayEvents = []; // answers, holds nothing (the copy lives elsewhere)
+    await updatePinnedNotes(h.pk, { id: id("1"), pin: true });
+    expect(h.published[0].tags).toEqual([
+      ["e", id("7")],
+      ["a", `30023:${"b".repeat(64)}:essay`],
+      ["e", id("1"), "wss://app.test"],
+    ]);
+    expect(h.published[0].content).toBe("priv");
+  });
+
+  it("does not remember an unverified or foreign copy from login", () => {
+    const forged = { ...pinList([["e", id("1")]], 900), tags: [["e", id("9")]] };
+    expect(notePinListSeen(forged as never, h.pk)).toBe(false);
+    const other = finalizeEvent({ kind: 10001, created_at: 900, tags: [], content: "" }, generateSecretKey());
+    expect(notePinListSeen(other as never, h.pk)).toBe(false);
+  });
+
+  it("a failed tap does not block the next one", async () => {
+    h.accept = false;
+    await expect(updatePinnedNotes(h.pk, { id: id("1"), pin: true })).rejects.toThrow();
+    h.accept = true;
+    await updatePinnedNotes(h.pk, { id: id("2"), pin: true });
+    expect(h.published[h.published.length - 1]?.tags).toEqual([["e", id("2"), "wss://app.test"]]);
+  });
+});
+
+describe("optimistic pin state", () => {
+  it("an optimistic flip keeps the list's created_at, so the real list still lands", () => {
+    store.dispatch(setPinnedNotes({ noteIds: [], createdAt: 900 }));
+    store.dispatch(applyPinnedNoteOp({ id: id("1"), pin: true }));
+    expect(store.getState().identity.pinnedNoteIds).toEqual([id("1")]);
+    expect(store.getState().identity.pinnedNotesCreatedAt).toBe(900);
+    // The relay's copy (same created_at, more pins) is adopted, not ignored.
+    store.dispatch(setPinnedNotes({ noteIds: [id("7"), id("1")], createdAt: 900 }));
+    expect(store.getState().identity.pinnedNoteIds).toEqual([id("7"), id("1")]);
+  });
+
+  it("the inverse op undoes a flip", () => {
+    store.dispatch(setPinnedNotes({ noteIds: [id("1"), id("2")], createdAt: 900 }));
+    store.dispatch(applyPinnedNoteOp({ id: id("1"), pin: false }));
+    expect(store.getState().identity.pinnedNoteIds).toEqual([id("2")]);
+    store.dispatch(applyPinnedNoteOp({ id: id("1"), pin: true }));
+    expect(store.getState().identity.pinnedNoteIds).toEqual([id("2"), id("1")]);
   });
 });
