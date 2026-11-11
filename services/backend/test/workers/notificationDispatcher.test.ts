@@ -15,12 +15,15 @@ import { randomUUID } from "crypto";
 import { buildTestServer, closeTestServer } from "../helpers/testServer.js";
 import { LUNA, MARCUS } from "../helpers/testUsers.js";
 import { db } from "../../src/db/connection.js";
-import { notificationQueue, pushDevices } from "../../src/db/schema/notifications.js";
+import { notificationQueue, pushDevices, pushSubscriptions } from "../../src/db/schema/notifications.js";
+import { config } from "../../src/config.js";
+import * as webPush from "web-push";
 import { pushService } from "../../src/services/pushService.js";
 import { getRedis } from "../../src/lib/redis.js";
 import {
   collapseGroup,
   dispatchOnce,
+  DM_DELIVERY_MARGIN_SEC,
   DM_PUSH_MAX_EVENT_IDS,
   DM_SEND_GATE_SEC,
   housekeeping,
@@ -281,6 +284,138 @@ describe("dispatchOnce", () => {
     const [row] = await rowsFor(LUNA.pubkey);
     expect(row.sent).toBe(false);
     expect(row.attempts).toBe(1);
+  });
+
+  it("a partial delivery retries only the device that missed it, never the one that got it", async () => {
+    await device(LUNA.pubkey, "ExponentPushToken[luna-phone]");
+    await device(LUNA.pubkey, "ExponentPushToken[luna-tablet]");
+    await seed();
+    let tabletFails = true;
+    const { sender, sent } = fakeSender((m) =>
+      m.to === "ExponentPushToken[luna-tablet]" && tabletFails
+        ? { status: "error", message: "boom", details: { error: "MessageRateExceeded" } }
+        : { status: "ok", id: randomUUID() },
+    );
+    await dispatchOnce({ sender });
+    expect(sent).toHaveLength(1);
+    expect(sent[0].map((m) => m.to).sort()).toEqual(["ExponentPushToken[luna-phone]", "ExponentPushToken[luna-tablet]"]);
+    let [row] = await rowsFor(LUNA.pubkey);
+    expect(row.sent).toBe(false);
+    expect(row.attempts).toBe(1);
+
+    // The retry goes to the tablet alone; then the row is done.
+    tabletFails = false;
+    await dispatchOnce({ sender });
+    expect(sent).toHaveLength(2);
+    expect(sent[1].map((m) => m.to)).toEqual(["ExponentPushToken[luna-tablet]"]);
+    [row] = await rowsFor(LUNA.pubkey);
+    expect(row.sent).toBe(true);
+    expect(row.sentAt).not.toBeNull();
+    await dispatchOnce({ sender });
+    expect(sent).toHaveLength(2);
+  });
+
+  it("a failed Expo request is retried even when web push took it, and the browser is not pushed again", async () => {
+    const saved = { pub: config.vapidPublicKey, priv: config.vapidPrivateKey };
+    config.vapidPublicKey = "test-public";
+    config.vapidPrivateKey = "test-private";
+    try {
+      await device();
+      await db.insert(pushSubscriptions).values({
+        id: randomUUID(),
+        pubkey: LUNA.pubkey,
+        endpoint: "https://fcm.googleapis.com/fcm/send/luna-browser",
+        p256dh: "p256dh",
+        auth: "auth",
+      });
+      await seed();
+      const webPushSend = vi.mocked(webPush.sendNotification);
+      webPushSend.mockClear();
+      let expoUp = false;
+      const sent: ExpoPushMessage[][] = [];
+      const sender: ExpoSender = {
+        send: vi.fn(async (messages) => {
+          if (!expoUp) throw new Error("expo 503");
+          sent.push(messages);
+          return messages.map(() => ({ status: "ok" as const, id: randomUUID() }));
+        }),
+        receipts: vi.fn(async () => ({})),
+      };
+      await dispatchOnce({ sender });
+      expect(webPushSend).toHaveBeenCalledTimes(1);
+      let [row] = await rowsFor(LUNA.pubkey);
+      expect(row.sent).toBe(false);
+      expect(row.attempts).toBe(1);
+      expect(await pushService.lastDeliveryError(LUNA.pubkey)).toMatchObject({ error: "send_failed" });
+
+      expoUp = true;
+      await dispatchOnce({ sender });
+      expect(sent).toHaveLength(1);
+      expect(sent[0].map((m) => m.to)).toEqual([TOKEN]);
+      expect(webPushSend).toHaveBeenCalledTimes(1); // not pushed to the browser twice
+      [row] = await rowsFor(LUNA.pubkey);
+      expect(row.sent).toBe(true);
+    } finally {
+      config.vapidPublicKey = saved.pub;
+      config.vapidPrivateKey = saved.priv;
+    }
+  });
+
+  it("one device's ticket error is not erased by another device's ok ticket in the same batch", async () => {
+    await device(LUNA.pubkey, "ExponentPushToken[luna-phone]");
+    await device(LUNA.pubkey, "ExponentPushToken[luna-tablet]");
+    await seed();
+    const { sender } = fakeSender((m) =>
+      m.to === "ExponentPushToken[luna-tablet]"
+        ? { status: "error", message: "no APNs key", details: { error: "InvalidCredentials" } }
+        : { status: "ok", id: randomUUID() },
+    );
+    await dispatchOnce({ sender });
+    expect(await pushService.lastDeliveryError(LUNA.pubkey)).toMatchObject({ error: "InvalidCredentials" });
+  });
+
+  it("a dm wrap inside the delivery margin is retired unsent; an expiring group's push lives no longer than its wraps", async () => {
+    await device();
+    const soon = JSON.stringify({
+      type: "dm", eventId: wrap(1), relay: "wss://relay.test", expiresAt: Date.now() + (DM_DELIVERY_MARGIN_SEC - 3) * 1000,
+    });
+    await seed({ ...dmRow(wrap(1)), data: soon });
+    const later = JSON.stringify({ type: "dm", eventId: wrap(2), relay: "wss://relay.test", expiresAt: Date.now() + 90_000 });
+    await seed({ ...dmRow(wrap(2)), data: later });
+    const { sender, sent } = fakeSender();
+    const stats = await dispatchOnce({ sender });
+    expect(stats.expired).toBe(1);
+    expect(sent).toHaveLength(1);
+    expect(sent[0][0].data!.eventIds).toEqual([wrap(2)]);
+    // 90 s left, less the margin.
+    expect(sent[0][0].ttl).toBeLessThanOrEqual(90 - DM_DELIVERY_MARGIN_SEC);
+    expect(sent[0][0].ttl).toBeGreaterThanOrEqual(90 - DM_DELIVERY_MARGIN_SEC - 2);
+  });
+
+  it("a group with a wrap that never expires keeps the default push lifetime", async () => {
+    await device();
+    await seed(dmRow(wrap(1)));
+    const { sender, sent } = fakeSender();
+    await dispatchOnce({ sender });
+    expect(sent[0][0].ttl).toBe(3600);
+  });
+
+  it("a dm row whose wrap already expired (data.expiresAt) is retired unsent — no loud, empty 'new message'", async () => {
+    await device();
+    const data = JSON.stringify({ type: "dm", eventId: wrap(1), relay: "wss://relay.test", expiresAt: Date.now() - 1000 });
+    await seed({ ...dmRow(wrap(1)), data });
+    const live = JSON.stringify({ type: "dm", eventId: wrap(2), relay: "wss://relay.test", expiresAt: Date.now() + 60_000 });
+    await seed({ ...dmRow(wrap(2)), data: live });
+    const { sender, sent } = fakeSender();
+    const stats = await dispatchOnce({ sender });
+    expect(stats.expired).toBe(1);
+    expect(stats.sent).toBe(1);
+    expect(sent).toHaveLength(1);
+    expect(sent[0][0].data!.eventIds).toEqual([wrap(2)]);
+    const rows = await rowsFor(LUNA.pubkey);
+    const retired = rows.find((r) => (r.data ?? "").includes(wrap(1)))!;
+    expect(retired.sent).toBe(true);
+    expect(retired.sentAt).toBeNull();
   });
 });
 

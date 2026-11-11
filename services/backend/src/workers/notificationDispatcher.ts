@@ -48,6 +48,19 @@ interface TicketEntry {
  *  wrap) — they are deferred, never dropped. */
 export const DM_SEND_GATE_SEC = 5;
 const dmSentKey = (pubkey: string) => `notif:dmsent:${pubkey}`;
+
+/** Targets (web-push endpoint or Expo token) that already took a queued
+ *  row. A retry goes only to the targets that missed it, so a device that
+ *  got the push is never pushed the same thing twice, and a target that
+ *  failed (one device's ticket error, or the whole Expo request) still gets
+ *  its retry. */
+const pushedToKey = (rowId: string) => `notif:pushed:${rowId}`;
+
+/** A dm wrap closer than this to its `expiration` is not pushed: by the time
+ *  the phone wakes and fetches it, the relay will have swept it, and the
+ *  extension would show the loud, empty server copy. Also the margin taken
+ *  off the push's own TTL. */
+export const DM_DELIVERY_MARGIN_SEC = 10;
 /** A dm enqueue asks for a pass this soon instead of waiting for the tick;
  *  the second lets a burst (a message and the receipt wraps around it)
  *  land in one pass. */
@@ -217,10 +230,22 @@ export async function dispatchOnce(deps: DispatchDeps): Promise<DispatchStats> {
   for (const rows of groups.values()) {
     const pubkey = rows[0].pubkey;
 
-    // 3. (Self-wrap suppression used to live here as a client-declared Redis
-    //    set. The relay now flags self-published wraps at ingest and the
-    //    emitter never queues them — docs/DM_WIRE_CONTRACT.md §7.3.)
-    const group = rows;
+    // 3. A dm row whose wrap has expired, or will within the delivery
+    //    margin (data.expiresAt, the wrap's own `expiration`), is retired
+    //    unsent: the phone's extension could no longer fetch it and would
+    //    show the loud, empty server copy. (The relay sweeps expired wraps
+    //    too.) Self-wrap suppression used to live here; the relay now flags
+    //    those at ingest — contract §7.3.
+    const stale = rows.filter((r) => {
+      const at = parseData(r)?.expiresAt;
+      return typeof at === "number" && at - now() < DM_DELIVERY_MARGIN_SEC * 1000;
+    });
+    if (stale.length > 0) {
+      await markSent(stale.map((r) => r.id), false);
+      stats.expired += stale.length;
+    }
+    const group = rows.filter((r) => !stale.includes(r));
+    if (group.length === 0) continue;
 
     const ids = group.map((r) => r.id);
     const folded = collapseGroup(group);
@@ -240,8 +265,8 @@ export async function dispatchOnce(deps: DispatchDeps): Promise<DispatchStats> {
     //     else arrives into one push when the gate lapses, and this process
     //     asks for that pass instead of waiting for the tick.
     const isDmGroup = group[0].collapseKey === `dm:${pubkey}`;
+    const redis = getRedis();
     if (isDmGroup) {
-      const redis = getRedis();
       const open = await redis.set(dmSentKey(pubkey), "1", "EX", DM_SEND_GATE_SEC, "NX");
       if (open !== "OK") {
         const left = await redis.pttl(dmSentKey(pubkey));
@@ -253,7 +278,22 @@ export async function dispatchOnce(deps: DispatchDeps): Promise<DispatchStats> {
 
     let allSent = true;
 
-    // 4a. Web push (desktop) — unchanged path.
+    // Targets that already took every row of this group on an earlier pass
+    // (which failed somewhere else) are skipped; the ones that take it now
+    // are recorded below.
+    const pushedSets = await Promise.all(ids.map((id) => redis.smembers(pushedToKey(id))));
+    const alreadyGot = (target: string) => pushedSets.every((set) => set.includes(target));
+    const tookIt: string[] = [];
+
+    // A group whose wraps all expire is pushed with a lifetime that ends
+    // with them (less the delivery margin): APNs/FCM and the browser's push
+    // service hold an undeliverable push no longer than the wrap exists.
+    const expiries = group.map((r) => parseData(r)?.expiresAt);
+    const wrapTtlSec = expiries.every((at): at is number => typeof at === "number")
+      ? Math.max(0, Math.floor((Math.max(...expiries) - now()) / 1000) - DM_DELIVERY_MARGIN_SEC)
+      : undefined;
+
+    // 4a. Web push (desktop).
     if (subs.length > 0 && webPushReady) {
       const payload = JSON.stringify({
         title: folded.title,
@@ -262,6 +302,7 @@ export async function dispatchOnce(deps: DispatchDeps): Promise<DispatchStats> {
         type: folded.type,
       });
       for (const sub of subs) {
+        if (alreadyGot(sub.endpoint)) continue;
         // Rows written before the endpoint guard existed (or by a client that
         // slipped past it) get the same check here, where the POST is made.
         if (!isAllowedPushEndpoint(sub.endpoint).ok) {
@@ -271,10 +312,10 @@ export async function dispatchOnce(deps: DispatchDeps): Promise<DispatchStats> {
           continue;
         }
         try {
-          await webPush.sendNotification(
-            { endpoint: sub.endpoint, keys: { p256dh: sub.p256dh, auth: sub.auth } },
-            payload,
-          );
+          const target = { endpoint: sub.endpoint, keys: { p256dh: sub.p256dh, auth: sub.auth } };
+          if (wrapTtlSec !== undefined) await webPush.sendNotification(target, payload, { TTL: wrapTtlSec });
+          else await webPush.sendNotification(target, payload);
+          tookIt.push(sub.endpoint);
         } catch (err: any) {
           if (err?.statusCode === 410 || err?.statusCode === 404) {
             await db
@@ -282,13 +323,15 @@ export async function dispatchOnce(deps: DispatchDeps): Promise<DispatchStats> {
               .where(and(eq(pushSubscriptions.pubkey, sub.pubkey), eq(pushSubscriptions.endpoint, sub.endpoint)));
           } else {
             allSent = false;
+            const message = err?.statusCode ? `HTTP ${err.statusCode}` : (err as Error)?.message;
+            await pushService.recordDeliveryError(pubkey, "webpush_failed", message).catch(() => {});
           }
         }
       }
     }
 
     // 4b. Expo devices — badge = rows newer than the device's last foreground.
-    const expoDevices = devices.filter((d) => d.provider === "expo");
+    const expoDevices = devices.filter((d) => d.provider === "expo" && !alreadyGot(d.token));
     if (expoDevices.length > 0) {
       const messages: ExpoPushMessage[] = [];
       const dmIds = isDmGroup ? dmEventIds(group) : [];
@@ -324,20 +367,21 @@ export async function dispatchOnce(deps: DispatchDeps): Promise<DispatchStats> {
           sound: "default",
           badge: Math.max(1, Number(count) || 0),
           priority: "high",
-          ttl: PUSH_TTL_SEC,
+          ttl: wrapTtlSec !== undefined ? Math.min(PUSH_TTL_SEC, wrapTtlSec) : PUSH_TTL_SEC,
           channelId: channelFor(folded.type),
           ...(isDm ? { mutableContent: true, categoryId: "dm" } : {}),
         });
       }
       try {
         const tickets = await deps.sender.send(messages);
-        const redis = getRedis();
         let anyOk = false;
+        let anyTicketError = false;
         for (let i = 0; i < tickets.length; i++) {
           const ticket = tickets[i];
           const token = expoDevices[i].token;
           if (ticket.status === "ok") {
             anyOk = true;
+            tookIt.push(token);
             if (ticket.id) {
               const entry: TicketEntry = { id: ticket.id, token, pubkey, at: now() };
               await redis.lpush(TICKETS_KEY, JSON.stringify(entry));
@@ -352,12 +396,16 @@ export async function dispatchOnce(deps: DispatchDeps): Promise<DispatchStats> {
             // otherwise visible only here, in the server log.
             console.error(`[notifications] expo ticket error for ${pubkey}: ${ticket.message}`);
             await pushService.recordDeliveryError(pubkey, ticket.details?.error ?? "ticket_error", ticket.message);
+            anyTicketError = true;
             allSent = false;
           }
         }
         // An ok ticket proves the send path, not delivery: a receipt-stage
-        // error (APNs refused an earlier push) stays until an ok receipt.
-        if (anyOk) await pushService.clearDeliveryError(pubkey, { stage: "ticket" });
+        // error (APNs refused an earlier push) stays until an ok receipt. A
+        // sibling device's ticket error from this same batch stays too.
+        if (anyOk && !anyTicketError) {
+          await pushService.clearDeliveryError(pubkey, { stage: "ticket" });
+        }
       } catch (err) {
         console.error("[notifications] expo send failed:", (err as Error).message);
         await pushService.recordDeliveryError(pubkey, "send_failed", (err as Error).message).catch(() => {});
@@ -365,10 +413,19 @@ export async function dispatchOnce(deps: DispatchDeps): Promise<DispatchStats> {
       }
     }
 
+    if (tookIt.length > 0) {
+      const ttl = Math.ceil(QUEUE_TTL_MS / 1000) + 60;
+      const multi = redis.multi();
+      for (const id of ids) multi.sadd(pushedToKey(id), ...tookIt).expire(pushedToKey(id), ttl);
+      await multi.exec();
+    }
+
     if (allSent) {
       await markSent(ids, true);
       stats.sent += ids.length;
     } else {
+      // Some target missed it: retry, and the next pass skips every target
+      // that took it this time.
       await db
         .update(notificationQueue)
         .set({ attempts: sql`${notificationQueue.attempts} + 1` })
