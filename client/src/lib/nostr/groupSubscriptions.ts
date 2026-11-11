@@ -8,7 +8,7 @@ import { EVENT_KINDS } from "../../types/nostr";
 import type { NostrFilter } from "../../types/nostr";
 import type { Space } from "../../types/space";
 import { isNip29Native } from "../../features/spaces/spaceType";
-import { seedNativeSpaceConfig, onNativeAdminsChanged, forgetNativeLayout } from "../../features/spaces/nip29SpaceSync";
+import { seedNativeSpaceConfig, onNativeAdminsChanged, setNativeLayoutLoaded } from "../../features/spaces/nip29SpaceSync";
 import { wiredLayoutDTag, obeliskLayoutDTags, authorizedLayoutAuthors } from "../../features/spaces/channelLayout";
 import { wiredRelaysDTag, resolveRelaySet } from "../../features/spaces/relaySet";
 import { store } from "../../store";
@@ -202,12 +202,25 @@ function layoutFilters(groupId: string, relayUrl: string): NostrFilter[] {
   return [ours, obelisk, relaySet];
 }
 
+/** Grace after EOSE for the pipeline's async signature checks to land the
+ *  delivered layouts before edits are allowed. */
+const LAYOUT_SETTLE_MS = 500;
+
 function openLayoutSub(groupId: string, relayUrl: string): void {
   const prev = spaceLayoutSubs.get(groupId);
   if (prev) subscriptionManager.close(prev);
-  const subId = subscriptionManager.subscribe({
+  setNativeLayoutLoaded(groupId, false);
+  const subId: string = subscriptionManager.subscribe({
     filters: layoutFilters(groupId, relayUrl),
     relayUrls: [relayUrl],
+    onEOSE: ({ reason }) => {
+      // A timeout still lets edits through (live events keep arriving and the
+      // newest layout wins); with no relay there's nothing to publish to.
+      if (reason === "no-relays") return;
+      setTimeout(() => {
+        if (spaceLayoutSubs.get(groupId) === subId) setNativeLayoutLoaded(groupId, true);
+      }, LAYOUT_SETTLE_MS);
+    },
   });
   spaceLayoutSubs.set(groupId, subId);
   spaceLayoutRelays.set(groupId, relayUrl);
@@ -282,7 +295,9 @@ export function leaveSpace(groupId: string): void {
     spaceLayoutSubs.delete(groupId);
   }
   spaceLayoutRelays.delete(groupId);
-  forgetNativeLayout(groupId);
+  // Edits wait for the next entry's subscription to catch up; the layouts
+  // seen so far are kept (re-delivery would be deduplicated).
+  setNativeLayoutLoaded(groupId, false);
 
   closeSpaceChannelSubs(groupId + ":");
 }

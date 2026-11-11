@@ -38,6 +38,24 @@ const MAX_FUTURE_SECONDS = 15 * 60;
 /** The channel id untagged kind-9s from other NIP-29 clients land in. */
 export const NATIVE_DEFAULT_CHAT_ID = "chat";
 
+/** A native space without a (binding) layout: one interoperable chat. */
+export function defaultNativeChannels(spaceId: string): SpaceChannel[] {
+  return [
+    {
+      id: NATIVE_DEFAULT_CHAT_ID,
+      spaceId,
+      type: "chat",
+      label: "#chat",
+      categoryId: null,
+      position: 0,
+      isDefault: true,
+      adminOnly: false,
+      slowModeSeconds: 0,
+      feedMode: "all",
+    },
+  ];
+}
+
 /** d-tag for our own layout event. */
 export function wiredLayoutDTag(groupId: string): string {
   return `wired:layout:${groupId}`;
@@ -244,9 +262,12 @@ export function parseLayoutEvent(event: NostrEvent, space: Space): ParsedLayout 
 export function pickLayout(
   candidates: readonly NostrEvent[],
   space: Space,
+  nowSeconds = Math.floor(Date.now() / 1000),
 ): { event: NostrEvent; layout: ParsedLayout } | null {
   let best: { event: NostrEvent; layout: ParsedLayout } | null = null;
   for (const event of candidates) {
+    // A far-future layout would pin itself (writers cap at now + 15 min).
+    if (event.created_at > nowSeconds + MAX_FUTURE_SECONDS) continue;
     const layout = parseLayoutEvent(event, space);
     if (!layout) continue;
     if (!best) {

@@ -8,7 +8,13 @@ import { updateSpaceInStore } from "../../lib/db/spaceStore";
 import { saveChannels, saveCategories } from "../../lib/db/channelStore";
 import { isNip29Native } from "./spaceType";
 import { synthesizeNip29Members, synthesizeNip29Roles } from "./synthesizeNip29Roles";
-import { pickLayout, obeliskLayoutDTags, wiredLayoutDTag } from "./channelLayout";
+import {
+  pickLayout,
+  obeliskLayoutDTags,
+  wiredLayoutDTag,
+  authorizedLayoutAuthors,
+  defaultNativeChannels,
+} from "./channelLayout";
 import { parseRelaySetEvent, wiredRelaysDTag } from "./relaySet";
 
 /**
@@ -76,8 +82,13 @@ export function applyNativeGroupEvent(event: NostrEvent): boolean {
   }
 }
 
-/** Layout events seen per native space, latest per (author, d-tag). Bounded. */
+/** Layout events seen per native space, latest per (author, d-tag). Bounded.
+ *  Kept for the session (not dropped when switching spaces): the relay's
+ *  re-delivery on re-entry is deduplicated by the pipeline and would never
+ *  repopulate it. Dropped when the space itself is removed. */
 const layoutCandidates = new Map<string, Map<string, NostrEvent>>();
+/** Spaces whose layout subscription has delivered what the relay holds. */
+const layoutLoaded = new Set<string>();
 /** The event id currently applied per space, and its created_at. */
 const appliedLayout = new Map<string, { id: string; createdAt: number }>();
 const MAX_LAYOUT_CANDIDATES = 32;
@@ -96,10 +107,35 @@ export function appliedLayoutCreatedAt(spaceId: string): number | undefined {
   return appliedLayout.get(spaceId)?.createdAt;
 }
 
-/** Forget a space's layout candidates (leaving the space). */
+/** Forget a space's layout candidates (the space was removed). */
 export function forgetNativeLayout(spaceId: string): void {
   layoutCandidates.delete(spaceId);
   appliedLayout.delete(spaceId);
+  layoutLoaded.delete(spaceId);
+}
+
+/** Whether the layout subscription has caught up — writes before that could
+ *  publish over a layout this client hasn't seen yet. */
+export function setNativeLayoutLoaded(spaceId: string, loaded: boolean): void {
+  if (loaded) layoutLoaded.add(spaceId);
+  else layoutLoaded.delete(spaceId);
+}
+
+export function isNativeLayoutLoaded(spaceId: string): boolean {
+  return layoutLoaded.has(spaceId);
+}
+
+/** Newest created_at among a space's authorized layouts (a new one must be
+ *  later). Strangers' events don't count: they must not push our dates. */
+export function newestLayoutCreatedAt(spaceId: string): number | undefined {
+  const space = store.getState().spaces.list.find((s) => s.id === spaceId);
+  const authors = new Set(space ? authorizedLayoutAuthors(space) : []);
+  const dates = [...(layoutCandidates.get(spaceId)?.values() ?? [])]
+    .filter((e) => authors.has(e.pubkey))
+    .map((e) => e.created_at);
+  const applied = appliedLayout.get(spaceId)?.createdAt;
+  if (applied !== undefined) dates.push(applied);
+  return dates.length > 0 ? Math.max(...dates) : undefined;
 }
 
 /**
@@ -137,10 +173,16 @@ export function applyNativeLayoutEvent(event: NostrEvent): boolean {
     bucket.set(key, event);
   }
   if (bucket.size > MAX_LAYOUT_CANDIDATES) {
-    // Drop the oldest candidates (the subscription is author-filtered, so this
-    // only bites if a relay ignores that filter).
-    const sorted = [...bucket.entries()].sort((a, b) => a[1].created_at - b[1].created_at);
-    for (const [k] of sorted.slice(0, bucket.size - MAX_LAYOUT_CANDIDATES)) bucket.delete(k);
+    // Evict strangers' events first, then the oldest — never the applied one.
+    const authors = new Set(authorizedLayoutAuthors(space));
+    const appliedId = appliedLayout.get(space.id)?.id;
+    const victims = [...bucket.entries()]
+      .filter(([, e]) => e.id !== appliedId)
+      .sort(
+        (a, b) =>
+          Number(authors.has(a[1].pubkey)) - Number(authors.has(b[1].pubkey)) || a[1].created_at - b[1].created_at,
+      );
+    for (const [k] of victims.slice(0, bucket.size - MAX_LAYOUT_CANDIDATES)) bucket.delete(k);
   }
   repickLayout(space);
   return true;
@@ -151,7 +193,18 @@ function repickLayout(space: Space): void {
   const bucket = layoutCandidates.get(space.id);
   if (!bucket || !isNip29Native(space)) return;
   const picked = pickLayout([...bucket.values()], space);
-  if (!picked) return;
+  if (!picked) {
+    // The layout we showed is no longer authorized (its author was removed as
+    // an admin): back to the plain single chat until an admin publishes one.
+    if (appliedLayout.has(space.id)) {
+      appliedLayout.delete(space.id);
+      const channels = defaultNativeChannels(space.id);
+      store.dispatch(setChannelLayout({ spaceId: space.id, channels, categories: [] }));
+      void saveChannels(space.id, channels).catch(() => {});
+      void saveCategories(space.id, { categories: [] }).catch(() => {});
+    }
+    return;
+  }
   if (appliedLayout.get(space.id)?.id === picked.event.id) return;
   appliedLayout.set(space.id, { id: picked.event.id, createdAt: picked.event.created_at });
 

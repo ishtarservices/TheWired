@@ -200,6 +200,9 @@ describe("validateCategoryName", () => {
       expect(validateCategoryName(`a${String.fromCharCode(code)}b`, tree)).toMatch(/invisible/);
     }
     expect(validateCategoryName("  Fine  ", tree)).toBeNull();
+    // Emoji ZWJ sequences (U+200D) and ZWNJ (U+200C, Persian/Indic) are fine.
+    expect(validateCategoryName(`${String.fromCodePoint(0x1f469, 0x200d, 0x1f4bb)} dev`, tree)).toBeNull();
+    expect(validateCategoryName(`a${String.fromCharCode(0x200c)}b`, tree)).toBeNull();
     expect(validateCategoryName("Émoji 🎧 ok", tree)).toBeNull();
   });
 });

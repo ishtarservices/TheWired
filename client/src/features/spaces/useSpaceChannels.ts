@@ -5,6 +5,7 @@ import type { Space, SpaceChannel, SpaceChannelCategory, SpaceChannelType } from
 import { isNip29Native } from "./spaceType";
 import { loadChannels, loadCategories } from "../../lib/db/channelStore";
 import { buildChannelTree, type TreeOp } from "./channelTree";
+import { defaultNativeChannels } from "./channelLayout";
 import {
   hydrateChannelLayout,
   loadChannelLayout,
@@ -18,24 +19,6 @@ import {
 } from "../../store/thunks/channelLayout";
 
 const EMPTY_CHANNELS: SpaceChannel[] = [];
-
-/** Channels for a NIP-29-native space. Until a kind:30078 layout overlay (M4)
- *  is present, a native group is a single interoperable chat channel. */
-function makeNativeChannels(spaceId: string): SpaceChannel[] {
-  return [
-    {
-      id: "chat",
-      spaceId,
-      type: "chat",
-      label: "#chat",
-      position: 0,
-      isDefault: true,
-      adminOnly: false,
-      slowModeSeconds: 0,
-      feedMode: "all",
-    },
-  ];
-}
 
 /** Hardcoded defaults used when backend is unavailable */
 function makeDefaultChannels(spaceId: string, mode: Space["mode"]): SpaceChannel[] {
@@ -101,7 +84,7 @@ export function useSpaceChannels(spaceId: string | null) {
     // until the space's kind:30078 layout arrives (nip29SpaceSync applies it).
     if (native) {
       if (channels.length === 0) {
-        dispatch(setChannels({ spaceId, channels: makeNativeChannels(spaceId) }));
+        dispatch(setChannels({ spaceId, channels: defaultNativeChannels(spaceId) }));
       }
       dispatch(setChannelsLoading({ spaceId, loading: false }));
       return;

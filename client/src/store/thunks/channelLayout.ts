@@ -42,7 +42,7 @@ import {
   authorizedLayoutAuthors,
   NATIVE_DEFAULT_CHAT_ID,
 } from "../../features/spaces/channelLayout";
-import { appliedLayoutCreatedAt } from "../../features/spaces/nip29SpaceSync";
+import { newestLayoutCreatedAt, isNativeLayoutLoaded } from "../../features/spaces/nip29SpaceSync";
 
 type Thunk<T> = (dispatch: AppDispatch, getState: () => RootState) => Promise<T>;
 
@@ -149,6 +149,11 @@ async function publishNativeOp(
   if (!authorizedLayoutAuthors(space).includes(me)) {
     throw new TreeOpError("Only this space's admins can change its channels.");
   }
+  // Publishing replaces the whole layout: never before this client has seen
+  // the one on the relay (a fresh device or a stale cache would overwrite it).
+  if (!isNativeLayoutLoaded(spaceId)) {
+    throw new TreeOpError("This space's channels are still loading from its relay. Try again in a moment.");
+  }
 
   const prev = snapshot(state, spaceId);
   const next = treeToState(op(buildChannelTree(prev.channels, prev.categories)));
@@ -158,7 +163,7 @@ async function publishNativeOp(
 
   dispatch(setChannelLayout({ spaceId, ...next }));
   try {
-    const createdAt = nextLayoutCreatedAt(appliedLayoutCreatedAt(spaceId));
+    const createdAt = nextLayoutCreatedAt(newestLayoutCreatedAt(spaceId));
     // h-tagged: routed to the space's relays, and the pipeline applies it
     // locally (so the candidate picker sees it at once).
     await signAndPublish(buildLayoutEvent(me, space.id, { ...next, defaultChannelId: defaultChannel.id }, createdAt));

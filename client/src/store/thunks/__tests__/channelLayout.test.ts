@@ -26,6 +26,7 @@ import {
   loadChannelLayout,
 } from "../channelLayout";
 import { moveChannel, renameCategory, TreeOpError } from "@/features/spaces/channelTree";
+import { setNativeLayoutLoaded } from "@/features/spaces/nip29SpaceSync";
 
 const api = vi.mocked(channelsApi);
 const publish = vi.mocked(signAndPublish);
@@ -238,6 +239,15 @@ describe("applyChannelLayoutOp (backend spaces)", () => {
 
 describe("relay-only spaces", () => {
   const native = () => space({ spaceType: "nip29-native" });
+  beforeEach(() => setNativeLayoutLoaded(S, true));
+
+  it("refuses to publish before the relay's layout has loaded (it would overwrite it)", async () => {
+    setNativeLayoutLoaded(S, false);
+    const store = storeWith(native(), [ch("chat", 0, null, { isDefault: true }), ch("b", 1)], []);
+    await expect(store.dispatch(applyChannelLayoutOp(S, moveChannel("b", null, 0)) as never)).rejects.toThrow(/still loading/);
+    expect(publish).not.toHaveBeenCalled();
+    expect(labels(store)).toEqual(["chat@-", "b@-"]);
+  });
 
   it("publishes a signed, h-tagged layout event with the default pinned and applies it optimistically", async () => {
     const store = storeWith(native(), [ch("chat", 0, null, { isDefault: true }), ch("b", 1)], undefined);

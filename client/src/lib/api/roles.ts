@@ -113,6 +113,20 @@ export async function fetchCategoryOverrides(spaceId: string, roleId: string): P
   return res.data;
 }
 
+/** Set one role's template on one subfolder (empty lists clear it). Only that
+ *  subfolder is touched, so concurrent edits to others don't collide. */
+export async function setCategoryOverride(
+  spaceId: string,
+  roleId: string,
+  categoryId: string,
+  override: { allow: string[]; deny: string[] },
+): Promise<void> {
+  await api(`/spaces/${spaceId}/roles/${roleId}/category-override`, {
+    method: "PUT",
+    body: { categoryId, ...override },
+  });
+}
+
 /** Replace a role's subfolder templates; synced channels in the touched subfolders follow. */
 export async function setCategoryOverrides(
   spaceId: string,

@@ -217,12 +217,7 @@ function OverridesPanel({ spaceId, target }: { spaceId: string; target: Override
         // subfolder sync) are untouched.
         await rolesApi.setChannelOverride(spaceId, selectedRoleId, target.id, { allow, deny });
       } else {
-        const existing = await rolesApi.fetchCategoryOverrides(spaceId, selectedRoleId);
-        const others = existing.filter((o) => o.categoryId !== target.id);
-        await rolesApi.setCategoryOverrides(spaceId, selectedRoleId, [
-          ...others.map((o) => ({ categoryId: o.categoryId, allow: o.allow, deny: o.deny })),
-          ...(allow.length > 0 || deny.length > 0 ? [{ categoryId: target.id, allow, deny }] : []),
-        ]);
+        await rolesApi.setCategoryOverride(spaceId, selectedRoleId, target.id, { allow, deny });
       }
       setSaved(true);
       // Sync badges + inherited channel overrides changed: refresh the layout.

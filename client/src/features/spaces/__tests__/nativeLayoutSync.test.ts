@@ -15,7 +15,7 @@ import { store } from "@/store";
 import { setSpaces } from "@/store/slices/spacesSlice";
 import type { NostrEvent } from "@/types/nostr";
 import type { Space, SpaceChannel } from "@/types/space";
-import { applyNativeLayoutEvent, applyNativeGroupEvent, forgetNativeLayout, appliedLayoutCreatedAt } from "../nip29SpaceSync";
+import { applyNativeLayoutEvent, applyNativeGroupEvent, forgetNativeLayout, appliedLayoutCreatedAt, newestLayoutCreatedAt } from "../nip29SpaceSync";
 import { buildLayoutEvent } from "../channelLayout";
 
 const G = "g1";
@@ -64,7 +64,10 @@ const shownLabel = () => store.getState().spaces.channels[G]?.[0]?.label;
 beforeEach(() => {
   forgetNativeLayout(G);
   store.dispatch(setSpaces([space()]));
-  store.dispatch({ type: "spaces/setChannels", payload: { spaceId: G, channels: [] } });
+  store.dispatch({
+    type: "spaces/setChannels",
+    payload: { spaceId: G, channels: [{ ...chan("chat", "#chat"), isDefault: true }] },
+  });
 });
 
 describe("native layout selection", () => {
@@ -96,6 +99,24 @@ describe("native layout selection", () => {
       sig: "sig",
     });
     expect(shownLabel()).toBe("#admin-newer");
+  });
+
+  it("falls back to the plain chat when the layout's author is no longer an admin", () => {
+    applyNativeLayoutEvent(layoutEvent(ADMIN, "#by-admin", 300, "e3"));
+    expect(shownLabel()).toBe("#chat"); // not authorized yet → nothing applied, default stays
+    store.dispatch(setSpaces([space({ adminPubkeys: [ADMIN] })]));
+    applyNativeLayoutEvent(layoutEvent(ADMIN, "#by-admin", 300, "e3"));
+    expect(shownLabel()).toBe("#by-admin");
+    // 39001 drops ADMIN: their layout stops being binding.
+    applyNativeGroupEvent({ id: "adm2", pubkey: RELAY, kind: 39001, created_at: 2, tags: [["d", G]], content: "", sig: "sig" });
+    expect(shownLabel()).toBe("#chat");
+    expect(store.getState().spaces.categories[G]).toEqual([]);
+  });
+
+  it("dates a new layout after the newest authorized one; strangers can't push the date", () => {
+    applyNativeLayoutEvent(layoutEvent(CREATOR, "#a", 100, "e1"));
+    applyNativeLayoutEvent(layoutEvent(STRANGER, "#forged", 900, "e9"));
+    expect(newestLayoutCreatedAt(G)).toBe(100);
   });
 
   it("does not apply layouts to platform spaces", () => {

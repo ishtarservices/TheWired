@@ -63,8 +63,14 @@ export async function reorderChannels(spaceId: string, orderedIds: string[]): Pr
 }
 
 /** Categories + channels + revision (404 when the backend predates subfolders). */
+/** Layout calls run inside a per-space write queue; a stalled request must not
+ *  hold every later edit in that space hostage. */
+const LAYOUT_TIMEOUT_MS = 20_000;
+
 export async function fetchLayout(spaceId: string): Promise<ChannelLayoutResponse> {
-  const res = await api<ChannelLayoutResponse>(`/spaces/${spaceId}/channels/layout`);
+  const res = await api<ChannelLayoutResponse>(`/spaces/${spaceId}/channels/layout`, {
+    signal: AbortSignal.timeout(LAYOUT_TIMEOUT_MS),
+  });
   return res.data;
 }
 
@@ -73,6 +79,7 @@ export async function putLayout(spaceId: string, doc: ChannelLayoutDoc): Promise
   const res = await api<ChannelLayoutResponse>(`/spaces/${spaceId}/channels/layout`, {
     method: "PUT",
     body: doc,
+    signal: AbortSignal.timeout(LAYOUT_TIMEOUT_MS),
   });
   return res.data;
 }

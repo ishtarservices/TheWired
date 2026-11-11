@@ -239,6 +239,15 @@ describe("pickLayout", () => {
     expect(pickLayout([obelisk], space)!.event.id).toBe("o");
     expect(pickLayout([asEvent(build(one("#x")), "stranger")], space)).toBeNull();
   });
+
+  it("ignores far-future layouts (they would pin themselves)", () => {
+    const now = 10_000;
+    const sane = asEvent(build(one("#sane"), [], undefined, now - 5), CREATOR, "s");
+    const future = asEvent(build(one("#future"), [], undefined, now + 3600), CREATOR, "f");
+    expect(pickLayout([future, sane], space, now)!.event.id).toBe("s");
+    const nearFuture = asEvent(build(one("#near"), [], undefined, now + 600), CREATOR, "n");
+    expect(pickLayout([nearFuture, sane], space, now)!.event.id).toBe("n");
+  });
 });
 
 describe("nextLayoutCreatedAt", () => {

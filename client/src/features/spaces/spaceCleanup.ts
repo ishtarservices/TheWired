@@ -8,6 +8,7 @@ import { clearFeedMeta } from "../../store/slices/feedSlice";
 import { clearSpaceFeed } from "../../store/slices/eventsSlice";
 import { removeMembers as removeMembersFromIDB } from "../../lib/db/spaceMembersStore";
 import { removeLastChannel } from "../../lib/db/lastChannelCache";
+import { forgetNativeLayout } from "./nip29SpaceSync";
 
 /**
  * Unified cleanup for all slices + IDB stores when a space is gone — used by
@@ -36,4 +37,5 @@ export function cleanupSpaceState(spaceId: string, dispatch: AppDispatch): void 
   removeSpaceFromStore(spaceId);
   removeMembersFromIDB(spaceId).catch(() => {/* best-effort */});
   removeLastChannel(spaceId);
+  forgetNativeLayout(spaceId);
 }

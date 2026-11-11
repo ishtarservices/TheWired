@@ -33,9 +33,10 @@ export class TreeOpError extends Error {}
 export const MAX_CATEGORY_NAME_LENGTH = 50;
 export const MAX_CATEGORIES = 50;
 
-// C0/C1 controls, line/paragraph separators, bidi embeddings/overrides/isolates
-// (spoofing), zero-width and BOM characters. Mirrors the backend rule.
-const FORBIDDEN_NAME_CHARS = /[\u0000-\u001f\u007f-\u009f\u200b-\u200f\u2028-\u202e\u2066-\u2069\ufeff]/;
+// C0/C1 controls, line/paragraph separators, bidi marks/embeddings/overrides/
+// isolates (spoofing), zero-width space and BOM. ZWNJ/ZWJ (U+200C/D) stay
+// allowed: emoji sequences and Persian/Indic text need them. Mirrors the backend.
+const FORBIDDEN_NAME_CHARS = /[\u0000-\u001f\u007f-\u009f\u200b\u200e\u200f\u2028-\u202e\u2066-\u2069\ufeff]/;
 const UNSAFE_ID_CHARS = /[/?#%\\]/;
 
 /** Drop control/invisible/bidi characters and trim (for untrusted names and labels). */
