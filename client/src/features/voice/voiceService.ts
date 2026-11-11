@@ -20,6 +20,7 @@ import { E2EE_REQUIRED_CODE } from "@/lib/api/voice";
 import { setRemoteAudioOutputMuted } from "@/lib/webrtc/remoteAudio";
 import { describeMediaError } from "@/lib/webrtc/mediaDevices";
 import { publishRoomPresence, clearRoomPresence } from "@/lib/nostr/roomPresence";
+import { assertMediaEpoch, isMediaSessionAborted, mediaEpoch } from "@/lib/webrtc/mediaSession";
 
 /**
  * Enable the mic, surfacing failure instead of swallowing it. Before this
@@ -56,6 +57,11 @@ export async function joinVoiceChannel(
   spaceId: string,
   channelId: string,
 ): Promise<void> {
+  // The account this join belongs to. Every await below is a point where the
+  // user may switch accounts; past it, the join must not land in (or sign as)
+  // the next account. The room itself is torn down by the account change.
+  const epoch = mediaEpoch();
+
   // The LiveKit room singleton is shared with SFU 1:1 calls — connecting
   // here would silently tear that room down and leave callSlice stuck on
   // "active". End the call cleanly first.
@@ -78,15 +84,19 @@ export async function joinVoiceChannel(
   try {
     // Fetch LiveKit token from backend
     const { token, url, roomName } = await fetchVoiceToken(spaceId, channelId);
+    assertMediaEpoch(epoch);
 
     // Connect to LiveKit room. Per-sender frame keys are distributed as
     // kind-20016 envelopes once the roster is known (docs/E2EE_CALLS.md).
-    await connectToRoom(url, token, { e2ee: { kind: "channel", roomName } });
+    await connectToRoom(url, token, { e2ee: { kind: "channel", roomName }, epoch });
 
     // Enable microphone after connecting. Awaited so the OS permission
     // prompt happens under the "Connecting…" state; failure is surfaced
     // (banner + muted) rather than swallowed.
     await enableMicrophoneOrExplain();
+    // The permission prompt can sit open for seconds; the account may have
+    // changed (and the room been torn down) meanwhile.
+    assertMediaEpoch(epoch);
 
     // Update Redux state
     store.dispatch(
@@ -103,6 +113,9 @@ export async function joinVoiceChannel(
       console.warn("[voice] Failed to publish presence:", err);
     });
   } catch (err) {
+    // Overtaken by an account change: the store belongs to the next account
+    // now, and nothing failed. Don't write a join error into it.
+    if (isMediaSessionAborted(err)) throw err;
     store.dispatch(disconnectRoom());
     // disconnectRoom resets mediaError — set it AFTER so the pre-join view
     // can show why the join failed instead of an unhandled rejection.

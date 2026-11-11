@@ -9,6 +9,7 @@ import {
   setMediaError,
 } from "@/store/slices/voiceSlice";
 import { describeMediaError } from "@/lib/webrtc/mediaDevices";
+import { isMediaSessionAborted } from "@/lib/webrtc/mediaSession";
 import {
   selectIsInVoice,
   selectConnectedRoom,
@@ -40,7 +41,8 @@ export function useVoiceChannel() {
       try {
         await joinVoiceChannel(spaceId, channelId);
       } catch (err) {
-        console.error("[voice] Failed to join:", err);
+        // An account change abandoned the join on purpose; nothing failed.
+        if (!isMediaSessionAborted(err)) console.error("[voice] Failed to join:", err);
         throw err;
       }
     },

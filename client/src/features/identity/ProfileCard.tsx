@@ -11,6 +11,7 @@ import { ProfileEditModal } from "../profile/ProfileEditModal";
 import { AddAccountModal } from "./AddAccountModal";
 import { useIdentity } from "./useIdentity";
 import { useProfile } from "../profile/useProfile";
+import { useEndCallConfirm } from "../calling/EndCallConfirmDialog";
 
 export function ProfileCard() {
   const { pubkey, profile, accounts, logOut, logOutAll, switchTo } = useIdentity();
@@ -19,6 +20,8 @@ export function ProfileCard() {
   const [menuOpen, setMenuOpen] = useState(false);
   const [editOpen, setEditOpen] = useState(false);
   const [addAccountOpen, setAddAccountOpen] = useState(false);
+  // Switching / logging out ends a call: ask first when one is running.
+  const { confirmIfInCall, dialog: endCallDialog } = useEndCallConfirm();
 
   const hasTauri =
     typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
@@ -62,10 +65,12 @@ export function ProfileCard() {
               activePubkey={pubkey}
               onSwitch={(pk) => {
                 closeMenu();
-                switchTo(pk);
-                if (location.pathname.startsWith("/profile/")) {
-                  navigate(`/profile/${pk}`, { replace: true });
-                }
+                confirmIfInCall("switch", () => {
+                  void switchTo(pk);
+                  if (location.pathname.startsWith("/profile/")) {
+                    navigate(`/profile/${pk}`, { replace: true });
+                  }
+                });
               }}
             />
             <PopoverMenuSeparator />
@@ -120,7 +125,7 @@ export function ProfileCard() {
               variant="danger"
               onClick={() => {
                 closeMenu();
-                logOut();
+                confirmIfInCall("logout", logOut);
               }}
             />
             <PopoverMenuItem
@@ -129,7 +134,7 @@ export function ProfileCard() {
               variant="danger"
               onClick={() => {
                 closeMenu();
-                logOutAll();
+                confirmIfInCall("logout", logOutAll);
               }}
             />
           </>
@@ -140,7 +145,7 @@ export function ProfileCard() {
             variant="danger"
             onClick={() => {
               closeMenu();
-              logOut();
+              confirmIfInCall("logout", logOut);
             }}
           />
         )}
@@ -151,6 +156,7 @@ export function ProfileCard() {
         open={addAccountOpen}
         onClose={() => setAddAccountOpen(false)}
       />
+      {endCallDialog}
     </>
   );
 }

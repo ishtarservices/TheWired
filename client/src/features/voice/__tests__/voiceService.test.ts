@@ -56,7 +56,11 @@ describe("joinVoiceChannel", () => {
   it("joins with the channel E2EE context", async () => {
     await joinVoiceChannel("s", "c");
     expect(h.fetchToken).toHaveBeenCalledWith("s", "c");
-    expect(h.connectRoom).toHaveBeenCalledWith("wss://x", "t", { e2ee: { kind: "channel", roomName: "s:c" } });
+    // `epoch` ties the join to the account that started it (account switch mid-join).
+    expect(h.connectRoom).toHaveBeenCalledWith("wss://x", "t", {
+      e2ee: { kind: "channel", roomName: "s:c" },
+      epoch: expect.any(Number),
+    });
     expect(store.getState().voice.connectedRoom).toEqual({ spaceId: "s", channelId: "c", roomName: "s:c" });
   });
 

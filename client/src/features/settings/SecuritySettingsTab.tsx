@@ -3,16 +3,15 @@ import { Copy, Eye, EyeOff, AlertTriangle, Trash2, LogOut, Shield, Key } from "l
 import { Button } from "@/components/ui/Button";
 import { Spinner } from "@/components/ui/Spinner";
 import { useAppSelector } from "@/store/hooks";
-import { performLogin, performCleanup, removeAccount } from "@/lib/nostr/loginFlow";
+import { addAccountFromSecret, removeAccount } from "@/lib/nostr/loginFlow";
 import {
   isSecretPersistEnabled,
   setSecretPersistEnabled,
 } from "@/lib/nostr/secretStore";
-import { resetAll } from "@/store";
 import { useKeyBackupStatus } from "./useKeyBackupStatus";
 import { KeyBackupNotice } from "./KeyBackupNotice";
-import { setSwitchingAccount } from "@/store/slices/identitySlice";
-import { useAppDispatch } from "@/store/hooks";
+import { selectActiveMediaSession, endMediaSessionsForAccountChange } from "@/features/calling/accountChangeMedia";
+import { CallDropNotice, useEndCallConfirm } from "@/features/calling/EndCallConfirmDialog";
 
 const AUTO_HIDE_MS = 30_000;
 
@@ -270,7 +269,7 @@ function SecretKeySection() {
 /** Section 3: Import Key (Tauri only) */
 function ImportKeySection() {
   const signerType = useAppSelector((s) => s.identity.signerType);
-  const dispatch = useAppDispatch();
+  const mediaSession = useAppSelector(selectActiveMediaSession);
   const [input, setInput] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -281,20 +280,20 @@ function ImportKeySection() {
     if (!input.trim()) return;
     setLoading(true);
     setError(null);
-    dispatch(setSwitchingAccount(true));
     try {
-      const { TauriSigner } = await import("@/lib/nostr/tauriSigner");
-      const pubkey = await TauriSigner.importKey(input.trim());
+      // Re-importing the active account is a no-op (it used to reset the
+      // app under a live call). Any other key ends the current call first,
+      // then cleans up and logs in (session / other accounts preserved).
+      const result = await addAccountFromSecret(input.trim());
+      if (result.status === "already_active") {
+        setError("You're already signed in with this key.");
+        return;
+      }
       setInput("");
-      // Clean up current state and re-login (preserves session/other accounts)
-      performCleanup();
-      dispatch(resetAll());
-      await performLogin("tauri", pubkey);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to import key");
     } finally {
       setLoading(false);
-      dispatch(setSwitchingAccount(false));
     }
   };
 
@@ -304,6 +303,7 @@ function ImportKeySection() {
       <p className="text-xs text-muted">
         Import an existing Nostr identity by entering its secret key (nsec or hex).
       </p>
+      {mediaSession && <CallDropNotice session={mediaSession} intent="add" />}
       <div className="flex gap-2">
         <input
           type="password"
@@ -328,22 +328,30 @@ function DangerZoneSection() {
   const pubkey = useAppSelector((s) => s.identity.pubkey);
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [deleting, setDeleting] = useState(false);
+  const { confirmIfInCall, dialog: endCallDialog } = useEndCallConfirm();
 
-  const handleLogout = async () => {
+  const handleLogout = () => {
     if (!pubkey) return;
     // removeAccount switches to another account if one exists,
     // or does a full logout if this is the last account
-    await removeAccount(pubkey);
+    confirmIfInCall("logout", () => removeAccount(pubkey));
   };
 
-  const handleDeleteKey = async () => {
+  const handleDeleteKey = () => {
     if (!pubkey) return;
     if (!confirmDelete) {
       setConfirmDelete(true);
       return;
     }
+    confirmIfInCall("remove", () => deleteKeyAndLogOut(pubkey));
+  };
+
+  const deleteKeyAndLogOut = async (pubkey: string) => {
     setDeleting(true);
     try {
+      // The key is deleted next; end the call while it can still sign the
+      // hang-up (removeAccount would be too late).
+      await endMediaSessionsForAccountChange();
       // removeAccount already handles keystore deletion for tauri accounts,
       // but we delete explicitly here since the user chose "Delete Key"
       const { invoke } = await import("@tauri-apps/api/core");
@@ -361,6 +369,7 @@ function DangerZoneSection() {
 
   return (
     <div className="space-y-3">
+      {endCallDialog}
       <h3 className="text-sm font-semibold text-red-400">Danger Zone</h3>
 
       <div className="rounded-lg border border-red-500/20 p-4 space-y-3">

@@ -130,6 +130,8 @@ function seedIncoming(callType: "audio" | "video" = "audio", caps: { e2ee?: bool
 
 const E2EE_CTX = (roomId: string) => ({
   e2ee: { kind: "call", roomId, roomSecretKeyHex: expect.stringMatching(/^[0-9a-f]{64}$/), peerPubkey: PARTNER },
+  // Ties the join to the account that started it (account switch mid-join).
+  epoch: expect.any(Number),
 });
 
 beforeEach(() => {

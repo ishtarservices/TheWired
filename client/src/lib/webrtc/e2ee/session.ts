@@ -102,7 +102,8 @@ export function createE2EESession(
     roomName: ctx.roomName,
     myPubkey,
     sink: provider,
-    send: deps.send ?? sendMediaKey,
+    // Bound to the session's account: never sealed by a different signer.
+    send: deps.send ?? ((to, envelope) => sendMediaKey(to, envelope, myPubkey)),
     warn: (m, d) => log.warn(m, d),
     info: (m, d) => log.info(m, d),
   });

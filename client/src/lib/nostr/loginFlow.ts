@@ -129,6 +129,8 @@ import { addressOf, movedTargetOf } from "../../features/music/sharedKey/members
 import { hydrateMediaPrefs, fetchMediaPrefs } from "../media/mediaPrefs";
 import { ensureMediaGrant, clearMediaGrant } from "../media/mediaGrant";
 import { musicTokenCache } from "../cache/tokenCache";
+import { abandonMediaSessions } from "../webrtc/mediaSession";
+import { endMediaSessionsForAccountChange } from "../../features/calling/accountChangeMedia";
 
 const startupLog = createLogger("startup");
 const idLog = createLogger("identity");
@@ -1534,7 +1536,13 @@ export async function switchAccount(targetPubkey: string): Promise<void> {
   store.dispatch(setSwitchingAccount(true));
 
   try {
-    // 0. Publish pending music library/folder edits while this account's
+    // 0. End any call / voice channel while this account's signer is still
+    //    the active one (hang up, clear presence; bounded). A call cannot
+    //    move to another account — left running, it kept publishing as the
+    //    old account with no UI to leave it.
+    await endMediaSessionsForAccountChange();
+
+    // 0b. Publish pending music library/folder edits while this account's
     //    signer is still the active one (bounded; cleanup can't do it).
     await drainMusicLibrarySync();
 
@@ -1575,12 +1583,78 @@ export async function switchAccount(targetPubkey: string): Promise<void> {
   }
 }
 
+// ─── Adding an account (Add Account modal, Settings › Security › Import) ───
+//
+// Each of these makes ANOTHER key the active signer, so the current
+// account's call is ended first, while its own signer can still sign the
+// hang-up. (`TauriSigner.importKey` / `generateKey` switch the Rust-side
+// active key immediately.)
+
+export type AddAccountResult = { status: "already_active" } | { status: "added"; pubkey: string };
+
+/**
+ * Import an nsec / hex secret and make it the active account. Re-importing
+ * the account that is already active changes nothing: no re-login, and an
+ * ongoing call keeps running. Before this, it reset the app under a live call:
+ * the meeting kept going but the UI said "join".
+ */
+export async function addAccountFromSecret(nsecOrHex: string): Promise<AddAccountResult> {
+  // Validates the input and names the target without touching the keystore.
+  const pubkey = await TauriSigner.pubkeyForSecret(nsecOrHex);
+  if (pubkey === store.getState().identity.pubkey) return { status: "already_active" };
+
+  await changeToNewAccount(async () => {
+    await TauriSigner.importKey(nsecOrHex);
+    performCleanup();
+    store.dispatch(resetAll());
+    await performLogin("tauri", pubkey);
+  });
+  return { status: "added", pubkey };
+}
+
+/** Generate a brand-new key and make it the active account. */
+export async function addGeneratedAccount(): Promise<void> {
+  await changeToNewAccount(async () => {
+    const pubkey = await TauriSigner.generateKey();
+    performCleanup();
+    store.dispatch(resetAll());
+    await performLogin("tauri", pubkey);
+  });
+}
+
+/** Connect a NIP-46 bunker and make it the active account. */
+export async function addBunkerAccount(bunkerUri: string, clientSecretHex: string): Promise<void> {
+  await changeToNewAccount(async () => {
+    performCleanup();
+    store.dispatch(resetAll());
+    await performLogin("nip46", undefined, { bunkerUri, clientSecretHex });
+  });
+}
+
+/** Shared frame: loading screen up, current account's call ended while its
+ *  signer is still active, then `login` (which swaps the signer). */
+async function changeToNewAccount(login: () => Promise<void>): Promise<void> {
+  store.dispatch(setSwitchingAccount(true));
+  try {
+    await endMediaSessionsForAccountChange();
+    await login();
+  } finally {
+    store.dispatch(setSwitchingAccount(false));
+  }
+}
+
 /** Remove a specific account. If it's the last one, full logout. */
 export async function removeAccount(pubkeyToRemove: string): Promise<void> {
   const session = await getUserState<MultiAccountSession>("session");
   if (!session) return;
 
   const remaining = session.accounts.filter((a) => a.pubkey !== pubkeyToRemove);
+
+  // Removing the active account: end its call before its key is deleted
+  // below; afterwards nothing could sign the hang-up.
+  if (store.getState().identity.pubkey === pubkeyToRemove) {
+    await endMediaSessionsForAccountChange();
+  }
 
   // Clear the removed account's IndexedDB data
   await clearAccountState(pubkeyToRemove);
@@ -1624,6 +1698,11 @@ export async function removeAccount(pubkeyToRemove: string): Promise<void> {
 /** Internal cleanup: everything performLogout does except clearing session.
  *  Does NOT reset Redux or set activePubkey — caller controls ordering. */
 export function performCleanup(): void {
+  // 0. Backstop: no call or voice room outlives its account. Callers end
+  //    them gracefully first (endMediaSessionsForAccountChange); this hard
+  //    stop covers any path that didn't. Signs nothing.
+  void abandonMediaSessions();
+
   // 1. FLUSH pending saves while activePubkey still points to the old account.
   //    This persists read state, DM state, etc. so they survive the switch.
   flushDMSave();
@@ -1678,7 +1757,10 @@ export function performCleanup(): void {
 
 /** Full logout: stop listeners, close subscriptions, clear caches, reset store */
 export async function performLogout(): Promise<void> {
-  // 0. Publish pending music library/folder edits while the signer is still
+  // 0. End any call / voice channel while the signer is still active.
+  await endMediaSessionsForAccountChange();
+
+  // 0b. Publish pending music library/folder edits while the signer is still
   //    active (bounded): the local rows are wiped below, so anything still
   //    unsent would otherwise be lost for good.
   await drainMusicLibrarySync();
@@ -1729,7 +1811,8 @@ export async function performLogout(): Promise<void> {
   musicTokenCache.clear();
   setActivePubkey(null);
 
-  // 5. Disconnect relays
+  // 5. Disconnect relays (and hard-stop any room the graceful step missed)
+  void abandonMediaSessions();
   relayManager.disconnectAll();
 
   // 6. Clear keystore active pubkey (so next login generates fresh)
