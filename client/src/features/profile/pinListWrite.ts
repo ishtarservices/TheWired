@@ -1,6 +1,6 @@
 import { store } from "@/store";
 import { setPinnedNotes } from "@/store/slices/identitySlice";
-import { relayManager } from "@/lib/nostr/relayManager";
+import { relayManager, INDEXER_URL_SET } from "@/lib/nostr/relayManager";
 import { APP_RELAY } from "@/lib/nostr/constants";
 import { normalizeRelayUrl } from "@/lib/nostr/relayUrl";
 import { signWithAccount } from "@/lib/nostr/publish";
@@ -39,43 +39,67 @@ import {
  */
 
 const FETCH_TIMEOUT_MS = 6_000;
+/** How often the read re-checks whether a relay it waits for has failed. */
+const LIVENESS_POLL_MS = 250;
 
-/** Where the list lives: the app relay, the user's NIP-65 write relays
- *  (connected yet or not — the subscription dials them), and any other
- *  connected write relay. */
-function pinRelays(): string[] {
-  const own = store
-    .getState()
-    .identity.relayList.filter((r) => r.mode === "write" || r.mode === "read+write")
-    .map((r) => r.url);
-  const urls = [APP_RELAY, ...own, ...relayManager.getWriteRelays().map((c) => c.url)];
-  return [...new Set(urls.map((u) => normalizeRelayUrl(u) ?? u))];
+const norm = (u: string) => normalizeRelayUrl(u) ?? u;
+
+/** Where the list lives. `required`: the app relay and the user's NIP-65
+ *  write relays — the read waits for each of them (unless its connection
+ *  failed). `asked` adds any other connected write relay (a space host,
+ *  say), whose answer counts but is not waited for. Relays the user turned
+ *  off are never dialed, and indexer-only relays are left out: they never
+ *  serve a kind:10001, so waiting for them would stall every tap. */
+function pinRelays(): { asked: string[]; required: string[] } {
+  const state = store.getState();
+  const disabled = new Set(state.relays.disabledRelays.map(norm));
+  const usable = (u: string) => !disabled.has(u) && !INDEXER_URL_SET.has(u);
+  const own = state.identity.relayList
+    .filter((r) => r.mode === "write" || r.mode === "read+write")
+    .map((r) => norm(r.url));
+  const required = [...new Set([norm(APP_RELAY), ...own])].filter(usable);
+  const others = relayManager.getWriteRelays().map((c) => norm(c.url)).filter(usable);
+  return { asked: [...new Set([...required, ...others])], required };
 }
 
 /** One-shot read of `pubkey`'s newest trusted kind:10001. `answered` lists
  *  the relays that sent EOSE — without any, "no list" means "unknown", not
- *  "empty". Settles when every relay asked has answered, or at the timeout. */
+ *  "empty". Settles once every required relay has answered or its
+ *  connection failed, or at the timeout. */
 export function fetchLatestPinList(
   pubkey: string,
-  relayUrls: string[] = pinRelays(),
+  relays: { asked: string[]; required: string[] } = pinRelays(),
 ): Promise<{ event: NostrEvent | null; answered: string[] }> {
   return new Promise((resolve) => {
     let best: NostrEvent | null = null;
     const answered = new Set<string>();
-    const asked = new Set(relayUrls.map((u) => normalizeRelayUrl(u) ?? u));
+    const required = relays.required.map(norm);
     let done = false;
     let subId: string | null = null;
     const timer = setTimeout(() => finish(), FETCH_TIMEOUT_MS);
+    const poll = setInterval(() => check(), LIVENESS_POLL_MS);
     function finish() {
       if (done) return;
       done = true;
       clearTimeout(timer);
+      clearInterval(poll);
       if (subId) relayManager.closeSubscription(subId);
       resolve({ event: best, answered: [...answered] });
     }
+    // A required relay is settled once it answered, or once its socket is in
+    // error or closed — a dead or unreachable relay will not answer in time.
+    function check() {
+      const conns = relayManager.getAllConnections();
+      const settled = (u: string) => {
+        if (answered.has(u)) return true;
+        const status = conns.get(u)?.getStatus();
+        return status === "error" || status === "disconnected";
+      };
+      if (answered.size > 0 && required.every(settled)) finish();
+    }
     subId = relayManager.subscribe({
       filters: [{ kinds: [PIN_LIST_KIND], authors: [pubkey], limit: 1 }],
-      relayUrls,
+      relayUrls: relays.asked,
       onEvent: (event: NostrEvent) => {
         if (!isTrustedPinList(event, pubkey)) return;
         if (!best || isNewerEvent(event, best)) best = event;
@@ -83,8 +107,8 @@ export function fetchLatestPinList(
       onEOSE: (_subId: string, relayUrl: string) => {
         // Distinct relays: a reconnect re-sends the REQ, and its second EOSE
         // must not count as another relay answering.
-        answered.add(normalizeRelayUrl(relayUrl) ?? relayUrl);
-        if ([...asked].every((u) => answered.has(u))) finish();
+        answered.add(norm(relayUrl));
+        check();
       },
     });
     // A relay that answered synchronously finished before the id existed.

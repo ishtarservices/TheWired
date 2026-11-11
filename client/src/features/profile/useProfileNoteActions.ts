@@ -73,14 +73,15 @@ export function useProfileNoteActions(event: NostrEvent) {
   // the account changed meanwhile (the ids on screen are another account's).
   const togglePin = useCallback(async (eventId: string) => {
     if (!pubkey) return;
-    const isPinned = pinnedNoteIds.includes(eventId);
+    const at = pinnedNoteIds.indexOf(eventId);
+    const isPinned = at >= 0;
     dispatch(applyPinnedNoteOp({ id: eventId, pin: !isPinned }));
     try {
       await updatePinnedNotes(pubkey, { id: eventId, pin: !isPinned });
     } catch (err) {
       console.warn("[pins] not updated:", err instanceof Error ? err.message : err);
       if (store.getState().identity.pubkey === pubkey) {
-        dispatch(applyPinnedNoteOp({ id: eventId, pin: isPinned }));
+        dispatch(applyPinnedNoteOp({ id: eventId, pin: isPinned, at: isPinned ? at : undefined }));
       }
     }
   }, [pubkey, pinnedNoteIds, dispatch]);

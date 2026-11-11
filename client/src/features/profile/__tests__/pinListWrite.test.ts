@@ -22,6 +22,10 @@ const h = vi.hoisted(() => ({
   relayCfg: {} as Record<string, { delayMs?: number; answer?: boolean; events?: Ev[]; eoses?: number }>,
   /** Targets of each publish. */
   publishTargets: [] as (string[] | undefined)[],
+  /** Relays each read asked. */
+  asked: [] as string[][],
+  /** Connection status per relay (default connected). */
+  status: {} as Record<string, string>,
 }));
 
 vi.mock("@/store", async () => {
@@ -30,7 +34,12 @@ vi.mock("@/store", async () => {
 });
 vi.mock("@/lib/nostr/constants", () => ({ APP_RELAY: "wss://app.test" }));
 vi.mock("@/lib/nostr/relayManager", () => ({
+  INDEXER_URL_SET: new Set(["wss://purplepag.es"]),
   relayManager: {
+    getAllConnections: () =>
+      new Map(
+        Object.entries(h.status).map(([url, st]) => [url, { getStatus: () => st }]),
+      ),
     subscribe: (opts: {
       filters: Array<{ kinds?: number[]; authors?: string[] }>;
       relayUrls: string[];
@@ -39,6 +48,7 @@ vi.mock("@/lib/nostr/relayManager", () => ({
     }) => {
       const id = `sub-${Math.random()}`;
       const f = opts.filters[0];
+      h.asked.push([...opts.relayUrls]);
       for (const url of opts.relayUrls) {
         const cfg = h.relayCfg[url] ?? {};
         const deliver = () => {
@@ -71,10 +81,15 @@ vi.mock("@/lib/nostr/publish", () => ({
 vi.mock("@/lib/db/userStateStore", () => ({ saveUserState: vi.fn(async () => {}) }));
 
 import { store } from "@/store";
-import { applyPinnedNoteOp, login, logout, setPinnedNotes } from "@/store/slices/identitySlice";
+import { applyPinnedNoteOp, login, logout, setPinnedNotes, setRelayList } from "@/store/slices/identitySlice";
+import { setDisabledRelays } from "@/store/slices/relaysSlice";
 import { __resetPinListWriteForTest, notePinListSeen, updatePinnedNotes } from "../pinListWrite";
 
 const id = (c: string) => c.repeat(64);
+
+function ownWriteRelays(...urls: string[]) {
+  store.dispatch(setRelayList({ entries: urls.map((url) => ({ url, mode: "read+write" as const })), createdAt: 1 }));
+}
 
 function pinList(tags: string[][], created_at = 500, content = ""): Ev {
   return finalizeEvent({ kind: 10001, created_at, tags, content }, h.sk) as Ev;
@@ -89,6 +104,9 @@ beforeEach(() => {
   h.accept = true;
   h.relayCfg = {};
   h.publishTargets = [];
+  h.asked = [];
+  h.status = {};
+  store.dispatch(setDisabledRelays([]));
   __resetPinListWriteForTest();
   store.dispatch(logout());
   store.dispatch(login({ pubkey: h.pk, signerType: "nip07" }));
@@ -186,8 +204,9 @@ describe("updatePinnedNotes", () => {
     expect(h.published).toHaveLength(0);
   });
 
-  it("waits for a slow relay instead of settling on the first empty answer", async () => {
+  it("waits for a slow NIP-65 write relay instead of settling on the first empty answer", async () => {
     vi.useFakeTimers();
+    ownWriteRelays("wss://other.test");
     // The app relay answers at once with nothing; the other relay holds the
     // list (another client's pins) and answers 2 s later.
     h.relayCfg["wss://other.test"] = { delayMs: 2_000, events: [pinList([["e", id("7")]], 900)] };
@@ -200,6 +219,7 @@ describe("updatePinnedNotes", () => {
 
   it("a relay's repeated EOSE does not count as every relay answering", async () => {
     vi.useFakeTimers();
+    ownWriteRelays("wss://other.test");
     h.relayCfg["wss://app.test"] = { events: [], eoses: 2 };
     h.relayCfg["wss://other.test"] = { delayMs: 1_500, events: [pinList([["e", id("7")]], 900)] };
     const run = updatePinnedNotes(h.pk, { id: id("1"), pin: true });
@@ -210,6 +230,7 @@ describe("updatePinnedNotes", () => {
 
   it("publishes only to the relays that answered the read", async () => {
     vi.useFakeTimers();
+    ownWriteRelays("wss://other.test");
     h.relayCfg["wss://other.test"] = { answer: false };
     const run = updatePinnedNotes(h.pk, { id: id("1"), pin: true });
     await vi.advanceTimersByTimeAsync(7_000);
@@ -256,6 +277,52 @@ describe("updatePinnedNotes", () => {
   });
 });
 
+describe("which relays the read waits for", () => {
+  it("never dials a relay the user turned off", async () => {
+    ownWriteRelays("wss://off.test", "wss://on.test");
+    store.dispatch(setDisabledRelays(["wss://off.test"]));
+    await updatePinnedNotes(h.pk, { id: id("1"), pin: true });
+    expect(h.asked[0]).not.toContain("wss://off.test");
+    expect(h.asked[0]).toContain("wss://on.test");
+    expect(h.publishTargets[0]).not.toContain("wss://off.test");
+  });
+
+  it("leaves indexer-only relays out instead of waiting for them", async () => {
+    vi.useFakeTimers();
+    ownWriteRelays("wss://purplepag.es");
+    const run = updatePinnedNotes(h.pk, { id: id("1"), pin: true });
+    await vi.advanceTimersByTimeAsync(300);
+    await run;
+    expect(h.asked[0]).not.toContain("wss://purplepag.es");
+    expect(h.published).toHaveLength(1);
+  });
+
+  it("stops waiting for a required relay whose connection failed", async () => {
+    vi.useFakeTimers();
+    ownWriteRelays("wss://dead.test");
+    h.relayCfg["wss://dead.test"] = { answer: false };
+    h.status["wss://dead.test"] = "error";
+    let settled = false;
+    const run = updatePinnedNotes(h.pk, { id: id("1"), pin: true }).then(() => { settled = true; });
+    await vi.advanceTimersByTimeAsync(600);
+    expect(settled).toBe(true);
+    await run;
+    expect(h.publishTargets[0]).toEqual(["wss://app.test"]);
+  });
+
+  it("does not wait for a connected relay outside the user's list", async () => {
+    vi.useFakeTimers();
+    // wss://other.test is only a connected write relay (getWriteRelays), not in NIP-65.
+    h.relayCfg["wss://other.test"] = { answer: false };
+    let settled = false;
+    const run = updatePinnedNotes(h.pk, { id: id("1"), pin: true }).then(() => { settled = true; });
+    await vi.advanceTimersByTimeAsync(100);
+    expect(settled).toBe(true);
+    await run;
+    expect(h.asked[0]).toContain("wss://other.test");
+  });
+});
+
 describe("optimistic pin state", () => {
   it("an optimistic flip keeps the list's created_at, so the real list still lands", () => {
     store.dispatch(setPinnedNotes({ noteIds: [], createdAt: 900 }));
@@ -267,11 +334,17 @@ describe("optimistic pin state", () => {
     expect(store.getState().identity.pinnedNoteIds).toEqual([id("7"), id("1")]);
   });
 
-  it("the inverse op undoes a flip", () => {
-    store.dispatch(setPinnedNotes({ noteIds: [id("1"), id("2")], createdAt: 900 }));
+  it("a rolled-back unpin puts the pin back in its place", () => {
+    store.dispatch(setPinnedNotes({ noteIds: [id("1"), id("2"), id("3")], createdAt: 900 }));
     store.dispatch(applyPinnedNoteOp({ id: id("1"), pin: false }));
-    expect(store.getState().identity.pinnedNoteIds).toEqual([id("2")]);
-    store.dispatch(applyPinnedNoteOp({ id: id("1"), pin: true }));
-    expect(store.getState().identity.pinnedNoteIds).toEqual([id("2"), id("1")]);
+    expect(store.getState().identity.pinnedNoteIds).toEqual([id("2"), id("3")]);
+    store.dispatch(applyPinnedNoteOp({ id: id("1"), pin: true, at: 0 }));
+    expect(store.getState().identity.pinnedNoteIds).toEqual([id("1"), id("2"), id("3")]);
+  });
+
+  it("a new pin goes to the end (newest)", () => {
+    store.dispatch(setPinnedNotes({ noteIds: [id("1")], createdAt: 900 }));
+    store.dispatch(applyPinnedNoteOp({ id: id("2"), pin: true }));
+    expect(store.getState().identity.pinnedNoteIds).toEqual([id("1"), id("2")]);
   });
 });
