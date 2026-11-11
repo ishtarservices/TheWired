@@ -10,10 +10,25 @@ import { relayManager } from "@/lib/nostr/relayManager";
 import { getDMRelaysForPublish, fallbackDMRelays } from "@/lib/nostr/dmRelayList";
 import { store } from "@/store";
 
-/** Publish `envelope` to `to`. Resolves once handed to the relay layer. */
-export async function sendMediaKey(to: string, envelope: DMMediaKeyEnvelope): Promise<void> {
+/**
+ * Publish `envelope` to `to`. Resolves once handed to the relay layer.
+ *
+ * `from` is the account whose LiveKit identity the key belongs to (the
+ * session's). The seal is signed by whichever signer is active, so if the
+ * account changed under a still-running session, sending would seal THIS
+ * room's key with ANOTHER account's key. That publicly links the two accounts,
+ * and receivers drop it anyway (sender ≠ identity). Refuse instead.
+ */
+export async function sendMediaKey(
+  to: string,
+  envelope: DMMediaKeyEnvelope,
+  from?: string,
+): Promise<void> {
   const myPubkey = store.getState().identity.pubkey;
   if (!myPubkey) throw new Error("Not logged in");
+  if (from && from !== myPubkey) {
+    throw new Error("Account changed: not sealing a media key for another account's session");
+  }
   const nowSec = Math.floor(Date.now() / 1000);
   const content = JSON.stringify(envelope);
   const rumor = await buildRumor(myPubkey, to, content, mediaKeyRumorTags(), {

@@ -3,12 +3,15 @@ import { Download, Plus, X, Radio } from "lucide-react";
 import { Modal } from "../../components/ui/Modal";
 import { Button } from "../../components/ui/Button";
 import { Spinner } from "../../components/ui/Spinner";
-import { TauriSigner } from "../../lib/nostr/tauriSigner";
-import { performLogin, performCleanup } from "../../lib/nostr/loginFlow";
-import { resetAll } from "../../store";
-import { setSwitchingAccount } from "../../store/slices/identitySlice";
+import {
+  addAccountFromSecret,
+  addBunkerAccount,
+  addGeneratedAccount,
+} from "../../lib/nostr/loginFlow";
 import { setLoginMethod } from "../onboarding/onboardingSlice";
-import { useAppDispatch } from "../../store/hooks";
+import { useAppDispatch, useAppSelector } from "../../store/hooks";
+import { selectActiveMediaSession } from "../calling/accountChangeMedia";
+import { CallDropNotice } from "../calling/EndCallConfirmDialog";
 
 interface AddAccountModalProps {
   open: boolean;
@@ -17,6 +20,7 @@ interface AddAccountModalProps {
 
 export function AddAccountModal({ open, onClose }: AddAccountModalProps) {
   const dispatch = useAppDispatch();
+  const mediaSession = useAppSelector(selectActiveMediaSession);
   const [nsecInput, setNsecInput] = useState("");
   const [bunkerInput, setBunkerInput] = useState("");
   const [loading, setLoading] = useState(false);
@@ -27,21 +31,20 @@ export function AddAccountModal({ open, onClose }: AddAccountModalProps) {
     if (!trimmed) return;
     setLoading(true);
     setError(null);
-    dispatch(setSwitchingAccount(true));
     try {
+      // Ends the current account's call (if any) before the key swap.
+      const result = await addAccountFromSecret(trimmed);
+      if (result.status === "already_active") {
+        setError("You're already signed in with this key.");
+        return;
+      }
       dispatch(setLoginMethod("import"));
-      const pubkey = await TauriSigner.importKey(trimmed);
-      // Clean up current account state before logging in as new account
-      performCleanup();
-      dispatch(resetAll());
-      await performLogin("tauri", pubkey);
       setNsecInput("");
       onClose();
     } catch (e) {
       setError(e instanceof Error ? e.message : "Import failed");
     } finally {
       setLoading(false);
-      dispatch(setSwitchingAccount(false));
     }
   };
 
@@ -50,43 +53,33 @@ export function AddAccountModal({ open, onClose }: AddAccountModalProps) {
     if (!trimmed) return;
     setLoading(true);
     setError(null);
-    dispatch(setSwitchingAccount(true));
     try {
       dispatch(setLoginMethod("nip46"));
       const { generateSecretKey } = await import("nostr-tools/pure");
       const { bytesToHex } = await import("@noble/hashes/utils");
       const clientSecretHex = bytesToHex(generateSecretKey());
-      performCleanup();
-      dispatch(resetAll());
-      await performLogin("nip46", undefined, { bunkerUri: trimmed, clientSecretHex });
+      await addBunkerAccount(trimmed, clientSecretHex);
       setBunkerInput("");
       onClose();
     } catch (e) {
       setError(e instanceof Error ? e.message : "Bunker connection failed");
     } finally {
       setLoading(false);
-      dispatch(setSwitchingAccount(false));
     }
   };
 
   const handleGenerate = async () => {
     setLoading(true);
     setError(null);
-    dispatch(setSwitchingAccount(true));
     try {
       dispatch(setLoginMethod("generate"));
       // Explicitly generate a new key (don't reuse existing active key)
-      const pubkey = await TauriSigner.generateKey();
-      // Clean up current account state before logging in as new account
-      performCleanup();
-      dispatch(resetAll());
-      await performLogin("tauri", pubkey);
+      await addGeneratedAccount();
       onClose();
     } catch (e) {
       setError(e instanceof Error ? e.message : "Key generation failed");
     } finally {
       setLoading(false);
-      dispatch(setSwitchingAccount(false));
     }
   };
 
@@ -106,6 +99,8 @@ export function AddAccountModal({ open, onClose }: AddAccountModalProps) {
         <p className="text-xs text-muted mb-4">
           Import an existing key or generate a new identity.
         </p>
+
+        {mediaSession && <CallDropNotice session={mediaSession} intent="add" className="mb-3" />}
 
         {error && (
           <div className="mb-3 rounded-lg bg-red-500/10 px-3 py-2 text-xs text-red-400">

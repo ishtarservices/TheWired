@@ -24,10 +24,13 @@ const h = vi.hoisted(() => {
     lastOptions: Record<string, unknown> | null;
     /** Participants the next Room "finds" already inside on connect(). */
     seedOnConnect: Map<string, unknown>;
+    /** Runs inside connect() — e.g. an account change mid-connect. */
+    duringConnect: (() => void) | null;
   } = {
     lastRoom: null,
     lastOptions: null,
     seedOnConnect: new Map(),
+    duringConnect: null,
   };
   /** Ordered trace of E2EE-relevant calls on the fake room. */
   const trace: string[] = [];
@@ -36,11 +39,15 @@ const h = vi.hoisted(() => {
     localParticipant = { identity: ME, setMicrophoneEnabled: async () => {} };
     remoteParticipants = new Map<string, unknown>();
     canPlaybackAudio = true;
+    disconnectCalls = 0;
     connect = async () => {
       for (const [k, v] of state.seedOnConnect) this.remoteParticipants.set(k, v);
       trace.push("connect");
+      state.duringConnect?.();
     };
-    disconnect = async () => {};
+    disconnect = async () => {
+      this.disconnectCalls++;
+    };
     setE2EEEnabled = async (enabled: boolean) => {
       trace.push(`setE2EEEnabled:${enabled}`);
     };
@@ -142,7 +149,19 @@ vi.stubGlobal("crypto", {
   randomUUID: () => realCrypto.randomUUID(),
   subtle: { importKey: async (_f: string, _b: ArrayBuffer, algo: unknown) => ({ algo }) },
 });
-import { connectToRoom, addRoomListener, getE2EESession, disconnectFromRoom } from "../livekitClient";
+import {
+  connectToRoom,
+  addRoomListener,
+  getE2EESession,
+  disconnectFromRoom,
+  getLivekitRoom,
+} from "../livekitClient";
+import {
+  abandonMediaSessions,
+  invalidateMediaJoins,
+  mediaEpoch,
+  MediaSessionAbortedError,
+} from "../mediaSession";
 import { store, resetAll } from "@/store";
 import { login } from "@/store/slices/identitySlice";
 import { addParticipant } from "@/store/slices/voiceSlice";
@@ -186,6 +205,7 @@ beforeEach(async () => {
   h.setKeys.length = 0;
   h.supported = true;
   h.state.seedOnConnect = new Map();
+  h.state.duringConnect = null;
   vi.mocked(sendMediaKey).mockClear();
   vi.mocked(handleIncomingMessage).mockClear();
   vi.mocked(broadcastSessionToLateJoiner).mockClear();
@@ -440,3 +460,91 @@ describe("media prefs → room options", () => {
     expect((opts.audioCaptureDefaults as Record<string, unknown>).deviceId).toBeUndefined();
   });
 });
+
+/**
+ * Account changes (docs: features/calling/accountChangeMedia.ts). The room
+ * singleton outlived the account that joined it: switch accounts mid-call and
+ * the old identity stayed on camera, its late events wiping whatever came
+ * next.
+ */
+describe("room lifetime across account changes", () => {
+  it("a superseded room disconnecting late does not tear down the room that replaced it", async () => {
+    const first = room();
+    await connectToRoom("wss://x", "token");
+    const second = room();
+    expect(second).not.toBe(first);
+    seedRemote();
+    const onDisconnected = vi.fn();
+    const off = addRoomListener({ onDisconnected });
+
+    first.emit("disconnected", 3 /* SERVER_SHUTDOWN */);
+
+    expect(getLivekitRoom()).toBe(second);
+    expect(store.getState().voice.participants[REMOTE]).toBeDefined();
+    expect(onDisconnected).not.toHaveBeenCalled();
+    off();
+  });
+
+  it("the current room's own Disconnected still resets voice state and notifies listeners", async () => {
+    seedRemote();
+    const onDisconnected = vi.fn();
+    const off = addRoomListener({ onDisconnected });
+
+    room().emit("disconnected", 3);
+
+    expect(getLivekitRoom()).toBeNull();
+    expect(store.getState().voice.participants).toEqual({});
+    expect(onDisconnected).toHaveBeenCalledWith(3, false);
+    off();
+  });
+
+  it("a token from before an account change never builds a room", async () => {
+    const epoch = mediaEpoch();
+    invalidateMediaJoins();
+    h.state.lastRoom = null;
+
+    await expect(connectToRoom("wss://x", "token", { epoch })).rejects.toBeInstanceOf(
+      MediaSessionAbortedError,
+    );
+    expect(h.state.lastRoom).toBeNull();
+  });
+
+  it("an account change during connect: the room is left, the E2EE session disposed, and the next account's state untouched", async () => {
+    h.state.lastRoom = null;
+    h.state.seedOnConnect = new Map([
+      [REMOTE, { identity: REMOTE, isMicrophoneEnabled: true, trackPublications: new Map() }],
+    ]);
+    h.state.duringConnect = () => invalidateMediaJoins();
+
+    await expect(
+      connectToRoom("wss://x", "token", { e2ee: { kind: "channel", roomName: "s:c" } }),
+    ).rejects.toBeInstanceOf(MediaSessionAbortedError);
+
+    const abandoned = room();
+    expect(abandoned.disconnectCalls).toBe(1);
+    expect(getLivekitRoom()).toBeNull();
+    expect(getE2EESession()).toBeNull();
+    // Key fan-out never started: nothing sealed for the abandoned room.
+    expect(sendMediaKey).not.toHaveBeenCalled();
+    expect(store.getState().voice.participants).toEqual({});
+
+    // Its late Disconnected is a superseded room's: no reset of new state.
+    seedRemote();
+    abandoned.emit("disconnected", 1);
+    expect(store.getState().voice.participants[REMOTE]).toBeDefined();
+  });
+
+  it("abandonMediaSessions hard-stops the live room", async () => {
+    const live = room();
+    await connectToRoom("wss://x", "token", { e2ee: CALL_CTX });
+    const call = room();
+    expect(call).not.toBe(live);
+
+    await abandonMediaSessions();
+
+    expect(call.disconnectCalls).toBe(1);
+    expect(getLivekitRoom()).toBeNull();
+    expect(getE2EESession()).toBeNull();
+  });
+});
+

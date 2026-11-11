@@ -73,27 +73,23 @@ export class TauriSigner implements NostrSigner {
    * Returns the resulting hex pubkey.
    */
   static async importKey(nsecOrHex: string): Promise<string> {
-    let secretHex: string;
-
-    if (nsecOrHex.startsWith("nsec1")) {
-      const { decode } = await import("nostr-tools/nip19");
-      const decoded = decode(nsecOrHex);
-      if (decoded.type !== "nsec") {
-        throw new Error("Invalid nsec string");
-      }
-      // decoded.data is Uint8Array for nsec
-      secretHex = Array.from(decoded.data as Uint8Array)
-        .map((b) => b.toString(16).padStart(2, "0"))
-        .join("");
-    } else {
-      // Validate hex format: 64 hex chars = 32 bytes
-      if (!/^[0-9a-fA-F]{64}$/.test(nsecOrHex)) {
-        throw new Error("Invalid secret key: must be 64 hex characters or an nsec");
-      }
-      secretHex = nsecOrHex.toLowerCase();
-    }
-
+    const secretHex = await parseSecretKey(nsecOrHex);
     return invoke<string>("keystore_import_key", { secretHex });
+  }
+
+  /**
+   * The pubkey an nsec / hex secret belongs to, computed locally WITHOUT
+   * touching the keystore. `importKey` makes the imported key the active
+   * signer, so anything that must still be signed by the current account
+   * (ending a call) has to know the target first. Throws on invalid input.
+   */
+  static async pubkeyForSecret(nsecOrHex: string): Promise<string> {
+    const secretHex = await parseSecretKey(nsecOrHex);
+    const [{ getPublicKey }, { hexToBytes }] = await Promise.all([
+      import("nostr-tools/pure"),
+      import("@noble/hashes/utils"),
+    ]);
+    return getPublicKey(hexToBytes(secretHex));
   }
 
   /** Store an arbitrary secret (NIP-46 bunker connection, NWC URI) in the OS keychain. */
@@ -124,4 +120,24 @@ export class TauriSigner implements NostrSigner {
   static async markBackedUp(): Promise<KeyBackupStatus> {
     return invoke<KeyBackupStatus>("keystore_mark_backed_up");
   }
+}
+
+/** Validate an nsec (bech32) or 64-hex secret and return it as lowercase hex. */
+async function parseSecretKey(nsecOrHex: string): Promise<string> {
+  if (nsecOrHex.startsWith("nsec1")) {
+    const { decode } = await import("nostr-tools/nip19");
+    const decoded = decode(nsecOrHex);
+    if (decoded.type !== "nsec") {
+      throw new Error("Invalid nsec string");
+    }
+    // decoded.data is Uint8Array for nsec
+    return Array.from(decoded.data as Uint8Array)
+      .map((b) => b.toString(16).padStart(2, "0"))
+      .join("");
+  }
+  // Validate hex format: 64 hex chars = 32 bytes
+  if (!/^[0-9a-fA-F]{64}$/.test(nsecOrHex)) {
+    throw new Error("Invalid secret key: must be 64 hex characters or an nsec");
+  }
+  return nsecOrHex.toLowerCase();
 }

@@ -13,6 +13,7 @@ import {
   hangupCall,
 } from "./callService";
 import type { CallType } from "@/types/calling";
+import { isMediaSessionAborted } from "@/lib/webrtc/mediaSession";
 
 /**
  * Hook for managing 1:1 DM calls.
@@ -28,7 +29,8 @@ export function useCall() {
       try {
         await initiateCall(partnerPubkey, callType);
       } catch (err) {
-        console.error("[call] Failed to initiate:", err);
+        // An account change abandoned the call on purpose; nothing failed.
+        if (!isMediaSessionAborted(err)) console.error("[call] Failed to initiate:", err);
         throw err;
       }
     },
@@ -40,7 +42,7 @@ export function useCall() {
     try {
       await answerCall();
     } catch (err) {
-      console.error("[call] Failed to answer:", err);
+      if (!isMediaSessionAborted(err)) console.error("[call] Failed to answer:", err);
     }
   }, [dispatch]);
 
