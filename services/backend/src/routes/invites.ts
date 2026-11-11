@@ -13,6 +13,7 @@ import { onboardingService } from "../services/onboardingService.js";
 import { notifySpaceChanged } from "../services/spaceSignalService.js";
 import { moderationService } from "../services/moderationService.js";
 import { refreshMemberCount } from "../services/membershipService.js";
+import { config } from "../config.js";
 import { getActorRank, canManageRole, isSpaceCreator } from "../lib/authz.js";
 
 const createInviteBody = z.object({
@@ -142,9 +143,16 @@ export const invitesRoutes: FastifyPluginAsync = async (server) => {
       return reply.status(410).send({ error: "Invite has been fully used", code: "INVITE_EXHAUSTED" });
     }
 
+    // Enforce mode hides who minted the invite and what it grants; clients
+    // need only the code, the space and whether it still works.
+    const invite =
+      config.spaceReadGate === "enforce"
+        ? { code: inv.code, spaceId: inv.spaceId, expiresAt: inv.expiresAt, maxUses: inv.maxUses, useCount: inv.useCount }
+        : inv;
+
     return {
       data: {
-        ...inv,
+        ...invite,
         space: {
           name: row.spaceName ?? "Space",
           picture: row.spacePicture ?? null,

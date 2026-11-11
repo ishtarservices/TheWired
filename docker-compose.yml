@@ -121,6 +121,8 @@ services:
       # Media storage (docs/MEDIA_STORAGE.md): read gate for space-scoped blobs
       # (off | log | enforce), extra BUD-11 server names, upload guard.
       SPACE_MEDIA_GATE: ${SPACE_MEDIA_GATE:-log}
+      # Unlisted-space reads for non-members (off | log | enforce).
+      SPACE_READ_GATE: ${SPACE_READ_GATE:-log}
       BLOSSOM_SERVER_NAMES: ${BLOSSOM_SERVER_NAMES:-}
       UPLOAD_RATE_PER_MIN: ${UPLOAD_RATE_PER_MIN:-30}
       UPLOAD_DAILY_BYTES: ${UPLOAD_DAILY_BYTES:-2147483648}

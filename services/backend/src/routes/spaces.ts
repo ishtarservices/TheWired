@@ -10,6 +10,7 @@ import { channelService } from "../services/channelService.js";
 import { validate, nonEmptyString, limitParam, offsetParam } from "../lib/validation.js";
 import { requirePubkey, requireSpaceCreator, requireSpacePermission } from "../lib/authz.js";
 import { notifySpaceChanged } from "../services/spaceSignalService.js";
+import { spaceReadAccess } from "../lib/spaceReadGate.js";
 import { checkHostRelayUrl } from "../lib/relayUrlGuard.js";
 import { config } from "../config.js";
 
@@ -66,7 +67,8 @@ export const spacesRoutes: FastifyPluginAsync = async (server) => {
 
     const limit = query.limit as number;
     const offset = query.offset as number;
-    const results = await db.select().from(spaces).limit(limit).offset(offset);
+    // Unlisted spaces are invite-only; only Discover-listed ones are enumerable.
+    const results = await db.select().from(spaces).where(eq(spaces.listed, true)).limit(limit).offset(offset);
     return { data: results, meta: { limit, offset } };
   });
 
@@ -129,6 +131,19 @@ export const spacesRoutes: FastifyPluginAsync = async (server) => {
     const [space] = await db.select().from(spaces).where(eq(spaces.id, params.id)).limit(1);
     if (!space) {
       return reply.status(404).send({ error: "Space not found", code: "NOT_FOUND" });
+    }
+    if ((await spaceReadAccess(request, params.id, "space")) === "limited") {
+      // What an invite preview shows anyway; no creator, relay or listing data.
+      return {
+        data: {
+          id: space.id,
+          name: space.name,
+          picture: space.picture,
+          about: space.about,
+          memberCount: space.memberCount,
+          mode: space.mode,
+        },
+      };
     }
     const tags = await db.select().from(spaceTags).where(eq(spaceTags.spaceId, params.id));
     return { data: { ...space, tags: tags.map((t) => t.tag) } };
