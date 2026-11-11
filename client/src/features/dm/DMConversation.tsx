@@ -12,6 +12,7 @@ import { useFriends } from "./useFriends";
 import { expireTyping } from "@/store/slices/dmSlice";
 import { Users } from "lucide-react";
 import { usePlaybackBarSpacing } from "@/hooks/usePlaybackBarSpacing";
+import { useStickToBottom } from "@/hooks/useStickToBottom";
 import { useAppDispatch, useAppSelector } from "@/store/hooks";
 import { markConversationRead, clearDMUnreadDivider } from "@/store/slices/dmSlice";
 import type { DMMessage as DMMessageType } from "@/store/slices/dmSlice";
@@ -69,6 +70,7 @@ export function DMConversation({ partnerPubkey, onBack }: DMConversationProps) {
   const dividerRef = useRef<HTMLDivElement>(null);
   const hasScrolledToUnread = useRef(false);
   const isNearBottomRef = useRef(true);
+  const contentRef = useRef<HTMLDivElement>(null);
   const [showScrollButton, setShowScrollButton] = useState(false);
 
   // File upload — owned here so dropZoneRef covers the entire DM view.
@@ -191,6 +193,10 @@ export function DMConversation({ partnerPubkey, onBack }: DMConversationProps) {
     isNearBottomRef.current = nearBottom;
     setShowScrollButton(!nearBottom);
   }, []);
+
+  // Attachments decrypt and media loads after render: stay on the newest
+  // message while the reader is there.
+  useStickToBottom(scrollRef, contentRef, { active: messages.length > 0, nearBottomRef: isNearBottomRef });
 
   // Track whether initial scroll has happened for this conversation
   const hasInitialScrolled = useRef(false);
@@ -468,7 +474,8 @@ export function DMConversation({ partnerPubkey, onBack }: DMConversationProps) {
             </div>
           </div>
         ) : (
-          messageLayout.map(({ msg, isGrouped, showDateSeparator }, i) => (
+          <div ref={contentRef}>
+          {messageLayout.map(({ msg, isGrouped, showDateSeparator }, i) => (
             <div
               key={msg.wrapId}
               data-wrap-id={msg.wrapId}
@@ -503,7 +510,8 @@ export function DMConversation({ partnerPubkey, onBack }: DMConversationProps) {
                 onJumpToMessage={(targetWrapId) => scrollToMessage(targetWrapId, msg.wrapId)}
               />
             </div>
-          ))
+          ))}
+          </div>
         )}
       </div>
 

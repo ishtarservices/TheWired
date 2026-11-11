@@ -25,6 +25,8 @@ export interface ImetaInfo {
   mime?: string;
   fallbacks: string[];
   dim?: string;
+  /** `image` (or `thumb`) preview frame, http(s) only. */
+  poster?: string;
 }
 
 export type MediaKind = "image" | "video" | "audio" | "file";
@@ -68,10 +70,15 @@ export function imetaByUrl(tags: readonly string[][] | undefined): ImetaMap {
       else if (key === "m") info.mime = value.toLowerCase();
       else if (key === "fallback") info.fallbacks.push(value);
       else if (key === "dim") info.dim = value;
+      else if ((key === "image" || (key === "thumb" && !info.poster)) && isHttpUrl(value)) info.poster = value;
     }
     if (url && !out.has(urlKey(url))) out.set(urlKey(url), info);
   }
   return out;
+}
+
+function isHttpUrl(value: string): boolean {
+  return /^https?:\/\//i.test(value);
 }
 
 /** The media grant for this event's own-origin sha URL, or the URL unchanged.

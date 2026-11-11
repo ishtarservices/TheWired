@@ -4,6 +4,7 @@ import { planForContext } from "@/lib/media/uploadPlan";
 import { useAppSelector } from "@/store/hooks";
 import { encryptDMFile, uploadContextKey, type UploadContext, type UploadPlan } from "@ishtarservices/core";
 import type { DMFileMeta } from "@ishtarservices/shared-types";
+import { fileMediaDim } from "@/lib/media/mediaDims";
 
 /** Evaluated per call (not at module load) so tests can stand in a Tauri window. */
 function isTauriEnv(): boolean {
@@ -28,33 +29,23 @@ export interface UploadedAttachment {
   /** Set when uploaded encrypted (DMs): the kind-15 metadata to send.
    *  `result.url` then points at the opaque ciphertext blob. */
   dmFile?: DMFileMeta;
+  /** "WxH" of an image / video, read from the local file: sent as imeta `dim`. */
+  dim?: string;
   /** `uploadContextKey` of the context this was uploaded under. An attachment
    *  is only ever sent under that same context (docs/MEDIA_STORAGE.md §1). */
   contextKey: string;
 }
 
-/** `<w>x<h>` of an image file, or undefined for non-images / failures. */
-function imageDimensions(file: File, previewUrl: string): Promise<string | undefined> {
-  if (!file.type.startsWith("image/") || typeof Image === "undefined") return Promise.resolve(undefined);
-  return new Promise((resolve) => {
-    const img = new Image();
-    img.onload = () => resolve(img.naturalWidth && img.naturalHeight ? `${img.naturalWidth}x${img.naturalHeight}` : undefined);
-    img.onerror = () => resolve(undefined);
-    img.src = previewUrl;
-  });
-}
-
 /** Encrypt (AES-256-GCM, docs/DM_WIRE_CONTRACT.md §3.4) and upload as an opaque blob. */
 async function uploadEncrypted(
   file: File,
-  previewUrl: string,
+  dim: string | undefined,
   plan: UploadPlan,
 ): Promise<{ result: BlossomUploadResult; dmFile: DMFileMeta }> {
   const mime = file.type || "application/octet-stream";
   const plain = new Uint8Array(await file.arrayBuffer());
   const enc = encryptDMFile(plain);
   const result = await blossomUploadBytes(enc.ciphertext, "application/octet-stream", { plan, ext: "bin" });
-  const dim = await imageDimensions(file, previewUrl);
   const dmFile: DMFileMeta = {
     url: result.url,
     fileType: mime,
@@ -179,10 +170,15 @@ export function useFileUpload(opts: UseFileUploadOptions) {
         ),
       );
 
-      const upload = encrypt
-        ? uploadEncrypted(file, previewUrl, plan)
-        : blossomUpload(file, plan).then((result) => ({ result, dmFile: undefined as DMFileMeta | undefined }));
       const current = () => attemptRef.current.get(id) === attempt;
+      // Size of an image / video, read locally — never holds up a plain upload.
+      const dimRead = fileMediaDim(file, previewUrl);
+      void dimRead.then((dim) => {
+        if (dim && current()) setAttachments((prev) => prev.map((a) => (a.id === id ? { ...a, dim } : a)));
+      });
+      const upload = encrypt
+        ? dimRead.then((dim) => uploadEncrypted(file, dim, plan))
+        : blossomUpload(file, plan).then((result) => ({ result, dmFile: undefined as DMFileMeta | undefined }));
       upload
         .then(({ result, dmFile }) => {
           if (!current()) return;

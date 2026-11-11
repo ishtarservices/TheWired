@@ -1,31 +1,26 @@
 import { useCallback, useState } from "react";
-import {
-  aspectFromDimString,
-  orientationFromDimString,
-  orientationFromDims,
-  type Orientation,
-} from "./mediaLayout";
+import { orientationFromDims, type NaturalSize, type Orientation } from "./mediaLayout";
+import { parseDim, peekMediaDims, rememberMediaDims } from "@/lib/media/mediaDims";
 
 export interface MediaOrientationState {
   orientation: Orientation;
   /** width / height once known, else null */
   aspect: number | null;
+  /** Intrinsic pixel size once known, else null. */
+  natural: NaturalSize | null;
   /** Attach to `<img onLoad>` or `<video onLoadedMetadata>`. */
   onLoad: (e: React.SyntheticEvent<HTMLImageElement | HTMLVideoElement>) => void;
 }
 
 /**
- * Track media orientation. Seeds from an imeta `dim` ("WxH") when available so
- * the box is correctly shaped before the asset loads (no layout shift);
- * otherwise resolves on the element's load event from natural/intrinsic
- * dimensions.
+ * Track media orientation. Seeds from an imeta `dim` ("WxH"), else from the
+ * size this URL loaded at earlier in the session, so the box is correctly
+ * shaped before the asset loads (no layout shift); otherwise resolves on the
+ * element's load event from natural/intrinsic dimensions.
  */
-export function useMediaOrientation(initialDim?: string): MediaOrientationState {
-  const [orientation, setOrientation] = useState<Orientation>(() =>
-    orientationFromDimString(initialDim),
-  );
-  const [aspect, setAspect] = useState<number | null>(() =>
-    aspectFromDimString(initialDim),
+export function useMediaOrientation(initialDim?: string, url?: string): MediaOrientationState {
+  const [natural, setNatural] = useState<NaturalSize | null>(
+    () => parseDim(initialDim) ?? peekMediaDims(url) ?? null,
   );
 
   const onLoad = useCallback(
@@ -41,12 +36,17 @@ export function useMediaOrientation(initialDim?: string): MediaOrientationState 
         h = el.videoHeight;
       }
       if (w > 0 && h > 0) {
-        setAspect(w / h);
-        setOrientation(orientationFromDims(w, h));
+        rememberMediaDims(url, w, h);
+        setNatural((prev) => (prev && prev.w === w && prev.h === h ? prev : { w, h }));
       }
     },
-    [],
+    [url],
   );
 
-  return { orientation, aspect, onLoad };
+  return {
+    orientation: natural ? orientationFromDims(natural.w, natural.h) : "unknown",
+    aspect: natural ? natural.w / natural.h : null,
+    natural,
+    onLoad,
+  };
 }

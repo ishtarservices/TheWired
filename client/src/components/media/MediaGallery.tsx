@@ -48,20 +48,24 @@ export const MediaGallery = memo(function MediaGallery({
   const openLightbox = useCallback((i: number) => setLightboxIndex(i), []);
   const openFirst = useCallback(() => setLightboxIndex(0), []);
 
-  // Warm the decode cache for this post's images (idempotent).
+  // Warm the decode cache for this post's images (idempotent). Not in chat:
+  // a long channel history would fetch every image at once instead of the
+  // ones scrolled into view (`loading="lazy"`).
+  const chat = density === "chat";
   useEffect(() => {
+    if (chat) return;
     const urls = media.filter((m) => m.type === "image").map((m) => m.url);
     if (urls.length > 0) imageCache.preloadMany(urls);
-  }, [media]);
+  }, [media, chat]);
 
   if (media.length === 0) return null;
 
   return (
-    <div className="mt-2 flex flex-col gap-2">
+    <div className={chat ? "mt-1.5 flex flex-col items-start gap-1.5" : "mt-2 flex flex-col gap-2"}>
       {images.length === 1 && (
         <SmartImage
           url={images[0].url}
-          dim={imeta?.[images[0].url]?.dim}
+          dim={imeta?.[images[0].url]?.dim ?? images[0].dim}
           density={density}
           onOpen={openFirst}
           fallbacks={images[0].fallbacks}
@@ -74,12 +78,13 @@ export const MediaGallery = memo(function MediaGallery({
         <MediaGrid
           images={images.map((m) => ({
             url: m.url,
-            dim: imeta?.[m.url]?.dim,
+            dim: imeta?.[m.url]?.dim ?? m.dim,
             fallbacks: m.fallbacks,
             author: m.author,
             gated: m.gated,
           }))}
           onOpen={openLightbox}
+          size={chat ? "chat" : "feed"}
         />
       )}
 
@@ -87,8 +92,8 @@ export const MediaGallery = memo(function MediaGallery({
         <SmartVideo
           key={m.url}
           url={m.url}
-          poster={imeta?.[m.url]?.poster}
-          dim={imeta?.[m.url]?.dim}
+          poster={imeta?.[m.url]?.poster ?? m.poster}
+          dim={imeta?.[m.url]?.dim ?? m.dim}
           density={density}
           fallbacks={m.fallbacks}
           author={m.author}
@@ -97,7 +102,7 @@ export const MediaGallery = memo(function MediaGallery({
       ))}
 
       {audios.map((m) => (
-        <audio key={m.url} src={m.url} controls className="w-full" />
+        <audio key={m.url} src={m.url} controls preload="metadata" className={chat ? "w-full max-w-[26rem]" : "w-full"} />
       ))}
 
       {lightboxIndex != null && imageUrls.length > 0 && (

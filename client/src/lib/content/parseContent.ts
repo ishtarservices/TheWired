@@ -25,18 +25,27 @@ export interface MediaSource {
   gated?: boolean;
 }
 
+/** Layout hints from the event's imeta: reserve the box before the media
+ *  loads, and paint a video's preview frame. */
+export interface MediaHints {
+  /** imeta `dim` ("WxH"). */
+  dim?: string;
+  /** imeta `image` / `thumb` (videos). */
+  poster?: string;
+}
+
 export type ContentSegment =
   | { type: "text"; text: string }
   | { type: "mention"; pubkey: string; relays?: string[] }
   | { type: "event-ref"; id: string; relays?: string[]; author?: string; kind?: number }
   | { type: "addr-ref"; identifier: string; pubkey: string; kind: number; relays?: string[] }
   | { type: "url"; url: string }
-  | ({ type: "image"; url: string } & MediaSource)
-  | ({ type: "video"; url: string } & MediaSource)
+  | ({ type: "image"; url: string } & MediaSource & MediaHints)
+  | ({ type: "video"; url: string } & MediaSource & MediaHints)
   | ({ type: "audio"; url: string } & MediaSource)
   | ({ type: "file"; url: string; filename: string } & MediaSource)
   /** An extensionless Blossom URL with no type hint: rendered after a HEAD probe. */
-  | ({ type: "blob"; url: string } & MediaSource)
+  | ({ type: "blob"; url: string } & MediaSource & MediaHints)
   | { type: "embed"; embed: EmbedMatch }
   | { type: "invite"; code: string }
   | { type: "hashtag"; value: string }
@@ -189,7 +198,11 @@ function mediaSegment(
     const filename = url.split("/").pop()?.split("?")[0] || "document.pdf";
     return { type: "file", url: tokened, filename: /\.[a-z0-9]+$/i.test(filename) ? filename : `${filename}.pdf`, ...src };
   }
-  return { type: kind, url: tokened, ...src };
+  if (kind === "audio") return { type: kind, url: tokened, ...src };
+  const hints: MediaHints = {};
+  if (imeta?.dim) hints.dim = imeta.dim;
+  if (imeta?.poster) hints.poster = tokenizeEventMediaUrl(imeta.poster, ctx);
+  return { type: kind, url: tokened, ...src, ...hints };
 }
 
 /**
