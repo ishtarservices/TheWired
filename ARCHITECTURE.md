@@ -1009,7 +1009,7 @@ relay.group_roles     -- Group roles and permissions (group_id, pubkey, role)
 relay.invite_codes    -- Group invite codes (code, group_id, creator, uses_remaining)
 ```
 
-**`app` schema** -- Managed by the Fastify backend via Drizzle ORM migrations (0001-0025):
+**`app` schema** -- Managed by the Fastify backend via Drizzle ORM migrations (0001-0039):
 
 ```sql
 app.spaces                  -- Space directory (id, group_id, name, mode, listed, listed_at, discovery_score, messages_last_24h, active_members_24h, featured, space_mode, ingestion_tier, external_origin)
@@ -1041,6 +1041,8 @@ app.blossom_blobs           -- Content-addressed blob metadata (sha256, owner pu
 app.temporary_channels      -- Ephemeral space channels
 app.space_relays            -- Decentralized-space relay registry (space_id, relay_url, status, registered_by, last_event_at) [migration 0024]
 app.relay_tunnels           -- Cloudflare tunnel records for self-hosted relays (tunnel id, hostname, status) [migration 0025]
+app.space_channel_categories -- Channel subfolders (stable id, name, position) per space [migration 0039; docs/CHANNEL_LAYOUT.md]
+app.category_overrides      -- Subfolder permission templates, copied onto synced channels' channel_overrides [migration 0039]
 ```
 
 > Migrations 0020–0023 added transcode columns, enriched seed spaces, and profile versioning; 0024 (`decentralized_spaces`) added the `space_mode`/`ingestion_tier`/`external_origin` columns + `app.space_relays`; 0025 added `app.relay_tunnels`.

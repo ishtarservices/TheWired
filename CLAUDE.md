@@ -144,7 +144,7 @@ cd client/src-tauri && cargo build   # Build Rust binary
 - `services/` -- Business logic (spaceDirectory, channel, role, moderation, permission, invite, search, feed, discovery, push, notificationEnqueue, analytics, spam, content, music, **musicVisibility + blobAccess** (music access-control policy — see `docs/MUSIC_VISIBILITY.md`), revision, proposal, onboarding, livekit, gif, profileCache, **relayRegistration, cloudflareTunnel**)
 - `workers/` -- Background jobs. **`relayConnectionManager` + `ingestHandlers` replaced the old `relayIngester`** (multi-relay ingestion: platform relay + every registered decentralized-space relay). Plus `trendingComputer`, `profileRefresher`, `notificationDispatcher`, `analyticsAggregator`, `discoveryScoreComputer`, `transcodeWorker`.
 - `db/schema/` -- Drizzle ORM table definitions (in `app` PostgreSQL schema)
-- `db/migrations/` -- SQL migrations (currently through `0025`)
+- `db/migrations/` -- SQL migrations (currently through `0039`)
 - `middleware/` -- authContext (X-Auth-Pubkey extraction), errorHandler
 - `lib/` -- Redis client, Meilisearch client, Nostr event verifier, `relayUrlGuard` (SSRF guard for BYO relays)
 
