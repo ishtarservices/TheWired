@@ -557,23 +557,25 @@ async function indexZapReceipt(event: NostrEvent) {
   await recordZapReceipt(redis, event.id, targetEventId, parseZapSats(event.tags));
 }
 
-/** True when the backend owns this space's membership (platform and A-lite). */
-async function isBackendMembership(spaceId: string): Promise<boolean> {
+/** The backend's mode for a space, or null when the backend doesn't know it. */
+async function spaceModeOf(spaceId: string): Promise<string | null> {
   const [space] = await db
     .select({ spaceMode: spaces.spaceMode })
     .from(spaces)
     .where(eq(spaces.id, spaceId))
     .limit(1);
-  return !!space && space.spaceMode !== "nip29";
+  return space?.spaceMode ?? null;
 }
 
 async function indexJoin(event: NostrEvent) {
   const spaceId = getTagValue(event, "h");
   if (!spaceId) return;
 
-  // Backend-owned membership is granted only through the REST join paths,
-  // which check listing, invites and bans. A relay join request never adds it.
-  if (await isBackendMembership(spaceId)) return;
+  // Backend-owned membership (platform, A-lite) is granted only through the
+  // REST join paths, which check listing, invites and bans; a relay join
+  // request never adds it. Spaces the backend doesn't know have nothing to
+  // mirror into.
+  if ((await spaceModeOf(spaceId)) !== "nip29") return;
 
   await db.insert(spaceMembers).values({ spaceId, pubkey: event.pubkey }).onConflictDoNothing();
 }
@@ -582,7 +584,9 @@ async function indexLeave(event: NostrEvent) {
   const spaceId = getTagValue(event, "h");
   if (!spaceId) return;
 
-  if (await isBackendMembership(spaceId)) {
+  const mode = await spaceModeOf(spaceId);
+  if (mode === null) return;
+  if (mode !== "nip29") {
     // Same rules as DELETE /spaces/:id/members/me: the last admin stays,
     // a departing creator hands over ownership, the counter is recounted.
     const result = await leaveSpace(spaceId, event.pubkey);

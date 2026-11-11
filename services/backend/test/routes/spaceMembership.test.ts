@@ -571,6 +571,13 @@ describe("ingest of kinds 9021/9022 for backend-owned spaces", () => {
     expect(await creatorOf()).toBe(LUNA.pubkey);
   });
 
+  it("ignores join and leave requests for spaces the backend doesn't know", async () => {
+    await expect(processEvent(signed(9021, MARCUS, "unknown-space"), own)).resolves.toBeUndefined();
+    await expect(processEvent(signed(9022, MARCUS, "unknown-space"), own)).resolves.toBeUndefined();
+    const rows = await db.select().from(spaceMembers).where(eq(spaceMembers.spaceId, "unknown-space"));
+    expect(rows).toHaveLength(0);
+  });
+
   it("never touches a relay-native space's counter", async () => {
     await seedSpace({ id: "native-space" });
     await db.update(spaces).set({ spaceMode: "nip29", memberCount: 4 }).where(eq(spaces.id, "native-space"));
