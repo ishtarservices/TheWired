@@ -7,6 +7,7 @@ import { persistOnboardingFlag } from "../onboarding/onboardingPersistence";
 import { useIdentity } from "../identity/useIdentity";
 import { useProfile } from "../profile/useProfile";
 import { AddAccountModal } from "../identity/AddAccountModal";
+import { useEndCallConfirm } from "../calling/EndCallConfirmDialog";
 import { Avatar } from "../../components/ui/Avatar";
 import { useAppUpdater } from "../../hooks/useAppUpdater";
 import { RefreshCw, Download, RotateCcw, Check, AlertCircle, Map, Plus, Trash2, Users, Minus, Plus as PlusIcon, ZoomIn } from "lucide-react";
@@ -279,6 +280,9 @@ function ZoomSection() {
 function AccountsSection() {
   const { pubkey, accounts, switchTo, removeAccount } = useIdentity();
   const [addOpen, setAddOpen] = useState(false);
+  // Switching ends a call: ask first when one is running. (Removing a
+  // non-active account doesn't touch the call.)
+  const { confirmIfInCall, dialog: endCallDialog } = useEndCallConfirm();
 
   return (
     <div className="rounded-lg border border-border bg-panel p-4">
@@ -294,7 +298,7 @@ function AccountsSection() {
             accountPubkey={account.pubkey}
             signerType={account.signerType}
             isActive={account.pubkey === pubkey}
-            onSwitch={() => switchTo(account.pubkey)}
+            onSwitch={() => confirmIfInCall("switch", () => switchTo(account.pubkey))}
             onRemove={() => removeAccount(account.pubkey)}
           />
         ))}
@@ -309,6 +313,7 @@ function AccountsSection() {
       </button>
 
       <AddAccountModal open={addOpen} onClose={() => setAddOpen(false)} />
+      {endCallDialog}
     </div>
   );
 }

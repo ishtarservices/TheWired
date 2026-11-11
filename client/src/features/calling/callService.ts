@@ -53,6 +53,11 @@ import {
 import { e2eeSupported, E2EEUnsupportedError } from "@/lib/webrtc/e2ee/session";
 import { describeMediaError } from "@/lib/webrtc/mediaDevices";
 import { createLogger } from "@/lib/debug/logger";
+import {
+  isMediaSessionAborted,
+  mediaEpoch,
+  onAbandonMediaSessions,
+} from "@/lib/webrtc/mediaSession";
 import type { CallType, CallTransport } from "@/types/calling";
 
 // Gated "call" category (wiredDebug.enable("call")); warn/error always print.
@@ -92,6 +97,10 @@ function clearTimers(): void {
   }
 }
 
+// Account change: a timer from the old account's call must never fire into
+// the next account (it would sign "call missed" with the wrong key).
+onAbandonMediaSessions(clearTimers);
+
 /** Initiate a 1:1 call to a DM partner. */
 export async function initiateCall(
   partnerPubkey: string,
@@ -100,6 +109,7 @@ export async function initiateCall(
   const myPubkey = store.getState().identity.pubkey;
   if (!myPubkey) throw new Error("Not logged in");
   if (store.getState().call.activeCall) throw new Error("Already in a call");
+  const epoch = mediaEpoch();
   if (!e2eeSupported()) {
     store.dispatch(setCallNotice({ kind: "unsupported_device", pubkey: partnerPubkey }));
     throw new E2EEUnsupportedError();
@@ -172,8 +182,15 @@ export async function initiateCall(
 
   // Join the room now so the callee lands straight into a live call.
   try {
-    await joinCallRoom(partnerPubkey, roomId);
+    await joinCallRoom(partnerPubkey, roomId, epoch);
   } catch (err) {
+    // An account change ended this call on purpose, and the old account
+    // already sent "call missed" (endMediaSessionsForAccountChange). Anything
+    // signed or dispatched from here would land in the NEXT account.
+    if (isMediaSessionAborted(err)) {
+      clearTimers();
+      throw err;
+    }
     warn(`could not join call room:`, err);
     store.dispatch(setMediaError(describeMediaError(err)));
     clearTimers();
@@ -200,6 +217,7 @@ export async function answerCall(): Promise<void> {
 
   const { partnerPubkey: callerPubkey, roomSecretKey, callType } = activeCall;
   const roomId = getPublicKey(hexToBytes(roomSecretKey));
+  const epoch = mediaEpoch();
 
   log(`answer caller=${shortId(callerPubkey)} type=${callType} room=${shortId(roomId)}`);
 
@@ -232,8 +250,12 @@ export async function answerCall(): Promise<void> {
   }, CONNECT_TIMEOUT_MS);
 
   try {
-    await joinCallRoom(callerPubkey, roomId);
+    await joinCallRoom(callerPubkey, roomId, epoch);
   } catch (err) {
+    if (isMediaSessionAborted(err)) {
+      clearTimers();
+      throw err;
+    }
     warn(`could not join call room:`, err);
     store.dispatch(setMediaError(describeMediaError(err)));
     await hangupCall({ notifyPeer: false, outcome: "failed" });
@@ -283,8 +305,9 @@ export async function hangupCall(
   store.dispatch(endCall(outcome));
 }
 
-/** Fetch a token, join the call room (encrypted), publish local media. */
-async function joinCallRoom(partnerPubkey: string, roomId: string): Promise<void> {
+/** Fetch a token, join the call room (encrypted), publish local media.
+ *  `epoch` = the account the call belongs to (see `connectToRoom`). */
+async function joinCallRoom(partnerPubkey: string, roomId: string, epoch: number): Promise<void> {
   const call = store.getState().call.activeCall;
   if (!call || call.roomId !== roomId) throw new Error("Call ended before joining");
   const { token, url } = await fetchDMVoiceToken(partnerPubkey, roomId);
@@ -295,6 +318,7 @@ async function joinCallRoom(partnerPubkey: string, roomId: string): Promise<void
       roomSecretKeyHex: call.roomSecretKey,
       peerPubkey: partnerPubkey,
     },
+    epoch,
   });
 
   // Hung up while the token/connect round-trips were in flight — don't

@@ -45,6 +45,13 @@ import { describeMediaError } from "./mediaDevices";
 import { playJoinSound, playLeaveSound } from "@/features/calling/callRingtone";
 import { createLogger, shortKey } from "../debug/logger";
 import { createE2EESession, type E2EEContext, type E2EESession } from "./e2ee/session";
+import {
+  assertMediaEpoch,
+  isMediaEpochCurrent,
+  mediaEpoch,
+  MediaSessionAbortedError,
+  onAbandonMediaSessions,
+} from "./mediaSession";
 
 const log = createLogger("call");
 const e2eeLog = createLogger("e2ee");
@@ -62,6 +69,11 @@ import {
 
 /** Singleton LiveKit Room instance */
 let currentRoom: Room | null = null;
+/** The room the most recent `connectToRoom` built, connected or still
+ *  connecting. Only this room's `Disconnected` may reset Redux and notify
+ *  listeners. A superseded room disconnecting late must not tear down the
+ *  session that replaced it. */
+let latestRoom: Room | null = null;
 /** The E2EE session (worker + key provider) of the current room, if any. */
 let currentE2EE: E2EESession | null = null;
 
@@ -198,6 +210,11 @@ export interface ConnectOptions {
    *  build joins; the option exists so the wiring stays explicit. Throws
    *  `E2EEUnsupportedError` before any Room is built when the WebView can't. */
   e2ee?: E2EEContext;
+  /** `mediaEpoch()` captured when the join began (before the token fetch).
+   *  If the account changes before the room is up, the room is torn down and
+   *  `MediaSessionAbortedError` is thrown: a token minted for the old account
+   *  must never become a live session under the new one. Defaults to now. */
+  epoch?: number;
 }
 
 /**
@@ -214,6 +231,11 @@ export async function connectToRoom(
   token: string,
   opts: ConnectOptions = {},
 ): Promise<Room> {
+  const epoch = opts.epoch ?? mediaEpoch();
+  // The token was minted for the account that started the join. If that
+  // account is gone, don't build a room at all.
+  assertMediaEpoch(epoch);
+
   // Disconnect from any existing room
   if (currentRoom) {
     await currentRoom.disconnect();
@@ -229,6 +251,7 @@ export async function connectToRoom(
     ...buildRoomOptions(getMediaPrefs(), { e2ee: !!e2ee }),
     ...(e2ee ? { encryption: { keyProvider: e2ee.provider, worker: e2ee.worker } } : {}),
   });
+  latestRoom = room;
   /** When each remote joined — decrypt errors right after are key-in-flight. */
   const joinedAt = new Map<string, number>();
   const lastEncryptionErrorAt = new Map<string, number>();
@@ -423,11 +446,19 @@ export async function connectToRoom(
     if (reason !== undefined && reason !== DisconnectReason.CLIENT_INITIATED) {
       console.warn(`[LiveKit] disconnected: ${disconnectReasonName(reason)} (${reason})`);
     }
+    if (currentRoom === room) currentRoom = null;
+    disposeE2EE(e2ee);
+    // A superseded room: its session state was already handed to (or reset
+    // for) the newer one. Wiping Redux / notifying the call service here would
+    // drop the call that replaced it.
+    if (latestRoom !== room) {
+      log.info("ignoring Disconnected from a superseded room");
+      return;
+    }
+    latestRoom = null;
     cleanupListenTogether();
     clearRemoteAudio();
     store.dispatch(disconnectRoom());
-    currentRoom = null;
-    disposeE2EE(e2ee);
     // The room singleton is shared between voice channels and 1:1 calls;
     // callService ends the call on a non-client drop via this hook.
     const clientInitiated = reason === DisconnectReason.CLIENT_INITIATED;
@@ -485,7 +516,19 @@ export async function connectToRoom(
     // down here so a bad invite secret can't leave a cryptor worker alive.
     disposeE2EE(e2ee);
     void room.disconnect().catch(() => {});
+    // Torn down mid-connect by an account change: not a join failure.
+    if (!isMediaEpochCurrent(epoch)) throw new MediaSessionAbortedError();
     throw err;
+  }
+  if (!isMediaEpochCurrent(epoch)) {
+    // The account changed while we were connecting. Leave without touching
+    // the new account's state (treated as superseded) and without the E2EE
+    // session ever starting its key fan-out.
+    log.info("account changed during connect — leaving the room");
+    if (latestRoom === room) latestRoom = null;
+    disposeE2EE(e2ee);
+    await room.disconnect().catch(() => {});
+    throw new MediaSessionAbortedError();
   }
   log.info(
     `room connected participants=${room.remoteParticipants.size} canPlaybackAudio=${room.canPlaybackAudio}`,
@@ -546,12 +589,24 @@ export async function disconnectFromRoom(): Promise<void> {
     // Listen Together goodbyes need the data channel — send them first
     // (under E2EE they are encrypted with our sender key, so the session
     // must still be alive here; it is disposed by the Disconnected handler).
-    await announceListenTogetherExit();
+    // Best effort: a failed goodbye must never keep the room connected.
+    await announceListenTogetherExit().catch(() => {});
     await room.disconnect();
     if (currentRoom === room) currentRoom = null;
   }
   disposeE2EE(currentE2EE);
 }
+
+// Account change (switch / add / log out): hard-stop whatever room exists,
+// connected or still connecting. The graceful part (presence clear, "call
+// missed") already ran in `endMediaSessionsForAccountChange` while the old
+// account's signer was still active; this is the backstop that guarantees no
+// room outlives its account.
+onAbandonMediaSessions(async () => {
+  const pending = latestRoom && latestRoom !== currentRoom ? latestRoom : null;
+  await disconnectFromRoom();
+  if (pending) await pending.disconnect().catch(() => {});
+});
 
 /**
  * Enable/disable the local microphone.

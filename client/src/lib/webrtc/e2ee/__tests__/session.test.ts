@@ -41,6 +41,7 @@ vi.stubGlobal("crypto", {
 import { createE2EESession, E2EEUnsupportedError, e2eeSupported } from "../session";
 import { deliverMediaKey, resetMediaKeyInbox } from "../mediaKeyInbox";
 import { USE_KEY_DELAY_MS, ROTATE_DEBOUNCE_MS } from "../channelKeys";
+import { sendMediaKey } from "../mediaKeySender";
 
 const ME = "f".repeat(64);
 const PEER = "a".repeat(64);
@@ -153,3 +154,18 @@ describe("channel session", () => {
     }
   });
 });
+
+describe("account binding", () => {
+  it("the default sender seals as the session's own account, never whoever is logged in later", async () => {
+    vi.mocked(sendMediaKey).mockClear();
+    const session = createE2EESession({ kind: "channel", roomName: "s:c" }, ME, {
+      worker: fakeWorker(),
+      supported: true,
+    });
+    await session.start([PEER]);
+    expect(vi.mocked(sendMediaKey).mock.calls[0]?.[0]).toBe(PEER);
+    expect(vi.mocked(sendMediaKey).mock.calls[0]?.[2]).toBe(ME);
+    session.dispose();
+  });
+});
+
