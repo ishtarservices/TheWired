@@ -12,6 +12,7 @@ import { profileCacheService, toMemberProfile, PROFILE_JOIN_CAP } from "../servi
 import { notifySpaceChanged } from "../services/spaceSignalService.js";
 import { moderationService } from "../services/moderationService.js";
 import { leaveSpace, refreshMemberCount } from "../services/membershipService.js";
+import { gateSpaceRead } from "../lib/spaceReadGate.js";
 import { requirePubkey, requireSpace, requireSpacePermission } from "../lib/authz.js";
 
 const idParams = z.object({ id: nonEmptyString });
@@ -33,6 +34,7 @@ export const membersRoutes: FastifyPluginAsync = async (server) => {
       const query = validate(memberListQuery, request.query, reply);
       if (!query) return;
       const { id } = params;
+      if (!(await gateSpaceRead(request, reply, id, "members"))) return;
 
       let membersQuery = db
         .select()
@@ -160,6 +162,7 @@ export const membersRoutes: FastifyPluginAsync = async (server) => {
     const params = validate(idParams, request.params, reply);
     if (!params) return;
     const { id } = params;
+    if (!(await gateSpaceRead(request, reply, id, "feed-sources"))) return;
     const rows = await db
       .select()
       .from(spaceFeedSources)

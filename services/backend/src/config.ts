@@ -25,6 +25,11 @@ function nonNegativeInt(raw: string | undefined, fallback: number): number {
   return Number.isInteger(n) && n >= 0 ? n : fallback;
 }
 
+function spaceReadGate(): "off" | "log" | "enforce" {
+  const v = (process.env.SPACE_READ_GATE ?? "log").trim().toLowerCase();
+  return v === "off" || v === "enforce" ? v : "log";
+}
+
 function gatewayAuthMode(): "off" | "warn" | "enforce" {
   const v = (process.env.GATEWAY_AUTH_MODE ?? "off").trim().toLowerCase();
   return v === "warn" || v === "enforce" ? v : "off";
@@ -152,6 +157,11 @@ export const config = {
    *  denies. Scope rows are recorded in every mode; the music gate is always
    *  enforced. */
   spaceMediaGate: spaceMediaGate(),
+  /** Read gate for an unlisted space's roster, roles, channels, feed sources,
+   *  onboarding and full row (lib/spaceReadGate.ts): `off` serves anyone, `log`
+   *  serves a non-member and logs it, `enforce` answers 404 (and trims the
+   *  public invite preview). */
+  spaceReadGate: spaceReadGate(),
   /** Per-pubkey BUD-02 upload guard: uploads per minute, and bytes per UTC day. */
   uploadRatePerMin: parseInt(process.env.UPLOAD_RATE_PER_MIN ?? "30", 10),
   uploadDailyBytes: parseInt(process.env.UPLOAD_DAILY_BYTES ?? String(2 * 1024 * 1024 * 1024), 10),

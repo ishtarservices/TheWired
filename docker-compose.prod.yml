@@ -195,6 +195,9 @@ services:
       # The upload guard caps BUD-02 uploads per pubkey: per minute and bytes
       # per UTC day.
       SPACE_MEDIA_GATE: ${SPACE_MEDIA_GATE:-log}
+      # Unlisted-space reads for non-members: `log` serves and logs them,
+      # `enforce` answers 404 (off | log | enforce).
+      SPACE_READ_GATE: ${SPACE_READ_GATE:-log}
       BLOSSOM_SERVER_NAMES: ${BLOSSOM_SERVER_NAMES:-}
       UPLOAD_RATE_PER_MIN: ${UPLOAD_RATE_PER_MIN:-30}
       UPLOAD_DAILY_BYTES: ${UPLOAD_DAILY_BYTES:-2147483648}

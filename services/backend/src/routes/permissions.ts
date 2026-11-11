@@ -20,6 +20,15 @@ export const permissionsRoutes: FastifyPluginAsync = async (server) => {
     const query = validate(checkQuery, request.query, reply);
     if (!query) return;
 
+    // Checking someone else is a moderation tool. It used to be open to any
+    // caller (and could re-add a departed creator as a side effect).
+    if (query.pubkey !== callerPubkey) {
+      const manager = await permissionService.check(query.spaceId, callerPubkey, "MANAGE_MEMBERS");
+      if (!manager.allowed) {
+        return reply.status(403).send({ error: "Missing MANAGE_MEMBERS permission", code: "FORBIDDEN" });
+      }
+    }
+
     const result = await permissionService.check(query.spaceId, query.pubkey, query.permission, query.channelId);
     return { data: result };
   });

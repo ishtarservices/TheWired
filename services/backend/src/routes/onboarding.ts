@@ -3,6 +3,7 @@ import { z } from "zod";
 import { validate, nonEmptyString } from "../lib/validation.js";
 import { onboardingService, OnboardingError } from "../services/onboardingService.js";
 import { permissionService } from "../services/permissionService.js";
+import { gateSpaceRead } from "../lib/spaceReadGate.js";
 
 /** Scoping/membership errors from the service become 404/403/400; anything else is a 500. */
 function sendServiceError(err: unknown, reply: FastifyReply) {
@@ -501,6 +502,7 @@ export const onboardingRoutes: FastifyPluginAsync = async (server) => {
       const params = validate(spaceIdParams, request.params, reply);
       if (!params) return;
 
+      if (!(await gateSpaceRead(request, reply, params.spaceId, "onboarding"))) return;
       const preview = await onboardingService.getOnboardingPreview(params.spaceId);
       return { data: preview };
     },
