@@ -8,7 +8,7 @@ and would rather hear about a false alarm than miss a real issue.
 
 Only the **latest release** of the desktop app and the services in this
 repository receives security fixes. Check the
-[releases page](https://github.com/ishtarservices/TheWired/releases) for the
+[releases page](https://github.com/ummilabs/TheWired/releases) for the
 current version; the desktop app also self-updates to it.
 
 | Version        | Supported |

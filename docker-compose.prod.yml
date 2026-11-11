@@ -86,7 +86,7 @@ services:
           memory: 1g
 
   relay:
-    image: ghcr.io/ishtarservices/thewired-relay:latest
+    image: ghcr.io/ummilabs/thewired-relay:latest
     logging: *logging
     environment:
       DATABASE_URL: postgres://${POSTGRES_USER:-thewired}:${POSTGRES_PASSWORD:?err}@postgres:5432/${POSTGRES_DB:-thewired}
@@ -145,7 +145,7 @@ services:
           memory: 512m
 
   backend:
-    image: ghcr.io/ishtarservices/thewired-backend:latest
+    image: ghcr.io/ummilabs/thewired-backend:latest
     logging: *logging
     environment:
       DATABASE_URL: postgres://${POSTGRES_USER:-thewired}:${POSTGRES_PASSWORD:?err}@postgres:5432/${POSTGRES_DB:-thewired}
@@ -246,7 +246,7 @@ services:
           memory: 1536m
 
   gateway:
-    image: ghcr.io/ishtarservices/thewired-gateway:latest
+    image: ghcr.io/ummilabs/thewired-gateway:latest
     logging: *logging
     environment:
       GATEWAY_PORT: 9080
@@ -328,7 +328,7 @@ services:
           memory: 1G
 
   landing:
-    image: ghcr.io/ishtarservices/thewired-landing:latest
+    image: ghcr.io/ummilabs/thewired-landing:latest
     logging: *logging
     # The soot.win page reads these at request time (Caddy templates): each
     # store button appears once its URL is set. IOS_APP_ID is the numeric App
@@ -351,7 +351,7 @@ services:
           memory: 64m
 
   proxy:
-    image: ghcr.io/ishtarservices/thewired-proxy:latest
+    image: ghcr.io/ummilabs/thewired-proxy:latest
     logging: *logging
     ports:
       - "80:80"
