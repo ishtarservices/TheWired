@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState } from "react";
 import { X } from "lucide-react";
 import { Button } from "../../components/ui/Button";
 import { Modal } from "../../components/ui/Modal";
@@ -27,7 +27,13 @@ interface CreateChannelModalProps {
   defaultCategoryId?: string | null;
 }
 
-export function CreateChannelModal({ open, onClose, spaceId, defaultCategoryId }: CreateChannelModalProps) {
+/** The body mounts fresh per open, starting from the subfolder it was opened for. */
+export function CreateChannelModal(props: CreateChannelModalProps) {
+  if (!props.open) return null;
+  return <CreateChannelModalBody {...props} />;
+}
+
+function CreateChannelModalBody({ open, onClose, spaceId, defaultCategoryId }: CreateChannelModalProps) {
   const { channels, tree, native, layoutManageable, createChannel, createCategory } = useSpaceChannels(spaceId);
   const [name, setName] = useState("");
   const [type, setType] = useState<SpaceChannelType>("chat");
@@ -38,14 +44,6 @@ export function CreateChannelModal({ open, onClose, spaceId, defaultCategoryId }
   const [feedMode, setFeedMode] = useState<ChannelFeedMode>("all");
   const [error, setError] = useState<string | null>(null);
   const [creating, setCreating] = useState(false);
-
-  // Each opening starts from the subfolder it was opened for.
-  useEffect(() => {
-    if (open) {
-      setCategory(choiceForCategory(defaultCategoryId));
-      setError(null);
-    }
-  }, [open, defaultCategoryId]);
 
   const isVoiceOrVideo = type === "voice" || type === "video";
 
@@ -58,16 +56,6 @@ export function CreateChannelModal({ open, onClose, spaceId, defaultCategoryId }
   );
 
   const categoryError = categoryChoiceError(category, tree);
-
-  function reset() {
-    setName("");
-    setType("chat");
-    setCategory(choiceForCategory(defaultCategoryId));
-    setAdminOnly(false);
-    setSlowModeSeconds(0);
-    setTemporary(false);
-    setFeedMode("all");
-  }
 
   async function handleCreate() {
     const label = name.trim().replace(/^#+/, "");
@@ -91,7 +79,6 @@ export function CreateChannelModal({ open, onClose, spaceId, defaultCategoryId }
         ...(!native && isVoiceOrVideo && temporary ? { temporary: true } : {}),
         ...(type === "music" ? { feedMode } : {}),
       });
-      reset();
       onClose();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to create channel");

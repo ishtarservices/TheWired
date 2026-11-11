@@ -102,6 +102,23 @@ describe("loadChannelLayout", () => {
     expect(store.getState().spaces.layoutSupported[S]).toBe(true);
   });
 
+  it("a missing space (the route's own NOT_FOUND) falls back without deciding support", async () => {
+    const store = storeWith(space(), []);
+    api.fetchLayout.mockRejectedValue(new ApiRequestError(404, "NOT_FOUND", "Space not found"));
+    api.fetchChannels.mockResolvedValue([]);
+    await store.dispatch(loadChannelLayout(S) as never);
+    expect(store.getState().spaces.layoutSupported[S]).toBeUndefined();
+  });
+
+  it("an unknown route (older backend) marks subfolder management unsupported", async () => {
+    const store = storeWith(space(), []);
+    api.fetchLayout.mockRejectedValue(new ApiRequestError(404, undefined as never, "Not Found"));
+    api.fetchChannels.mockResolvedValue([ch("a", 0, "Legacy")]);
+    await store.dispatch(loadChannelLayout(S) as never);
+    expect(store.getState().spaces.layoutSupported[S]).toBe(false);
+    expect(store.getState().spaces.channels[S]).toHaveLength(1);
+  });
+
   it("propagates errors other than 404", async () => {
     const store = storeWith(space(), []);
     api.fetchLayout.mockRejectedValue(new ApiRequestError(500, "X", "boom"));
@@ -184,7 +201,7 @@ describe("applyChannelLayoutOp (backend spaces)", () => {
 
   it("refuses when the backend predates subfolders", async () => {
     const store = storeWith(space(), [ch("a", 0, "Legacy")]);
-    api.fetchLayout.mockRejectedValue(new ApiRequestError(404, "NOT_FOUND", "nf"));
+    api.fetchLayout.mockRejectedValue(new ApiRequestError(404, undefined as never, "Not Found"));
     api.fetchChannels.mockResolvedValue([ch("a", 0, "Legacy")]);
     await expect(store.dispatch(applyChannelLayoutOp(S, renameCategory("Legacy", "New")) as never)).rejects.toThrow(
       /doesn't support subfolders/,

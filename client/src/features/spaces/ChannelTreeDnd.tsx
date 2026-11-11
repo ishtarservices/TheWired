@@ -1,4 +1,4 @@
-import { useMemo, useState, type ReactNode, type CSSProperties } from "react";
+import { useMemo, useRef, useState, type ReactNode, type CSSProperties } from "react";
 import {
   DndContext,
   DragOverlay,
@@ -88,6 +88,28 @@ function targetCategory(tree: ChannelTree, overId: string): string | null | unde
 }
 
 /**
+ * Where a dragged channel lands. `preview` already holds any cross-subfolder
+ * move made while dragging. Within its list, the sortable animation shows the
+ * channel taking the hovered channel's slot (arrayMove semantics) — except
+ * right after a crossing, where it already sits where it was inserted.
+ */
+export function resolveChannelDrop(
+  preview: ChannelTree,
+  channelId: string,
+  overId: string | null,
+  crossedAgainst: string | null,
+): { categoryId: string | null; index: number } | null {
+  const at = locateChannel(preview, channelId);
+  if (!at) return null;
+  let index = at.index;
+  if (overId?.startsWith(CH) && overId !== CH + channelId && overId !== crossedAgainst) {
+    const i = channelsOf(preview, at.categoryId).findIndex((c) => c.id === overId.slice(CH.length));
+    if (i >= 0) index = i;
+  }
+  return { categoryId: at.categoryId, index };
+}
+
+/**
  * The channel tree with drag-and-drop: channels reorder within and move across
  * subfolders (including into collapsed or empty ones), subfolders reorder.
  * Moves are previewed locally while dragging and committed once on drop.
@@ -127,6 +149,9 @@ function DndTree({
 }: ChannelTreeDndProps) {
   const [activeId, setActiveId] = useState<string | null>(null);
   const [preview, setPreview] = useState<ChannelTree | null>(null);
+  /** The channel a cross-subfolder insertion was placed against. Dropping
+   *  while still over it keeps that slot — it's already where the preview shows. */
+  const crossedAgainst = useRef<string | null>(null);
   const shown = preview ?? tree;
 
   const pointer = useSensor(PointerSensor, { activationConstraint: { distance: 6 } });
@@ -165,6 +190,7 @@ function DndTree({
   function reset() {
     setActiveId(null);
     setPreview(null);
+    crossedAgainst.current = null;
   }
 
   function handleDragStart(e: DragStartEvent) {
@@ -181,10 +207,18 @@ function DndTree({
     if (target === undefined) return;
     const from = locateChannel(preview, channelId);
     if (!from || from.categoryId === target) return;
-    // Crossing into another subfolder: place it at the hovered channel, or last.
+    // Crossing into another subfolder: place it before or after the hovered
+    // channel (whichever half the dragged item is over), or last.
     const list = channelsOf(preview, target);
     const overIndex = overId.startsWith(CH) ? list.findIndex((c) => c.id === overId.slice(CH.length)) : -1;
-    setPreview(moveChannel(channelId, target, overIndex >= 0 ? overIndex : list.length)(preview));
+    let index = list.length;
+    if (overIndex >= 0) {
+      const dragged = e.active.rect.current.translated;
+      const below = !!dragged && dragged.top + dragged.height / 2 > e.over.rect.top + e.over.rect.height / 2;
+      index = overIndex + (below ? 1 : 0);
+    }
+    crossedAgainst.current = overId;
+    setPreview(moveChannel(channelId, target, index)(preview));
   }
 
   function handleDragEnd(e: DragEndEvent) {
@@ -203,20 +237,10 @@ function DndTree({
 
     if (active.startsWith(CH) && preview) {
       const channelId = active.slice(CH.length);
-      const at = locateChannel(preview, channelId);
-      if (at) {
-        let index = at.index;
-        // Within one list the sortable animation only previews: resolve the
-        // drop slot from the channel it ended over (arrayMove semantics).
-        if (overId?.startsWith(CH) && overId !== active) {
-          const list = channelsOf(preview, at.categoryId);
-          const i = list.findIndex((c) => c.id === overId.slice(CH.length));
-          if (i >= 0) index = i;
-        }
-        const before = locateChannel(tree, channelId);
-        if (!before || before.categoryId !== at.categoryId || before.index !== index) {
-          onMoveChannel(channelId, at.categoryId, index);
-        }
+      const drop = resolveChannelDrop(preview, channelId, overId, crossedAgainst.current);
+      const before = locateChannel(tree, channelId);
+      if (drop && (!before || before.categoryId !== drop.categoryId || before.index !== drop.index)) {
+        onMoveChannel(channelId, drop.categoryId, drop.index);
       }
     }
     reset();

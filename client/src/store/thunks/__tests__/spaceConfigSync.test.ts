@@ -136,7 +136,7 @@ describe("syncSpaceConfig", () => {
 
   it("falls back to the flat channel list when the backend predates subfolders (404)", async () => {
     const store = storeWith(makeSpace());
-    fetchLayout.mockRejectedValue(new ApiRequestError(404, "NOT_FOUND", "Not Found"));
+    fetchLayout.mockRejectedValue(new ApiRequestError(404, undefined as never, "Not Found"));
     fetchChannels.mockResolvedValue([
       { id: "c1", spaceId: "space-1", type: "chat", label: "#general", categoryId: "Dev", position: 0, isDefault: true, adminOnly: false, slowModeSeconds: 0 } as never,
     ]);

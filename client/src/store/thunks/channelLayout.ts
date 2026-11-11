@@ -76,9 +76,11 @@ export function hydrateChannelLayout(payload: {
 }
 
 /**
- * Fetch a backend-backed space's layout. A 404 means the backend predates
- * subfolders: fall back to the flat channel list and mark management
- * unsupported (the sidebar still groups by the legacy strings).
+ * Fetch a backend-backed space's layout. A 404 from a backend that predates
+ * subfolders (no such route) falls back to the flat channel list and marks
+ * management unsupported — the sidebar still groups by the legacy strings.
+ * The route's own 404 (`NOT_FOUND`: the space isn't on the backend yet, e.g.
+ * mid-creation) also falls back but decides nothing about support.
  */
 export function loadChannelLayout(spaceId: string): Thunk<channelsApi.ChannelLayoutResponse | null> {
   return async (dispatch) => {
@@ -89,7 +91,7 @@ export function loadChannelLayout(spaceId: string): Thunk<channelsApi.ChannelLay
       return layout;
     } catch (err) {
       if (err instanceof ApiRequestError && err.status === 404) {
-        dispatch(setLayoutSupported({ spaceId, supported: false }));
+        if (err.code !== "NOT_FOUND") dispatch(setLayoutSupported({ spaceId, supported: false }));
         const channels = await channelsApi.fetchChannels(spaceId);
         dispatch(hydrateChannelLayout({ spaceId, channels }));
         return null;

@@ -1,4 +1,5 @@
-import { useState, useEffect } from "react";
+import { useState } from "react";
+import { useAppSelector } from "../../store/hooks";
 import { X, Trash2, Shield, ChevronDown, ChevronRight } from "lucide-react";
 import { Button } from "../../components/ui/Button";
 import { Modal } from "../../components/ui/Modal";
@@ -8,7 +9,7 @@ import { usePermissions } from "./usePermissions";
 import { CategorySelect, categoryChoiceError, choiceForCategory, type CategoryChoice } from "./CategorySelect";
 import { ChannelOverridesPanel } from "./settings/ChannelOverridesPanel";
 import { NATIVE_DEFAULT_CHAT_ID } from "./channelLayout";
-import type { ChannelFeedMode } from "../../types/space";
+import type { ChannelFeedMode, SpaceChannel } from "../../types/space";
 import type { ChannelPatch } from "../../store/thunks/channelLayout";
 
 interface EditChannelModalProps {
@@ -18,42 +19,41 @@ interface EditChannelModalProps {
   channelId: string | null;
 }
 
-/** Edit a channel: name, subfolder, behavior, permissions; or delete it. */
-export function EditChannelModal({ open, onClose, spaceId, channelId }: EditChannelModalProps) {
-  const { channels, tree, native, layoutManageable, updateChannel, deleteChannel, createCategory } =
-    useSpaceChannels(spaceId);
-  const { can } = usePermissions(spaceId);
-  const channel = channels.find((c) => c.id === channelId);
+/** Edit a channel: name, subfolder, behavior, permissions; or delete it. The
+ *  body mounts fresh per open, seeded from the channel as it is now. */
+export function EditChannelModal(props: EditChannelModalProps) {
+  const channel = useAppSelector((s) =>
+    props.channelId ? s.spaces.channels[props.spaceId]?.find((c) => c.id === props.channelId) : undefined,
+  );
+  if (!props.open || !channel) return null;
+  return <EditChannelModalBody {...props} channel={channel} key={channel.id} />;
+}
 
-  const [name, setName] = useState("");
-  const [category, setCategory] = useState<CategoryChoice>({ kind: "none" });
-  const [adminOnly, setAdminOnly] = useState(false);
-  const [slowModeSeconds, setSlowModeSeconds] = useState(0);
-  const [feedMode, setFeedMode] = useState<ChannelFeedMode>("all");
+function EditChannelModalBody({
+  open,
+  onClose,
+  spaceId,
+  channel,
+}: EditChannelModalProps & { channel: SpaceChannel }) {
+  const { tree, native, layoutManageable, updateChannel, deleteChannel, createCategory } = useSpaceChannels(spaceId);
+  const { can } = usePermissions(spaceId);
+
+  const [name, setName] = useState(() => channel.label.replace(/^#+/, ""));
+  const [category, setCategory] = useState<CategoryChoice>(() => choiceForCategory(channel.categoryId));
+  const [adminOnly, setAdminOnly] = useState(channel.adminOnly);
+  const [slowModeSeconds, setSlowModeSeconds] = useState(channel.slowModeSeconds);
+  const [feedMode, setFeedMode] = useState<ChannelFeedMode>(channel.feedMode);
   const [showPerms, setShowPerms] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  // (Re)seed the form whenever it opens for a channel.
-  useEffect(() => {
-    if (!open || !channel) return;
-    setName(channel.label.replace(/^#+/, ""));
-    setCategory(choiceForCategory(channel.categoryId));
-    setAdminOnly(channel.adminOnly);
-    setSlowModeSeconds(channel.slowModeSeconds);
-    setFeedMode(channel.feedMode);
-    setShowPerms(false);
-    setError(null);
-  }, [open, channel?.id]); // eslint-disable-line react-hooks/exhaustive-deps
-
-  if (!channel) return null;
   const isNativeMainChat = native && (channel.isDefault || channel.id === NATIVE_DEFAULT_CHAT_ID);
   const categoryError = categoryChoiceError(category, tree);
   const cleanName = name.trim().replace(/^#+/, "");
 
   async function handleSave() {
-    if (!channel || !cleanName || categoryError) return;
+    if (!cleanName || categoryError) return;
     setSaving(true);
     setError(null);
     try {

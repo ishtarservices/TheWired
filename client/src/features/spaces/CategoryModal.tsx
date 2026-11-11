@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState } from "react";
 import { X, Trash2, Shield, ChevronDown, ChevronRight } from "lucide-react";
 import { Button } from "../../components/ui/Button";
 import { Modal } from "../../components/ui/Modal";
@@ -16,25 +16,24 @@ interface CategoryModalProps {
   categoryId?: string | null;
 }
 
-/** Create a subfolder, or rename / set permissions on / delete one. */
-export function CategoryModal({ open, onClose, spaceId, categoryId }: CategoryModalProps) {
+/** Create a subfolder, or rename / set permissions on / delete one. The body
+ *  mounts fresh on every open, so nothing typed last time leaks into the next. */
+export function CategoryModal(props: CategoryModalProps) {
+  if (!props.open) return null;
+  return <CategoryModalBody {...props} />;
+}
+
+function CategoryModalBody({ open, onClose, spaceId, categoryId }: CategoryModalProps) {
   const { tree, native, applyOp, createCategory } = useSpaceChannels(spaceId);
   const { can } = usePermissions(spaceId);
   const node = categoryId ? tree.categories.find((n) => n.category.id === categoryId) : undefined;
   const editing = !!categoryId;
 
-  const [name, setName] = useState("");
+  const [name, setName] = useState(() => node?.category.name ?? "");
   const [showPerms, setShowPerms] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
-
-  useEffect(() => {
-    if (!open) return;
-    setName(node?.category.name ?? "");
-    setShowPerms(false);
-    setError(null);
-  }, [open, categoryId]); // eslint-disable-line react-hooks/exhaustive-deps
 
   if (editing && !node) return null;
   const validation = name.trim() ? validateCategoryName(name, tree, categoryId ?? undefined) : null;
