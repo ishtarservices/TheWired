@@ -141,18 +141,22 @@ export function JoinSpaceModal({ open, onClose, initialCode, onImportInstead }: 
       // spaces are correctly reflected for joiners
       const spaceData = res.data.space;
       const spaceMode = (spaceData?.mode as "read" | "read-write") ?? "read-write";
+      // The redeem response names the creator; older backends only had it on
+      // the public invite preview.
+      const creator = spaceData?.creatorPubkey ?? invite.createdBy ?? "";
       joinSpace({
         id: invite.spaceId,
         name: spaceData?.name ?? "Space",
         about: spaceData?.about ?? undefined,
         picture: spaceData?.picture ?? undefined,
         mode: spaceMode,
-        creatorPubkey: invite.createdBy,
-        adminPubkeys: [invite.createdBy],
+        creatorPubkey: creator,
+        adminPubkeys: creator ? [creator] : [],
         memberPubkeys: [myPubkey],
         feedPubkeys: [],
         hostRelay: BOOTSTRAP_RELAYS[0],
         isPrivate: false,
+        listed: spaceData?.listed,
         createdAt: Math.floor(Date.now() / 1000),
       });
 

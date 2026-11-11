@@ -65,6 +65,8 @@ export function SpacePreviewPanel() {
         feedPubkeys: feedPubkeys ?? [],
         hostRelay: spaceData.hostRelay || BOOTSTRAP_RELAYS[0],
         isPrivate: false,
+        // Joined from Discover, so it's listed.
+        listed: true,
         createdAt: Math.floor(Date.now() / 1000),
       };
 

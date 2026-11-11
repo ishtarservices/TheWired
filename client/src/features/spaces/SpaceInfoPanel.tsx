@@ -4,6 +4,7 @@ import { useAppSelector } from "@/store/hooks";
 import { Avatar } from "@/components/ui/Avatar";
 import { useProfile } from "../profile/useProfile";
 import { useZap } from "../wallet/WalletProvider";
+import { spaceVisibility } from "./spaceVisibility";
 
 export function SpaceInfoPanel() {
   const activeSpaceId = useAppSelector((s) => s.spaces.activeSpaceId);
@@ -20,6 +21,7 @@ export function SpaceInfoPanel() {
   }
 
   const createdDate = new Date(space.createdAt * 1000);
+  const visibility = spaceVisibility(space);
 
   return (
     <div className="space-y-5 p-4">
@@ -41,14 +43,16 @@ export function SpaceInfoPanel() {
             {space.name}
           </h3>
           <div className="flex items-center gap-1.5 mt-0.5">
-            {space.isPrivate ? (
-              <Lock size={10} className="text-muted" />
-            ) : (
-              <Globe size={10} className="text-muted" />
+            {visibility && (
+              <>
+                {visibility.open ? (
+                  <Globe size={10} className="text-muted" />
+                ) : (
+                  <Lock size={10} className="text-muted" />
+                )}
+                <span className="text-[10px] text-muted">{visibility.label}</span>
+              </>
             )}
-            <span className="text-[10px] text-muted">
-              {space.isPrivate ? "Private" : "Public"}
-            </span>
             <span className="text-[10px] text-muted">
               {space.memberPubkeys.length} members
             </span>

@@ -34,6 +34,12 @@ export interface SpaceMute {
 export type ChannelNotifMode = "default" | "all" | "mentions" | "nothing" | "muted";
 
 /** Per-space notification settings (personal, not admin-controlled) */
+/**
+ * A space's mode until the user picks one. Matches the server's push default
+ * and the mobile app, so a space behaves the same on every device.
+ */
+export const DEFAULT_SPACE_NOTIF_MODE: SpaceNotifSettings["mode"] = "mentions";
+
 export interface SpaceNotifSettings {
   /** Notification mode for the space (default = global prefs) */
   mode: "all" | "mentions" | "nothing";
