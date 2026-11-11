@@ -1,5 +1,6 @@
 import { useAppDispatch } from "../../../store/hooks";
 import {
+  DEFAULT_SPACE_NOTIF_MODE,
   setSpaceMute,
   removeSpaceMute,
   setSpaceNotifSettings,
@@ -38,7 +39,7 @@ export function NotificationsTab({ spaceId }: NotificationsTabProps) {
   const settings = useSpaceNotifSettings(spaceId);
   const { channels, tree } = useSpaceChannels(spaceId);
 
-  const mode = settings?.mode ?? "all";
+  const mode = settings?.mode ?? DEFAULT_SPACE_NOTIF_MODE;
   const suppressEveryone = settings?.suppressEveryone ?? false;
   const suppressRoleMentions = settings?.suppressRoleMentions ?? false;
 

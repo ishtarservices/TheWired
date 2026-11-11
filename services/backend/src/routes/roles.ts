@@ -2,6 +2,7 @@ import { z } from "zod";
 import type { FastifyPluginAsync, FastifyReply } from "fastify";
 import { roleService } from "../services/roleService.js";
 import { permissionService } from "../services/permissionService.js";
+import { gateSpaceRead } from "../lib/spaceReadGate.js";
 import { profileCacheService, toMemberProfile, PROFILE_JOIN_CAP } from "../services/profileCacheService.js";
 import {
   requirePubkey,
@@ -112,6 +113,7 @@ export const rolesRoutes: FastifyPluginAsync = async (server) => {
       const params = validate(spaceIdParamsSchema, request.params, reply);
       if (!params) return;
 
+      if (!(await gateSpaceRead(request, reply, params.spaceId, "roles"))) return;
       const roles = await roleService.listRoles(params.spaceId);
       return { data: roles };
     },
@@ -432,6 +434,7 @@ export const rolesRoutes: FastifyPluginAsync = async (server) => {
       const params = validate(spaceIdParamsSchema, request.params, reply);
       if (!params) return;
 
+      if (!(await gateSpaceRead(request, reply, params.spaceId, "member-roles"))) return;
       const members = await roleService.getAllMembersWithRoles(params.spaceId);
 
       // Inline cached profiles for the first PROFILE_JOIN_CAP rows (facepiles);
@@ -457,6 +460,7 @@ export const rolesRoutes: FastifyPluginAsync = async (server) => {
       const params = validate(spaceAndPubkeyParamsSchema, request.params, reply);
       if (!params) return;
 
+      if (!(await gateSpaceRead(request, reply, params.spaceId, "member-roles"))) return;
       const roles = await roleService.getMemberRoles(params.spaceId, params.pubkey);
       return { data: roles };
     },

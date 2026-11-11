@@ -5,6 +5,7 @@ import { bans, timedMutes } from "../db/schema/moderation.js";
 import { spaces } from "../db/schema/spaces.js";
 import { eq, and, gt, or, isNull, inArray } from "drizzle-orm";
 import { roleService } from "./roleService.js";
+import { refreshMemberCount } from "./membershipService.js";
 
 export const permissionService = {
   async check(
@@ -69,7 +70,12 @@ export const permissionService = {
     if (!membership) {
       const [space] = await db.select({ creatorPubkey: spaces.creatorPubkey }).from(spaces).where(eq(spaces.id, spaceId)).limit(1);
       if (space?.creatorPubkey !== pubkey) return { allowed: false, reason: "Not a member" };
-      await db.insert(spaceMembers).values({ spaceId, pubkey }).onConflictDoNothing();
+      const readded = await db
+        .insert(spaceMembers)
+        .values({ spaceId, pubkey })
+        .onConflictDoNothing()
+        .returning({ pubkey: spaceMembers.pubkey });
+      if (readded.length > 0) await refreshMemberCount(db, spaceId);
     }
 
     // Get member's roles
@@ -84,7 +90,12 @@ export const permissionService = {
       try {
         const [space] = await db.select().from(spaces).where(eq(spaces.id, spaceId)).limit(1);
         if (space?.creatorPubkey === pubkey) {
-          await db.insert(spaceMembers).values({ spaceId, pubkey }).onConflictDoNothing();
+          const readded = await db
+            .insert(spaceMembers)
+            .values({ spaceId, pubkey })
+            .onConflictDoNothing()
+            .returning({ pubkey: spaceMembers.pubkey });
+          if (readded.length > 0) await refreshMemberCount(db, spaceId);
           const existingRoles = await db.select().from(spaceRoles).where(eq(spaceRoles.spaceId, spaceId));
           if (existingRoles.length === 0) {
             await roleService.seedDefaultRoles(spaceId, pubkey);

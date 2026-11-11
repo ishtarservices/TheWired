@@ -405,6 +405,7 @@ function mySpaceEntryToSpace(entry: MySpaceEntry): Space {
     mode: entry.space.mode,
     creatorPubkey: entry.space.creatorPubkey ?? "",
     createdAt: 0,
+    listed: entry.space.listed,
     spaceType: "platform",
     channelSource: "backend",
   };

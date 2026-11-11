@@ -156,6 +156,28 @@ export interface BuildRumorOptions {
 export interface WrapOptions {
   /** NIP-40 `expiration` (unix seconds) placed on BOTH the seal and the wrap. */
   expiration?: number;
+  /** Lifetime in seconds of the wrap, stamped as the wrap is built (after
+   *  the seal is signed), so time spent queued behind the signer — a NIP-46
+   *  bunker round-trips per call — does not eat it and a short-lived signal
+   *  (§5) leaves with all of it. The seal gets `ttl` + SEAL_TTL_SLACK_SEC,
+   *  stamped after its content is encrypted: it is inside the ciphertext,
+   *  so only the receiver sees it, and the slack covers the signing wait
+   *  for a receiver that judges expiry without a skew allowance. Takes
+   *  precedence over `expiration`. */
+  ttl?: number;
+}
+
+/** Extra lifetime of a `ttl` seal over its wrap: the signer timeout a NIP-46
+ *  bunker is given, so the signing wait can never expire the seal first. */
+export const SEAL_TTL_SLACK_SEC = 90;
+
+/** The `expiration` tag for a seal or wrap built now. */
+function expirationTagFor(opts?: WrapOptions, slackSec = 0): string[][] {
+  if (opts?.ttl !== undefined) {
+    return [["expiration", String(Math.floor(Date.now() / 1000) + Math.floor(opts.ttl) + slackSec)]];
+  }
+  if (opts?.expiration !== undefined) return [["expiration", String(Math.floor(opts.expiration))]];
+  return [];
 }
 
 /**
@@ -192,9 +214,6 @@ async function sealAndWrap(
   wrapTo: string,
   opts?: WrapOptions,
 ): Promise<NostrEvent> {
-  const expirationTag: string[][] =
-    opts?.expiration !== undefined ? [["expiration", String(Math.floor(opts.expiration))]] : [];
-
   // Encrypt rumor and create seal (kind:13) with the user's key
   const encryptedRumor = await ctx.signer.nip44Encrypt(sealTo, JSON.stringify(rumor));
 
@@ -202,7 +221,9 @@ async function sealAndWrap(
     pubkey: ctx.myPubkey,
     created_at: randomTimestamp(),
     kind: KIND_SEAL,
-    tags: [...expirationTag],
+    // Stamped now, after the encrypt (which may have queued behind the
+    // signer), with slack for the signing wait still ahead of it.
+    tags: expirationTagFor(opts, SEAL_TTL_SLACK_SEC),
     content: encryptedRumor,
   };
   const seal = await ctx.signer.signEvent(sealUnsigned);
@@ -216,7 +237,9 @@ async function sealAndWrap(
     pubkey: ephemeralPk,
     created_at: randomTimestamp(),
     kind: KIND_GIFT_WRAP,
-    tags: [["p", wrapTo], ...expirationTag],
+    // Stamped again after the seal was signed: the wrap is what relays sweep
+    // and what the backend reads, so it leaves with its whole lifetime.
+    tags: [["p", wrapTo], ...expirationTagFor(opts)],
     content: encryptedSeal,
   };
   return finalizeEvent(wrapEvent, ephemeralSk) as unknown as NostrEvent;

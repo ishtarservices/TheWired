@@ -4,6 +4,7 @@ import { validate, nonEmptyString, nonNegativeInt } from "../lib/validation.js";
 import { channelService } from "../services/channelService.js";
 import { channelLayoutService, MAX_CATEGORIES } from "../services/channelLayoutService.js";
 import { permissionService } from "../services/permissionService.js";
+import { gateSpaceRead } from "../lib/spaceReadGate.js";
 import { notifySpaceChanged, type SpaceChange } from "../services/spaceSignalService.js";
 import { getActorRank } from "../lib/authz.js";
 import { copyAuthority, copyAuthorityFor, sendLayoutError } from "../lib/layoutAuthority.js";
@@ -67,18 +68,21 @@ export const channelsRoutes: FastifyPluginAsync = async (server) => {
       const params = validate(spaceIdParams, request.params, reply);
       if (!params) return;
 
+      if (!(await gateSpaceRead(request, reply, params.spaceId, "channels"))) return;
       const channels = await channelService.listChannels(params.spaceId);
       return { data: channels };
     },
   );
 
-  /** GET /:spaceId/channels/layout — Categories + channels + revision (same visibility as GET /channels). */
+  /** GET /:spaceId/channels/layout — Categories + channels + revision. Same read
+   *  gate as GET /channels (unlisted spaces are for members). */
   server.get<{ Params: { spaceId: string } }>(
     "/:spaceId/channels/layout",
     async (request, reply) => {
       const params = validate(spaceIdParams, request.params, reply);
       if (!params) return;
 
+      if (!(await gateSpaceRead(request, reply, params.spaceId, "channels"))) return;
       const layout = await channelLayoutService.getLayout(params.spaceId);
       if (!layout) return reply.status(404).send({ error: "Space not found", code: "NOT_FOUND" });
       return { data: layout };

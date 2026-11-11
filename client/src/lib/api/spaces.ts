@@ -12,6 +12,7 @@ interface Space {
   activeMembers24h: number;
   messagesLast24h: number;
   featured: boolean;
+  listed?: boolean;
   tags?: string[];
 }
 
@@ -59,6 +60,7 @@ export async function joinSpaceApi(id: string) {
       hostRelay: string;
       creatorPubkey: string | null;
       memberCount: number;
+      listed?: boolean;
     };
     channels: Array<{
       id: string;
@@ -112,6 +114,7 @@ export async function fetchMySpaces() {
       hostRelay: string;
       creatorPubkey: string | null;
       memberCount: number;
+      listed?: boolean;
     };
     channels: Array<{
       id: string;

@@ -46,13 +46,15 @@ interface Rumor {
   content?: string;
   tags?: string[][];
   expiration?: number;
+  /** Seconds ago the rumor was created (default 60). */
+  ageSec?: number;
 }
 function rumor(r: Rumor, w: NostrEvent) {
   return {
     sender: r.sender ?? PARTNER,
     content: r.content ?? "",
     tags: r.tags ?? [["p", ME]],
-    createdAt: Math.floor(Date.now() / 1000) - 60,
+    createdAt: Math.floor(Date.now() / 1000) - (r.ageSec ?? 60),
     wrapId: w.id,
     rumorId: hex64(0xf000 + wrapCounter),
     kind: r.kind,
@@ -143,7 +145,7 @@ describe("wire v1 routing through the pipeline", () => {
   });
 
   it("typing (20014) sets a short-lived hint; receipts (20015) mark our messages", async () => {
-    await deliver({ kind: 20014 });
+    await deliver({ kind: 20014, ageSec: 2 });
     const typing = store.getState().dm.typing[PARTNER];
     expect(typing?.[PARTNER]).toBeGreaterThan(Math.floor(Date.now() / 1000));
     expect(msgs()).toHaveLength(1);
@@ -151,6 +153,11 @@ describe("wire v1 routing through the pipeline", () => {
     await deliver({ kind: 20015, tags: [["p", ME], ["status", "read"], ["e", RUMOR]] });
     expect(msgs()[0].readBy).toEqual([PARTNER]);
     expect(msgs()[0].deliveredTo).toEqual([PARTNER]);
+  });
+
+  it("a typing rumor older than its 30 s is ignored, even inside the wrap-expiry skew allowance", async () => {
+    await deliver({ kind: 20014, ageSec: 90 });
+    expect(store.getState().dm.typing[PARTNER]?.[PARTNER]).toBeUndefined();
   });
 
   it("an unknown rumor kind and an unknown type tag are both dropped", async () => {
