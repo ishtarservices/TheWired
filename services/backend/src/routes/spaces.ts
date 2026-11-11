@@ -7,6 +7,7 @@ import { spaceChannels } from "../db/schema/channels.js";
 import { eq, and, inArray, asc } from "drizzle-orm";
 import { roleService } from "../services/roleService.js";
 import { channelService } from "../services/channelService.js";
+import { channelLayoutService } from "../services/channelLayoutService.js";
 import { validate, nonEmptyString, limitParam, offsetParam } from "../lib/validation.js";
 import { requirePubkey, requireSpaceCreator, requireSpacePermission } from "../lib/authz.js";
 import { notifySpaceChanged } from "../services/spaceSignalService.js";
@@ -102,6 +103,7 @@ export const spacesRoutes: FastifyPluginAsync = async (server) => {
     for (const f of feedRows) {
       (feedsBySpace[f.spaceId] ??= []).push(f.pubkey);
     }
+    const { categoriesBySpace, revisionBySpace } = await channelLayoutService.layoutsForSpaces(spaceIds);
 
     const result = spaceRows.map((s) => ({
       space: {
@@ -115,6 +117,8 @@ export const spacesRoutes: FastifyPluginAsync = async (server) => {
         memberCount: s.memberCount ?? 0,
       },
       channels: channelsBySpace[s.id] ?? [],
+      categories: categoriesBySpace[s.id] ?? [],
+      layoutRevision: revisionBySpace[s.id] ?? 0,
       feedPubkeys: feedsBySpace[s.id] ?? [],
     }));
 

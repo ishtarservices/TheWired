@@ -409,7 +409,9 @@ export const voiceRoutes: FastifyPluginAsync = async (server) => {
         // Delete if room doesn't exist or has 0 participants
         const participantCount = (room as any)?.numParticipants ?? 0;
         if (participantCount === 0) {
-          await db.delete(spaceChannels).where(eq(spaceChannels.id, ch.id));
+          // Through the service: space lock, layout revision, default promotion,
+          // and its overrides cascade.
+          await channelService.deleteChannel(ch.spaceId, ch.id).catch(() => {});
           deleted++;
         }
       }
