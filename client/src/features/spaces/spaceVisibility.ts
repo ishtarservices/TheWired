@@ -6,12 +6,16 @@ import type { Space } from "../../types/space";
  * invite-only; NIP-29-native ones are public or private groups on their relay.
  * Null when a backend-backed space's listing isn't known yet.
  */
-export function spaceVisibility(space: Space): { label: string; open: boolean } | null {
+export function spaceVisibility(
+  space: Space,
+): { label: string; hint: string; open: boolean } | null {
   if (isBackendBacked(space)) {
     if (space.listed === undefined) return null;
     return space.listed
-      ? { label: "Listed in Discover", open: true }
-      : { label: "Unlisted · invite only", open: false };
+      ? { label: "Listed", hint: "Listed in Discover: anyone can find and join it", open: true }
+      : { label: "Unlisted", hint: "Not in Discover: people join with an invite", open: false };
   }
-  return space.isPrivate ? { label: "Private", open: false } : { label: "Public", open: true };
+  return space.isPrivate
+    ? { label: "Private", hint: "Private group on its relay", open: false }
+    : { label: "Public", hint: "Public group on its relay", open: true };
 }
