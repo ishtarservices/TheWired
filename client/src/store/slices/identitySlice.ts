@@ -132,6 +132,27 @@ export const identitySlice = createSlice({
       state.pinnedNoteIds = action.payload.noteIds;
       state.pinnedNotesCreatedAt = action.payload.createdAt;
     },
+    /** Optimistic pin/unpin (and its rollback): changes the ids only. The
+     *  list's created_at stays that of the last real copy, so a real list
+     *  arriving afterwards is never ignored as "older". */
+    applyPinnedNoteOp(
+      state,
+      /** `at`: where a pin goes back (a rolled-back unpin keeps its place);
+       *  default is the end — the newest pin. */
+      action: PayloadAction<{ id: string; pin: boolean; at?: number }>,
+    ) {
+      const { id, pin, at } = action.payload;
+      const has = state.pinnedNoteIds.includes(id);
+      if (pin && !has) {
+        if (at !== undefined && at >= 0 && at < state.pinnedNoteIds.length) {
+          state.pinnedNoteIds.splice(at, 0, id);
+        } else {
+          state.pinnedNoteIds.push(id);
+        }
+      } else if (!pin && has) {
+        state.pinnedNoteIds = state.pinnedNoteIds.filter((x) => x !== id);
+      }
+    },
     setKnownFollowers(state, action: PayloadAction<string[]>) {
       state.knownFollowers = action.payload;
     },
@@ -159,6 +180,7 @@ export const {
   setFollowList,
   setMuteList,
   setPinnedNotes,
+  applyPinnedNoteOp,
   setKnownFollowers,
   addKnownFollower,
   setAccounts,

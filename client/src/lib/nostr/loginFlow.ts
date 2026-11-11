@@ -38,6 +38,8 @@ import {
 } from "../db/spaceStore";
 import type { Space, SpaceChannel } from "../../types/space";
 import { loadEnabledFeatures } from "../../features/settings/featuresPersistence";
+import { notePinListSeen } from "../../features/profile/pinListWrite";
+import { pinnedIdsFromTags } from "../../features/profile/pinList";
 import { setEnabledFeatures } from "../../store/slices/featuresSlice";
 import { loadFeedPrefs } from "../../features/friends/feedPrefsPersistence";
 import { setFeedPrefs } from "../../store/slices/feedPrefsSlice";
@@ -358,9 +360,10 @@ function subscribeUserData(
           break;
         }
         case EVENT_KINDS.PINNED_NOTES: {
-          const noteIds = event.tags
-            .filter((t) => t[0] === "e" && t[1])
-            .map((t) => t[1]);
+          // Verified and remembered as a base for pin writes (pinListWrite):
+          // a write whose own read misses this copy still builds on it.
+          if (!notePinListSeen(event, pubkey)) break;
+          const noteIds = pinnedIdsFromTags(event.tags);
           store.dispatch(setPinnedNotes({ noteIds, createdAt: event.created_at }));
           saveUserState("pinned_notes", noteIds);
           break;

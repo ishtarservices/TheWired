@@ -1,14 +1,15 @@
 import { useCallback } from "react";
 import { useAppSelector, useAppDispatch } from "../../store/hooks";
-import { setPinnedNotes } from "../../store/slices/identitySlice";
+import { applyPinnedNoteOp } from "../../store/slices/identitySlice";
+import { store } from "../../store";
 import type { NostrEvent } from "../../types/nostr";
-import { buildRepost, buildReply, buildQuoteNote, buildPinnedNotesEvent, buildDeletionEvent } from "../../lib/nostr/eventBuilder";
+import { buildRepost, buildReply, buildQuoteNote, buildDeletionEvent } from "../../lib/nostr/eventBuilder";
 import { signAndPublish } from "../../lib/nostr/publish";
 import { toggleLike } from "../reactions/reactionToggle";
-import { saveUserState } from "../../lib/db/userStateStore";
 import { deleteEvent as deleteEventFromDB } from "../../lib/db/eventStore";
 import { removeEvent, removeNote } from "../../store/slices/eventsSlice";
 import { parseThreadRef } from "../spaces/noteParser";
+import { updatePinnedNotes } from "./pinListWrite";
 
 /** Profile-context note actions — publishes to user's write relays (no space dependency) */
 export function useProfileNoteActions(event: NostrEvent) {
@@ -64,30 +65,34 @@ export function useProfileNoteActions(event: NostrEvent) {
     await signAndPublish(unsigned);
   }, [pubkey, event.id, event.pubkey]);
 
+  // Optimistic flip, then a read-modify-write against the freshest relay copy
+  // (pinListWrite) — never a list rebuilt from these ids, which would wipe
+  // pins made on another device or by another client. The flip changes the
+  // ids only (not the list's created_at), so the real list still lands. If
+  // nothing was published, the flip is undone with the inverse op — unless
+  // the account changed meanwhile (the ids on screen are another account's).
   const togglePin = useCallback(async (eventId: string) => {
     if (!pubkey) return;
-    const isPinned = pinnedNoteIds.includes(eventId);
-    const newIds = isPinned
-      ? pinnedNoteIds.filter((id) => id !== eventId)
-      : [...pinnedNoteIds, eventId];
-    const now = Math.floor(Date.now() / 1000);
-    // Optimistic update
-    dispatch(setPinnedNotes({ noteIds: newIds, createdAt: now }));
-    const unsigned = buildPinnedNotesEvent(pubkey, newIds);
-    await signAndPublish(unsigned);
-    saveUserState("pinned_notes", newIds);
+    const at = pinnedNoteIds.indexOf(eventId);
+    const isPinned = at >= 0;
+    dispatch(applyPinnedNoteOp({ id: eventId, pin: !isPinned }));
+    try {
+      await updatePinnedNotes(pubkey, { id: eventId, pin: !isPinned });
+    } catch (err) {
+      console.warn("[pins] not updated:", err instanceof Error ? err.message : err);
+      if (store.getState().identity.pubkey === pubkey) {
+        dispatch(applyPinnedNoteOp({ id: eventId, pin: isPinned, at: isPinned ? at : undefined }));
+      }
+    }
   }, [pubkey, pinnedNoteIds, dispatch]);
 
   const deleteNote = useCallback(async (eventId: string) => {
     if (!pubkey) return;
-    // If this note is pinned, unpin it first
+    // If this note is pinned, unpin it first (same safe write as a tap;
+    // best-effort — a deleted pin is hidden on read either way)
     if (pinnedNoteIds.includes(eventId)) {
-      const newPinIds = pinnedNoteIds.filter((id) => id !== eventId);
-      const now = Math.floor(Date.now() / 1000);
-      dispatch(setPinnedNotes({ noteIds: newPinIds, createdAt: now }));
-      const pinUnsigned = buildPinnedNotesEvent(pubkey, newPinIds);
-      signAndPublish(pinUnsigned).catch(() => {});
-      saveUserState("pinned_notes", newPinIds);
+      dispatch(applyPinnedNoteOp({ id: eventId, pin: false }));
+      updatePinnedNotes(pubkey, { id: eventId, pin: false }).catch(() => {});
     }
     // Remove from Redux + IndexedDB immediately (optimistic)
     dispatch(removeEvent(eventId));
