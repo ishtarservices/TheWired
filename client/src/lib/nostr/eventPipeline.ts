@@ -1218,8 +1218,17 @@ const HEX64_RE = /^[0-9a-f]{64}$/i;
 // real handler once (function declaration is hoisted, so this is safe here).
 deps.decryptQueue.setHandler(handleGiftWrap);
 
-/** Handle incoming gift wrap (kind:1059) — decrypt and route to DM or friend request */
-async function handleGiftWrap(event: NostrEvent): Promise<void> {
+/** Clock-skew allowance when judging a wrap's expiry (DM_WIRE_CONTRACT §5).
+ *  Signal wraps live 45 s; without it a device whose clock runs ~45 s fast
+ *  would reject every media key. The relay already refuses to serve an
+ *  expired wrap by its own clock, so this only widens the local check. */
+const WRAP_EXPIRY_SKEW_SEC = 60;
+
+/** Handle incoming gift wrap (kind:1059) — decrypt and route to DM or friend request.
+ *  `receivedAt` (unix seconds) is when the wrap reached the decrypt queue:
+ *  expiry is judged against it, so a wrap that waited behind a slow signer
+ *  (a NIP-46 bunker decrypts one at a time) is not rejected for the wait. */
+async function handleGiftWrap(event: NostrEvent, receivedAt: number = Math.floor(Date.now() / 1000)): Promise<void> {
   const myPubkey = getState().identity.pubkey;
   if (!myPubkey) {
     // Not logged in (yet): nothing about the wrap was judged — let a later copy in.
@@ -1244,7 +1253,10 @@ async function handleGiftWrap(event: NostrEvent): Promise<void> {
   // set) stops re-requesting it every round.
   let dm: UnwrappedDM;
   try {
-    dm = await unwrapGiftWrap(event, { acceptKinds: GIFT_WRAP_ACCEPT_KINDS });
+    dm = await unwrapGiftWrap(event, {
+      acceptKinds: GIFT_WRAP_ACCEPT_KINDS,
+      now: receivedAt - WRAP_EXPIRY_SKEW_SEC,
+    });
   } catch (err) {
     if (err instanceof GiftWrapRejectedError || (err as { name?: string })?.name === "GiftWrapRejectedError") {
       dispatch(markDMWrapProcessed(event.id));
@@ -1353,6 +1365,10 @@ async function handleGiftWrap(event: NostrEvent): Promise<void> {
         );
         return;
       case "typing":
+        // Judged by the rumor's own age, not the wrap's expiration: expiry
+        // carries a 60 s skew allowance (WRAP_EXPIRY_SKEW_SEC), which must
+        // not turn a stale typing wrap into a phantom "typing…".
+        if (nowSec - dm.createdAt > DM_EXPIRATION_SECONDS.typing) return;
         if (dm.sender !== myPubkey) {
           dispatch(setTyping({ conversationId: w.conversationId, pubkey: dm.sender, until: nowSec + 6 }));
         }

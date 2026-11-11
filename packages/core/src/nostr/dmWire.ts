@@ -413,10 +413,22 @@ export function receiptRumorTags(
   return tags;
 }
 
+/** Lifetime of a signal wrap (§5): under the backend's 60 s push line, so
+ *  it never pushes. The fallback keeps a core build paired with an older
+ *  shared-types (which lacks `callControl`) from stamping `NaN`. */
+const SIGNAL_TTL_FALLBACK_SEC = 45;
+
+/** Lifetime in seconds of a signal wrap class — pass it as the wrap's
+ *  `ttl` so it is stamped when the seal and wrap are built (§5). */
+export function signalTtlFor(cls: "call_control" | "media_key"): number {
+  const sec = cls === "call_control" ? DM_EXPIRATION_SECONDS.callControl : DM_EXPIRATION_SECONDS.mediaKey;
+  return typeof sec === "number" && sec > 0 ? sec : SIGNAL_TTL_FALLBACK_SEC;
+}
+
 /** The seal/wrap `expiration` a rumor class gets, relative to `createdAt`
  *  (§5). `undefined` = no expiration. */
 export function defaultExpirationFor(
-  cls: "typing" | "receipt" | "call" | "message" | "media_key",
+  cls: "typing" | "receipt" | "call" | "call_control" | "message" | "media_key",
   createdAt: number,
   /** Per-conversation disappearing-messages timer, seconds (0/undefined = off). */
   disappearAfter?: number,
@@ -428,8 +440,10 @@ export function defaultExpirationFor(
       return createdAt + DM_EXPIRATION_SECONDS.receipt;
     case "call":
       return createdAt + DM_EXPIRATION_SECONDS.call;
+    case "call_control":
+      return createdAt + signalTtlFor("call_control");
     case "media_key":
-      return createdAt + DM_EXPIRATION_SECONDS.mediaKey;
+      return createdAt + signalTtlFor("media_key");
     case "message":
       return disappearAfter && disappearAfter > 0 ? createdAt + disappearAfter : undefined;
   }

@@ -79,4 +79,14 @@ describe("eventPipeline — gift wrap decrypt failures and the dedup LRU", () =>
     await deliverTwice(wrapFor(ME, "f".repeat(64)));
     expect(unwrapSpy).toHaveBeenCalledTimes(1);
   });
+
+  it("judges expiry from the wrap's arrival, with a 60 s clock-skew allowance", async () => {
+    unwrapSpy.mockRejectedValue(new GiftWrapRejectedError("expired", "Gift wrap expired"));
+    const before = Math.floor(Date.now() / 1000);
+    await processIncomingEvent(wrapFor(ME, "9".repeat(64)), WS);
+    await vi.waitFor(() => expect(unwrapSpy).toHaveBeenCalled());
+    const opts = unwrapSpy.mock.calls[0][1] as { now: number };
+    expect(opts.now).toBeGreaterThanOrEqual(before - 60);
+    expect(opts.now).toBeLessThanOrEqual(Math.floor(Date.now() / 1000) - 60);
+  });
 });
