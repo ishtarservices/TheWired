@@ -13,7 +13,7 @@ import { useMarkdownShortcuts } from "../../hooks/useMarkdownShortcuts";
 import { usePlaybackBarSpacing } from "../../hooks/usePlaybackBarSpacing";
 import { registerGifShare } from "../../lib/api/gif";
 import type { UploadedAttachment } from "../../hooks/useFileUpload";
-import type { AttachmentMeta } from "../../lib/nostr/eventBuilder";
+import { gifAttachment, type AttachmentMeta } from "../../lib/nostr/eventBuilder";
 import type { NostrEvent } from "../../types/nostr";
 import type { GifItem } from "../../types/emoji";
 import type { EmojiSelectResult } from "../../components/chat/EmojiPicker";
@@ -269,16 +269,18 @@ export function ChatInput({
           mimeType: att.result.mimeType,
           sha256: att.result.sha256,
           size: att.result.size,
+          ...(att.dim ? { dim: att.dim } : {}),
         });
         if (content.length > 0) content += "\n";
         content += att.result.url;
       }
     }
 
-    // Append pending GIF URL
+    // Append pending GIF URL (its size rides along in an imeta)
     if (pendingGif) {
       if (content.length > 0) content += "\n";
       content += pendingGif.url;
+      attachmentMetas.push(gifAttachment(pendingGif));
     }
 
     // Build NIP-30 emoji tags from custom emojis used in the message

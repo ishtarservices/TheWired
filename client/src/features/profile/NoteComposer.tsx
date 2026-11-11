@@ -14,7 +14,7 @@ import { buildNotePost } from "@/lib/nostr/notePost";
 import { signAndPublish } from "@/lib/nostr/publish";
 import { relayManager } from "@/lib/nostr/relayManager";
 import { registerGifShare } from "@/lib/api/gif";
-import type { AttachmentMeta } from "@/lib/nostr/eventBuilder";
+import { gifAttachment, type AttachmentMeta } from "@/lib/nostr/eventBuilder";
 import type { GifItem } from "@/types/emoji";
 import type { EmojiSelectResult } from "@/components/chat/EmojiPicker";
 import type { PollDraft } from "@/features/polls/PollComposer";
@@ -261,9 +261,12 @@ export function NoteComposer({ className = "mx-6 mt-4" }: NoteComposerProps) {
             mimeType: att.result.mimeType,
             sha256: att.result.sha256,
             size: att.result.size,
+            ...(att.dim ? { dim: att.dim } : {}),
           });
         }
       }
+      // A picked GIF goes last, with its size in an imeta.
+      if (pendingGif) attachmentMetas.push(gifAttachment(pendingGif));
 
       // Tracks first, in order; a retry quotes the ones that already went out.
       let musicRefs: string[] = [];
@@ -287,7 +290,6 @@ export function NoteComposer({ className = "mx-6 mt-4" }: NoteComposerProps) {
             text: value,
             mentions: mentionMapRef.current,
             attachments: attachmentMetas,
-            extraMediaUrls: pendingGif ? [pendingGif.url] : undefined,
             musicRefs,
             customEmoji: customEmojiMapRef.current,
           }),

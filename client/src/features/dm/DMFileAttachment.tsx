@@ -1,11 +1,19 @@
 import { useEffect, useState } from "react";
-import { Download, FileText, Lock, AlertTriangle } from "lucide-react";
+import { Download, FileText, Lock, AlertTriangle, Loader2 } from "lucide-react";
 import { fetch as tauriFetch } from "@tauri-apps/plugin-http";
 import { blobFallbackCandidates, decryptDMFile, parseBlobUrl } from "@ishtarservices/core";
 import type { DMFileMeta } from "@ishtarservices/shared-types";
 import { ownBlossomOrigin } from "@/lib/api/blossom";
 import { fetchAuthorServers } from "@/lib/media/authorServers";
 import { isUnsafeHost } from "@/lib/security/ssrfGuard";
+import { parseDim } from "@/lib/media/mediaDims";
+import {
+  CHAT_IMAGE_PLACEHOLDER,
+  CHAT_VIDEO_PLACEHOLDER,
+  SmartImage,
+  SmartVideo,
+  boundedMediaSize,
+} from "@/components/media";
 
 /** Tauri's HTTP plugin bypasses CORS in the desktop app; the plain browser
  *  preview has no `invoke` bridge, so fall back to window.fetch there. */
@@ -131,19 +139,9 @@ export function DMFileAttachment({ meta, author, isMe, autoLoad }: DMFileAttachm
   const sizeLabel = meta.size ? `${(meta.size / 1024 / 1024).toFixed(meta.size > 1024 * 1024 ? 1 : 2)} MB` : "";
 
   if (state.status === "ready") {
-    if (isImage) {
-      return (
-        <a href={state.objectUrl} target="_blank" rel="noreferrer" className="block">
-          <img
-            src={state.objectUrl}
-            alt=""
-            className="max-h-80 max-w-full rounded-lg object-contain"
-            style={meta.dim ? { aspectRatio: meta.dim.replace("x", "/") } : undefined}
-          />
-        </a>
-      );
-    }
-    if (isVideo) return <video src={state.objectUrl} controls className="max-h-80 max-w-full rounded-lg" />;
+    // Same cards as chat media: sized from the rumor's `dim`, lightbox / play.
+    if (isImage) return <SmartImage url={state.objectUrl} dim={meta.dim} density="chat" />;
+    if (isVideo) return <SmartVideo url={state.objectUrl} dim={meta.dim} density="chat" />;
     if (isAudio) return <audio src={state.objectUrl} controls className="w-64 max-w-full" />;
     return (
       <a
@@ -156,6 +154,31 @@ export function DMFileAttachment({ meta, author, isMe, autoLoad }: DMFileAttachm
         {sizeLabel && <span className="text-muted">{sizeLabel}</span>}
         <Download size={12} className="text-muted" />
       </a>
+    );
+  }
+
+  // A photo / video not decrypted yet holds its final shape, so the
+  // conversation doesn't jump when it opens.
+  if ((isImage || isVideo) && state.status !== "error") {
+    const size = boundedMediaSize(parseDim(meta.dim) ?? (isImage ? CHAT_IMAGE_PLACEHOLDER : CHAT_VIDEO_PLACEHOLDER));
+    const loading = state.status === "loading";
+    return (
+      <button
+        type="button"
+        onClick={load}
+        disabled={loading}
+        className="relative grid max-w-full place-items-center overflow-hidden rounded-xl border border-border bg-surface text-xs text-soft transition-colors hover:bg-surface-hover disabled:cursor-default"
+        style={{ width: size.width, aspectRatio: size.aspect }}
+        title="Encrypted attachment"
+        data-testid="dm-attachment"
+      >
+        {loading && <span className="absolute inset-0 animate-pulse bg-surface-hover/60" />}
+        <span className="relative flex flex-col items-center gap-1.5 px-3 text-center">
+          {loading ? <Loader2 size={18} className="animate-spin text-muted" /> : <Lock size={16} className="text-primary" />}
+          <span>{loading ? "Decrypting…" : isImage ? "Encrypted photo" : "Encrypted video"}</span>
+          {!loading && sizeLabel && <span className="text-[11px] text-muted">{sizeLabel} · click to open</span>}
+        </span>
+      </button>
     );
   }
 

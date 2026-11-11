@@ -6,12 +6,33 @@ import type { RelayListEntry } from "../../types/relay";
 // unchanged.
 export { buildProfileEvent, buildFollowListEvent } from "@ishtarservices/core";
 
-/** File metadata for imeta tags (NIP-94 inline) */
+/** File metadata for imeta tags (NIP-92 inline) */
 export interface AttachmentMeta {
   url: string;
   mimeType: string;
-  sha256: string;
-  size: number;
+  /** Uploaded blobs only: a picked GIF has no hash or size of ours. */
+  sha256?: string;
+  size?: number;
+  /** "WxH" for images and videos: viewers reserve the box before it loads. */
+  dim?: string;
+}
+
+/** A NIP-92 `imeta` tag for an attachment. */
+export function imetaTag(att: AttachmentMeta): string[] {
+  const tag = ["imeta", `url ${att.url}`, `m ${att.mimeType}`];
+  if (att.sha256) tag.push(`x ${att.sha256}`);
+  if (att.size != null) tag.push(`size ${String(att.size)}`);
+  if (att.dim) tag.push(`dim ${att.dim}`);
+  return tag;
+}
+
+/** A picked GIF as an attachment, so its size travels in an imeta. */
+export function gifAttachment(gif: { url: string; width: number; height: number }): AttachmentMeta {
+  return {
+    url: gif.url,
+    mimeType: "image/gif",
+    ...(gif.width > 0 && gif.height > 0 ? { dim: `${Math.round(gif.width)}x${Math.round(gif.height)}` } : {}),
+  };
 }
 
 /** Build an unsigned kind:9 chat message event */
@@ -36,18 +57,8 @@ export function buildChatMessage(
     tags.push(["p", replyTo.pubkey]);
   }
 
-  // Add imeta tags for file attachments (NIP-94 inline metadata)
-  if (attachments?.length) {
-    for (const att of attachments) {
-      tags.push([
-        "imeta",
-        `url ${att.url}`,
-        `m ${att.mimeType}`,
-        `x ${att.sha256}`,
-        `size ${String(att.size)}`,
-      ]);
-    }
-  }
+  // Add imeta tags for file attachments (NIP-92 inline metadata)
+  for (const att of attachments ?? []) tags.push(imetaTag(att));
 
   // Add NIP-30 custom emoji tags
   if (emojiTags?.length) {
@@ -99,18 +110,8 @@ export function buildRootNote(
     }
   }
 
-  // Add imeta tags for file attachments (NIP-94 inline metadata)
-  if (attachments?.length) {
-    for (const att of attachments) {
-      tags.push([
-        "imeta",
-        `url ${att.url}`,
-        `m ${att.mimeType}`,
-        `x ${att.sha256}`,
-        `size ${String(att.size)}`,
-      ]);
-    }
-  }
+  // Add imeta tags for file attachments (NIP-92 inline metadata)
+  for (const att of attachments ?? []) tags.push(imetaTag(att));
 
   // Add NIP-30 custom emoji tags
   if (emojiTags?.length) {

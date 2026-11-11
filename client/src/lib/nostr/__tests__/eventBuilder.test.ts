@@ -17,6 +17,7 @@ import {
   buildDMRelayListEvent,
   buildPollEvent,
   buildPollVote,
+  gifAttachment,
 } from "../eventBuilder";
 import { lunaVega, marcusCole } from "@/__tests__/fixtures/testUsers";
 
@@ -170,6 +171,17 @@ describe("buildChatMessage", () => {
     expect(imetaTag).toContainEqual("m image/png");
     expect(imetaTag).toContainEqual("x abc123");
     expect(imetaTag).toContainEqual("size 1024");
+  });
+
+  it("carries the attachment's dim, and a GIF's size without a hash", () => {
+    const att = [
+      { url: "https://example.com/a.jpg", mimeType: "image/jpeg", sha256: "abc", size: 9, dim: "1080x1920" },
+      gifAttachment({ url: "https://media.example/x.gif", width: 498, height: 280 }),
+    ];
+    const ev = buildChatMessage(PK, GROUP, "pics", undefined, undefined, att);
+    const [photo, gif] = ev.tags.filter((t) => t[0] === "imeta");
+    expect(photo).toContainEqual("dim 1080x1920");
+    expect(gif).toEqual(["imeta", "url https://media.example/x.gif", "m image/gif", "dim 498x280"]);
   });
 
   it("adds emoji tags", () => {

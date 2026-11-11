@@ -7,6 +7,8 @@ import {
   clampedCardAspect,
   galleryLayout,
   FEED_ASPECT_CLAMP,
+  CHAT_MEDIA_BOX,
+  boundedMediaSize,
 } from "../mediaLayout";
 
 describe("orientationFromDims", () => {
@@ -81,5 +83,37 @@ describe("galleryLayout", () => {
   it("caps at 4 tiles and reports overflow for 5+", () => {
     expect(galleryLayout(5)).toEqual({ kind: "grid", tiles: 4, columns: 2, overflow: 1 });
     expect(galleryLayout(7)).toEqual({ kind: "grid", tiles: 4, columns: 2, overflow: 3 });
+  });
+});
+
+describe("boundedMediaSize", () => {
+  const box = CHAT_MEDIA_BOX;
+
+  it("caps a large landscape image at the box width", () => {
+    const s = boundedMediaSize({ w: 4000, h: 3000 });
+    expect(s.width).toBe(box.maxW);
+    expect(s.aspect).toBeCloseTo(4 / 3);
+    expect(s.fitted).toBe(false);
+  });
+
+  it("caps a portrait image by height", () => {
+    const s = boundedMediaSize({ w: 1080, h: 1920 });
+    expect(s.width).toBe(Math.round(box.maxH * (1080 / 1920)));
+    expect(s.width / s.aspect).toBeCloseTo(box.maxH, 0);
+    expect(s.fitted).toBe(false);
+  });
+
+  it("never scales a small image up", () => {
+    expect(boundedMediaSize({ w: 120, h: 80 }).width).toBe(120);
+  });
+
+  it("clamps very tall and very wide shapes", () => {
+    const tall = boundedMediaSize({ w: 600, h: 3000 });
+    expect(tall.aspect).toBe(box.minAspect);
+    expect(tall.fitted).toBe(true);
+    const wide = boundedMediaSize({ w: 4000, h: 500 });
+    expect(wide.aspect).toBe(box.maxAspect);
+    expect(wide.fitted).toBe(true);
+    expect(wide.width).toBe(box.maxW);
   });
 });

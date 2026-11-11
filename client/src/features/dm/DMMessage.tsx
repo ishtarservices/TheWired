@@ -11,6 +11,8 @@ import { useUserPopover } from "@/features/profile/UserPopoverContext";
 import { useRelativeTime } from "@/hooks/useRelativeTime";
 import { useAppSelector } from "@/store/hooks";
 import { matchEmbed } from "@/lib/content/embedPatterns";
+import { parseContent } from "@/lib/content/parseContent";
+import { isMediaOnly, splitMessageSegments } from "@/lib/content/messageLayout";
 import { DMMessageContextMenu } from "./DMMessageContextMenu";
 import { getDisplayName, resolveDMReplyTarget, dmReactionPills } from "./dmUtils";
 import type { DMMessage as DMMessageType } from "@/store/slices/dmSlice";
@@ -70,6 +72,15 @@ export const DMMessage = memo(function DMMessage({
     const urlMatch = displayContent.match(URL_RE);
     return urlMatch ? !!matchEmbed(urlMatch[0]) : false;
   }, [displayContent, message.isDeleted]);
+
+  // A photo / video with no words is drawn on its own, without the bubble
+  // around it (an attachment, or a body of only media URLs and GIFs).
+  const mediaOnly = useMemo(() => {
+    if (message.isDeleted) return false;
+    if (message.attachment) return /^(image|video)\//.test(message.attachment.fileType);
+    if (!URL_RE.test(displayContent)) return false;
+    return isMediaOnly(splitMessageSegments(parseContent(displayContent, message.emojiTags)));
+  }, [displayContent, message.isDeleted, message.attachment, message.emojiTags]);
 
   const [ctxMenu, setCtxMenu] = useState<{ x: number; y: number } | null>(null);
   const [showReactionPicker, setShowReactionPicker] = useState(false);
@@ -170,11 +181,15 @@ export const DMMessage = memo(function DMMessage({
         <div className={`flex items-center gap-1 ${isMe ? "flex-row-reverse" : ""}`}>
           <div
             ref={bubbleRef}
-            className={`rounded-2xl px-4 py-2 text-sm ${
-              isMe
-                ? "bg-primary-dim text-heading rounded-br-sm border border-primary/15"
-                : "bg-card text-body rounded-bl-sm border border-border"
-            }`}
+            className={
+              mediaOnly && !message.replyToWrapId && !(isRoom && !isMe && !isGrouped)
+                ? `flex flex-col text-sm ${isMe ? "items-end" : "items-start"}`
+                : `rounded-2xl px-4 py-2 text-sm ${
+                    isMe
+                      ? "bg-primary-dim text-heading rounded-br-sm border border-primary/15"
+                      : "bg-card text-body rounded-bl-sm border border-border"
+                  }`
+            }
           >
             {isRoom && !isMe && !isGrouped && (
               <div className="mb-0.5 text-[11px] font-medium text-primary-soft/80">{displayName}</div>
@@ -189,7 +204,7 @@ export const DMMessage = memo(function DMMessage({
             {message.attachment ? (
               <DMFileAttachment meta={message.attachment} author={message.senderPubkey} isMe={isMe} autoLoad={!!senderIsFriend} />
             ) : (
-              <RichContent content={displayContent} emojiTags={message.emojiTags} onMentionClick={(pubkey, anchor) => openUserPopover(pubkey, anchor)} musicShape="poster" />
+              <RichContent content={displayContent} emojiTags={message.emojiTags} onMentionClick={(pubkey, anchor) => openUserPopover(pubkey, anchor)} musicShape="poster" layout="message" />
             )}
           </div>
           {/* Hover row: react */}

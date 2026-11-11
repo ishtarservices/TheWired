@@ -16,7 +16,7 @@ import { isGatedTags } from "@/lib/nostr/gatedTargets";
 import { buildNaddrReference } from "@/lib/nostr/naddrEncode";
 import { signAndPublish } from "@/lib/nostr/publish";
 import { registerGifShare } from "@/lib/api/gif";
-import type { AttachmentMeta } from "@/lib/nostr/eventBuilder";
+import { gifAttachment, type AttachmentMeta } from "@/lib/nostr/eventBuilder";
 import type { MusicVisibility } from "@/types/music";
 import type { GifItem } from "@/types/emoji";
 import type { EmojiSelectResult } from "@/components/chat/EmojiPicker";
@@ -240,14 +240,16 @@ export function MusicPostModal({ open, onClose, target }: MusicPostModalProps) {
             mimeType: att.result.mimeType,
             sha256: att.result.sha256,
             size: att.result.size,
+            ...(att.dim ? { dim: att.dim } : {}),
           });
         }
       }
+      // A picked GIF goes last, with its size in an imeta.
+      if (pendingGif) attachmentMetas.push(gifAttachment(pendingGif));
       const unsigned = buildNotePost(pubkey, {
         text: value,
         mentions: mentionMapRef.current,
         attachments: attachmentMetas,
-        extraMediaUrls: pendingGif ? [pendingGif.url] : undefined,
         musicRefs: [buildNaddrReference(target.addressableId, APP_RELAY)],
         customEmoji: customEmojiMapRef.current,
       });

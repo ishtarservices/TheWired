@@ -155,3 +155,24 @@ describe("extensionless blob classification", () => {
     expect(classifyEventMediaUrl("https://example.com/page", { mime: "image/png", fallbacks: [] })).toBeNull();
   });
 });
+
+describe("imeta layout hints", () => {
+  const url = "https://cdn.example.com/clip.mp4";
+  const poster = "https://cdn.example.com/clip.jpg";
+  const tags = [["imeta", `url ${url}`, "m video/mp4", "dim 720x1280", `image ${poster}`]];
+
+  it("imetaByUrl reads dim and an http(s) poster", () => {
+    expect(imetaFor(imetaByUrl(tags), url)).toMatchObject({ dim: "720x1280", poster });
+    const unsafe = imetaByUrl([["imeta", `url ${url}`, "image javascript:alert(1)"]]);
+    expect(imetaFor(unsafe, url)?.poster).toBeUndefined();
+  });
+
+  it("parseContent and extractMediaUrls carry them on the media", () => {
+    const e = publicNote(`clip ${url}`, tags);
+    expect(parseContent(e.content, undefined, e).find((s) => s.type === "video")).toMatchObject({
+      dim: "720x1280",
+      poster,
+    });
+    expect(extractMediaUrls(e.content, e)[0]).toMatchObject({ dim: "720x1280", poster });
+  });
+});

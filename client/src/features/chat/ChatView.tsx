@@ -6,6 +6,7 @@ import { ChatInput } from "./ChatInput";
 import { useChat } from "./useChat";
 import { useFileUpload } from "../../hooks/useFileUpload";
 import { usePlaybackBarSpacing } from "../../hooks/usePlaybackBarSpacing";
+import { useStickToBottom } from "../../hooks/useStickToBottom";
 import { Spinner } from "../../components/ui/Spinner";
 import { UnreadDivider } from "../../components/chat/UnreadDivider";
 import { useAppSelector, useAppDispatch } from "../../store/hooks";
@@ -117,8 +118,13 @@ export function ChatView() {
   usePollVotesSub(pollIds, voteSubRelays);
 
   const scrollRef = useRef<HTMLDivElement>(null);
+  const contentRef = useRef<HTMLDivElement>(null);
   const dividerRef = useRef<HTMLDivElement>(null);
   const hasScrolledToUnread = useRef(false);
+  const hasMessages = messages.length > 0 || pendingMessages.length > 0;
+  // Media and embeds settle their size after render: stay on the newest
+  // message while the reader is there.
+  useStickToBottom(scrollRef, contentRef, { active: hasMessages });
 
   // Reply jump navigation state
   const [highlightedEventId, setHighlightedEventId] = useState<string | null>(null);
@@ -200,7 +206,7 @@ export function ChatView() {
             </p>
           </div>
         ) : (
-          <>
+          <div ref={contentRef}>
             {messages.map(({ event, isEdited, displayContent }, i) => (
               <div
                 key={event.id}
@@ -243,7 +249,7 @@ export function ChatView() {
                 className="flex items-center gap-2 px-4 py-1.5 opacity-60"
               >
                 <div className="min-w-0 flex-1 text-sm text-soft">
-                  <RichContent content={msg.content} event={pendingMediaContext} />
+                  <RichContent content={msg.content} event={pendingMediaContext} layout="message" />
                 </div>
                 {msg.status === "pending" && <Spinner size="sm" />}
                 {msg.status === "failed" && (
@@ -259,7 +265,7 @@ export function ChatView() {
                 )}
               </div>
             ))}
-          </>
+          </div>
         )}
       </div>
 

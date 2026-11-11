@@ -3,7 +3,12 @@ import { Download } from "lucide-react";
 import { MediaLightbox, downloadMedia } from "../ui/MediaLightbox";
 import { MediaBackdrop } from "./MediaBackdrop";
 import { useMediaOrientation } from "./useMediaOrientation";
-import { FEED_ASPECT_CLAMP, type MediaDensity } from "./mediaLayout";
+import {
+  CHAT_IMAGE_PLACEHOLDER,
+  FEED_ASPECT_CLAMP,
+  boundedMediaSize,
+  type MediaDensity,
+} from "./mediaLayout";
 import { useMediaFallback, type MediaFallbackSources } from "./useMediaFallback";
 import { MediaUnavailable } from "./MediaUnavailable";
 
@@ -13,6 +18,8 @@ const DENSITY: Record<MediaDensity, { fittedHeight: string; maxH: string }> = {
   expanded: { fittedHeight: "h-[32rem]", maxH: "max-h-[32rem]" },
   compact: { fittedHeight: "h-[15rem]", maxH: "max-h-[15rem]" },
   inline: { fittedHeight: "h-[15rem]", maxH: "max-h-60" },
+  // Unused: chat cards are sized from the media's own shape (`boundedMediaSize`).
+  chat: { fittedHeight: "", maxH: "" },
 };
 
 export interface SmartImageProps extends MediaFallbackSources {
@@ -46,11 +53,12 @@ export const SmartImage = memo(function SmartImage({
   author,
   gated,
 }: SmartImageProps) {
-  const { aspect, onLoad } = useMediaOrientation(dim);
+  const { aspect, natural, onLoad } = useMediaOrientation(dim, url);
   const [lightbox, setLightbox] = useState(false);
   // Load-error chain: grant re-mint → by-hash fallbacks → unavailable tile.
   const media = useMediaFallback(url, { fallbacks, author, gated });
   const src = media.src;
+  const [loadedSrc, setLoadedSrc] = useState<string | null>(null);
 
   if (media.failed) {
     return <MediaUnavailable kind="image" className={density === "inline" ? "mt-1" : ""} />;
@@ -74,6 +82,46 @@ export const SmartImage = memo(function SmartImage({
       <Download size={14} />
     </button>
   ) : null;
+
+  // Chat / DM attachment: a card at the image's own shape, bounded to the
+  // chat box and reserved up front (imeta `dim` or an earlier load) so the
+  // message doesn't jump when the image arrives. Until the size is known it
+  // holds a placeholder shape with a skeleton.
+  if (density === "chat") {
+    const size = boundedMediaSize(natural ?? CHAT_IMAGE_PLACEHOLDER);
+    const loaded = !!src && loadedSrc === src;
+    return (
+      <>
+        <div
+          className="group/media relative max-w-full overflow-hidden rounded-xl bg-surface ring-1 ring-inset ring-border/60"
+          style={{ width: size.width, aspectRatio: size.aspect }}
+        >
+          {!loaded && <div className="absolute inset-0 animate-pulse bg-surface-hover" />}
+          {size.fitted && loaded && <MediaBackdrop src={src} active />}
+          {src && (
+            <img
+              src={src}
+              alt={alt}
+              loading="lazy"
+              decoding="async"
+              draggable={false}
+              onLoad={(e) => {
+                onLoad(e);
+                setLoadedSrc(src);
+              }}
+              onError={media.onError}
+              onClick={handleClick}
+              className={`relative z-10 block h-full w-full cursor-zoom-in object-contain transition-opacity duration-200 ${
+                loaded && !media.retrying ? "opacity-100" : "opacity-0"
+              }`}
+            />
+          )}
+          {downloadBtn}
+        </div>
+        {lightbox && src && <MediaLightbox src={src} onClose={() => setLightbox(false)} />}
+      </>
+    );
+  }
 
   // Inline (in-text) images stay small + natural — no card/backdrop.
   if (inline) {

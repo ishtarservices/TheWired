@@ -8,8 +8,11 @@
 
 export type Orientation = "landscape" | "portrait" | "square" | "unknown";
 
-/** Layout density / context a media item is rendered in. */
-export type MediaDensity = "feed" | "expanded" | "compact" | "inline";
+/**
+ * Layout density / context a media item is rendered in. `chat`: a chat or DM
+ * attachment, sized to its own shape inside `CHAT_MEDIA_BOX`.
+ */
+export type MediaDensity = "feed" | "expanded" | "compact" | "inline" | "chat";
 
 export interface AspectClamp {
   /** Minimum displayed aspect ratio (width / height) — the most portrait we go. */
@@ -97,4 +100,51 @@ export function galleryLayout(count: number): GalleryLayout {
   if (count === 3) return { kind: "grid", tiles: 3, columns: 2, overflow: 0 };
   if (count === 4) return { kind: "grid", tiles: 4, columns: 2, overflow: 0 };
   return { kind: "grid", tiles: 4, columns: 2, overflow: count - 4 };
+}
+
+/** Natural pixel size of a media item. */
+export interface NaturalSize {
+  w: number;
+  h: number;
+}
+
+/** The box a message attachment is fitted into (CSS px). */
+export interface MediaBox {
+  maxW: number;
+  maxH: number;
+  /** Narrowest / widest card shape; media beyond these is letterboxed. */
+  minAspect: number;
+  maxAspect: number;
+}
+
+/** Chat + DM attachments: about the size Discord / Telegram use. */
+export const CHAT_MEDIA_BOX: MediaBox = { maxW: 416, maxH: 352, minAspect: 0.5, maxAspect: 3 };
+
+/** Reserved shape while an attachment's size is unknown. */
+export const CHAT_IMAGE_PLACEHOLDER: NaturalSize = { w: 320, h: 240 };
+export const CHAT_VIDEO_PLACEHOLDER: NaturalSize = { w: 416, h: 234 };
+
+export interface BoundedSize {
+  /** Card width in CSS px (the card also keeps `max-width: 100%`). */
+  width: number;
+  /** Card aspect ratio (w / h). */
+  aspect: number;
+  /** The media's own shape was clamped: draw it contained, with a backdrop. */
+  fitted: boolean;
+}
+
+/**
+ * Size a message attachment at its own shape inside `box`: no wider than
+ * `maxW`, no taller than `maxH`, and never scaled up past its natural size.
+ * Extreme shapes (a tall phone screenshot, a panorama) get a clamped card.
+ */
+export function boundedMediaSize(natural: NaturalSize, box: MediaBox = CHAT_MEDIA_BOX): BoundedSize {
+  const raw = natural.w > 0 && natural.h > 0 ? natural.w / natural.h : 4 / 3;
+  const aspect = Math.min(Math.max(raw, box.minAspect), box.maxAspect);
+  const fitted = Math.abs(aspect - raw) > 1e-3;
+  // Natural width of the (possibly clamped) card: a too-tall image keeps its
+  // height and the card widens around it; a too-wide one keeps its width.
+  const naturalCardW = raw < aspect ? natural.h * aspect : natural.w;
+  const width = Math.max(1, Math.round(Math.min(box.maxW, box.maxH * aspect, naturalCardW)));
+  return { width, aspect, fitted };
 }

@@ -1,11 +1,16 @@
 import { memo, useEffect, useRef, useState } from "react";
 import Hls from "hls.js";
-import { Download, Gauge } from "lucide-react";
+import { Download, Gauge, Play } from "lucide-react";
 import { usePlaybackSpeed, VALID_SPEEDS } from "@/hooks/usePlaybackSpeed";
 import { downloadMedia } from "../ui/MediaLightbox";
 import { MediaBackdrop } from "./MediaBackdrop";
 import { useMediaOrientation } from "./useMediaOrientation";
-import { FEED_ASPECT_CLAMP, type MediaDensity } from "./mediaLayout";
+import {
+  CHAT_VIDEO_PLACEHOLDER,
+  FEED_ASPECT_CLAMP,
+  boundedMediaSize,
+  type MediaDensity,
+} from "./mediaLayout";
 import { useMediaFallback, type MediaFallbackSources } from "./useMediaFallback";
 import { MediaUnavailable } from "./MediaUnavailable";
 
@@ -15,7 +20,18 @@ const DENSITY: Record<MediaDensity, { fittedHeight: string; maxH: string }> = {
   expanded: { fittedHeight: "h-[34rem]", maxH: "max-h-[32rem]" },
   compact: { fittedHeight: "h-[16rem]", maxH: "max-h-[15rem]" },
   inline: { fittedHeight: "h-[16rem]", maxH: "max-h-60" },
+  // Unused: chat cards are sized from the video's own shape (`boundedMediaSize`).
+  chat: { fittedHeight: "", maxH: "" },
 };
+
+/** `m:ss` / `h:mm:ss` for the duration badge. */
+export function formatDuration(seconds: number): string {
+  const total = Math.max(0, Math.round(seconds));
+  const h = Math.floor(total / 3600);
+  const m = Math.floor((total % 3600) / 60);
+  const s = String(total % 60).padStart(2, "0");
+  return h > 0 ? `${h}:${String(m).padStart(2, "0")}:${s}` : `${m}:${s}`;
+}
 
 export interface SmartVideoProps extends MediaFallbackSources {
   url: string;
@@ -58,7 +74,11 @@ export const SmartVideo = memo(function SmartVideo({
   const hlsRef = useRef<Hls | null>(null);
   const [playbackRate, setPlaybackRate] = usePlaybackSpeed();
   const [showSpeedMenu, setShowSpeedMenu] = useState(false);
-  const { aspect, onLoad } = useMediaOrientation(dim);
+  const { aspect, natural, onLoad } = useMediaOrientation(dim, url);
+  // Chat cards hold a clean poster + play button until first play, then
+  // hand over to the native controls.
+  const [started, setStarted] = useState(false);
+  const [duration, setDuration] = useState<number | null>(null);
 
   // Resolve orientation AND, when no poster was supplied (plain kind:1 note
   // videos have no imeta thumb), nudge the element to paint its first frame so
@@ -68,6 +88,7 @@ export const SmartVideo = memo(function SmartVideo({
   const handleLoadedMetadata = (e: React.SyntheticEvent<HTMLVideoElement>) => {
     onLoad(e);
     const v = e.currentTarget;
+    if (Number.isFinite(v.duration) && v.duration > 0) setDuration(v.duration);
     if (!poster && v.currentTime === 0) {
       try {
         v.currentTime = Math.min(0.1, (v.duration || 1) / 2);
@@ -164,6 +185,62 @@ export const SmartVideo = memo(function SmartVideo({
       </div>
     </div>
   );
+
+  // Chat / DM attachment: a card at the video's own shape inside the chat
+  // box (16:9 until its size is known), poster or first frame, a play button
+  // and the duration — native controls appear once it's playing.
+  if (density === "chat") {
+    const size = boundedMediaSize(natural ?? CHAT_VIDEO_PLACEHOLDER);
+    const play = () => {
+      const v = videoRef.current;
+      if (!v) return;
+      setStarted(true);
+      void v.play().catch(() => {
+        /* autoplay policy / decode error: native controls are showing now */
+      });
+    };
+    return (
+      <div
+        className="group/video relative max-w-full overflow-hidden rounded-xl bg-black"
+        style={{ width: size.width, aspectRatio: size.aspect }}
+      >
+        {size.fitted && poster && <MediaBackdrop src={poster} active />}
+        <video
+          ref={videoRef}
+          poster={poster}
+          controls={started}
+          playsInline
+          preload="metadata"
+          onLoadedMetadata={handleLoadedMetadata}
+          onPlay={() => setStarted(true)}
+          onError={onMediaError}
+          onRateChange={(e) => {
+            const rate = (e.target as HTMLVideoElement).playbackRate;
+            if (rate !== playbackRate) setPlaybackRate(rate);
+          }}
+          className="relative z-10 block h-full w-full object-contain"
+        />
+        {!started && (
+          <button
+            type="button"
+            onClick={play}
+            aria-label="Play video"
+            className="group/play absolute inset-0 z-20 grid place-items-center"
+          >
+            <span className="grid h-12 w-12 place-items-center rounded-full bg-black/55 text-white ring-1 ring-white/20 backdrop-blur-sm transition-transform duration-150 group-hover/play:scale-105 group-hover/play:bg-black/70">
+              <Play size={20} className="translate-x-px fill-current" />
+            </span>
+            {duration != null && (
+              <span className="absolute bottom-2 left-2 rounded-md bg-black/60 px-1.5 py-0.5 text-[11px] font-medium tabular-nums text-white/90">
+                {formatDuration(duration)}
+              </span>
+            )}
+          </button>
+        )}
+        {started && overlay}
+      </div>
+    );
+  }
 
   // Inline (in-text) videos stay small + natural.
   if (inline) {

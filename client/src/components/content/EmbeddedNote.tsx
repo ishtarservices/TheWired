@@ -9,6 +9,7 @@ import { MusicPostMedia } from "./MusicPostMedia";
 import { PollCard } from "../../features/polls/PollCard";
 import { RichContent } from "./RichContent";
 import { EmbedDepthContext, MAX_EMBED_DEPTH } from "./embedDepth";
+import { EmbedSurfaceContext } from "./embedSurface";
 import { useEmbeddedEvent, type EventRef } from "./useEmbeddedEvent";
 import { useProfile } from "../../features/profile/useProfile";
 import { useNoteEngagement } from "../../features/spaces/useNoteEngagement";
@@ -20,7 +21,7 @@ import { parseVideoEvent, selectVideoSource } from "../../features/media/imetaPa
 import { extractMediaUrls, stripMediaUrls, type ExtractedMedia } from "../../lib/media/mediaUrlParser";
 import { splitTrailingMusicRefs } from "../../lib/content/musicPost";
 import { EVENT_KINDS, type NostrEvent } from "../../types/nostr";
-import { hasSpaceTag, tokenizeEventMediaUrl } from "../../lib/media/eventMedia";
+import { hasSpaceTag, imetaByUrl, imetaFor, tokenizeEventMediaUrl } from "../../lib/media/eventMedia";
 import { useMediaGrant } from "../../lib/media/mediaGrant";
 
 interface EmbeddedNoteProps {
@@ -122,6 +123,8 @@ function NoteEmbed({ event, depth }: { event: NostrEvent; depth: number }) {
   const navigate = useNavigate();
   const { profile } = useProfile(event.pubkey);
   const compact = depth >= 1;
+  // In a chat / DM message: a width-capped card with chat-sized media.
+  const inMessage = useContext(EmbedSurfaceContext) === "message";
 
   // Tokenized from the EMBEDDED event's own tags: a space message quoted into
   // a public note, another space or a DM still carries its space's grant.
@@ -151,7 +154,9 @@ function NoteEmbed({ event, depth }: { event: NostrEvent; depth: number }) {
   return (
     <div
       onClick={onCardClick}
-      className="mt-2 cursor-pointer rounded-xl border border-border card-glass p-3 transition-colors hover:border-border-light"
+      className={`mt-2 cursor-pointer rounded-xl border border-border card-glass p-3 transition-colors hover:border-border-light ${
+        inMessage ? "w-full max-w-[28rem]" : ""
+      }`}
     >
       <EmbedAuthor profile={profile} name={name} pubkey={event.pubkey} createdAt={event.created_at} />
       {text && (
@@ -163,10 +168,10 @@ function NoteEmbed({ event, depth }: { event: NostrEvent; depth: number }) {
       )}
       {musicRefs.length > 0 ? (
         <EmbedDepthContext.Provider value={depth + 1}>
-          <MusicPostMedia media={media} refs={musicRefs} heroHeight={compact ? "h-[15rem]" : "h-[18rem]"} />
+          <MusicPostMedia media={media} refs={musicRefs} heroHeight={compact || inMessage ? "h-[15rem]" : "h-[18rem]"} />
         </EmbedDepthContext.Provider>
       ) : (
-        media.length > 0 && <MediaGallery media={media} density="feed" />
+        media.length > 0 && <MediaGallery media={media} density={inMessage ? "chat" : "feed"} />
       )}
       {!compact && <NoteEmbedActions event={event} />}
     </div>
@@ -207,11 +212,14 @@ function ArticleEmbed({ event }: { event: NostrEvent }) {
   const navigate = useNavigate();
   const article = useMemo(() => parseLongFormEvent(event), [event]);
   const cover = isHttpUrl(article.image) ? article.image : null;
+  const inMessage = useContext(EmbedSurfaceContext) === "message";
 
   return (
     <div
       onClick={() => navigate(`/article/${event.id}`)}
-      className="mt-2 cursor-pointer overflow-hidden rounded-xl border border-border card-glass transition-colors hover:border-border-light"
+      className={`mt-2 cursor-pointer overflow-hidden rounded-xl border border-border card-glass transition-colors hover:border-border-light ${
+        inMessage ? "w-full max-w-[28rem]" : ""
+      }`}
     >
       {cover && <img src={cover} alt="" className="h-32 w-full object-cover" loading="lazy" />}
       <div className="p-3">
@@ -258,8 +266,9 @@ function EmbedAuthor({
 }
 
 function EmbedSkeleton() {
+  const inMessage = useContext(EmbedSurfaceContext) === "message";
   return (
-    <div className="mt-2 rounded-xl border border-border card-glass p-3">
+    <div className={`mt-2 rounded-xl border border-border card-glass p-3 ${inMessage ? "w-full max-w-[28rem]" : ""}`}>
       <div className="flex items-center gap-1.5">
         <div className="h-5 w-5 animate-pulse rounded-full bg-surface" />
         <div className="h-3 w-24 animate-pulse rounded bg-surface" />
@@ -271,8 +280,9 @@ function EmbedSkeleton() {
 }
 
 function EmbedUnavailable() {
+  const inMessage = useContext(EmbedSurfaceContext) === "message";
   return (
-    <div className="mt-2 rounded-xl border border-border card-glass p-3 text-xs text-muted">
+    <div className={`mt-2 rounded-xl border border-border card-glass p-3 text-xs text-muted ${inMessage ? "w-full max-w-[28rem]" : ""}`}>
       Note unavailable
     </div>
   );
@@ -303,14 +313,37 @@ function embedMediaForEvent(event: NostrEvent): ExtractedMedia[] {
   if (VIDEO_KINDS.has(event.kind)) {
     const video = parseVideoEvent(event);
     const url = selectVideoSource(video.variants);
-    return url ? [{ url, type: "video", matchText: url, ...source }] : [];
+    if (!url) return [];
+    const variant = video.variants.find((v) => v.url === url) ?? video.variants.find((v) => v.dim);
+    return [
+      {
+        url,
+        type: "video",
+        matchText: url,
+        ...source,
+        ...(variant?.dim ? { dim: variant.dim } : {}),
+        ...(isHttpUrl(video.thumbnail) ? { poster: video.thumbnail } : {}),
+      },
+    ];
   }
   if (event.kind === EVENT_KINDS.PICTURE) {
     const tagged = event.tags.filter((t) => t[0] === "url").map((t) => t[1]).filter(Boolean);
     const urls = tagged.length ? tagged : [event.content.trim()];
-    return urls
+    const imeta = imetaByUrl(event.tags);
+    // kind 20 puts its images in imeta (NIP-68); `url` tags are the older form.
+    const fromImeta = [...imeta.keys()];
+    return (tagged.length || !fromImeta.length ? urls : fromImeta)
       .filter(isHttpUrl)
-      .map((url) => ({ url: tokenizeEventMediaUrl(url, event), type: "image" as const, matchText: url, ...source }));
+      .map((url) => {
+        const dim = imetaFor(imeta, url)?.dim;
+        return {
+          url: tokenizeEventMediaUrl(url, event),
+          type: "image" as const,
+          matchText: url,
+          ...source,
+          ...(dim ? { dim } : {}),
+        };
+      });
   }
   return extractMediaUrls(event.content, event);
 }

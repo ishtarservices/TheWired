@@ -25,6 +25,10 @@ export interface ExtractedMedia {
   author?: string;
   /** From a space event: our server's copy is members-only (needs the grant). */
   gated?: boolean;
+  /** imeta `dim` ("WxH"): reserves the box before the media loads. */
+  dim?: string;
+  /** imeta `image` / `thumb` preview frame (videos). */
+  poster?: string;
 }
 
 /** Media type for a URL: extension, else (extensionless Blossom URL) the
@@ -52,12 +56,15 @@ export function extractMediaUrls(content: string, event?: MediaEventContext): Ex
     const type = classifyUrl(url, imeta);
     if (type) {
       seen.add(url);
-      const fallbacks = imetaFor(imeta, url)?.fallbacks;
+      const info = imetaFor(imeta, url);
+      const fallbacks = info?.fallbacks;
       results.push({
         url: tokenizeEventMediaUrl(url, event),
         type,
         matchText: match[0],
         ...(fallbacks?.length ? { fallbacks } : {}),
+        ...(info?.dim ? { dim: info.dim } : {}),
+        ...(info?.poster && type === "video" ? { poster: tokenizeEventMediaUrl(info.poster, event) } : {}),
         ...(event?.pubkey ? { author: event.pubkey } : {}),
         ...(gated ? { gated } : {}),
       });

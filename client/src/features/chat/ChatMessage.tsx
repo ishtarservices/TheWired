@@ -115,7 +115,7 @@ export function ChatMessage({
               if (onMentionClick && avatarRef.current)
                 onMentionClick(event.pubkey, avatarRef.current);
             }}
-            className="mt-0.5 shrink-0 cursor-pointer"
+            className="mt-0.5 shrink-0 cursor-pointer self-start"
           >
             <Avatar src={profile?.picture} alt={displayName} size="sm" />
           </button>
@@ -125,7 +125,7 @@ export function ChatMessage({
               <span className="text-xs text-muted">{timeAgo}</span>
             </div>
             <div className="text-sm text-body break-words">
-              <RichContent content={displayContent} emojiTags={event.tags.filter((t) => t[0] === "emoji")} event={event} onMentionClick={onMentionClick} musicShape="poster" />
+              <RichContent content={displayContent} emojiTags={event.tags.filter((t) => t[0] === "emoji")} event={event} onMentionClick={onMentionClick} musicShape="poster" layout="message" />
             </div>
           </div>
         </div>
@@ -147,7 +147,7 @@ export function ChatMessage({
           if (onMentionClick && avatarRef.current)
             onMentionClick(event.pubkey, avatarRef.current);
         }}
-        className="mt-0.5 shrink-0 cursor-pointer"
+        className="mt-0.5 shrink-0 cursor-pointer self-start"
       >
         <Avatar src={profile?.picture} alt={displayName} size="sm" />
       </button>
@@ -200,7 +200,7 @@ export function ChatMessage({
           <PollCard event={event} variant="chat" />
         ) : (
           <div className="text-sm text-body break-words">
-            <RichContent content={displayContent} emojiTags={event.tags.filter((t) => t[0] === "emoji")} event={event} onMentionClick={onMentionClick} musicShape="poster" />
+            <RichContent content={displayContent} emojiTags={event.tags.filter((t) => t[0] === "emoji")} event={event} onMentionClick={onMentionClick} musicShape="poster" layout="message" />
           </div>
         )}
         {/* Reaction pills — tap to toggle your own reaction */}
