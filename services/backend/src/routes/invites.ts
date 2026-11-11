@@ -6,12 +6,13 @@ import { invites } from "../db/schema/invites.js";
 import { spaces } from "../db/schema/spaces.js";
 import { spaceMembers, memberRoles } from "../db/schema/members.js";
 import { spaceRoles } from "../db/schema/permissions.js";
-import { eq, and, sql } from "drizzle-orm";
+import { eq, and, sql, or, isNull, gt, lt } from "drizzle-orm";
 import { nanoid } from "../lib/id.js";
 import { permissionService } from "../services/permissionService.js";
 import { onboardingService } from "../services/onboardingService.js";
 import { notifySpaceChanged } from "../services/spaceSignalService.js";
 import { moderationService } from "../services/moderationService.js";
+import { refreshMemberCount } from "../services/membershipService.js";
 import { getActorRank, canManageRole, isSpaceCreator } from "../lib/authz.js";
 
 const createInviteBody = z.object({
@@ -25,6 +26,35 @@ const createInviteBody = z.object({
 const codeParams = z.object({ code: nonEmptyString });
 const spaceIdParams = z.object({ spaceId: nonEmptyString });
 const idParams = z.object({ id: nonEmptyString });
+
+class RedeemRefused extends Error {
+  constructor(readonly reason: "unavailable" | "already_member") {
+    super(reason);
+  }
+}
+
+type InviteRow = typeof invites.$inferSelect;
+
+/**
+ * Why an invite can't be redeemed right now, or null if it can. With
+ * `exhaustedIfAvailable`, a row that looks available still reports
+ * INVITE_EXHAUSTED: the atomic claim lost a race for its last use.
+ */
+function inviteUnavailable(
+  invite: InviteRow | undefined,
+  opts: { exhaustedIfAvailable?: boolean } = {},
+): { status: number; body: { error: string; code: string } } | null {
+  if (!invite || invite.revoked) {
+    return { status: 404, body: { error: "Invite not found", code: "NOT_FOUND" } };
+  }
+  if (invite.expiresAt && invite.expiresAt < Date.now()) {
+    return { status: 410, body: { error: "Invite has expired", code: "INVITE_EXPIRED" } };
+  }
+  if ((invite.maxUses && invite.useCount >= invite.maxUses) || opts.exhaustedIfAvailable) {
+    return { status: 410, body: { error: "Invite has been fully used", code: "INVITE_EXHAUSTED" } };
+  }
+  return null;
+}
 
 export const invitesRoutes: FastifyPluginAsync = async (server) => {
   // Create invite
@@ -136,52 +166,29 @@ export const invitesRoutes: FastifyPluginAsync = async (server) => {
     const { code } = params;
     const [invite] = await db.select().from(invites).where(eq(invites.code, code)).limit(1);
 
-    if (!invite || invite.revoked) {
-      return reply.status(404).send({ error: "Invite not found", code: "NOT_FOUND" });
-    }
-
-    // Check expiry
-    if (invite.expiresAt && invite.expiresAt < Date.now()) {
-      return reply.status(410).send({ error: "Invite has expired", code: "INVITE_EXPIRED" });
-    }
-
-    // Check max uses
-    if (invite.maxUses && invite.useCount >= invite.maxUses) {
-      return reply.status(410).send({ error: "Invite has been fully used", code: "INVITE_EXHAUSTED" });
-    }
+    // Fast refusals that burn nothing. The claim below re-checks the same
+    // conditions atomically, so these only save a transaction.
+    const unavailable = inviteUnavailable(invite);
+    if (unavailable) return reply.status(unavailable.status).send(unavailable.body);
 
     // Bans hold across every join path.
     if (await moderationService.isBanned(invite.spaceId, pubkey)) {
       return reply.status(403).send({ error: "You are banned from this space", code: "BANNED" });
     }
 
-    // Check if already a member
     const [existing] = await db
-      .select()
+      .select({ pubkey: spaceMembers.pubkey })
       .from(spaceMembers)
       .where(and(eq(spaceMembers.spaceId, invite.spaceId), eq(spaceMembers.pubkey, pubkey)))
       .limit(1);
-
     if (existing) {
       return reply.status(409).send({ error: "Already a member of this space", code: "ALREADY_MEMBER" });
     }
 
-    // Insert member + increment use count
-    await db.insert(spaceMembers).values({
-      spaceId: invite.spaceId,
-      pubkey,
-    });
-
-    await db
-      .update(invites)
-      .set({ useCount: sql`${invites.useCount} + 1` })
-      .where(eq(invites.code, code));
-
-    // Assign role: use explicit autoAssignRole, or fall back to the
-    // space's default role so new members get basic permissions (SEND_MESSAGES, etc.)
     // Honour autoAssignRole only when it still belongs to this space, and an
     // admin role only when the creator minted the invite (rows predating the
-    // create-time check may name one).
+    // create-time check may name one). Otherwise the space's default role, so
+    // new members get basic permissions (SEND_MESSAGES, etc.).
     let roleToAssign: string | null = null;
     if (invite.autoAssignRole) {
       const [role] = await db
@@ -202,27 +209,74 @@ export const invitesRoutes: FastifyPluginAsync = async (server) => {
       roleToAssign = defaultRole?.id ?? null;
     }
 
-    if (roleToAssign) {
-      await db.insert(memberRoles).values({
-        spaceId: invite.spaceId,
-        pubkey,
-        roleId: roleToAssign,
-      }).onConflictDoNothing();
+    // Claim a use and add the member in one transaction. The conditional
+    // UPDATE is the race guard: concurrent redeemers queue on the invite's row
+    // lock and re-check the WHERE clause against the committed use_count, so
+    // a 1-use invite admits exactly one of them. If the member row already
+    // exists (the same user redeeming twice at once), roll back so no use is
+    // burned.
+    let memberCount: number | null;
+    try {
+      memberCount = await db.transaction(async (tx) => {
+        const now = Date.now();
+        const claimed = await tx
+          .update(invites)
+          .set({ useCount: sql`${invites.useCount} + 1` })
+          .where(
+            and(
+              eq(invites.code, code),
+              eq(invites.revoked, false),
+              or(isNull(invites.expiresAt), gt(invites.expiresAt, now)),
+              or(isNull(invites.maxUses), eq(invites.maxUses, 0), lt(invites.useCount, invites.maxUses)),
+            ),
+          )
+          .returning({ code: invites.code });
+        if (claimed.length === 0) throw new RedeemRefused("unavailable");
+
+        const inserted = await tx
+          .insert(spaceMembers)
+          .values({ spaceId: invite.spaceId, pubkey })
+          .onConflictDoNothing()
+          .returning({ pubkey: spaceMembers.pubkey });
+        if (inserted.length === 0) throw new RedeemRefused("already_member");
+
+        if (roleToAssign) {
+          await tx
+            .insert(memberRoles)
+            .values({ spaceId: invite.spaceId, pubkey, roleId: roleToAssign })
+            .onConflictDoNothing();
+        }
+        return refreshMemberCount(tx, invite.spaceId);
+      });
+    } catch (err) {
+      if (!(err instanceof RedeemRefused)) throw err;
+      if (err.reason === "already_member") {
+        return reply.status(409).send({ error: "Already a member of this space", code: "ALREADY_MEMBER" });
+      }
+      const [latest] = await db.select().from(invites).where(eq(invites.code, code)).limit(1);
+      const refusal = inviteUnavailable(latest, { exhaustedIfAvailable: true })!;
+      return reply.status(refusal.status).send(refusal.body);
     }
 
     notifySpaceChanged(invite.spaceId, "members");
 
-    // Fetch space info to return
     const [space] = await db.select().from(spaces).where(eq(spaces.id, invite.spaceId)).limit(1);
-
-    // Check if space has onboarding enabled
     const obConfig = await onboardingService.getConfig(invite.spaceId);
 
     return {
       data: {
         spaceId: invite.spaceId,
         space: space
-          ? { name: space.name, picture: space.picture, about: space.about, memberCount: space.memberCount, mode: space.mode }
+          ? {
+              name: space.name,
+              picture: space.picture,
+              about: space.about,
+              memberCount: memberCount ?? space.memberCount,
+              mode: space.mode,
+              creatorPubkey: space.creatorPubkey,
+              hostRelay: space.hostRelay,
+              listed: space.listed,
+            }
           : null,
         onboarding: obConfig?.enabled
           ? { hasOnboarding: true, requireCompletion: obConfig.requireCompletion }

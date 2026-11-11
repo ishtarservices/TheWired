@@ -32,6 +32,7 @@ import { reportService } from "../services/reportService.js";
 import { classifyOrigin } from "../services/reportFootprint.js";
 import { suspensionService } from "../services/suspensionService.js";
 import { accountDeletionService } from "../services/accountDeletionService.js";
+import { leaveSpace } from "../services/membershipService.js";
 
 /**
  * Per-event ingestion context (Decentralized Spaces, M3). The multi-relay
@@ -556,9 +557,23 @@ async function indexZapReceipt(event: NostrEvent) {
   await recordZapReceipt(redis, event.id, targetEventId, parseZapSats(event.tags));
 }
 
+/** True when the backend owns this space's membership (platform and A-lite). */
+async function isBackendMembership(spaceId: string): Promise<boolean> {
+  const [space] = await db
+    .select({ spaceMode: spaces.spaceMode })
+    .from(spaces)
+    .where(eq(spaces.id, spaceId))
+    .limit(1);
+  return !!space && space.spaceMode !== "nip29";
+}
+
 async function indexJoin(event: NostrEvent) {
   const spaceId = getTagValue(event, "h");
   if (!spaceId) return;
+
+  // Backend-owned membership is granted only through the REST join paths,
+  // which check listing, invites and bans. A relay join request never adds it.
+  if (await isBackendMembership(spaceId)) return;
 
   await db.insert(spaceMembers).values({ spaceId, pubkey: event.pubkey }).onConflictDoNothing();
 }
@@ -566,6 +581,18 @@ async function indexJoin(event: NostrEvent) {
 async function indexLeave(event: NostrEvent) {
   const spaceId = getTagValue(event, "h");
   if (!spaceId) return;
+
+  if (await isBackendMembership(spaceId)) {
+    // Same rules as DELETE /spaces/:id/members/me: the last admin stays,
+    // a departing creator hands over ownership, the counter is recounted.
+    const result = await leaveSpace(spaceId, event.pubkey);
+    if (result === "left") {
+      // Dynamic import: spaceSignalService → relayConnectionManager → this file.
+      const { notifySpaceChanged } = await import("../services/spaceSignalService.js");
+      notifySpaceChanged(spaceId, "members");
+    }
+    return;
+  }
 
   await db
     .delete(spaceMembers)
