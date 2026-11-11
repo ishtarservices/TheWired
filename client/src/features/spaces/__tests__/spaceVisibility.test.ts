@@ -17,14 +17,14 @@ const base: Space = {
 
 describe("spaceVisibility", () => {
   it("labels an unlisted platform space as invite-only, never 'Public'", () => {
-    expect(spaceVisibility({ ...base, listed: false })).toEqual({ label: "Unlisted · invite only", open: false });
-    expect(spaceVisibility({ ...base, spaceType: "decentralized-alite", listed: false })?.label).toBe(
-      "Unlisted · invite only",
-    );
+    expect(spaceVisibility({ ...base, listed: false })).toMatchObject({ label: "Unlisted", open: false });
+    expect(spaceVisibility({ ...base, listed: false })?.hint).toMatch(/invite/);
+    expect(spaceVisibility({ ...base, spaceType: "decentralized-alite", listed: false })?.label).toBe("Unlisted");
   });
 
   it("labels a listed platform space as listed in Discover", () => {
-    expect(spaceVisibility({ ...base, listed: true })).toEqual({ label: "Listed in Discover", open: true });
+    expect(spaceVisibility({ ...base, listed: true })).toMatchObject({ label: "Listed", open: true });
+    expect(spaceVisibility({ ...base, listed: true })?.hint).toMatch(/Discover/);
   });
 
   it("shows nothing for a platform space whose listing isn't known yet", () => {

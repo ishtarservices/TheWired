@@ -42,19 +42,19 @@ export function SpaceInfoPanel() {
           <h3 className="text-sm font-semibold text-heading truncate">
             {space.name}
           </h3>
-          <div className="flex items-center gap-1.5 mt-0.5">
+          <div className="flex flex-wrap items-center gap-x-1.5 mt-0.5">
             {visibility && (
-              <>
+              <span className="flex items-center gap-1 whitespace-nowrap" title={visibility.hint}>
                 {visibility.open ? (
                   <Globe size={10} className="text-muted" />
                 ) : (
                   <Lock size={10} className="text-muted" />
                 )}
                 <span className="text-[10px] text-muted">{visibility.label}</span>
-              </>
+              </span>
             )}
-            <span className="text-[10px] text-muted">
-              {space.memberPubkeys.length} members
+            <span className="text-[10px] text-muted whitespace-nowrap">
+              {space.memberPubkeys.length} {space.memberPubkeys.length === 1 ? "member" : "members"}
             </span>
           </div>
         </div>
