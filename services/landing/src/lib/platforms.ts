@@ -37,7 +37,7 @@ export function detectPlatform(): Platform {
   return { os: 'unknown', arch: 'x64', label: 'your platform' };
 }
 
-const REPO = 'IshtarServices/TheWired';
+const REPO = 'ummilabs/TheWired';
 
 export const RELEASES_URL = `https://github.com/${REPO}/releases/latest`;
 

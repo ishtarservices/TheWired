@@ -45,7 +45,7 @@ See [Tauri v2 prerequisites](https://v2.tauri.app/start/prerequisites/) for full
 ### 1. Clone and install
 
 ```bash
-git clone https://github.com/ishtarservices/TheWired.git
+git clone https://github.com/ummilabs/TheWired.git
 cd TheWired
 cp .env.example .env   # Edit .env with your credentials
 pnpm install

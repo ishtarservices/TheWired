@@ -95,7 +95,7 @@ jobs:
       - uses: docker/metadata-action@dc802804100637a589fabce1cb79ff13a1411302 # v6.2.0
         id: meta
         with:
-          images: ghcr.io/ishtarservices/thewired-backend
+          images: ghcr.io/ummilabs/thewired-backend
           tags: |
             type=sha,prefix=
             type=ref,event=branch
@@ -130,7 +130,7 @@ jobs:
       - uses: docker/metadata-action@dc802804100637a589fabce1cb79ff13a1411302 # v6.2.0
         id: meta
         with:
-          images: ghcr.io/ishtarservices/thewired-gateway
+          images: ghcr.io/ummilabs/thewired-gateway
           tags: |
             type=sha,prefix=
             type=ref,event=branch
@@ -165,7 +165,7 @@ jobs:
       - uses: docker/metadata-action@dc802804100637a589fabce1cb79ff13a1411302 # v6.2.0
         id: meta
         with:
-          images: ghcr.io/ishtarservices/thewired-relay
+          images: ghcr.io/ummilabs/thewired-relay
           tags: |
             type=sha,prefix=
             type=ref,event=branch
@@ -200,7 +200,7 @@ jobs:
       - uses: docker/metadata-action@dc802804100637a589fabce1cb79ff13a1411302 # v6.2.0
         id: meta
         with:
-          images: ghcr.io/ishtarservices/thewired-landing
+          images: ghcr.io/ummilabs/thewired-landing
           tags: |
             type=sha,prefix=
             type=ref,event=branch
@@ -235,7 +235,7 @@ jobs:
       - uses: docker/metadata-action@dc802804100637a589fabce1cb79ff13a1411302 # v6.2.0
         id: meta
         with:
-          images: ghcr.io/ishtarservices/thewired-proxy
+          images: ghcr.io/ummilabs/thewired-proxy
           tags: |
             type=sha,prefix=
             type=ref,event=branch

@@ -8,7 +8,7 @@ they live in the private ops runbook.
 
 - **Images.** Every push to `main` that passes tests runs
   `.github/workflows/build-images.yml`, which publishes
-  `ghcr.io/ishtarservices/thewired-{backend,gateway,relay,landing,proxy}:latest`.
+  `ghcr.io/ummilabs/thewired-{backend,gateway,relay,landing,proxy}:latest`.
   Application code — and the Caddyfile, which is baked into `thewired-proxy` —
   only reaches production through these images.
 - **Host.** One Docker host running `docker-compose.prod.yml`. Three things
