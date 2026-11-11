@@ -277,6 +277,8 @@ export async function dispatchOnce(deps: DispatchDeps): Promise<DispatchStats> {
     }
 
     let allSent = true;
+    /** A target reported an error this pass (recorded per account): keep it. */
+    let deviceError = false;
 
     // Targets that already took every row of this group on an earlier pass
     // (which failed somewhere else) are skipped; the ones that take it now
@@ -323,6 +325,7 @@ export async function dispatchOnce(deps: DispatchDeps): Promise<DispatchStats> {
               .where(and(eq(pushSubscriptions.pubkey, sub.pubkey), eq(pushSubscriptions.endpoint, sub.endpoint)));
           } else {
             allSent = false;
+            deviceError = true;
             const message = err?.statusCode ? `HTTP ${err.statusCode}` : (err as Error)?.message;
             await pushService.recordDeliveryError(pubkey, "webpush_failed", message).catch(() => {});
           }
@@ -374,13 +377,10 @@ export async function dispatchOnce(deps: DispatchDeps): Promise<DispatchStats> {
       }
       try {
         const tickets = await deps.sender.send(messages);
-        let anyOk = false;
-        let anyTicketError = false;
         for (let i = 0; i < tickets.length; i++) {
           const ticket = tickets[i];
           const token = expoDevices[i].token;
           if (ticket.status === "ok") {
-            anyOk = true;
             tookIt.push(token);
             if (ticket.id) {
               const entry: TicketEntry = { id: ticket.id, token, pubkey, at: now() };
@@ -389,6 +389,7 @@ export async function dispatchOnce(deps: DispatchDeps): Promise<DispatchStats> {
           } else if (ticket.details?.error === DEVICE_NOT_REGISTERED) {
             await pushService.deleteToken(token);
             await pushService.recordDeliveryError(pubkey, DEVICE_NOT_REGISTERED, ticket.message);
+            deviceError = true;
             stats.pruned++;
           } else {
             // Remembered per account so You → Notifications can show it: an
@@ -396,21 +397,26 @@ export async function dispatchOnce(deps: DispatchDeps): Promise<DispatchStats> {
             // otherwise visible only here, in the server log.
             console.error(`[notifications] expo ticket error for ${pubkey}: ${ticket.message}`);
             await pushService.recordDeliveryError(pubkey, ticket.details?.error ?? "ticket_error", ticket.message);
-            anyTicketError = true;
+            deviceError = true;
             allSent = false;
           }
-        }
-        // An ok ticket proves the send path, not delivery: a receipt-stage
-        // error (APNs refused an earlier push) stays until an ok receipt. A
-        // sibling device's ticket error from this same batch stays too.
-        if (anyOk && !anyTicketError) {
-          await pushService.clearDeliveryError(pubkey, { stage: "ticket" });
         }
       } catch (err) {
         console.error("[notifications] expo send failed:", (err as Error).message);
         await pushService.recordDeliveryError(pubkey, "send_failed", (err as Error).message).catch(() => {});
+        deviceError = true;
         allSent = false;
       }
+    }
+
+    // A pass where a target took the push and none reported an error clears
+    // a remembered send-stage error. One where any target failed (a sibling
+    // device's ticket error, a dead token, a refused web-push subscription,
+    // the whole Expo request) keeps it. An ok ticket proves the send
+    // path, not delivery: a receipt-stage error (APNs refused an earlier
+    // push) stays until an ok receipt.
+    if (!deviceError && tookIt.length > 0) {
+      await pushService.clearDeliveryError(pubkey, { stage: "ticket" });
     }
 
     if (tookIt.length > 0) {

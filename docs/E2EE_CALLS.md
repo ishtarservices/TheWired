@@ -80,8 +80,8 @@ Membership of a 1:1 room is fixed, so nothing rotates. Pinned vectors live in
 - On join each participant generates a random 32-byte key (index 0), installs it,
   and sends it to every co-participant as a **kind-20016 `media_key` envelope**
   (docs/DM_WIRE_CONTRACT.md §2): NIP-17 gift wrap to the recipient's pubkey via
-  their kind-10050 inbox relays (APP_RELAY fallback), no self-wrap, wrap + seal
-  expiring 45 s after they are built (DM_WIRE_CONTRACT §5; under the backend's
+  their kind-10050 inbox relays (APP_RELAY fallback), no self-wrap, the wrap
+  expiring 45 s after it is built (DM_WIRE_CONTRACT §5; under the backend's
   60-s push line, so a key never rings a phone). Content:
   `{ v:1, room:"<spaceId>:<channelId>", keys:[{ idx, key:<64 hex> }], ts:<sender ms> }`.
 - **Join** → send the current key (and the next one if a rotation is in flight) to the joiner.

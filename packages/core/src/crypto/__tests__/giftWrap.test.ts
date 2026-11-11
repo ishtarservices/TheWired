@@ -6,6 +6,7 @@ import {
   unwrapGiftWrap,
   GiftWrapRejectedError,
   isTransientCodecFailure,
+  SEAL_TTL_SLACK_SEC,
   type GiftWrapContext,
 } from "../giftWrap";
 import { verifyEventSync } from "../verifyEvent";
@@ -326,11 +327,14 @@ describe("wire_version 1 hardening", () => {
       );
       // The wrap is stamped after the seal was signed (t0 + 30); `ttl` wins over `expiration`.
       expect(wrap.tags).toContainEqual(["expiration", String(t0 + 30 + 45)]);
-      // The seal is stamped after the encrypt (t0 + 10), before the signing wait.
+      // The seal is stamped after the encrypt (t0 + 10), before the signing
+      // wait, with SEAL_TTL_SLACK_SEC more so that wait can never expire it first.
       const sealJson = await bob.signer.nip44Decrypt(wrap.pubkey, wrap.content);
-      expect(JSON.parse(sealJson).tags).toContainEqual(["expiration", String(t0 + 10 + 45)]);
-      const dm = await unwrapGiftWrap(bob.signer, wrap, { now: t0 + 31 });
-      expect(dm.expiration).toBe(t0 + 10 + 45);
+      expect(JSON.parse(sealJson).tags).toContainEqual(["expiration", String(t0 + 10 + 45 + SEAL_TTL_SLACK_SEC)]);
+      // A receiver with no skew allowance accepts it until the WRAP expires.
+      const dm = await unwrapGiftWrap(bob.signer, wrap, { now: t0 + 30 + 44 });
+      expect(dm.expiration).toBe(t0 + 30 + 45);
+      await expect(unwrapGiftWrap(bob.signer, wrap, { now: t0 + 30 + 45 })).rejects.toThrow(/expired/);
     });
   });
 });

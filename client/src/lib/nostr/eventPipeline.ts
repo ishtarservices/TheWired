@@ -1365,6 +1365,10 @@ async function handleGiftWrap(event: NostrEvent, receivedAt: number = Math.floor
         );
         return;
       case "typing":
+        // Judged by the rumor's own age, not the wrap's expiration: expiry
+        // carries a 60 s skew allowance (WRAP_EXPIRY_SKEW_SEC), which must
+        // not turn a stale typing wrap into a phantom "typing…".
+        if (nowSec - dm.createdAt > DM_EXPIRATION_SECONDS.typing) return;
         if (dm.sender !== myPubkey) {
           dispatch(setTyping({ conversationId: w.conversationId, pubkey: dm.sender, until: nowSec + 6 }));
         }

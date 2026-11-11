@@ -374,6 +374,31 @@ describe("dispatchOnce", () => {
     expect(await pushService.lastDeliveryError(LUNA.pubkey)).toMatchObject({ error: "InvalidCredentials" });
   });
 
+  it("a refused web-push subscription's error survives an ok Expo ticket in the same pass", async () => {
+    const saved = { pub: config.vapidPublicKey, priv: config.vapidPrivateKey };
+    config.vapidPublicKey = "test-public";
+    config.vapidPrivateKey = "test-private";
+    const webPushSend = vi.mocked(webPush.sendNotification);
+    try {
+      await device();
+      await db.insert(pushSubscriptions).values({
+        id: randomUUID(),
+        pubkey: LUNA.pubkey,
+        endpoint: "https://fcm.googleapis.com/fcm/send/luna-browser",
+        p256dh: "p256dh",
+        auth: "auth",
+      });
+      await seed();
+      webPushSend.mockRejectedValueOnce(Object.assign(new Error("boom"), { statusCode: 500 }));
+      const { sender } = fakeSender();
+      await dispatchOnce({ sender });
+      expect(await pushService.lastDeliveryError(LUNA.pubkey)).toMatchObject({ error: "webpush_failed" });
+    } finally {
+      config.vapidPublicKey = saved.pub;
+      config.vapidPrivateKey = saved.priv;
+    }
+  });
+
   it("a dm wrap inside the delivery margin is retired unsent; an expiring group's push lives no longer than its wraps", async () => {
     await device();
     const soon = JSON.stringify({
