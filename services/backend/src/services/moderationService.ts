@@ -3,6 +3,7 @@ import { db } from "../db/connection.js";
 import { bans, timedMutes, moderationAuditLog } from "../db/schema/moderation.js";
 import { spaceMembers } from "../db/schema/members.js";
 import { eq, and, gt, or, isNull, desc } from "drizzle-orm";
+import { refreshMemberCount } from "./membershipService.js";
 
 interface BanParams {
   pubkey: string;
@@ -57,9 +58,11 @@ export const moderationService = {
       .returning();
 
     // Remove from space members
-    await db
+    const removed = await db
       .delete(spaceMembers)
-      .where(and(eq(spaceMembers.spaceId, spaceId), eq(spaceMembers.pubkey, params.pubkey)));
+      .where(and(eq(spaceMembers.spaceId, spaceId), eq(spaceMembers.pubkey, params.pubkey)))
+      .returning({ pubkey: spaceMembers.pubkey });
+    if (removed.length > 0) await refreshMemberCount(db, spaceId);
 
     await logAuditEntry(spaceId, params.bannedBy, "ban", params.pubkey, {
       reason: params.reason,
@@ -150,9 +153,11 @@ export const moderationService = {
    * report endpoint), revisit this and add an explicit cascade.
    */
   async kickMember(spaceId: string, pubkey: string, actorPubkey?: string) {
-    await db
+    const removed = await db
       .delete(spaceMembers)
-      .where(and(eq(spaceMembers.spaceId, spaceId), eq(spaceMembers.pubkey, pubkey)));
+      .where(and(eq(spaceMembers.spaceId, spaceId), eq(spaceMembers.pubkey, pubkey)))
+      .returning({ pubkey: spaceMembers.pubkey });
+    if (removed.length > 0) await refreshMemberCount(db, spaceId);
     if (actorPubkey) {
       await logAuditEntry(spaceId, actorPubkey, "kick", pubkey);
     }

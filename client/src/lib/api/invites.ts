@@ -31,7 +31,8 @@ export interface OnboardingFlag {
 
 export interface RedeemResult {
   spaceId: string;
-  space: SpacePreview | null;
+  /** The redeemer is a member now, so this carries more than the public preview. */
+  space: (SpacePreview & { creatorPubkey?: string | null; hostRelay?: string; listed?: boolean }) | null;
   onboarding: OnboardingFlag | null;
 }
 

@@ -47,7 +47,7 @@ const createSpaceBodySchema = z.object({
 /** PATCH /:id — the editable metadata. `null` clears about/picture. */
 const updateSpaceBodySchema = z
   .object({
-    name: nonEmptyString.max(60).optional(),
+    name: nonEmptyString.max(100).optional(),
     about: z.string().max(2000).nullable().optional(),
     picture: pictureUrl.nullable().optional(),
   })
@@ -113,6 +113,7 @@ export const spacesRoutes: FastifyPluginAsync = async (server) => {
         hostRelay: s.hostRelay,
         creatorPubkey: s.creatorPubkey,
         memberCount: s.memberCount ?? 0,
+        listed: s.listed,
       },
       channels: channelsBySpace[s.id] ?? [],
       feedPubkeys: feedsBySpace[s.id] ?? [],

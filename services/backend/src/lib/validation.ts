@@ -33,7 +33,7 @@ export const positiveInt = (max?: number) => {
 export const nonNegativeInt = z.coerce.number().int().min(0);
 
 /** Non-empty trimmed string */
-export const nonEmptyString = z.string().min(1).trim();
+export const nonEmptyString = z.string().trim().min(1);
 
 /** Optional bounded limit with default */
 export const limitParam = (def: number, max: number) =>

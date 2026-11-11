@@ -13,6 +13,8 @@ import { usePermissions } from "./usePermissions";
 import { useSpace } from "./useSpace";
 import { InviteGenerateModal } from "./InviteGenerateModal";
 import { deleteSpaceApi, leaveSpaceApi } from "../../lib/api/spaces";
+import { ApiRequestError } from "../../lib/api/client";
+import { isBackendBacked } from "./spaceType";
 import { saveUserState } from "../../lib/db/userStateStore";
 import { store } from "../../store";
 
@@ -49,6 +51,9 @@ export function SpaceContextMenu({
   const [showDurations, setShowDurations] = useState(false);
   const [showInvite, setShowInvite] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
+  const [confirmLeave, setConfirmLeave] = useState(false);
+  const [leaving, setLeaving] = useState(false);
+  const [leaveError, setLeaveError] = useState<string | null>(null);
   const [coords, setCoords] = useState(position);
   const ref = useRef<HTMLDivElement>(null);
 
@@ -69,7 +74,7 @@ export function SpaceContextMenu({
       y = Math.max(margin, window.innerHeight - height - margin);
     }
     setCoords({ x, y });
-  }, [open, position, showDurations, confirmDelete]);
+  }, [open, position, showDurations, confirmDelete, confirmLeave, leaveError]);
 
   // Close on Escape
   useEffect(() => {
@@ -99,6 +104,8 @@ export function SpaceContextMenu({
     if (!open) {
       setShowDurations(false);
       setConfirmDelete(false);
+      setConfirmLeave(false);
+      setLeaveError(null);
     }
   }, [open]);
 
@@ -117,11 +124,30 @@ export function SpaceContextMenu({
   }
 
   async function handleLeave() {
-    try {
-      await leaveSpaceApi(spaceId);
-    } catch {
-      // Backend unavailable — still clean up locally
+    if (!confirmLeave) {
+      setConfirmLeave(true);
+      return;
     }
+    if (leaving) return;
+    setLeaving(true);
+    setLeaveError(null);
+    try {
+      if (!space || isBackendBacked(space)) await leaveSpaceApi(spaceId);
+    } catch (err) {
+      // A space that's already gone can be dropped locally; anything else
+      // (the last admin, an outage) keeps it so the user isn't half-removed.
+      const gone = err instanceof ApiRequestError && err.status === 404;
+      if (!gone) {
+        setLeaving(false);
+        setLeaveError(
+          err instanceof ApiRequestError && err.code === "LAST_ADMIN"
+            ? "You're the only admin. Make someone else an admin in Space settings → Members, or delete the space."
+            : `Couldn't leave the space: ${err instanceof Error ? err.message : "unknown error"}`,
+        );
+        return;
+      }
+    }
+    setLeaving(false);
     deleteSpace(spaceId);
     onClose();
   }
@@ -164,6 +190,41 @@ export function SpaceContextMenu({
               {d.label}
             </button>
           ))}
+        </div>
+      ) : confirmLeave ? (
+        <div className="max-w-[280px] py-1">
+          <div className="px-3 py-1.5 text-[10px] font-semibold uppercase tracking-wider text-muted">
+            Leave this space?
+          </div>
+          {isCreator && !leaveError && (
+            <p className="px-3 pb-1.5 text-xs text-soft">
+              You created this space. If you leave, its other admins take it over.
+            </p>
+          )}
+          {leaveError && (
+            <p role="alert" className="px-3 pb-1.5 text-xs text-red-400">
+              {leaveError}
+            </p>
+          )}
+          {!leaveError && (
+            <button
+              onClick={handleLeave}
+              disabled={leaving}
+              className="flex w-full items-center gap-2 rounded-lg mx-1 px-3.5 py-2.5 text-sm text-red-400 hover:bg-red-500/10 transition-colors disabled:opacity-50"
+            >
+              <LogOut size={14} />
+              {leaving ? "Leaving…" : "Yes, leave"}
+            </button>
+          )}
+          <button
+            onClick={() => {
+              setConfirmLeave(false);
+              setLeaveError(null);
+            }}
+            className="flex w-full items-center gap-2 rounded-lg mx-1 px-3.5 py-2.5 text-sm text-body hover:bg-surface-hover hover:text-heading transition-colors"
+          >
+            {leaveError ? "Close" : "Cancel"}
+          </button>
         </div>
       ) : confirmDelete ? (
         <div className="py-1">
