@@ -34,6 +34,75 @@ const spacesByHost = new Map<string, Set<string>>();
  *  before the space is removed from Redux) */
 const spaceHost = new Map<string, string>();
 
+// ── Space-only music backfill ────────────────────────────────────
+// Music home shows the newest space-only releases from every joined space.
+// They are h-tagged, and the host relay only serves them to members, so this
+// is the same question the bg chat sub already asks (`#h` = joined ids), for
+// two more kinds.
+//
+// One REQ per host relay, closed at EOSE: never a standing subscription. Each
+// space gets its own filter with a small limit so one busy space can't crowd
+// the others out of a shared limit. Fetched once per space per session.
+
+const SPACE_MUSIC_KINDS = [EVENT_KINDS.MUSIC_TRACK, EVENT_KINDS.MUSIC_ALBUM];
+/** Newest releases fetched per space. */
+const SPACE_MUSIC_PER_SPACE = 12;
+/** Filters per REQ, under the relay's cap of 16. */
+const SPACE_MUSIC_FILTERS_PER_REQ = 8;
+/** A REQ that reaches a relay before NIP-42 AUTH finishes gets no h-tagged
+ *  events. A space that comes back empty is asked once more after this long. */
+const SPACE_MUSIC_RETRY_MS = 6_000;
+
+/** Space ids whose music was fetched this session. */
+const spaceMusicFetched = new Set<string>();
+/** Space ids already given their one retry. */
+const spaceMusicRetried = new Set<string>();
+let spaceMusicRetryTimers: ReturnType<typeof setTimeout>[] = [];
+
+/** True when the store holds a space-only release for `spaceId`. */
+function hasSpaceMusic(spaceId: string): boolean {
+  const music = store.getState().music;
+  const inSpace = (m: { visibility: string; spaceIds?: string[] }) =>
+    m.visibility === "space" && !!m.spaceIds?.includes(spaceId);
+  return Object.values(music.albums).some(inSpace) || Object.values(music.tracks).some(inSpace);
+}
+
+async function fetchSpaceMusic(host: string, ids: string[]): Promise<void> {
+  for (let i = 0; i < ids.length; i += SPACE_MUSIC_FILTERS_PER_REQ) {
+    const chunk = ids.slice(i, i + SPACE_MUSIC_FILTERS_PER_REQ);
+    await subscriptionManager.subscribeOnce({
+      filters: chunk.map((id) => ({
+        kinds: SPACE_MUSIC_KINDS,
+        "#h": [id],
+        limit: SPACE_MUSIC_PER_SPACE,
+      })),
+      relayUrls: [host],
+    });
+  }
+}
+
+/** Fetch the newest space-only music for the spaces on `host` not yet fetched
+ *  this session. */
+function backfillSpaceMusic(host: string): void {
+  const ids = [...(spacesByHost.get(host) ?? [])].filter((id) => id && !spaceMusicFetched.has(id));
+  if (ids.length === 0) return;
+  for (const id of ids) spaceMusicFetched.add(id);
+
+  void fetchSpaceMusic(host, ids).then(() => {
+    const timer = setTimeout(() => {
+      spaceMusicRetryTimers = spaceMusicRetryTimers.filter((t) => t !== timer);
+      // Still joined, still empty, not retried yet.
+      const empty = ids.filter(
+        (id) => spaceHost.get(id) === host && !spaceMusicRetried.has(id) && !hasSpaceMusic(id),
+      );
+      if (empty.length === 0) return;
+      for (const id of empty) spaceMusicRetried.add(id);
+      void fetchSpaceMusic(host, empty);
+    }, SPACE_MUSIC_RETRY_MS);
+    spaceMusicRetryTimers.push(timer);
+  });
+}
+
 /** Recent-only window for the always-on sub (full history loads on entering). */
 function defaultSince(): number {
   return Math.floor(Date.now() / 1000) - 60;
@@ -67,6 +136,15 @@ function openHostSub(host: string, since: number = defaultSince()): void {
         "#d": ids,
         since,
       },
+      {
+        // Space-only music (h-tagged tracks and projects) published while the
+        // app is open, so Music home's "From your spaces" row stays current
+        // without a subscription of its own. History comes from the one-shot
+        // backfill (backfillSpaceMusic).
+        kinds: SPACE_MUSIC_KINDS,
+        "#h": ids,
+        since,
+      },
     ],
     relayUrls: [host],
   });
@@ -89,6 +167,7 @@ export function startBackgroundChatSubs(spaces: Space[]): void {
   }
   for (const host of spacesByHost.keys()) {
     openHostSub(host);
+    backfillSpaceMusic(host);
   }
 }
 
@@ -101,6 +180,7 @@ export function openBgChatSub(space: Space): void {
   spacesByHost.set(space.hostRelay, set);
   spaceHost.set(space.id, space.hostRelay);
   openHostSub(space.hostRelay);
+  backfillSpaceMusic(space.hostRelay);
 }
 
 /** Remove a space from its host's background chat sub (leave/kick/delete).
@@ -109,6 +189,9 @@ export function closeBgChatSub(spaceId: string): void {
   const host = spaceHost.get(spaceId);
   if (!host) return;
   spaceHost.delete(spaceId);
+  // Rejoining later should fetch again.
+  spaceMusicFetched.delete(spaceId);
+  spaceMusicRetried.delete(spaceId);
 
   const set = spacesByHost.get(host);
   if (!set) return;
@@ -132,6 +215,10 @@ export function stopAllBgChatSubs(): void {
   hostRelaySubs.clear();
   spacesByHost.clear();
   spaceHost.clear();
+  spaceMusicFetched.clear();
+  spaceMusicRetried.clear();
+  for (const timer of spaceMusicRetryTimers) clearTimeout(timer);
+  spaceMusicRetryTimers = [];
 
   // Also tear down per-space metadata/layout subs and the client-space marker
   // map. Their underlying subs are closed by subscriptionManager.closeAll() at

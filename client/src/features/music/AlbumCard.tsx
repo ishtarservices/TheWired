@@ -115,7 +115,7 @@ export const AlbumCard = memo(function AlbumCard({ album, onNavigate }: AlbumCar
             {(() => {
               const target = resolveArtistDetailTarget(album.artist, album.artistPubkeys);
               if (!target) {
-                return <p className="truncate text-xs text-muted">{resolvedArtist}</p>;
+                return <p className="min-w-0 truncate text-xs text-muted">{resolvedArtist}</p>;
               }
               return (
                 <button
@@ -124,7 +124,7 @@ export const AlbumCard = memo(function AlbumCard({ album, onNavigate }: AlbumCar
                     e.stopPropagation();
                     dispatch(setActiveDetailId(target));
                   }}
-                  className="truncate text-xs text-muted hover:text-heading hover:underline"
+                  className="min-w-0 truncate text-xs text-muted hover:text-heading hover:underline"
                 >
                   {resolvedArtist}
                 </button>

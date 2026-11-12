@@ -307,3 +307,113 @@ describe("groupSubscriptions — loadMore hasMore on timeout vs all-eose (#78)",
     expect(store.getState().feed.meta[contextId].hasMore).toBe(false);
   });
 });
+
+describe("groupSubscriptions — space-only music backfill", () => {
+  type OnceArg = { filters: { kinds: number[]; "#h": string[]; limit: number }[]; relayUrls: string[] };
+  const onceCall = (i: number) => subscribeOnce.mock.calls[i][0] as unknown as OnceArg;
+  /** Let the sequential subscribeOnce chain (one await per REQ) run out. */
+  const settle = async () => {
+    for (let i = 0; i < 8; i++) await Promise.resolve();
+  };
+  const spaceRelease = (id: string, spaceId: string) =>
+    ({
+      addressableId: `33123:author:${id}`,
+      pubkey: "author",
+      title: id,
+      visibility: "space",
+      spaceIds: [spaceId],
+      artistPubkeys: [],
+      featuredArtists: [],
+      collaborators: [],
+      hashtags: [],
+      trackRefs: [],
+      createdAt: 1,
+    }) as never;
+
+  beforeEach(() => {
+    store.dispatch(resetAll());
+  });
+
+  it("asks each host once, with one small filter per space, and never as a standing sub", async () => {
+    startBackgroundChatSubs([space("A", "wss://h1"), space("B", "wss://h1"), space("C", "wss://h2")]);
+    await settle();
+
+    expect(subscribeOnce).toHaveBeenCalledTimes(2);
+    const h1 = onceCall(0);
+    expect(h1.relayUrls).toEqual(["wss://h1"]);
+    expect(h1.filters).toEqual([
+      { kinds: [31683, 33123], "#h": ["A"], limit: 12 },
+      { kinds: [31683, 33123], "#h": ["B"], limit: 12 },
+    ]);
+    expect(onceCall(1).relayUrls).toEqual(["wss://h2"]);
+    // Only the always-on bg chat subs go through subscribe(): one per host.
+    expect(subscribe).toHaveBeenCalledTimes(2);
+  });
+
+  it("carries live space-only music on the existing bg sub instead of a new one", () => {
+    startBackgroundChatSubs([space("A", "wss://h")]);
+    const live = filterOf(0).filters[2];
+    expect(live.kinds).toEqual([31683, 33123]);
+    expect(live["#h"]).toEqual(["A"]);
+    expect(typeof live.since).toBe("number");
+  });
+
+  it("stays under the relay's filter cap by chunking many spaces", async () => {
+    startBackgroundChatSubs(Array.from({ length: 20 }, (_, i) => space(`s${i}`, "wss://h")));
+    await settle();
+    expect(subscribeOnce.mock.calls.map((_, i) => onceCall(i).filters.length)).toEqual([8, 8, 4]);
+  });
+
+  it("fetches a newly joined space alone, not the ones already fetched", async () => {
+    startBackgroundChatSubs([space("A", "wss://h")]);
+    await settle();
+    openBgChatSub(space("B", "wss://h"));
+    await settle();
+    expect(subscribeOnce).toHaveBeenCalledTimes(2);
+    expect(onceCall(1).filters.map((f) => f["#h"][0])).toEqual(["B"]);
+  });
+
+  it("fetches again after leaving and rejoining", async () => {
+    startBackgroundChatSubs([space("A", "wss://h")]);
+    await settle();
+    closeBgChatSub("A");
+    openBgChatSub(space("A", "wss://h"));
+    await settle();
+    expect(subscribeOnce).toHaveBeenCalledTimes(2);
+  });
+
+  it("asks an empty space once more (a REQ that beat AUTH returns nothing), then stops", async () => {
+    vi.useFakeTimers();
+    try {
+      startBackgroundChatSubs([space("A", "wss://h"), space("B", "wss://h")]);
+      await settle();
+      // A's music arrived; B came back empty.
+      store.dispatch({ type: "music/addAlbums", payload: [spaceRelease("ep", "A")] });
+
+      await vi.advanceTimersByTimeAsync(6_000);
+      await settle();
+      expect(subscribeOnce).toHaveBeenCalledTimes(2);
+      expect(onceCall(1).filters.map((f) => f["#h"][0])).toEqual(["B"]);
+
+      await vi.advanceTimersByTimeAsync(30_000);
+      await settle();
+      expect(subscribeOnce).toHaveBeenCalledTimes(2);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("drops the pending retry on logout", async () => {
+    vi.useFakeTimers();
+    try {
+      startBackgroundChatSubs([space("A", "wss://h")]);
+      await settle();
+      stopAllBgChatSubs();
+      await vi.advanceTimersByTimeAsync(10_000);
+      await settle();
+      expect(subscribeOnce).toHaveBeenCalledTimes(1);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+});

@@ -1,6 +1,7 @@
 import type { NostrEvent } from "../../types/nostr";
 import { EVENT_KINDS } from "../../types/nostr";
 import { EventDeduplicator } from "./dedup";
+import { registerForgetSeen } from "./forgetSeen";
 import { inModGroup, verifySpaceModAuthority } from "./mutationAuthority";
 import { trackPendingDeletion, clearPendingDeletion } from "../../store/slices/eventsSlice";
 import { isValidEventStructure } from "./validation";
@@ -326,6 +327,13 @@ function flushEventPipeline(): void {
   // Bound the entity store after the batch lands (indices are populated, so
   // freshly-added events are already referenced and won't be swept).
   sweepEvents();
+}
+
+/** Let events that were deliberately dropped from the store be delivered
+ *  again. Without this the dedup LRU swallows the re-fetch for the rest of the
+ *  session (e.g. a space's music after the viewer leaves and rejoins). */
+function forgetSeenEvents(ids: readonly string[]): void {
+  for (const id of ids) dedup.unmarkSeen(id);
 }
 
 /** Clear all module-level caches (used during account switch) */
@@ -1756,6 +1764,7 @@ function handleCallMissedWrap(
     processIncomingEvent,
     flushEventPipeline,
     resetEventPipelineCaches,
+    forgetSeenEvents,
     __sweepForTest,
   };
 }
@@ -1787,6 +1796,11 @@ export const flushEventPipeline = defaultPipeline.flushEventPipeline;
 
 /** Clear all pipeline caches (used during account switch). */
 export const resetEventPipelineCaches = defaultPipeline.resetEventPipelineCaches;
+
+// Features drop events on purpose (e.g. a space's music when the viewer
+// leaves it) and need them deliverable again; they reach the dedup LRU through
+// the registry rather than importing this module back.
+registerForgetSeen(defaultPipeline.forgetSeenEvents);
 
 /** Test-only: run the sweep with explicit caps (so a test needn't seed 20k events). */
 export const __sweepForTest = defaultPipeline.__sweepForTest;

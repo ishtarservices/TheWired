@@ -30,6 +30,7 @@ import { setLastChannel } from "@/lib/db/lastChannelCache";
 import { useScenes } from "@/features/discover/useScenes";
 import { sceneChips } from "@/features/discover/taxonomy";
 import { FacetChip, FacetList, FacetRow } from "../Facets";
+import { spaceShelf } from "../spaceMusic";
 
 const GRID = "grid grid-cols-[repeat(auto-fill,minmax(164px,1fr))] gap-x-5 gap-y-8";
 /** Three rows on a wide window; the rest sits behind "Show all". */
@@ -54,6 +55,7 @@ export function MusicHome() {
   const spaceChannels = useAppSelector((s) => s.spaces.channels);
   const { selectSpace } = useSpace();
   const scenes = useScenes();
+  const muteList = useAppSelector((s) => s.identity.muteList);
 
   const libraryTracksSelector = useMemo(() => selectLibraryTracks(pubkey), [pubkey]);
   const libraryAlbumsSelector = useMemo(() => selectLibraryAlbums(pubkey), [pubkey]);
@@ -136,6 +138,20 @@ export function MusicHome() {
     return mixExplore(projects, trendingTracks).filter((i) => !mine.has(i.id));
   }, [collection, trendingAlbums, newReleases, trendingTracks]);
 
+  // Space-only releases from the spaces this account is in. They arrive in
+  // the background (groupSubscriptions.backfillSpaceMusic); nothing is fetched
+  // here.
+  const fromSpaces = useMemo(() => {
+    const mutedSet = new Set<string>();
+    for (const m of muteList) if (m.type === "pubkey") mutedSet.add(m.value);
+    return spaceShelf(albums, tracks, {
+      joined: new Set(spaces.map((s) => s.id)),
+      isMine,
+      muted: mutedSet,
+      exclude: new Set(collection.map((i) => i.id)),
+    });
+  }, [albums, tracks, spaces, isMine, muteList, collection]);
+
   const [showAll, setShowAll] = useState(false);
 
   // Browse is folded by default; the choice is remembered per account.
@@ -190,13 +206,14 @@ export function MusicHome() {
   // invitation, or carries it as a strip above the trending content.
   const libraryEmpty = collection.length === 0;
 
-  if (libraryEmpty && trending.length === 0) {
+  if (libraryEmpty && trending.length === 0 && fromSpaces.length === 0) {
     return <MusicGetStarted />;
   }
 
   const shownCollection = showAll ? collection : collection.slice(0, COLLECTION_PREVIEW);
   const collectionTrackIds = collection.filter((i) => i.kind === "track").map((i) => i.id);
   const trendingTrackQueue = trending.filter((i) => i.kind === "track").map((i) => i.id);
+  const spaceTrackQueue = fromSpaces.filter((i) => i.kind === "track").map((i) => i.id);
 
   const handleGenreClick = (genre: string) => {
     dispatch(setActiveGenre(genre));
@@ -269,6 +286,23 @@ export function MusicHome() {
               {showAll ? "Show less" : `Show all ${collection.length}`}
             </button>
           )}
+        </section>
+      )}
+
+      {/* Space-only releases from the viewer's spaces: one short row */}
+      {fromSpaces.length > 0 && (
+        <section className="mb-10">
+          <div className={`mb-4 flex items-baseline gap-4 ${libraryEmpty ? "" : "border-t border-border-light pt-6"}`}>
+            <h2 className="text-[15px] font-semibold tracking-[-0.01em] text-heading">From your spaces</h2>
+            <span className="text-[13px] text-muted">Only members can hear these</span>
+          </div>
+          <div className="-mx-1 flex gap-5 overflow-x-auto px-1 pb-3 pt-1">
+            {fromSpaces.map((item) => (
+              <div key={item.id} className="w-40 shrink-0">
+                {renderItem(item, spaceTrackQueue)}
+              </div>
+            ))}
+          </div>
         </section>
       )}
 

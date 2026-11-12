@@ -9,6 +9,7 @@ import { clearSpaceFeed } from "../../store/slices/eventsSlice";
 import { removeMembers as removeMembersFromIDB } from "../../lib/db/spaceMembersStore";
 import { removeLastChannel } from "../../lib/db/lastChannelCache";
 import { forgetNativeLayout } from "./nip29SpaceSync";
+import { purgeSpaceOnlyMusic } from "../music/spaceMusic";
 
 /**
  * Unified cleanup for all slices + IDB stores when a space is gone — used by
@@ -30,6 +31,9 @@ export function cleanupSpaceState(spaceId: string, dispatch: AppDispatch): void 
   dispatch(clearFeedMeta(`${spaceId}:media`));
   dispatch(clearFeedMeta(`${spaceId}:articles`));
   dispatch(clearFeedMeta(`${spaceId}:music`));
+
+  // Before the space leaves the list: its space-only music goes with it.
+  purgeSpaceOnlyMusic(spaceId, dispatch);
 
   dispatch(removeSpace(spaceId));
   dispatch(clearSpaceUnread(spaceId));

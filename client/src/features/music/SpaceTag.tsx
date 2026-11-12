@@ -35,7 +35,7 @@ export function SpaceTag({
   return (
     <span
       title={name ? `Only in ${name}${more ? ` and ${spaceIds!.length - 1} more` : ""}` : "Only in a space"}
-      className="min-w-0 max-w-[7.5rem] shrink truncate font-mono text-[9px] uppercase tracking-wider text-faint"
+      className="min-w-0 max-w-[7.5rem] shrink-[8] truncate font-mono text-[9px] uppercase tracking-wider text-faint"
     >
       {name ?? "Space"}
       {more}
