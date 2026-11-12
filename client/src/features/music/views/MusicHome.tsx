@@ -9,6 +9,7 @@ import {
   setExploreGenres,
   setActiveGenre,
   setActiveTag,
+  setActiveScene,
   setMusicView,
 } from "@/store/slices/musicSlice";
 import { selectLibraryTracks, selectLibraryAlbums } from "../musicSelectors";
@@ -21,10 +22,19 @@ import { AlbumCard } from "../AlbumCard";
 import { MusicGetStarted } from "../MusicGetStarted";
 import { byInteraction, collectionWall, mixExplore, type ExploreItem } from "../exploreMix";
 import { useIsMine } from "../sharedKey/ownership";
+import { ChevronRight } from "lucide-react";
+import { Avatar } from "@/components/ui/Avatar";
+import { setSidebarMode } from "@/store/slices/uiSlice";
+import { useSpace } from "@/features/spaces/useSpace";
+import { setLastChannel } from "@/lib/db/lastChannelCache";
+import { useScenes } from "@/features/discover/useScenes";
+import { sceneChips } from "@/features/discover/taxonomy";
 
 const GRID = "grid grid-cols-[repeat(auto-fill,minmax(164px,1fr))] gap-x-5 gap-y-8";
 /** Three rows on a wide window; the rest sits behind "Show all". */
 const COLLECTION_PREVIEW = 18;
+const BROWSE_CHIP =
+  "rounded-full px-2.5 py-1 text-xs text-soft transition-colors hover:bg-surface-hover hover:text-heading";
 
 export function MusicHome() {
   const { scrollPaddingClass } = usePlaybackBarSpacing();
@@ -40,6 +50,10 @@ export function MusicHome() {
   const savedStamps = useAppSelector((s) => s.music.librarySync.record.saved);
   const tracksByAlbum = useAppSelector((s) => s.music.tracksByAlbum);
   const isMine = useIsMine();
+  const spaces = useAppSelector((s) => s.spaces.list);
+  const spaceChannels = useAppSelector((s) => s.spaces.channels);
+  const { selectSpace } = useSpace();
+  const scenes = useScenes();
 
   const libraryTracksSelector = useMemo(() => selectLibraryTracks(pubkey), [pubkey]);
   const libraryAlbumsSelector = useMemo(() => selectLibraryAlbums(pubkey), [pubkey]);
@@ -124,6 +138,54 @@ export function MusicHome() {
 
   const [showAll, setShowAll] = useState(false);
 
+  // Browse is folded by default; the choice is remembered per account.
+  const browseKey = pubkey ? `${pubkey}:music_home_browse_open` : "music_home_browse_open";
+  const [browseOpen, setBrowseOpen] = useState(() => {
+    try {
+      return localStorage.getItem(browseKey) === "true";
+    } catch {
+      return false;
+    }
+  });
+  const toggleBrowse = () =>
+    setBrowseOpen((open) => {
+      try {
+        localStorage.setItem(browseKey, String(!open));
+      } catch {
+        /* private mode: the choice just isn't remembered */
+      }
+      return !open;
+    });
+
+  // Joined spaces that have a music channel, with how many space-only
+  // releases this device already knows about (0 until the channel is visited).
+  const musicSpaces = useMemo(() => {
+    if (!browseOpen) return [];
+    const counts = new Map<string, number>();
+    const bump = (item: { visibility: string; spaceIds?: string[] }) => {
+      if (item.visibility !== "space") return;
+      for (const id of item.spaceIds ?? []) counts.set(id, (counts.get(id) ?? 0) + 1);
+    };
+    const spaceProjects = new Set<string>();
+    for (const a of Object.values(albums)) {
+      bump(a);
+      if (a.visibility === "space") spaceProjects.add(a.addressableId);
+    }
+    for (const t of Object.values(tracks)) {
+      // A track inside a counted project is that project, not another release.
+      if (!t.albumRef || !spaceProjects.has(t.albumRef)) bump(t);
+    }
+    return spaces.flatMap((space) => {
+      const channel = spaceChannels[space.id]?.find((c) => c.type === "music");
+      return channel ? [{ space, channelId: channel.id, count: counts.get(space.id) ?? 0 }] : [];
+    });
+  }, [browseOpen, spaces, spaceChannels, albums, tracks]);
+
+  const sceneOptions = useMemo(
+    () => (browseOpen ? sceneChips(scenes, { genres: exploreGenres.map((g) => g.genre) }) : []),
+    [browseOpen, scenes, exploreGenres],
+  );
+
   // Nothing of the viewer's own (uploaded or saved): the home either IS the
   // invitation, or carries it as a strip above the trending content.
   const libraryEmpty = collection.length === 0;
@@ -139,8 +201,26 @@ export function MusicHome() {
   const handleGenreClick = (genre: string) => {
     dispatch(setActiveGenre(genre));
     dispatch(setActiveTag(null));
+    dispatch(setActiveScene(null));
     dispatch(setMusicView("explore"));
   };
+
+  const handleSceneClick = (slug: string) => {
+    dispatch(setActiveScene(slug));
+    dispatch(setActiveGenre(null));
+    dispatch(setActiveTag(null));
+    dispatch(setMusicView("explore"));
+  };
+
+  /** Space-only releases are fetched and gated by the space's own music
+   *  channel, so Home links there rather than loading them itself. */
+  const openSpaceMusic = (spaceId: string, channelId: string) => {
+    setLastChannel(spaceId, channelId);
+    dispatch(setSidebarMode("spaces"));
+    selectSpace(spaceId);
+  };
+
+  const hasBrowse = musicSpaces.length > 0 || sceneOptions.length > 0 || exploreGenres.length > 0;
 
   const renderItem = (item: ExploreItem, queue: string[]) =>
     item.kind === "project" ? (
@@ -226,23 +306,74 @@ export function MusicHome() {
         </section>
       )}
 
-      {/* Genres are a way in to Explore, not content: one quiet line at the
-          end of the page. */}
-      {exploreGenres.length > 0 && (
-        <section className="border-t border-border-light pt-5">
-          <h2 className="label-caps mb-3">Browse by genre</h2>
-          <div className="-ml-2.5 flex flex-wrap gap-x-0.5 gap-y-1">
-            {exploreGenres.slice(0, 14).map((g) => (
-              <button
-                key={g.genre}
-                onClick={() => handleGenreClick(g.genre)}
-                className="rounded-full px-2.5 py-1 text-xs text-soft transition-colors hover:bg-surface-hover hover:text-heading"
-              >
-                {g.genre}
-                <span className="readout ml-1.5 text-[10px] opacity-55">{g.count}</span>
-              </button>
-            ))}
-          </div>
+      {/* Browse: ways in, not content. Folded away by default. */}
+      {hasBrowse && (
+        <section className="border-t border-border-light pt-4">
+          <button
+            onClick={toggleBrowse}
+            aria-expanded={browseOpen}
+            aria-controls="music-home-browse"
+            className="group -ml-1 flex items-center gap-1.5 rounded-md px-1 py-1"
+          >
+            <ChevronRight
+              size={10}
+              className={`text-muted transition-transform duration-150 ${browseOpen ? "rotate-90" : ""}`}
+            />
+            <span className="label-caps transition-colors group-hover:text-heading">Browse</span>
+          </button>
+
+          {browseOpen && (
+            <div
+              id="music-home-browse"
+              className="animate-fade-in mt-3 grid grid-cols-[4rem_minmax(0,1fr)] items-center gap-x-4 gap-y-3"
+            >
+              {/* Spaces with a music channel: where space-only releases live */}
+              {musicSpaces.length > 0 && (
+                <>
+                  <h2 className="label-caps">Space</h2>
+                  <div className="-ml-1 flex flex-wrap gap-x-1 gap-y-1">
+                    {musicSpaces.map(({ space, channelId, count }) => (
+                      <button
+                        key={space.id}
+                        onClick={() => openSpaceMusic(space.id, channelId)}
+                        title={`Open the music channel in ${space.name}`}
+                        className="inline-flex items-center gap-1.5 rounded-full py-1 pl-1 pr-2.5 text-xs text-soft transition-colors hover:bg-surface-hover hover:text-heading"
+                      >
+                        <Avatar src={space.picture} alt="" size="xs" />
+                        <span className="max-w-[12rem] truncate">{space.name}</span>
+                        {count > 0 && <span className="readout text-[10px] opacity-55">{count}</span>}
+                      </button>
+                    ))}
+                  </div>
+                </>
+              )}
+              {sceneOptions.length > 0 && (
+                <>
+                  <h2 className="label-caps">Scene</h2>
+                  <div className="-ml-2.5 flex flex-wrap gap-x-0.5 gap-y-1">
+                    {sceneOptions.map((sc) => (
+                      <button key={sc.value} onClick={() => handleSceneClick(sc.value)} className={BROWSE_CHIP}>
+                        {sc.label}
+                      </button>
+                    ))}
+                  </div>
+                </>
+              )}
+              {exploreGenres.length > 0 && (
+                <>
+                  <h2 className="label-caps">Genre</h2>
+                  <div className="-ml-2.5 flex flex-wrap gap-x-0.5 gap-y-1">
+                    {exploreGenres.slice(0, 14).map((g) => (
+                      <button key={g.genre} onClick={() => handleGenreClick(g.genre)} className={BROWSE_CHIP}>
+                        {g.genre}
+                        <span className="readout ml-1.5 text-[10px] opacity-55">{g.count}</span>
+                      </button>
+                    ))}
+                  </div>
+                </>
+              )}
+            </div>
+          )}
         </section>
       )}
     </div>

@@ -9,6 +9,7 @@ import {
   setExplorePopularTags,
   setActiveGenre,
   setActiveTag,
+  setActiveScene,
   setExploreResults,
   setExploreAlbumResults,
   setExploreSort,
@@ -22,6 +23,8 @@ import { store } from "@/store";
 import { TrackCard } from "../TrackCard";
 import { AlbumCard } from "../AlbumCard";
 import { mixExplore } from "../exploreMix";
+import { useScenes } from "@/features/discover/useScenes";
+import { matchesScene, sceneBySlug, sceneChips } from "@/features/discover/taxonomy";
 
 type ExploreShow = "all" | "projects" | "tracks";
 
@@ -52,6 +55,8 @@ export function ExploreMusic() {
   const albums = useAppSelector((s) => s.music.albums);
   const [show, setShow] = useState<ExploreShow>("all");
   const [filtersOpen, setFiltersOpen] = useState(false);
+  const scenes = useScenes();
+  const activeScene = explore.activeScene ? (sceneBySlug(scenes, explore.activeScene) ?? null) : null;
 
   // Load genres and popular tags on mount
   useEffect(() => {
@@ -154,13 +159,29 @@ export function ExploreMusic() {
   }, [explore.activeGenre, explore.activeTag, explore.browseSort, loadTracks, loadAlbums, dispatch]);
 
   const browseTrackIds = explore.browseResults;
+  // A scene is a vocabulary of genres and tags, so it narrows what was loaded
+  // rather than changing the request (the same way Discover applies it).
+  const inScene = useCallback(
+    (item: { genre?: string; hashtags: string[] }) =>
+      !activeScene || matchesScene(activeScene, { genre: item.genre, tags: item.hashtags }),
+    [activeScene],
+  );
   const browseTracks = useMemo(
-    () => browseTrackIds.map((id) => tracks[id]).filter(Boolean),
-    [browseTrackIds, tracks],
+    () => browseTrackIds.map((id) => tracks[id]).filter(Boolean).filter(inScene),
+    [browseTrackIds, tracks, inScene],
   );
   const browseAlbumList = useMemo(
-    () => explore.browseAlbumResults.map((id) => albums[id]).filter(Boolean),
-    [explore.browseAlbumResults, albums],
+    () => explore.browseAlbumResults.map((id) => albums[id]).filter(Boolean).filter(inScene),
+    [explore.browseAlbumResults, albums, inScene],
+  );
+  // Only scenes with something behind them in what Explore knows about.
+  const sceneOptions = useMemo(
+    () =>
+      sceneChips(scenes, {
+        genres: explore.genres.map((g) => g.genre),
+        tags: explore.popularTags.map((t) => t.tag),
+      }),
+    [scenes, explore.genres, explore.popularTags],
   );
   const mixed = useMemo(() => mixExplore(browseAlbumList, browseTracks), [browseAlbumList, browseTracks]);
   // Playing a loose track on the wall queues the other loose tracks after it.
@@ -169,8 +190,10 @@ export function ExploreMusic() {
     [mixed],
   );
 
-  const activeFilterCount = (explore.activeGenre ? 1 : 0) + (explore.activeTag ? 1 : 0);
-  const hasFilters = explore.genres.length > 0 || explore.popularTags.length > 0;
+  const activeFilterCount =
+    (activeScene ? 1 : 0) + (explore.activeGenre ? 1 : 0) + (explore.activeTag ? 1 : 0);
+  const hasFilters =
+    sceneOptions.length > 0 || explore.genres.length > 0 || explore.popularTags.length > 0;
   const count =
     show === "all" ? mixed.length : show === "projects" ? browseAlbumList.length : browseTracks.length;
   const noun = show === "projects" ? "projects" : show === "tracks" ? "tracks" : "releases";
@@ -204,6 +227,18 @@ export function ExploreMusic() {
         </div>
 
         {/* Filters in use stay on the page; the rest live behind Filter. */}
+        {activeScene && (
+          <span className="inline-flex items-center gap-1 rounded-full border border-border py-0.5 pl-2.5 pr-1 text-xs text-heading">
+            {activeScene.label}
+            <button
+              onClick={() => dispatch(setActiveScene(null))}
+              className="rounded-full p-0.5 text-muted hover:bg-surface-hover hover:text-heading"
+              aria-label={`Remove ${activeScene.label} filter`}
+            >
+              <X size={12} />
+            </button>
+          </span>
+        )}
         {explore.activeGenre && (
           <span className="inline-flex items-center gap-1 rounded-full border border-border py-0.5 pl-2.5 pr-1 text-xs text-heading">
             {explore.activeGenre}
@@ -272,6 +307,26 @@ export function ExploreMusic() {
           id="explore-filters"
           className="animate-fade-in mb-8 grid grid-cols-[4rem_minmax(0,1fr)] items-baseline gap-x-4 gap-y-3 border-y border-border-light py-4"
         >
+          {sceneOptions.length > 0 && (
+            <>
+              <h2 className="label-caps">Scene</h2>
+              <div className="-ml-2.5 flex flex-wrap gap-x-0.5 gap-y-1">
+                {sceneOptions.map((sc) => {
+                  const active = explore.activeScene === sc.value;
+                  return (
+                    <button
+                      key={sc.value}
+                      onClick={() => dispatch(setActiveScene(active ? null : sc.value))}
+                      aria-pressed={active}
+                      className={chip(active)}
+                    >
+                      {sc.label}
+                    </button>
+                  );
+                })}
+              </div>
+            </>
+          )}
           {explore.genres.length > 0 && (
             <>
               <h2 className="label-caps">Genre</h2>
@@ -352,7 +407,7 @@ export function ExploreMusic() {
             <TrackCard
               key={track.addressableId}
               track={track}
-              queueTracks={browseTrackIds}
+              queueTracks={browseTracks.map((t) => t.addressableId)}
               queueIndex={i}
             />
           ))}

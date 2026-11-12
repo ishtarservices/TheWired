@@ -12,6 +12,7 @@ import { EditTrackModal } from "./EditTrackModal";
 import { getTrackImage } from "./trackImage";
 import { useResolvedArtist, resolveArtistDetailTarget } from "./useResolvedArtist";
 import { Artwork } from "./Artwork";
+import { SpaceTag } from "./SpaceTag";
 import { publishExisting } from "@/lib/nostr/publish";
 import { getEvent } from "@/lib/db/eventStore";
 import { removeLocalEventId } from "@/lib/db/musicStore";
@@ -164,7 +165,8 @@ export const TrackCard = memo(function TrackCard({
         </div>
         <div className="px-0.5 pt-2.5 text-left">
           <p className="truncate text-[13px] font-medium text-heading">{track.title}</p>
-          <p className="mt-0.5 truncate text-xs text-muted">
+          <p className="mt-0.5 flex items-center gap-1.5 text-xs text-muted">
+            <span className="min-w-0 truncate">
             {(() => {
               const target = resolveArtistDetailTarget(track.artist, track.artistPubkeys);
               if (!target) return <span>{resolvedArtist}</span>;
@@ -197,6 +199,8 @@ export const TrackCard = memo(function TrackCard({
                 </span>
               </>
             )}
+            </span>
+            <SpaceTag visibility={track.visibility} spaceIds={track.spaceIds} />
           </p>
         </div>
       </div>

@@ -11,6 +11,7 @@ import { UpdateAvailableBadge } from "./UpdateAvailableBadge";
 import { useHasPendingUpdate } from "./useSavedVersions";
 import { useResolvedArtist, resolveArtistDetailTarget } from "./useResolvedArtist";
 import { Artwork } from "./Artwork";
+import { SpaceTag } from "./SpaceTag";
 
 interface AlbumCardProps {
   album: MusicAlbum;
@@ -137,6 +138,7 @@ export const AlbumCard = memo(function AlbumCard({ album, onNavigate }: AlbumCar
             {holdsKey && (
               <span className="shrink-0 font-mono text-[9px] uppercase tracking-wider text-faint">shared</span>
             )}
+            <SpaceTag visibility={album.visibility} spaceIds={album.spaceIds} />
           </div>
         </div>
       </div>

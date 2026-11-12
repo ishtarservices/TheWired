@@ -92,6 +92,8 @@ interface MusicState {
     popularTags: { tag: string; count: number }[];
     activeGenre: string | null;
     activeTag: string | null;
+    /** Slug of the scene Explore is narrowed to (see features/discover/taxonomy). */
+    activeScene: string | null;
     browseResults: string[];
     browseAlbumResults: string[];
     browseSort: "trending" | "recent" | "plays";
@@ -240,6 +242,7 @@ const initialState: MusicState = {
     popularTags: [],
     activeGenre: null,
     activeTag: null,
+    activeScene: null,
     browseResults: [],
     browseAlbumResults: [],
     browseSort: "recent",
@@ -1108,6 +1111,9 @@ export const musicSlice = createSlice({
     setActiveTag(state, action: PayloadAction<string | null>) {
       state.explore.activeTag = action.payload;
     },
+    setActiveScene(state, action: PayloadAction<string | null>) {
+      state.explore.activeScene = action.payload;
+    },
     setExploreResults(state, action: PayloadAction<string[]>) {
       state.explore.browseResults = action.payload;
     },
@@ -1290,6 +1296,7 @@ export const {
   setExplorePopularTags,
   setActiveGenre,
   setActiveTag,
+  setActiveScene,
   setExploreResults,
   setExploreAlbumResults,
   setExploreSort,
