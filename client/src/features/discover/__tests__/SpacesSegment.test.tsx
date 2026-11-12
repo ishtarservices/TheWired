@@ -64,6 +64,7 @@ function deferred<T>() {
 
 describe("SpacesSegment", () => {
   beforeEach(() => {
+    localStorage.clear(); // Browse remembers whether it was open
     mockSpaces.mockReset();
     mockCategories.mockReset();
     mockScenes.mockReset();

@@ -1,6 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { UsersRound, SearchX } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useAppDispatch, useAppSelector } from "@/store/hooks";
 import { addNotification } from "@/store/slices/notificationSlice";
@@ -11,6 +10,7 @@ import { removeFriendAction, wouldBreakFriendship } from "@/lib/nostr/friendRequ
 import { useUserSearch } from "@/features/search/useUserSearch";
 import { useClickOutside } from "@/hooks/useClickOutside";
 import { fromHit, fromLocal, type PersonRowData } from "./peopleRow";
+import { EmptyState } from "./components/EmptyState";
 import { PersonRow } from "./components/PersonRow";
 import { SectionHeader } from "./components/SectionHeader";
 import { RowSkeleton } from "./components/Skeletons";
@@ -101,19 +101,18 @@ export function PeopleSegment({ query }: { query: string }) {
   const busy = loading || (hasQuery && local.isSearching);
 
   if (busy && rows.length === 0) {
-    return <RowSkeleton count={5} />;
+    return (
+      <div className="@container">
+        <RowSkeleton count={6} />
+      </div>
+    );
   }
 
   if (rows.length === 0) {
     return hasQuery ? (
-      <EmptyState
-        icon={<SearchX size={24} className="mb-2 text-muted opacity-30" />}
-        title="No one found"
-        message="Try a different name, or paste an npub directly."
-      />
+      <EmptyState title="No one found" message="Try a different name, or paste an npub directly." />
     ) : (
       <EmptyState
-        icon={<UsersRound size={24} className="mb-2 text-muted opacity-30" />}
         title="No one to show yet"
         message="People show up here once they set a nip05 handle on their key."
       />
@@ -122,7 +121,7 @@ export function PeopleSegment({ query }: { query: string }) {
 
   return (
     <section className="@container">
-      {/* Says what the list IS, not just what it contains — the browse list is
+      {/* Says what the list IS, not just what it contains: the browse list is
           handles-only, and a surface that ranks owes the reader that. */}
       {!hasQuery && <SectionHeader title="With handles" />}
       <div className="grid grid-cols-1 gap-x-8 @3xl:grid-cols-2">
@@ -196,8 +195,8 @@ export function QuietFollowButton({ pubkey }: { pubkey: string }) {
         disabled={busy || !followListLoaded}
         aria-pressed={isFollowing}
         className={cn(
-          "px-2 py-1 font-mono text-[11px] transition-colors disabled:opacity-40",
-          isFollowing ? "text-faint hover:text-soft" : "text-soft hover:text-heading",
+          "h-7 rounded-md px-2 text-xs transition-colors disabled:opacity-40",
+          isFollowing ? "text-faint hover:text-heading" : "text-soft hover:bg-surface-hover hover:text-heading",
         )}
       >
         {isFollowing ? "Following" : "Follow"}
@@ -231,24 +230,6 @@ export function QuietFollowButton({ pubkey }: { pubkey: string }) {
           </div>
         </div>
       )}
-    </div>
-  );
-}
-
-function EmptyState({
-  icon,
-  title,
-  message,
-}: {
-  icon: React.ReactNode;
-  title: string;
-  message: string;
-}) {
-  return (
-    <div className="flex flex-col items-center justify-center py-12 text-center">
-      {icon}
-      <p className="text-xs font-medium text-heading">{title}</p>
-      <p className="mt-1 text-xs text-faint">{message}</p>
     </div>
   );
 }

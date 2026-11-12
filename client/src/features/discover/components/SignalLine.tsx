@@ -9,7 +9,7 @@ export function SignalLine({ label, className }: { label: string | null; classNa
   return (
     <span
       data-testid="signal-line"
-      className={cn("truncate font-mono text-[10px] tabular-nums text-faint", className)}
+      className={cn("readout truncate text-[10px] text-faint", className)}
     >
       {label}
     </span>

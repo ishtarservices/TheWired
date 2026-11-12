@@ -1,12 +1,14 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type RefObject } from "react";
-import { Compass } from "lucide-react";
 import { useAppDispatch, useAppSelector } from "@/store/hooks";
 import { previewDiscoverSpace } from "@/store/slices/uiSlice";
 import { RevealSentinel } from "@/components/ui/RevealSentinel";
 import { Spinner } from "@/components/ui/Spinner";
 import { discoverSpaces, type DiscoverSpace } from "@/lib/api/discover";
+import { FacetRow } from "@/features/music/Facets";
+import { ActiveFilter, Browse } from "./components/Browse";
 import { ChipRow, type ChipOption } from "./components/ChipRow";
 import { CategoryGrid } from "./components/CategoryGrid";
+import { EmptyState } from "./components/EmptyState";
 import { SectionHeader } from "./components/SectionHeader";
 import { RowSkeleton, TileGridSkeleton } from "./components/Skeletons";
 import { SpaceRow } from "./components/SpaceRow";
@@ -32,8 +34,8 @@ const SORT_CHIPS: ChipOption<SpaceRankMode>[] = [
 ];
 
 /**
- * The public spaces directory. Browse (scenes, category tiles) leads; the
- * ranked list under it explains every row with a why-line. The backend does
+ * The public spaces directory. Browse (scenes, categories) leads as a ruled
+ * facet list; the ranked list under it explains every row with a why-line. The backend does
  * the real ordering; `rankSpaces` only stabilises it so a refetch never
  * reshuffles rows.
  */
@@ -203,43 +205,66 @@ export function SpacesSegment({
   const categoryActive = category !== "all";
   const listEmpty = directory !== null && visible.length === 0;
 
-  // Scene and category are one filter dimension, so they share one browse
-  // row: category chips while a category is active (so it can be switched or
-  // cleared), scenes otherwise. Only offered when something is behind them.
-  const browseChips = categoryActive ? (
-    <ChipRow options={categoryChips} value={category} onSelect={selectCategory} label="Categories" />
-  ) : sceneOptions.length > 1 ? (
-    <ChipRow options={sceneOptions} value={scene} onSelect={selectScene} label="Scenes" />
-  ) : null;
+  // Scene and category are one filter dimension: picking either clears the
+  // other. The category options are offered while nothing narrows the list,
+  // and again while a category is the active filter (so it can be switched or
+  // cleared). A row is only shown when something is behind it.
+  const showScenes = !categoryActive && sceneOptions.length > 1;
   const showGrid = !filtering && (categories === null || tiles.length > 0);
-  const showBrowse = browseChips !== null || showGrid;
+  const showBrowse = showScenes || categoryActive || showGrid;
+
+  // The filter in use, shown beside the label while Browse is folded.
+  const activeFilter = categoryActive ? (
+    <ActiveFilter
+      label={categoryChips.find((c) => c.value === category)?.label ?? category.replace(/-/g, " ")}
+      onClear={() => selectCategory("all")}
+    />
+  ) : activeScene ? (
+    <ActiveFilter label={activeScene.label} onClear={() => selectScene("all")} />
+  ) : null;
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-7">
       {showBrowse && (
-        <section className="@container">
-          <SectionHeader title="Browse" right={browseChips} />
-          {showGrid && categories === null && <TileGridSkeleton />}
-          {showGrid && categories !== null && <CategoryGrid tiles={tiles} onSelect={selectCategory} />}
-          {showGrid && hasMore && (
-            <div className="mt-2 flex justify-end">
-              <button
-                type="button"
-                onClick={() => setCategoriesExpanded((v) => !v)}
-                className="text-xs text-muted transition-colors hover:text-primary"
-              >
-                {categoriesExpanded ? "Fewer categories" : "All categories"}
-              </button>
-            </div>
+        <Browse id="discover-spaces-browse" storageKey="spaces" defaultOpen active={activeFilter}>
+          {showScenes && (
+            <FacetRow label="Scene">
+              <ChipRow options={sceneOptions} value={scene} onSelect={selectScene} label="Scenes" />
+            </FacetRow>
           )}
-        </section>
+          {categoryActive && (
+            <FacetRow label="Category">
+              <ChipRow options={categoryChips} value={category} onSelect={selectCategory} label="Categories" />
+            </FacetRow>
+          )}
+          {showGrid && (
+            <FacetRow label="Category">
+              {categories === null ? (
+                <TileGridSkeleton />
+              ) : (
+                <>
+                  <CategoryGrid tiles={tiles} onSelect={selectCategory} />
+                  {hasMore && (
+                    <button
+                      type="button"
+                      onClick={() => setCategoriesExpanded((v) => !v)}
+                      className="ml-2 h-7 rounded-sm text-xs text-muted transition-colors hover:text-heading"
+                    >
+                      {categoriesExpanded ? "Fewer categories" : "All categories"}
+                    </button>
+                  )}
+                </>
+              )}
+            </FacetRow>
+          )}
+        </Browse>
       )}
 
       {/* The ranked list */}
       <section className="@container">
         <SectionHeader
           title={filtering ? "Results" : "All spaces"}
-          right={<ChipRow options={SORT_CHIPS} value={sort} onSelect={setSort} label="Sort" variant="segmented" size="sm" />}
+          right={<ChipRow options={SORT_CHIPS} value={sort} onSelect={setSort} label="Sort" variant="text" size="sm" />}
         />
 
         {directory === null ? (
@@ -258,7 +283,7 @@ export function SpacesSegment({
           )
         ) : (
           <>
-            <div className="grid grid-cols-1 gap-2.5 @3xl:grid-cols-2">
+            <div className="grid grid-cols-1 gap-x-8 @3xl:grid-cols-2">
               {visible.map((space) => (
                 <SpaceRow
                   key={space.id}
@@ -278,33 +303,6 @@ export function SpacesSegment({
           </>
         )}
       </section>
-    </div>
-  );
-}
-
-function EmptyState({
-  title,
-  message,
-  action,
-}: {
-  title: string;
-  message: string;
-  action?: { label: string; onClick: () => void };
-}) {
-  return (
-    <div className="flex flex-col items-center justify-center py-12 text-center">
-      <Compass size={24} className="mb-2 text-muted opacity-30" />
-      <p className="text-xs font-medium text-heading">{title}</p>
-      <p className="mt-1 text-xs text-faint">{message}</p>
-      {action && (
-        <button
-          type="button"
-          onClick={action.onClick}
-          className="mt-3 rounded-lg border border-border px-3 py-1.5 text-xs text-soft transition-colors hover:border-primary/40 hover:text-primary"
-        >
-          {action.label}
-        </button>
-      )}
     </div>
   );
 }

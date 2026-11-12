@@ -70,6 +70,7 @@ function trackEvent(d: string, title: string, over: { created_at?: number; tags?
 
 describe("MusicSegment", () => {
   beforeEach(() => {
+    localStorage.clear(); // Browse remembers whether it was open
     mockBrowse.mockReset();
     mockAlbums.mockReset();
     mockGenres.mockReset();
@@ -90,7 +91,7 @@ describe("MusicSegment", () => {
       },
     }));
     renderWithProviders(<MusicSegment query="" />);
-    await waitFor(() => expect(screen.getByText("Hot Track")).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByRole("button", { name: "Play Hot Track" })).toBeInTheDocument());
     expect(screen.getByRole("heading", { name: "Trending" })).toBeInTheDocument();
     expect(screen.queryByTestId("sort-disclosure")).not.toBeInTheDocument();
     expect(processIncomingEvent).toHaveBeenCalledWith(expect.objectContaining({ id: "t1-id" }), "browse");
@@ -101,7 +102,7 @@ describe("MusicSegment", () => {
       data: { tracks: sort === "trending" ? [] : [trackEvent("t2", "New Track")], total: 1 },
     }));
     renderWithProviders(<MusicSegment query="" />);
-    await waitFor(() => expect(screen.getByText("New Track")).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByRole("button", { name: "Play New Track" })).toBeInTheDocument());
     expect(screen.getByRole("heading", { name: "Recent" })).toBeInTheDocument();
     expect(screen.queryByRole("heading", { name: "Trending" })).not.toBeInTheDocument();
     expect(screen.getByTestId("sort-disclosure")).toHaveTextContent(
@@ -112,7 +113,7 @@ describe("MusicSegment", () => {
   it("prints age-only why-lines and never a play count", async () => {
     mockBrowse.mockResolvedValue({ data: { tracks: [trackEvent("t1", "Aged Track")], total: 1 } });
     const { container } = renderWithProviders(<MusicSegment query="" />);
-    await waitFor(() => expect(screen.getByText("Aged Track")).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByRole("button", { name: "Play Aged Track" })).toBeInTheDocument());
     expect(screen.getByTestId("signal-line")).toHaveTextContent("3d");
     expect(container.textContent).not.toMatch(/\bplays?\b/i);
   });
@@ -137,10 +138,10 @@ describe("MusicSegment", () => {
         ]),
       );
     });
-    await waitFor(() => expect(screen.getByText("Public Track")).toBeInTheDocument());
-    expect(screen.queryByText("Member Track")).not.toBeInTheDocument();
-    expect(screen.queryByText("Note Clip")).not.toBeInTheDocument();
-    expect(screen.queryByText("QA Tone")).not.toBeInTheDocument();
+    await waitFor(() => expect(screen.getByRole("button", { name: "Play Public Track" })).toBeInTheDocument());
+    expect(screen.queryByRole("button", { name: "Play Member Track" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Play Note Clip" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Play QA Tone" })).not.toBeInTheDocument();
     // Public relays carry anyone's releases; the fallback asks our relay only.
     expect(mockOnce).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -224,10 +225,50 @@ describe("MusicSegment", () => {
     expect(playQueue).not.toHaveBeenCalled();
   });
 
+  it("does not report 'No music yet' under a wall of projects", async () => {
+    mockBrowse.mockResolvedValue({ data: { tracks: [], total: 0 } });
+    mockAlbums.mockResolvedValue({
+      data: {
+        albums: [
+          {
+            id: "alb-id",
+            pubkey: PK,
+            kind: 33123,
+            created_at: NOW - 86_400,
+            content: "",
+            sig: "s",
+            tags: [
+              ["d", "alb"],
+              ["title", "Lone Project"],
+              ["artist", "Some Artist"],
+            ],
+          },
+        ],
+        total: 1,
+      },
+    });
+    renderWithProviders(<MusicSegment query="" />);
+    await waitFor(() =>
+      expect(screen.getByRole("button", { name: "Open project Lone Project" })).toBeInTheDocument(),
+    );
+    expect(screen.getByRole("heading", { name: "Projects" })).toBeInTheDocument();
+    expect(screen.queryByText("No music yet")).not.toBeInTheDocument();
+    expect(screen.queryByRole("heading", { name: "Recent" })).not.toBeInTheDocument();
+  });
+
+  it("says so when there is nothing at all", async () => {
+    mockBrowse.mockResolvedValue({ data: { tracks: [], total: 0 } });
+    renderWithProviders(<MusicSegment query="" />);
+    await waitFor(() => expect(screen.getByText("No music yet")).toBeInTheDocument());
+  });
+
   it("opens a genre in the music surface the way MusicHome does", async () => {
     mockBrowse.mockResolvedValue({ data: { tracks: [trackEvent("t1", "A Track")], total: 1 } });
     const { store } = renderWithProviders(<MusicSegment query="" />);
-    await waitFor(() => expect(screen.getByRole("button", { name: /techno/ })).toBeInTheDocument());
+    // Genres are a way in, not content: they sit in Browse, folded by default.
+    await waitFor(() => expect(screen.getByRole("button", { name: "Browse" })).toBeInTheDocument());
+    expect(screen.queryByRole("button", { name: /techno/ })).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Browse" }));
     fireEvent.click(screen.getByRole("button", { name: /techno/ }));
     const s = store.getState();
     expect(s.ui.sidebarMode).toBe("music");

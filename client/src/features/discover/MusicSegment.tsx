@@ -1,6 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { Music, SearchX } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useAppDispatch, useAppSelector } from "@/store/hooks";
 import { setSidebarMode } from "@/store/slices/uiSlice";
@@ -26,10 +25,14 @@ import { useAudioPlayer } from "@/features/music/useAudioPlayer";
 import { useResolvedArtist } from "@/features/music/useResolvedArtist";
 import type { MusicSearchHit } from "@/features/music/useMusicSearch";
 import { usePlaybackBarSpacing } from "@/hooks/usePlaybackBarSpacing";
+import { FacetChip, FacetRow } from "@/features/music/Facets";
+import { ActiveFilter, Browse } from "./components/Browse";
 import { ChipRow, type ChipOption } from "./components/ChipRow";
+import { EmptyState } from "./components/EmptyState";
 import { SectionHeader } from "./components/SectionHeader";
-import { RailSkeleton, RowSkeleton } from "./components/Skeletons";
+import { RowSkeleton, WallSkeleton } from "./components/Skeletons";
 import { TrackRow } from "./components/TrackRow";
+import { TrackTile } from "./components/TrackTile";
 import { AlbumTile } from "./components/AlbumTile";
 import { PublishedFolderRow } from "./components/PublishedFolderRow";
 import { formatAge, rankTracks, sortDisclosure, trackSignalLabel } from "./ranking";
@@ -54,6 +57,11 @@ function ownApiOrigin(): string {
 }
 const RELAY_RETRY_MS = 3000;
 
+/** The cover wall: the same columns as the music section's Explore. */
+const WALL = "grid grid-cols-[repeat(auto-fill,minmax(164px,1fr))] gap-x-5 gap-y-8";
+/** Ruled rows, two columns once there is room. */
+const ROWS = "grid grid-cols-1 gap-x-8 @3xl:grid-cols-2";
+
 const TRACK_UNAVAILABLE = "Track unavailable — it may live outside your relays.";
 
 type Status = "loading" | "ready" | "error";
@@ -69,9 +77,10 @@ interface SearchResults {
 const NO_ZAPS = {};
 
 /**
- * Music discovery: albums · playlists · genres · a ranked track list that is
- * headed "Trending" only when trending actually delivered. With a query of ≥2
- * characters it is search instead.
+ * Music discovery: a wall of projects, a wall of loose tracks headed
+ * "Trending" only when trending actually delivered, and published folders.
+ * Scenes and genres are ways in, so they live in the folded Browse block.
+ * With a query of ≥2 characters it is search instead.
  */
 export function MusicSegment({ query }: { query: string }) {
   const dispatch = useAppDispatch();
@@ -445,7 +454,7 @@ export function MusicSegment({ query }: { query: string }) {
         ]
       : [];
     return (
-      <div className={cn("@container grid grid-cols-1 gap-x-6 gap-y-1 @3xl:grid-cols-2", scrollPaddingClass)}>
+      <div className={cn("@container", scrollPaddingClass)}>
         {searchResults === null ? (
           <RowSkeleton count={4} />
         ) : hits.length === 0 ? (
@@ -454,60 +463,83 @@ export function MusicSegment({ query }: { query: string }) {
             message={searchError ?? `Nothing matched “${trimmed}”.`}
           />
         ) : (
-          hits.map(({ hit, kind }) => (
-            <TrackRow
-              key={`${kind}:${hit.addressable_id}`}
-              title={hit.title}
-              artist={hit.artist}
-              imageUrl={hit.image_url}
-              marker={kind === "album" ? "ALBUM" : "TRACK"}
-              signal={formatAge(hit.created_at)}
-              busy={resolvingId === hit.addressable_id}
-              isCurrent={kind === "track" && player.currentTrackId === hit.addressable_id}
-              isPlaying={player.isPlaying}
-              error={playError?.id === hit.addressable_id ? playError.message : null}
-              onActivate={() => void openHit(hit, kind)}
-            />
-          ))
+          <div className={ROWS}>
+            {hits.map(({ hit, kind }) => (
+              <TrackRow
+                key={`${kind}:${hit.addressable_id}`}
+                title={hit.title}
+                artist={hit.artist}
+                imageUrl={hit.image_url}
+                marker={kind === "album" ? "ALBUM" : "TRACK"}
+                signal={formatAge(hit.created_at)}
+                busy={resolvingId === hit.addressable_id}
+                isCurrent={kind === "track" && player.currentTrackId === hit.addressable_id}
+                isPlaying={player.isPlaying}
+                error={playError?.id === hit.addressable_id ? playError.message : null}
+                onActivate={() => void openHit(hit, kind)}
+              />
+            ))}
+          </div>
         )}
       </div>
     );
   }
 
   // ── Render: discovery ────────────────────────────────────────────────
-  const albumsHeader = source === "relay" ? "Recent albums" : "Albums";
+  const projectsHeader = source === "relay" ? "Recent projects" : "Projects";
   const nothing =
     status === "ready" &&
     displayTracks.length === 0 &&
     displayAlbums.length === 0 &&
     publicPlaylists.length === 0;
 
-  // Scenes filter albums and tracks alike, so the chips ride the first
-  // section header instead of floating in a row of their own.
-  const sceneRow =
-    sceneOptions.length > 1 ? (
-      <ChipRow options={sceneOptions} value={scene} onSelect={setScene} label="Scenes" />
-    ) : null;
-  const firstSection =
-    status === "loading" || displayAlbums.length > 0
-      ? "albums"
-      : publicPlaylists.length > 0
-        ? "folders"
-        : "tracks";
+  // An empty track wall under a wall of projects would say "No music yet"
+  // right below the music. The section only reports emptiness when the
+  // projects are empty too.
+  const showTracks = status !== "ready" || displayTracks.length > 0 || displayAlbums.length === 0;
+
+  // Scenes filter projects and tracks alike; genres open Explore. Both are
+  // ways in rather than content, so they sit in Browse, folded by default.
+  const hasScenes = sceneOptions.length > 1;
+  const hasBrowse = hasScenes || genreList.length > 0;
 
   return (
-    <div className={cn("@container space-y-6", scrollPaddingClass)}>
+    <div className={cn("@container space-y-9", scrollPaddingClass)}>
+      {hasBrowse && (
+        <Browse
+          id="discover-music-browse"
+          storageKey="music"
+          defaultOpen={false}
+          active={activeScene ? <ActiveFilter label={activeScene.label} onClear={() => setScene("all")} /> : null}
+        >
+          {hasScenes && (
+            <FacetRow label="Scene">
+              <ChipRow options={sceneOptions} value={scene} onSelect={setScene} label="Scenes" />
+            </FacetRow>
+          )}
+          {genreList.length > 0 && (
+            <FacetRow label="Genre">
+              {genreList.map((g) => (
+                <FacetChip key={g.genre} count={g.count} onClick={() => openGenre(g.genre)}>
+                  {g.genre}
+                </FacetChip>
+              ))}
+            </FacetRow>
+          )}
+        </Browse>
+      )}
+
       {status === "loading" && (
         <section>
-          <SectionHeader title={albumsHeader} right={sceneRow} />
-          <RailSkeleton />
+          <SectionHeader title={projectsHeader} />
+          <WallSkeleton className={WALL} />
         </section>
       )}
 
       {displayAlbums.length > 0 && (
         <section>
-          <SectionHeader title={albumsHeader} right={firstSection === "albums" ? sceneRow : null} />
-          <div className="flex gap-3 overflow-x-auto py-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+          <SectionHeader title={projectsHeader} />
+          <div className={WALL}>
             {displayAlbums.map((album) => (
               <AlbumTileWithArtist key={album.addressableId} album={album} onOpen={() => openAlbum(album.addressableId)} />
             ))}
@@ -515,72 +547,58 @@ export function MusicSegment({ query }: { query: string }) {
         </section>
       )}
 
-      {(publicPlaylists.length > 0 || genreList.length > 0) && (
-        <div className="grid grid-cols-1 gap-6 @3xl:grid-cols-[3fr_2fr]">
-          {publicPlaylists.length > 0 && (
-            <section>
-              <SectionHeader title="Folders" right={firstSection === "folders" ? sceneRow : null} />
-              <div className="space-y-1">
-                {publicPlaylists.map((pl: MusicPlaylist) => (
-                  <PublishedFolderRow key={pl.addressableId} playlist={pl} onOpen={openPlaylist} />
-                ))}
-              </div>
-            </section>
+      {showTracks && (
+        <section>
+          <SectionHeader
+            title={trendingDelivered ? "Trending" : "Recent"}
+            disclosure={status === "ready" ? trackDisclosure : null}
+          />
+          {status === "loading" ? (
+            <WallSkeleton className={WALL} />
+          ) : status === "error" || (nothing && loadError) ? (
+            <EmptyState
+              title="Music unavailable"
+              message={loadError ?? "Couldn't load music."}
+              action={{ label: "Try again", onClick: reload }}
+            />
+          ) : displayTracks.length === 0 ? (
+            activeScene ? (
+              <EmptyState title="Nothing in this scene" message="Try another scene." />
+            ) : (
+              <EmptyState title="No music yet" message="Releases appear here as artists publish." />
+            )
+          ) : (
+            <div className={WALL}>
+              {displayTracks.map((track, i) => (
+                <StoreTrackTile
+                  key={track.addressableId}
+                  track={track}
+                  albums={albums}
+                  isCurrent={player.currentTrackId === track.addressableId}
+                  isPlaying={player.isPlaying}
+                  onActivate={() => playFromList(displayTracks, i)}
+                />
+              ))}
+            </div>
           )}
-          {genreList.length > 0 && (
-            <section>
-              <SectionHeader title="Genres" />
-              <ChipRow
-                options={genreList.map((g) => ({ value: g.genre, label: g.genre, count: g.count }))}
-                value={null}
-                onSelect={openGenre}
-                label="Genres"
-              />
-            </section>
-          )}
-        </div>
+        </section>
       )}
 
-      <section>
-        <SectionHeader
-          title={trendingDelivered ? "Trending" : "Recent"}
-          disclosure={status === "ready" ? trackDisclosure : null}
-          right={firstSection === "tracks" ? sceneRow : null}
-        />
-        {status === "loading" ? (
-          <RowSkeleton />
-        ) : status === "error" || (nothing && loadError) ? (
-          <EmptyState
-            title="Music unavailable"
-            message={loadError ?? "Couldn't load music."}
-            action={{ label: "Try again", onClick: reload }}
-          />
-        ) : displayTracks.length === 0 ? (
-          activeScene ? (
-            <EmptyState title="Nothing in this scene" message="Try another scene." />
-          ) : (
-            <EmptyState title="No music yet" message="Releases appear here as artists publish." />
-          )
-        ) : (
-          <div className="grid grid-cols-1 gap-x-6 gap-y-1 @3xl:grid-cols-2">
-            {displayTracks.map((track, i) => (
-              <StoreTrackRow
-                key={track.addressableId}
-                track={track}
-                albums={albums}
-                isCurrent={player.currentTrackId === track.addressableId}
-                isPlaying={player.isPlaying}
-                onActivate={() => playFromList(displayTracks, i)}
-              />
+      {publicPlaylists.length > 0 && (
+        <section>
+          <SectionHeader title="Folders" />
+          <div className={ROWS}>
+            {publicPlaylists.map((pl: MusicPlaylist) => (
+              <PublishedFolderRow key={pl.addressableId} playlist={pl} onOpen={openPlaylist} />
             ))}
           </div>
-        )}
-      </section>
+        </section>
+      )}
     </div>
   );
 }
 
-function StoreTrackRow({
+function StoreTrackTile({
   track,
   albums,
   isCurrent,
@@ -595,7 +613,7 @@ function StoreTrackRow({
 }) {
   const artist = useResolvedArtist(track.artist, track.artistPubkeys);
   return (
-    <TrackRow
+    <TrackTile
       title={track.title}
       artist={artist}
       imageUrl={getTrackImage(track, albums)}
@@ -610,32 +628,4 @@ function StoreTrackRow({
 function AlbumTileWithArtist({ album, onOpen }: { album: MusicAlbum; onOpen: () => void }) {
   const artist = useResolvedArtist(album.artist, album.artistPubkeys);
   return <AlbumTile title={album.title} artist={artist} imageUrl={album.imageUrl} onOpen={onOpen} />;
-}
-
-function EmptyState({
-  title,
-  message,
-  action,
-}: {
-  title: string;
-  message: string;
-  action?: { label: string; onClick: () => void };
-}) {
-  const Icon = action ? Music : SearchX;
-  return (
-    <div className="flex flex-col items-center justify-center py-12 text-center">
-      <Icon size={24} className="mb-2 text-muted opacity-30" />
-      <p className="text-xs font-medium text-heading">{title}</p>
-      <p className="mt-1 text-xs text-faint">{message}</p>
-      {action && (
-        <button
-          type="button"
-          onClick={action.onClick}
-          className="mt-3 rounded-lg border border-border px-3 py-1.5 text-xs text-soft transition-colors hover:border-primary/40 hover:text-primary"
-        >
-          {action.label}
-        </button>
-      )}
-    </div>
-  );
 }
