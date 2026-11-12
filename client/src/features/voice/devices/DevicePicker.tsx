@@ -11,6 +11,8 @@ interface DevicePickerProps {
   compact?: boolean;
   /** Include the echo/noise/gain toggles (settings page). */
   showProcessing?: boolean;
+  /** Include the "Let voices overlap" switch (in-call popover). */
+  showOverlap?: boolean;
   /** Hide the camera select (audio-only contexts). */
   hideCamera?: boolean;
 }
@@ -20,8 +22,8 @@ interface DevicePickerProps {
  * `HTMLMediaElement.setSinkId`, which WKWebView (macOS) does not implement —
  * the select is replaced by a hint there.
  */
-export function DevicePicker({ compact, showProcessing, hideCamera }: DevicePickerProps) {
-  const d = useMediaDevices();
+export function DevicePicker({ compact, showProcessing, showOverlap, hideCamera }: DevicePickerProps) {
+  const d = useMediaDevices({ video: !hideCamera });
   const [prefs, update] = useMediaPrefs();
 
   return (
@@ -71,17 +73,30 @@ export function DevicePicker({ compact, showProcessing, hideCamera }: DevicePick
         />
       )}
 
+      {showOverlap && (
+        // The in-call face of the echo cancellation setting, named for what
+        // people notice: with it on, a voice dips while someone else talks.
+        <div className="-mx-3 border-t border-border">
+          <Toggle
+            label="Let voices overlap"
+            description="Your voice is no longer lowered while someone else is talking. Use headphones: this turns echo cancellation off, so speakers would echo the room."
+            checked={!prefs.echoCancellation}
+            onChange={(v) => update({ echoCancellation: !v })}
+          />
+        </div>
+      )}
+
       {showProcessing && (
         <div className="-mx-4 divide-y divide-border border-t border-border">
           <Toggle
             label="Echo cancellation"
-            description="Stops the other side hearing themselves through your speakers. Turn off only with a headset if voices sound clipped."
+            description="Stops the other side hearing themselves through your speakers. It also lowers your voice while someone else is talking, so turn it off with a headset if people can't talk over each other."
             checked={prefs.echoCancellation}
             onChange={(v) => update({ echoCancellation: v })}
           />
           <Toggle
             label="Noise suppression"
-            description="Filters fans, keyboards and background hum. Turn off if soft speech is being cut."
+            description="Filters fans, keyboards and background hum, and isolates your voice where the system supports it. Turn off if soft speech is being cut."
             checked={prefs.noiseSuppression}
             onChange={(v) => update({ noiseSuppression: v })}
           />

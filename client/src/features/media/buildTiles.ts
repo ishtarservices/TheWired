@@ -7,6 +7,8 @@ export interface LocalTileState {
   screenSharing: boolean;
   /** Our own tracks are end-to-end encrypted (voice.e2ee.active). */
   encrypted?: boolean;
+  /** Our own link quality as LiveKit reports it (voice.connectionQuality). */
+  connectionQuality?: MediaTileModel["connectionQuality"];
 }
 
 /**
@@ -54,7 +56,8 @@ export function buildTiles(args: {
       isMuted: local.muted,
       hasVideo: local.videoEnabled,
       handRaised: false,
-      connectionQuality: "good",
+      connectionQuality: local.connectionQuality ?? "unknown",
+      videoPaused: false,
       encrypted: local.encrypted,
     });
   }
@@ -73,6 +76,7 @@ export function buildTiles(args: {
       hasVideo: p.hasVideo,
       handRaised: p.handRaised,
       connectionQuality: p.connectionQuality,
+      videoPaused: p.hasVideo && p.videoPaused === true,
       encrypted: p.encrypted,
     });
   }
@@ -88,7 +92,8 @@ export function buildTiles(args: {
       isMuted: local.muted,
       hasVideo: true,
       handRaised: false,
-      connectionQuality: "good",
+      connectionQuality: local.connectionQuality ?? "unknown",
+      videoPaused: false,
       encrypted: local.encrypted,
     });
   }
@@ -107,6 +112,7 @@ export function buildTiles(args: {
       hasVideo: true,
       handRaised: false,
       connectionQuality: p.connectionQuality,
+      videoPaused: false,
       encrypted: p.encrypted,
     });
   }

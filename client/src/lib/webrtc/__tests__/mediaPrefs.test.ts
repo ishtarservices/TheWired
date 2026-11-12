@@ -13,6 +13,7 @@ import {
   setMediaPrefs,
   subscribeMediaPrefs,
   audioProcessingChanged,
+  audioProcessingConstraints,
   getParticipantAudio,
   setParticipantAudio,
   subscribeParticipantAudio,
@@ -23,6 +24,22 @@ import {
 
 beforeEach(() => {
   __resetMediaPrefsForTests();
+});
+
+describe("capture constraints", () => {
+  it("voice isolation is on only while echo cancellation AND noise suppression are", () => {
+    const base = getMediaPrefs();
+    expect(audioProcessingConstraints(base)).toEqual({
+      echoCancellation: true,
+      noiseSuppression: true,
+      autoGainControl: true,
+      voiceIsolation: true,
+    });
+    expect(audioProcessingConstraints({ ...base, echoCancellation: false }).voiceIsolation).toBe(false);
+    expect(audioProcessingConstraints({ ...base, noiseSuppression: false }).voiceIsolation).toBe(false);
+    // Gain control is independent of it.
+    expect(audioProcessingConstraints({ ...base, autoGainControl: false }).voiceIsolation).toBe(true);
+  });
 });
 
 describe("device prefs", () => {

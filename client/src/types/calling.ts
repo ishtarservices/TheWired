@@ -106,6 +106,9 @@ export interface VoiceParticipant {
   /** Their published tracks are end-to-end encrypted. `undefined` until a
    *  track is subscribed; `false` in an encrypted room = outdated client. */
   encrypted?: boolean;
+  /** The SFU has paused their camera stream to us because our connection
+   *  cannot carry it right now. The picture is frozen until it resumes. */
+  videoPaused?: boolean;
 }
 
 /** Voice channel configuration */

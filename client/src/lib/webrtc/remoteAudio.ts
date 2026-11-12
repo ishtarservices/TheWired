@@ -13,7 +13,12 @@
  * to it.
  *
  * Per-participant volume/local-mute (mediaPrefs) and the global deafen flag
- * are applied here, to current AND late-attached elements.
+ * are applied here, to current AND late-attached elements, and re-asserted
+ * whenever something else changes an element behind our back.
+ *
+ * Elements are also watched for `pause`: a WebView can pause a live element
+ * on an audio-route change or interruption and never resume it, which is one
+ * participant going silent for good while their speaking ring keeps moving.
  *
  * livekit imports here must stay type-only so this module never drags the
  * SDK into a bundle chunk by itself.
@@ -32,6 +37,8 @@ interface Attached {
   el: HTMLAudioElement;
   /** Publishing participant (pubkey) — null for tracks attached without one. */
   identity: string | null;
+  /** When we last called `play()` on a paused element (0 = never). */
+  lastResumeAt: number;
 }
 
 /** Attached audio elements keyed by track. */
@@ -40,10 +47,70 @@ const attached = new Map<Track, Attached>();
 /** Output-mute flag (deafen). Applies to current AND late-attached tracks. */
 let outputMuted = false;
 
+/** Room-wide voice volume 0..1 (the Listen Together music/voice balance),
+ *  multiplied into every participant's own volume. */
+let outputVolume = 1;
+
+/** Called when a paused element could not be resumed without a gesture. */
+let onPlaybackBlocked: (() => void) | null = null;
+
+/**
+ * Register the "playback needs a user gesture" hook (livekitClient raises
+ * the same "Enable audio" pill the SDK's own autoplay detection does).
+ * Kept as a hook so this module stays free of the store and the SDK.
+ */
+export function setRemoteAudioBlockedHandler(fn: (() => void) | null): void {
+  onPlaybackBlocked = fn;
+}
+
+/** Minimum gap between automatic resume attempts on one element. */
+const RESUME_RETRY_MS = 1000;
+
 function applyState(entry: Attached): void {
   const p = entry.identity ? getParticipantAudio(entry.identity) : DEFAULT_PARTICIPANT_AUDIO;
-  entry.el.muted = outputMuted || p.muted;
-  entry.el.volume = p.volume;
+  const muted = outputMuted || p.muted;
+  // Assign only on a real difference: `volumechange` re-enters here, and a
+  // platform that ignores `volume` (iOS) must not turn that into a loop.
+  if (entry.el.muted !== muted) entry.el.muted = muted;
+  const volume = p.volume * outputVolume;
+  if (Math.abs(entry.el.volume - volume) > 0.001) entry.el.volume = volume;
+}
+
+/** `play()` an attached element; a rejection means a gesture is required. */
+function resumeElement(track: Track, entry: Attached): void {
+  entry.lastResumeAt = Date.now();
+  let result: Promise<void> | undefined;
+  try {
+    result = entry.el.play();
+  } catch {
+    return;
+  }
+  result?.catch((err: unknown) => {
+    if (attached.get(track) !== entry) return;
+    log.warn("remote audio could not resume on its own", err);
+    onPlaybackBlocked?.();
+  });
+}
+
+function watchElement(track: Track, entry: Attached): void {
+  // LiveKit's `startAudio()` unmutes every attached element, and it runs on
+  // its own each time the local mic stream is (re)acquired (join, device
+  // switch, processing change). Without this a deafened user, or one who
+  // muted a single participant, started hearing them again.
+  entry.el.addEventListener("volumechange", () => {
+    if (attached.get(track) === entry) applyState(entry);
+  });
+  entry.el.addEventListener("pause", () => {
+    // Detach removes the entry first, so a pause seen here is unwanted.
+    if (attached.get(track) !== entry) return;
+    if (Date.now() - entry.lastResumeAt < RESUME_RETRY_MS) {
+      // Paused again right after we resumed it: stop fighting, ask the user.
+      onPlaybackBlocked?.();
+      return;
+    }
+    log.warn("remote audio element was paused by the WebView, resuming");
+    resumeElement(track, entry);
+  });
 }
 
 subscribeParticipantAudio((pubkey) => {
@@ -68,9 +135,10 @@ export function attachRemoteAudio(track: Track, identity?: string): void {
   // Keep the element in the DOM — some WebViews won't play detached elements.
   el.style.display = "none";
   document.body.appendChild(el);
-  const entry: Attached = { el, identity: identity ?? null };
+  const entry: Attached = { el, identity: identity ?? null, lastResumeAt: 0 };
   applyState(entry);
   attached.set(track, entry);
+  watchElement(track, entry);
   log.debug(`remote audio attached (${attached.size} total, outputMuted=${outputMuted})`);
 }
 
@@ -78,10 +146,22 @@ export function attachRemoteAudio(track: Track, identity?: string): void {
 export function detachRemoteAudio(track: Track): void {
   const entry = attached.get(track);
   if (!entry) return;
+  // Forget the entry first: tearing the element down fires `pause`, which
+  // the watcher must read as expected, not as something to resume.
+  attached.delete(track);
   track.detach(entry.el);
   entry.el.remove();
-  attached.delete(track);
   log.debug(`remote audio detached (${attached.size} remain)`);
+}
+
+/**
+ * Resume every attached element that is paused. Call from a user gesture
+ * (the "Enable audio" pill) so the WebView's autoplay policy allows it.
+ */
+export function resumeRemoteAudio(): void {
+  for (const [track, entry] of attached) {
+    if (entry.el.paused) resumeElement(track, entry);
+  }
 }
 
 /**
@@ -98,22 +178,49 @@ export function isRemoteAudioOutputMuted(): boolean {
 }
 
 /**
- * Detach everything and reset the output-mute flag. Called on room
+ * Volume of ALL remote voices, 0..1, on top of each participant's own
+ * volume. Lives here (not on the elements directly) so it reaches tracks
+ * attached later and survives the re-assert that guards deafen.
+ */
+export function setRemoteAudioOutputVolume(volume: number): void {
+  outputVolume = Number.isFinite(volume) ? Math.min(1, Math.max(0, volume)) : 1;
+  for (const entry of attached.values()) applyState(entry);
+}
+
+export function getRemoteAudioOutputVolume(): number {
+  return outputVolume;
+}
+
+/**
+ * Detach everything and reset the output-mute flag and voice volume. Called on room
  * disconnect so the next room starts from a clean state (mirrors
  * voiceSlice.disconnectRoom resetting localState).
  */
 export function clearRemoteAudio(): void {
-  for (const [track, entry] of attached) {
+  const entries = [...attached];
+  attached.clear();
+  for (const [track, entry] of entries) {
     track.detach(entry.el);
     entry.el.remove();
   }
-  attached.clear();
   outputMuted = false;
+  outputVolume = 1;
 }
 
 /** Number of currently attached audio tracks (diagnostics + tests). */
 export function attachedRemoteAudioCount(): number {
   return attached.size;
+}
+
+/** Playback state of every attached element (`wiredDebug.calls()`). */
+export function remoteAudioDiagnostics(): Array<Record<string, unknown>> {
+  return [...attached.values()].map(({ el, identity }) => ({
+    participant: identity ? identity.slice(0, 8) : "(unknown)",
+    paused: el.paused,
+    muted: el.muted,
+    volume: el.volume,
+    readyState: el.readyState,
+  }));
 }
 
 /** Elements attached for a participant (diagnostics + tests). */

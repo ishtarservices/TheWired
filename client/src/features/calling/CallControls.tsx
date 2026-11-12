@@ -4,7 +4,6 @@ import {
   Video,
   VideoOff,
   Monitor,
-  MonitorOff,
   PhoneOff,
   Music,
   Loader2,
@@ -24,7 +23,7 @@ import {
   setCallVideoEnabled,
   setCallScreenShare,
 } from "./callService";
-import { cn } from "@/lib/utils";
+import { CallControlButton } from "@/features/media/CallControlButton";
 import { useListenTogether } from "@/features/listenTogether/useListenTogether";
 import { DeviceMenuButton } from "@/features/voice/devices/DeviceMenuButton";
 import { SHORTCUT } from "@/hooks/useCallShortcuts";
@@ -82,93 +81,65 @@ export function CallControls() {
     }
   };
 
+  const sharing = activeCall.isScreenSharing;
+  const sharePending = !!activeCall.isScreenSharePending;
+
   return (
     <div className="flex items-center justify-center gap-3">
-      {/* Listen Together — music button */}
-      <button
+      <CallControlButton
+        size="lg"
+        label={ltActive ? "Music (session active)" : "Listen Together"}
+        tone={ltActive ? "accent" : "neutral"}
+        pressed={pickerOpen}
         onClick={togglePicker}
-        className={cn(
-          "rounded-full p-3 transition-colors",
-          ltActive
-            ? "bg-primary/20 text-primary"
-            : pickerOpen
-              ? "bg-surface-hover text-heading"
-              : "bg-surface-hover text-heading",
-        )}
-        title={ltActive ? "Music (session active)" : "Listen Together"}
       >
         <Music size={20} />
-      </button>
+      </CallControlButton>
 
-      {/* Mute */}
-      <button
-        onClick={handleMute}
-        className={cn(
-          "rounded-full p-3 transition-colors",
-          activeCall.isMuted
-            ? "bg-red-500/20 text-red-400"
-            : "bg-surface-hover text-heading",
-        )}
-        title={`${activeCall.isMuted ? "Unmute" : "Mute"} (${SHORTCUT.mute})`}
+      <CallControlButton
+        size="lg"
+        label={`${activeCall.isMuted ? "Unmute" : "Mute"} (${SHORTCUT.mute})`}
+        tone={activeCall.isMuted ? "danger" : "neutral"}
+        pressed={!activeCall.isMuted}
+        onClick={() => void handleMute()}
       >
         {activeCall.isMuted ? <MicOff size={20} /> : <Mic size={20} />}
-      </button>
+      </CallControlButton>
 
-      {/* Video */}
       {activeCall.callType === "video" && (
-        <button
-          onClick={handleVideo}
-          className={cn(
-            "rounded-full p-3 transition-colors",
-            !activeCall.isVideoEnabled
-              ? "bg-red-500/20 text-red-400"
-              : "bg-surface-hover text-heading",
-          )}
-          title={`${activeCall.isVideoEnabled ? "Turn off camera" : "Turn on camera"} (${SHORTCUT.camera})`}
+        <CallControlButton
+          size="lg"
+          label={`${activeCall.isVideoEnabled ? "Turn off camera" : "Turn on camera"} (${SHORTCUT.camera})`}
+          tone={activeCall.isVideoEnabled ? "neutral" : "danger"}
+          pressed={activeCall.isVideoEnabled}
+          onClick={() => void handleVideo()}
         >
           {activeCall.isVideoEnabled ? <Video size={20} /> : <VideoOff size={20} />}
-        </button>
+        </CallControlButton>
       )}
 
-      {/* Screen Share */}
-      {(
-        <button
-          onClick={handleScreenShare}
-          className={cn(
-            "rounded-full p-3 transition-colors",
-            activeCall.isScreenSharing
-              ? "bg-blue-500/20 text-blue-400"
-              : "bg-surface-hover text-heading",
-          )}
-          title={
-            activeCall.isScreenSharePending
-              ? "Choose a window or screen in the system picker…"
-              : activeCall.isScreenSharing
-                ? "Stop sharing"
-                : "Share screen"
-          }
-        >
-          {activeCall.isScreenSharePending ? (
-            <Loader2 size={20} className="animate-spin" />
-          ) : activeCall.isScreenSharing ? (
-            <Monitor size={20} />
-          ) : (
-            <MonitorOff size={20} />
-          )}
-        </button>
-      )}
+      <CallControlButton
+        size="lg"
+        label={
+          sharePending
+            ? "Choose a window or screen in the system picker…"
+            : sharing
+              ? "Stop sharing"
+              : "Share screen"
+        }
+        tone={sharing || sharePending ? "accent" : "neutral"}
+        pressed={sharing}
+        onClick={() => void handleScreenShare()}
+      >
+        {sharePending ? <Loader2 size={20} className="animate-spin" /> : <Monitor size={20} />}
+      </CallControlButton>
 
       {/* Devices (mic / speaker / camera) */}
       <DeviceMenuButton className="p-3" size={20} hideCamera={activeCall.callType !== "video"} />
 
-      {/* Hangup */}
-      <button
-        onClick={() => hangupCall()}
-        className="rounded-full bg-red-500 p-3 text-white hover:bg-red-600 transition-colors"
-        title="End call"
-      >
+      <CallControlButton size="lg" label="End call" tone="end" onClick={() => void hangupCall()}>
         <PhoneOff size={20} />
-      </button>
+      </CallControlButton>
     </div>
   );
 }

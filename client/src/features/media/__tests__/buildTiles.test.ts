@@ -53,3 +53,30 @@ describe("buildTiles — encryption flag", () => {
     expect(tiles.every((t) => t.encrypted === undefined)).toBe(true);
   });
 });
+
+describe("buildTiles — connection and paused video", () => {
+  it("the local tile shows our real link quality instead of a hard-coded good", () => {
+    const base = { muted: false, videoEnabled: true, screenSharing: false };
+    const tile = (connectionQuality?: "poor") =>
+      buildTiles({ myPubkey: ME, local: { ...base, connectionQuality }, participants: {}, order: [], activeSpeakers: [] })[0];
+    expect(tile("poor").connectionQuality).toBe("poor");
+    expect(tile().connectionQuality).toBe("unknown");
+  });
+
+  it("a paused stream is flagged only on a camera that is on", () => {
+    const tiles = buildTiles({
+      myPubkey: ME,
+      local: { muted: false, videoEnabled: false, screenSharing: false },
+      participants: {
+        [A]: participant(A, { hasVideo: true, videoPaused: true, isScreenSharing: true }),
+        [B]: participant(B, { hasVideo: false, videoPaused: true }),
+      },
+      order: [A, B],
+      activeSpeakers: [],
+    });
+    const byId = Object.fromEntries(tiles.map((t) => [t.id, t.videoPaused]));
+    expect(byId[`${A}:camera`]).toBe(true);
+    expect(byId[`${B}:camera`]).toBe(false);
+    expect(byId[`${A}:screenshare`]).toBe(false);
+  });
+});

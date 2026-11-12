@@ -45,6 +45,10 @@ export interface E2EESessionDeps {
   provider?: NostrKeyProvider;
   send?: typeof sendMediaKey;
   supported?: boolean;
+  /** Channels: a participant's sender key was accepted and handed to the
+   *  cryptor. The room uses it to retire a "could not decrypt" banner that
+   *  the late key has just made untrue. */
+  onRemoteKeyInstalled?: (sender: string) => void;
 }
 
 /** Whether frame-level E2EE can run in this WebView. */
@@ -112,7 +116,8 @@ export function createE2EESession(
   // its key right away; the manager installs remote keys before `start()`.
   let unregister: (() => void) | null = registerMediaKeyReceiver((sender, env) => {
     const outcome = manager.onRemoteKey(sender, env);
-    if (outcome !== "installed") log.warn(`media key from ${sender.slice(0, 8)} dropped: ${outcome}`);
+    if (outcome === "installed") deps.onRemoteKeyInstalled?.(sender);
+    else log.warn(`media key from ${sender.slice(0, 8)} dropped: ${outcome}`);
   });
 
   return {

@@ -20,7 +20,13 @@ export interface MediaPrefs {
   audioInput: string | null;
   videoInput: string | null;
   audioOutput: string | null;
-  /** WebRTC capture processing. All on by default (Chromium/WebKit defaults). */
+  /** WebRTC capture processing. All on by default (Chromium/WebKit defaults).
+   *
+   *  Echo cancellation is also what lowers a voice while someone else is
+   *  talking: to keep the far end from hearing itself, the canceller pulls
+   *  the mic down whenever remote audio is playing, and overlapping speech
+   *  goes with it (worst on laptop speakers and Bluetooth). Turning it off is
+   *  the in-call "Let voices overlap" switch; it needs headphones. */
   echoCancellation: boolean;
   noiseSuppression: boolean;
   autoGainControl: boolean;
@@ -97,6 +103,29 @@ export function subscribeMediaPrefs(fn: PrefsListener): () => void {
   prefsListeners.add(fn);
   return () => {
     prefsListeners.delete(fn);
+  };
+}
+
+/**
+ * The capture constraints a set of prefs stands for. One place, so the join
+ * and a live mic restart can never disagree.
+ *
+ * `voiceIsolation` is the platform's stronger "keep only my voice" filter.
+ * LiveKit turns it on by default and it used to ride along unseen whatever
+ * the toggles said, so "noise suppression off" still left the harshest
+ * filter running. It now needs both of the things it builds on.
+ */
+export function audioProcessingConstraints(prefs: MediaPrefs): {
+  echoCancellation: boolean;
+  noiseSuppression: boolean;
+  autoGainControl: boolean;
+  voiceIsolation: boolean;
+} {
+  return {
+    echoCancellation: prefs.echoCancellation,
+    noiseSuppression: prefs.noiseSuppression,
+    autoGainControl: prefs.autoGainControl,
+    voiceIsolation: prefs.echoCancellation && prefs.noiseSuppression,
   };
 }
 

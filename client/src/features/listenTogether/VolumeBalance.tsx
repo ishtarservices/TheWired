@@ -1,7 +1,10 @@
 import { Volume2, Mic } from "lucide-react";
 import { useAppDispatch, useAppSelector } from "@/store/hooks";
 import { setVolume } from "@/store/slices/musicSlice";
-import { getLivekitRoom } from "@/lib/webrtc/livekitClient";
+import {
+  getRemoteAudioOutputVolume,
+  setRemoteAudioOutputVolume,
+} from "@/lib/webrtc/remoteAudio";
 import { useState, useCallback } from "react";
 
 /**
@@ -11,7 +14,7 @@ import { useState, useCallback } from "react";
 export function VolumeBalance() {
   const dispatch = useAppDispatch();
   const musicVolume = useAppSelector((s) => s.music.player.volume);
-  const [voiceVolume, setVoiceVolume] = useState(1);
+  const [voiceVolume, setVoiceVolume] = useState(getRemoteAudioOutputVolume);
 
   const handleMusicVolume = useCallback(
     (v: number) => {
@@ -22,21 +25,9 @@ export function VolumeBalance() {
 
   const handleVoiceVolume = useCallback((v: number) => {
     setVoiceVolume(v);
-    // Adjust all remote LiveKit audio track volumes via attached elements
-    const room = getLivekitRoom();
-    if (!room) return;
-    for (const participant of room.remoteParticipants.values()) {
-      for (const pub of participant.audioTrackPublications.values()) {
-        if (pub.track) {
-          const elements = pub.track.attachedElements;
-          for (const el of elements) {
-            if (el instanceof HTMLAudioElement || el instanceof HTMLVideoElement) {
-              el.volume = v;
-            }
-          }
-        }
-      }
-    }
+    // Through the registry, not the elements: it also covers people who
+    // join later and keeps each participant's own volume in proportion.
+    setRemoteAudioOutputVolume(v);
   }, []);
 
   return (

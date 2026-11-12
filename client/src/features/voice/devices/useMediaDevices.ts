@@ -15,7 +15,8 @@ import { useMediaPrefs } from "./useMediaPrefs";
  * (headset unplugged) falls back to "System default" in the UI without
  * clearing the preference — plugging it back in restores it.
  */
-export function useMediaDevices() {
+export function useMediaDevices(opts: { video?: boolean } = {}) {
+  const wantVideo = opts.video !== false;
   const [devices, setDevices] = useState<MediaDeviceInfo[]>([]);
   const [loading, setLoading] = useState(true);
   const [prefs, update] = useMediaPrefs();
@@ -23,13 +24,13 @@ export function useMediaDevices() {
   const refresh = useCallback(async () => {
     setLoading(true);
     try {
-      setDevices(await enumerateDevices());
+      setDevices(await enumerateDevices({ video: wantVideo }));
     } catch (err) {
       console.warn("[mediaDevices] Failed to enumerate:", err);
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [wantVideo]);
 
   useEffect(() => {
     void refresh();
