@@ -1014,6 +1014,17 @@ export const musicService = {
     // Delete audio files tracked in music_uploads -- look up by sha256 (not URL)
     for (const sha256 of audioHashes) {
       try {
+        // Another of the owner's events (a second track, a release that
+        // shares the recording) may still carry this hash in its imeta; then
+        // the upload, the ownership and the bytes stay. Covers already do this.
+        const stillReferenced = (await db.execute(
+          sql`SELECT 1 FROM relay.events
+              WHERE pubkey = ${pubkey}
+                AND tags @> ${JSON.stringify([["imeta", `x ${sha256}`]])}::jsonb
+              LIMIT 1`,
+        )) as unknown[];
+        if (stillReferenced.length > 0) continue;
+
         // Remove music_uploads rows for this pubkey + hash
         const uploads = await db.select().from(musicUploads)
           .where(and(eq(musicUploads.sha256, sha256), eq(musicUploads.pubkey, pubkey)));
