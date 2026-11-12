@@ -29,12 +29,12 @@ import { useSpace } from "@/features/spaces/useSpace";
 import { setLastChannel } from "@/lib/db/lastChannelCache";
 import { useScenes } from "@/features/discover/useScenes";
 import { sceneChips } from "@/features/discover/taxonomy";
+import { FacetChip, FacetList, FacetRow } from "../Facets";
 
 const GRID = "grid grid-cols-[repeat(auto-fill,minmax(164px,1fr))] gap-x-5 gap-y-8";
 /** Three rows on a wide window; the rest sits behind "Show all". */
 const COLLECTION_PREVIEW = 18;
-const BROWSE_CHIP =
-  "rounded-full px-2.5 py-1 text-xs text-soft transition-colors hover:bg-surface-hover hover:text-heading";
+
 
 export function MusicHome() {
   const { scrollPaddingClass } = usePlaybackBarSpacing();
@@ -308,12 +308,12 @@ export function MusicHome() {
 
       {/* Browse: ways in, not content. Folded away by default. */}
       {hasBrowse && (
-        <section className="border-t border-border-light pt-4">
+        <section className="border-t border-border-light pt-3">
           <button
             onClick={toggleBrowse}
             aria-expanded={browseOpen}
             aria-controls="music-home-browse"
-            className="group -ml-1 flex items-center gap-1.5 rounded-md px-1 py-1"
+            className="group -ml-1 flex h-7 items-center gap-1.5 rounded-md px-1"
           >
             <ChevronRight
               size={10}
@@ -323,56 +323,42 @@ export function MusicHome() {
           </button>
 
           {browseOpen && (
-            <div
-              id="music-home-browse"
-              className="animate-fade-in mt-3 grid grid-cols-[4rem_minmax(0,1fr)] items-center gap-x-4 gap-y-3"
-            >
+            <FacetList id="music-home-browse" className="animate-fade-in mt-2">
               {/* Spaces with a music channel: where space-only releases live */}
               {musicSpaces.length > 0 && (
-                <>
-                  <h2 className="label-caps">Space</h2>
-                  <div className="-ml-1 flex flex-wrap gap-x-1 gap-y-1">
-                    {musicSpaces.map(({ space, channelId, count }) => (
-                      <button
-                        key={space.id}
-                        onClick={() => openSpaceMusic(space.id, channelId)}
-                        title={`Open the music channel in ${space.name}`}
-                        className="inline-flex items-center gap-1.5 rounded-full py-1 pl-1 pr-2.5 text-xs text-soft transition-colors hover:bg-surface-hover hover:text-heading"
-                      >
-                        <Avatar src={space.picture} alt="" size="xs" />
-                        <span className="max-w-[12rem] truncate">{space.name}</span>
-                        {count > 0 && <span className="readout text-[10px] opacity-55">{count}</span>}
-                      </button>
-                    ))}
-                  </div>
-                </>
+                <FacetRow label="Space">
+                  {musicSpaces.map(({ space, channelId, count }) => (
+                    <FacetChip
+                      key={space.id}
+                      onClick={() => openSpaceMusic(space.id, channelId)}
+                      title={`Open the music channel in ${space.name}`}
+                      leading={<Avatar src={space.picture} alt="" size="xs" />}
+                      count={count > 0 ? count : undefined}
+                    >
+                      {space.name}
+                    </FacetChip>
+                  ))}
+                </FacetRow>
               )}
               {sceneOptions.length > 0 && (
-                <>
-                  <h2 className="label-caps">Scene</h2>
-                  <div className="-ml-2.5 flex flex-wrap gap-x-0.5 gap-y-1">
-                    {sceneOptions.map((sc) => (
-                      <button key={sc.value} onClick={() => handleSceneClick(sc.value)} className={BROWSE_CHIP}>
-                        {sc.label}
-                      </button>
-                    ))}
-                  </div>
-                </>
+                <FacetRow label="Scene">
+                  {sceneOptions.map((sc) => (
+                    <FacetChip key={sc.value} onClick={() => handleSceneClick(sc.value)}>
+                      {sc.label}
+                    </FacetChip>
+                  ))}
+                </FacetRow>
               )}
               {exploreGenres.length > 0 && (
-                <>
-                  <h2 className="label-caps">Genre</h2>
-                  <div className="-ml-2.5 flex flex-wrap gap-x-0.5 gap-y-1">
-                    {exploreGenres.slice(0, 14).map((g) => (
-                      <button key={g.genre} onClick={() => handleGenreClick(g.genre)} className={BROWSE_CHIP}>
-                        {g.genre}
-                        <span className="readout ml-1.5 text-[10px] opacity-55">{g.count}</span>
-                      </button>
-                    ))}
-                  </div>
-                </>
+                <FacetRow label="Genre">
+                  {exploreGenres.slice(0, 14).map((g) => (
+                    <FacetChip key={g.genre} onClick={() => handleGenreClick(g.genre)} count={g.count}>
+                      {g.genre}
+                    </FacetChip>
+                  ))}
+                </FacetRow>
               )}
-            </div>
+            </FacetList>
           )}
         </section>
       )}

@@ -23,6 +23,7 @@ import { store } from "@/store";
 import { TrackCard } from "../TrackCard";
 import { AlbumCard } from "../AlbumCard";
 import { mixExplore } from "../exploreMix";
+import { FacetChip, FacetList, FacetRow } from "../Facets";
 import { useScenes } from "@/features/discover/useScenes";
 import { matchesScene, sceneBySlug, sceneChips } from "@/features/discover/taxonomy";
 
@@ -198,13 +199,6 @@ export function ExploreMusic() {
     show === "all" ? mixed.length : show === "projects" ? browseAlbumList.length : browseTracks.length;
   const noun = show === "projects" ? "projects" : show === "tracks" ? "tracks" : "releases";
 
-  const chip = (active: boolean) =>
-    `rounded-full px-2.5 py-1 text-xs transition-colors ${
-      active
-        ? "bg-heading text-background"
-        : "text-soft hover:bg-surface-hover hover:text-heading"
-    }`;
-
   return (
     <div className={`flex-1 overflow-y-auto px-8 py-7 ${scrollPaddingClass}`}>
       <header className="mb-7 flex flex-wrap items-center gap-x-6 gap-y-3">
@@ -303,72 +297,59 @@ export function ExploreMusic() {
       </header>
 
       {filtersOpen && hasFilters && (
-        <section
-          id="explore-filters"
-          className="animate-fade-in mb-8 grid grid-cols-[4rem_minmax(0,1fr)] items-baseline gap-x-4 gap-y-3 border-y border-border-light py-4"
-        >
-          {sceneOptions.length > 0 && (
-            <>
-              <h2 className="label-caps">Scene</h2>
-              <div className="-ml-2.5 flex flex-wrap gap-x-0.5 gap-y-1">
+        <section id="explore-filters" className="animate-fade-in mb-8">
+          <FacetList className="border-b">
+            {sceneOptions.length > 0 && (
+              <FacetRow label="Scene">
                 {sceneOptions.map((sc) => {
                   const active = explore.activeScene === sc.value;
                   return (
-                    <button
+                    <FacetChip
                       key={sc.value}
+                      active={active}
                       onClick={() => dispatch(setActiveScene(active ? null : sc.value))}
-                      aria-pressed={active}
-                      className={chip(active)}
                     >
                       {sc.label}
-                    </button>
+                    </FacetChip>
                   );
                 })}
-              </div>
-            </>
-          )}
-          {explore.genres.length > 0 && (
-            <>
-              <h2 className="label-caps">Genre</h2>
-              <div className="-ml-2.5 flex flex-wrap gap-x-0.5 gap-y-1">
+              </FacetRow>
+            )}
+            {explore.genres.length > 0 && (
+              <FacetRow label="Genre">
                 {explore.genres.map((g) => {
                   const active = explore.activeGenre === g.genre;
                   return (
-                    <button
+                    <FacetChip
                       key={g.genre}
+                      active={active}
+                      count={g.count}
                       onClick={() => dispatch(setActiveGenre(active ? null : g.genre))}
-                      aria-pressed={active}
-                      className={chip(active)}
                     >
                       {g.genre}
-                      <span className="readout ml-1.5 text-[10px] opacity-55">{g.count}</span>
-                    </button>
+                    </FacetChip>
                   );
                 })}
-              </div>
-            </>
-          )}
-          {explore.popularTags.length > 0 && (
-            <>
-              <h2 className="label-caps">Tag</h2>
-              <div className="-ml-2.5 flex flex-wrap gap-x-0.5 gap-y-1">
+              </FacetRow>
+            )}
+            {explore.popularTags.length > 0 && (
+              <FacetRow label="Tag">
                 {explore.popularTags.map((t) => {
                   const active = explore.activeTag === t.tag;
                   return (
-                    <button
+                    <FacetChip
                       key={t.tag}
+                      active={active}
+                      count={t.count}
                       onClick={() => dispatch(setActiveTag(active ? null : t.tag))}
-                      aria-pressed={active}
-                      className={chip(active)}
                     >
                       #{t.tag}
-                      <span className="readout ml-1.5 text-[10px] opacity-55">{t.count}</span>
-                    </button>
+                    </FacetChip>
                   );
                 })}
-              </div>
-            </>
-          )}
+              </FacetRow>
+            )}
+          </FacetList>
         </section>
       )}
 
