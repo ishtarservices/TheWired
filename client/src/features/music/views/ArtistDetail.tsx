@@ -1,9 +1,10 @@
 import { useMemo, useRef } from "react";
-import { ArrowLeft, Music, Camera, UserSquare2, Zap } from "lucide-react";
+import { Music, Camera, UserSquare2, Zap } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import { useAppSelector, useAppDispatch } from "@/store/hooks";
 import { useZap } from "@/features/wallet/WalletProvider";
-import { goBack, setActiveDetailId } from "@/store/slices/musicSlice";
+import { setActiveDetailId } from "@/store/slices/musicSlice";
+import { BackLink } from "../BackLink";
 import { TrackRow } from "../TrackRow";
 import { Artwork } from "../Artwork";
 import { AlbumCard } from "../AlbumCard";
@@ -182,14 +183,10 @@ function PubkeyArtistDetail({ pubkey }: { pubkey: string }) {
   return (
     <div className={`flex-1 overflow-y-auto ${scrollPaddingClass}`}>
       {/* Header */}
-      <div className="flex items-end gap-6 px-8 pb-7 pt-6">
-        <button
-          onClick={() => dispatch(goBack())}
-          className="-ml-2 self-start rounded-md p-1.5 text-soft transition-colors hover:bg-surface-hover hover:text-heading"
-          aria-label="Back"
-        >
-          <ArrowLeft size={16} />
-        </button>
+      <div className="px-8 pt-5">
+        <BackLink />
+      </div>
+      <div className="flex items-end gap-6 px-8 pb-7 pt-5">
         <div className="group relative">
           {profile?.picture ? (
             <button
@@ -418,14 +415,10 @@ function NameArtistDetail({ normalizedName }: { normalizedName: string }) {
   return (
     <div className={`flex-1 overflow-y-auto ${scrollPaddingClass}`}>
       {/* Header */}
-      <div className="flex items-end gap-6 px-8 pb-7 pt-6">
-        <button
-          onClick={() => dispatch(goBack())}
-          className="-ml-2 self-start rounded-md p-1.5 text-soft transition-colors hover:bg-surface-hover hover:text-heading"
-          aria-label="Back"
-        >
-          <ArrowLeft size={16} />
-        </button>
+      <div className="px-8 pt-5">
+        <BackLink />
+      </div>
+      <div className="flex items-end gap-6 px-8 pb-7 pt-5">
         <div className="group relative">
           {avatarSrc ? (
             <img
