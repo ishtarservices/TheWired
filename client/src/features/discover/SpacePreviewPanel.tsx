@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
-import { Info, Rss, Users, AlertCircle } from "lucide-react";
+import { Info, AlertCircle } from "lucide-react";
 import { Avatar } from "@/components/ui/Avatar";
 import { Button } from "@/components/ui/Button";
 import { Spinner } from "@/components/ui/Spinner";
@@ -138,12 +138,9 @@ export function SpacePreviewPanel() {
         <Avatar src={space.picture} alt={space.name} size="lg" className="rounded-xl" />
         <div className="min-w-0 flex-1">
           <div className="flex items-center gap-2">
-            <h2 className="text-base font-bold text-heading truncate">{space.name}</h2>
+            <h2 className="truncate text-base font-semibold tracking-[-0.01em] text-heading">{space.name}</h2>
             {isReadOnly && (
-              <span className="shrink-0 flex items-center gap-1 rounded-full bg-primary/10 px-2 py-0.5 text-[10px] font-medium text-primary">
-                <Rss size={9} />
-                Feed
-              </span>
+              <span className="shrink-0 font-mono text-[9px] uppercase tracking-wider text-faint">Feed</span>
             )}
           </div>
           {space.category && (
@@ -156,21 +153,15 @@ export function SpacePreviewPanel() {
 
       {/* Description */}
       {space.about && (
-        <p className="text-xs text-soft leading-relaxed">{space.about}</p>
+        <p className="text-xs leading-relaxed text-muted">{space.about}</p>
       )}
 
       {/* Meta: member count + the same why-line the ranked row prints */}
-      <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-faint">
-        <span className="flex items-center gap-1 font-mono tabular-nums">
-          <Users size={11} />
+      <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-[10px] text-faint">
+        <span className="readout">
           {space.memberCount} member{space.memberCount !== 1 ? "s" : ""}
         </span>
-        {isReadOnly && (
-          <span className="flex items-center gap-1 text-primary/70">
-            <Rss size={11} />
-            Read-only feed
-          </span>
-        )}
+        {isReadOnly && <span>Read-only feed</span>}
         <SignalLine label={signal} />
       </div>
 
@@ -180,7 +171,7 @@ export function SpacePreviewPanel() {
           {space.tags.map((tag) => (
             <span
               key={tag}
-              className="rounded-full bg-card border border-border px-2 py-0.5 text-[10px] text-muted"
+              className="rounded-md border border-border-light px-1.5 py-0.5 font-mono text-[10px] lowercase text-muted"
             >
               {tag}
             </span>

@@ -1,6 +1,8 @@
 import { memo } from "react";
-import { Disc3 } from "lucide-react";
+import { Artwork } from "@/features/music/Artwork";
 
+/** A project on the wall: the cover, then title and artist. Same proportions
+ *  as the music section's project card, without its library actions. */
 export const AlbumTile = memo(function AlbumTile({
   title,
   artist,
@@ -16,20 +18,18 @@ export const AlbumTile = memo(function AlbumTile({
     <button
       type="button"
       onClick={onOpen}
-      aria-label={`Open album ${title}`}
-      className="w-36 shrink-0 rounded-lg text-left transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40"
+      aria-label={`Open project ${title}`}
+      className="group flex w-full flex-col rounded-lg text-left outline-offset-4"
     >
-      <div className="aspect-square w-full overflow-hidden rounded-lg bg-card">
-        {imageUrl ? (
-          <img src={imageUrl} alt="" className="h-full w-full object-cover" />
-        ) : (
-          <div className="flex h-full w-full items-center justify-center">
-            <Disc3 size={24} className="text-muted" />
-          </div>
-        )}
-      </div>
-      <p className="mt-2 truncate text-sm text-heading">{title}</p>
-      <p className="truncate text-xs text-soft">{artist}</p>
+      <Artwork
+        src={imageUrl}
+        title={title}
+        className="aspect-square w-full rounded-lg shadow-[var(--shadow-sm)] transition-[filter,box-shadow] duration-200 group-hover:shadow-[var(--shadow-lg)] group-hover:brightness-90"
+      />
+      <span className="block w-full px-0.5 pt-2.5">
+        <span className="block truncate text-[13px] font-medium text-heading">{title}</span>
+        <span className="mt-0.5 block truncate text-xs text-muted">{artist}</span>
+      </span>
     </button>
   );
 });

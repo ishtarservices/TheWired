@@ -26,18 +26,18 @@ export const PersonRow = memo(function PersonRow({
   const verifier = verifierFor(person.nip05, person.handle, mixed);
   const signal = personSignalLabel(person.noteCount);
   return (
-    <div className="flex items-center gap-3 border-b border-border-light py-2.5 last:border-b-0">
+    <div className="flex items-center gap-2 border-b border-border-light py-1">
       <button
         type="button"
         onClick={() => onOpen(person.pubkey)}
-        className="flex min-w-0 flex-1 items-center gap-3 rounded-lg text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40"
+        className="-ml-2 flex min-w-0 flex-1 items-center gap-3 rounded-lg px-2 py-1.5 text-left transition-colors hover:bg-surface-hover"
       >
         <Avatar src={person.picture} alt={person.name} size="md" />
         <div className="min-w-0 flex-1">
           <div className="flex items-baseline gap-2">
-            <span className="truncate text-sm font-semibold text-heading">{person.name}</span>
+            <span className="truncate text-[13px] font-medium text-heading">{person.name}</span>
             {verifier && (
-              <span className="shrink-0 font-mono text-[10px] text-faint" data-testid="verifier">
+              <span className="readout shrink-0 text-[10px] text-faint" data-testid="verifier">
                 {verifier}
               </span>
             )}
@@ -46,8 +46,8 @@ export const PersonRow = memo(function PersonRow({
             <p
               className={
                 person.handle
-                  ? "truncate font-mono text-[11px] text-muted"
-                  : "line-clamp-1 text-xs text-soft"
+                  ? "readout mt-0.5 truncate text-[11px] text-muted"
+                  : "mt-0.5 line-clamp-1 text-xs text-muted"
               }
             >
               {secondary}

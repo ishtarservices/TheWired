@@ -41,6 +41,7 @@ export function FacetChip({
   count,
   leading,
   title,
+  ariaLabel,
   onClick,
   children,
 }: {
@@ -50,6 +51,8 @@ export function FacetChip({
   /** An avatar or glyph before the label. */
   leading?: ReactNode;
   title?: string;
+  /** Accessible name, when the visible label alone doesn't say enough. */
+  ariaLabel?: string;
   onClick: () => void;
   children: ReactNode;
 }) {
@@ -58,6 +61,7 @@ export function FacetChip({
       type="button"
       onClick={onClick}
       title={title}
+      aria-label={ariaLabel}
       aria-pressed={active || undefined}
       className={cn(
         "inline-flex h-7 max-w-full items-center gap-1.5 rounded-md px-2 text-[13px] transition-colors",
