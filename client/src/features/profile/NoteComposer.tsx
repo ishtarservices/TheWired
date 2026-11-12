@@ -365,7 +365,7 @@ export function NoteComposer({ className = "mx-6 mt-4" }: NoteComposerProps) {
           setExpanded(true);
           requestAnimationFrame(() => textareaRef.current?.focus());
         }}
-        className={`${className} flex items-center gap-3 rounded-xl border border-border bg-surface px-4 py-3 text-left transition-colors hover:border-border-light hover:bg-surface-hover`}
+        className={`${className} flex items-center gap-3 rounded-xl border border-border bg-surface px-4 py-3 text-left transition-colors hover:border-faint hover:bg-surface-hover`}
       >
         <Avatar
           src={profile?.picture}

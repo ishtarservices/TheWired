@@ -1,5 +1,5 @@
-import { useEffect, useCallback } from "react";
-import { X } from "lucide-react";
+import { useEffect, useCallback, useMemo, useState } from "react";
+import { SlidersHorizontal, X } from "lucide-react";
 import { useAppSelector, useAppDispatch } from "@/store/hooks";
 import { usePlaybackBarSpacing } from "@/hooks/usePlaybackBarSpacing";
 import {
@@ -9,10 +9,10 @@ import {
   setExplorePopularTags,
   setActiveGenre,
   setActiveTag,
+  setActiveScene,
   setExploreResults,
   setExploreAlbumResults,
   setExploreSort,
-  setExploreTab,
   setExploreLoading,
 } from "@/store/slices/musicSlice";
 import { getGenres, getPopularTags, browseMusic, browseAlbums, resolveMusic } from "@/lib/api/music";
@@ -20,16 +20,44 @@ import { processIncomingEvent } from "@/lib/nostr/eventPipeline";
 import { parseTrackEvent } from "../trackParser";
 import { parseAlbumEvent } from "../albumParser";
 import { store } from "@/store";
-import { GenreCard } from "../GenreCard";
 import { TrackCard } from "../TrackCard";
 import { AlbumCard } from "../AlbumCard";
+import { mixExplore } from "../exploreMix";
+import { FacetChip, FacetList, FacetRow } from "../Facets";
+import { useScenes } from "@/features/discover/useScenes";
+import { matchesScene, sceneBySlug, sceneChips } from "@/features/discover/taxonomy";
 
+type ExploreShow = "all" | "projects" | "tracks";
+
+const SHOW_OPTIONS: { value: ExploreShow; label: string }[] = [
+  { value: "all", label: "All" },
+  { value: "projects", label: "Projects" },
+  { value: "tracks", label: "Tracks" },
+];
+
+const SORT_OPTIONS: { value: "trending" | "recent" | "plays"; label: string }[] = [
+  { value: "recent", label: "Recent" },
+  { value: "trending", label: "Trending" },
+  { value: "plays", label: "Most played" },
+];
+
+const GRID = "grid grid-cols-[repeat(auto-fill,minmax(164px,1fr))] gap-x-5 gap-y-8";
+
+/**
+ * Explore is a wall of covers: projects and loose tracks together, newest
+ * first. Genres and tags are filters, not content, so they sit behind the
+ * Filter control and only the ones in use show on the page.
+ */
 export function ExploreMusic() {
   const { scrollPaddingClass } = usePlaybackBarSpacing();
   const dispatch = useAppDispatch();
   const explore = useAppSelector((s) => s.music.explore);
   const tracks = useAppSelector((s) => s.music.tracks);
   const albums = useAppSelector((s) => s.music.albums);
+  const [show, setShow] = useState<ExploreShow>("all");
+  const [filtersOpen, setFiltersOpen] = useState(false);
+  const scenes = useScenes();
+  const activeScene = explore.activeScene ? (sceneBySlug(scenes, explore.activeScene) ?? null) : null;
 
   // Load genres and popular tags on mount
   useEffect(() => {
@@ -41,9 +69,8 @@ export function ExploreMusic() {
       .catch(() => {});
   }, [dispatch]);
 
-  const loadBrowseTracks = useCallback(
+  const loadTracks = useCallback(
     async (genre: string | null, tag: string | null, sort: "trending" | "recent" | "plays") => {
-      dispatch(setExploreLoading(true));
       try {
         const res = await browseMusic({
           genre: genre ?? undefined,
@@ -87,16 +114,13 @@ export function ExploreMusic() {
         }
       } catch {
         dispatch(setExploreResults([]));
-      } finally {
-        dispatch(setExploreLoading(false));
       }
     },
     [dispatch],
   );
 
-  const loadBrowseAlbums = useCallback(
+  const loadAlbums = useCallback(
     async (genre: string | null, tag: string | null) => {
-      dispatch(setExploreLoading(true));
       try {
         const res = await browseAlbums({
           genre: genre ?? undefined,
@@ -114,194 +138,261 @@ export function ExploreMusic() {
         }
       } catch {
         dispatch(setExploreAlbumResults([]));
-      } finally {
-        dispatch(setExploreLoading(false));
       }
     },
     [dispatch],
   );
 
-  // Reload on filter/sort/tab changes
+  // The wall mixes both, so both load together whenever a filter or the sort
+  // changes. A newer load supersedes an older one's "finished" signal.
   useEffect(() => {
-    if (explore.browseTab === "albums") {
-      loadBrowseAlbums(explore.activeGenre, explore.activeTag);
-    } else {
-      loadBrowseTracks(explore.activeGenre, explore.activeTag, explore.browseSort);
-    }
-  }, [explore.activeGenre, explore.activeTag, explore.browseSort, explore.browseTab, loadBrowseTracks, loadBrowseAlbums]);
-
-  const handleGenreClick = (genre: string) => {
-    dispatch(setActiveGenre(explore.activeGenre === genre ? null : genre));
-  };
-
-  const handleTagClick = (tag: string) => {
-    dispatch(setActiveTag(explore.activeTag === tag ? null : tag));
-  };
-
-  const sortOptions: { value: "trending" | "recent" | "plays"; label: string }[] = [
-    { value: "trending", label: "Trending" },
-    { value: "recent", label: "Recent" },
-    { value: "plays", label: "Most Played" },
-  ];
+    let current = true;
+    dispatch(setExploreLoading(true));
+    void Promise.all([
+      loadTracks(explore.activeGenre, explore.activeTag, explore.browseSort),
+      loadAlbums(explore.activeGenre, explore.activeTag),
+    ]).finally(() => {
+      if (current) dispatch(setExploreLoading(false));
+    });
+    return () => {
+      current = false;
+    };
+  }, [explore.activeGenre, explore.activeTag, explore.browseSort, loadTracks, loadAlbums, dispatch]);
 
   const browseTrackIds = explore.browseResults;
-  const browseTracks = browseTrackIds.map((id) => tracks[id]).filter(Boolean);
-  const browseAlbumIds = explore.browseAlbumResults;
-  const browseAlbumList = browseAlbumIds.map((id) => albums[id]).filter(Boolean);
+  // A scene is a vocabulary of genres and tags, so it narrows what was loaded
+  // rather than changing the request (the same way Discover applies it).
+  const inScene = useCallback(
+    (item: { genre?: string; hashtags: string[] }) =>
+      !activeScene || matchesScene(activeScene, { genre: item.genre, tags: item.hashtags }),
+    [activeScene],
+  );
+  const browseTracks = useMemo(
+    () => browseTrackIds.map((id) => tracks[id]).filter(Boolean).filter(inScene),
+    [browseTrackIds, tracks, inScene],
+  );
+  const browseAlbumList = useMemo(
+    () => explore.browseAlbumResults.map((id) => albums[id]).filter(Boolean).filter(inScene),
+    [explore.browseAlbumResults, albums, inScene],
+  );
+  // Only scenes with something behind them in what Explore knows about.
+  const sceneOptions = useMemo(
+    () =>
+      sceneChips(scenes, {
+        genres: explore.genres.map((g) => g.genre),
+        tags: explore.popularTags.map((t) => t.tag),
+      }),
+    [scenes, explore.genres, explore.popularTags],
+  );
+  const mixed = useMemo(() => mixExplore(browseAlbumList, browseTracks), [browseAlbumList, browseTracks]);
+  // Playing a loose track on the wall queues the other loose tracks after it.
+  const mixedTrackIds = useMemo(
+    () => mixed.filter((i) => i.kind === "track").map((i) => i.id),
+    [mixed],
+  );
+
+  const activeFilterCount =
+    (activeScene ? 1 : 0) + (explore.activeGenre ? 1 : 0) + (explore.activeTag ? 1 : 0);
+  const hasFilters =
+    sceneOptions.length > 0 || explore.genres.length > 0 || explore.popularTags.length > 0;
+  const count =
+    show === "all" ? mixed.length : show === "projects" ? browseAlbumList.length : browseTracks.length;
+  const noun = show === "projects" ? "projects" : show === "tracks" ? "tracks" : "releases";
 
   return (
-    <div className={`flex-1 overflow-y-auto p-6 ${scrollPaddingClass}`}>
-      <h2 className="mb-4 text-lg font-semibold text-heading">Explore</h2>
+    <div className={`flex-1 overflow-y-auto px-8 py-7 ${scrollPaddingClass}`}>
+      <header className="mb-7 flex flex-wrap items-center gap-x-6 gap-y-3">
+        <h1 className="text-2xl font-semibold tracking-[-0.02em] text-heading">Explore</h1>
 
-      {/* Genre cards */}
-      {explore.genres.length > 0 && (
-        <section className="mb-6">
-          <h3 className="mb-2 text-sm font-medium text-soft">Genres</h3>
-          <div className="flex gap-2 overflow-x-auto pb-2">
-            {explore.genres.map((g) => (
-              <GenreCard
-                key={g.genre}
-                genre={g.genre}
-                count={g.count}
-                isActive={explore.activeGenre === g.genre}
-                onClick={() => handleGenreClick(g.genre)}
-              />
-            ))}
-          </div>
-        </section>
-      )}
-
-      {/* Popular tags */}
-      {explore.popularTags.length > 0 && (
-        <section className="mb-6">
-          <h3 className="mb-2 text-sm font-medium text-soft">Popular Tags</h3>
-          <div className="flex flex-wrap gap-1.5">
-            {explore.popularTags.map((t) => (
-              <button
-                key={t.tag}
-                onClick={() => handleTagClick(t.tag)}
-                className={`rounded-full px-2.5 py-1 text-xs transition-colors ${
-                  explore.activeTag === t.tag
-                    ? "bg-primary/20 text-heading ring-1 ring-primary/40"
-                    : "bg-card text-soft hover:bg-card-hover hover:text-heading"
-                }`}
-              >
-                #{t.tag}
-                <span className="ml-1 text-muted">{t.count}</span>
-              </button>
-            ))}
-          </div>
-        </section>
-      )}
-
-      {/* Active filters bar */}
-      {(explore.activeGenre || explore.activeTag) && (
-        <div className="mb-4 flex items-center gap-2">
-          <span className="text-xs text-muted">Filtering:</span>
-          {explore.activeGenre && (
-            <span className="inline-flex items-center gap-1 rounded-full bg-card px-2.5 py-1 text-xs text-heading">
-              {explore.activeGenre}
-              <button
-                onClick={() => dispatch(setActiveGenre(null))}
-                className="text-muted hover:text-heading"
-              >
-                <X size={12} />
-              </button>
-            </span>
-          )}
-          {explore.activeTag && (
-            <span className="inline-flex items-center gap-1 rounded-full bg-card px-2.5 py-1 text-xs text-heading">
-              #{explore.activeTag}
-              <button
-                onClick={() => dispatch(setActiveTag(null))}
-                className="text-muted hover:text-heading"
-              >
-                <X size={12} />
-              </button>
-            </span>
-          )}
+        <div role="tablist" aria-label="Show" className="flex items-center gap-4 text-[13px]">
+          {SHOW_OPTIONS.map((opt) => (
+            <button
+              key={opt.value}
+              role="tab"
+              aria-selected={show === opt.value}
+              onClick={() => setShow(opt.value)}
+              className={`rounded-sm transition-colors ${
+                show === opt.value ? "font-medium text-heading" : "text-muted hover:text-heading"
+              }`}
+            >
+              {opt.label}
+            </button>
+          ))}
         </div>
-      )}
 
-      {/* Tab switcher + sort */}
-      <div className="mb-4 flex items-center justify-between">
-        <div className="flex gap-1">
-          <button
-            onClick={() => dispatch(setExploreTab("tracks"))}
-            className={`rounded-lg px-3 py-1.5 text-xs font-medium transition-colors ${
-              explore.browseTab === "tracks"
-                ? "bg-primary/15 text-heading"
-                : "text-soft hover:text-heading"
-            }`}
-          >
-            Tracks
-          </button>
-          <button
-            onClick={() => dispatch(setExploreTab("albums"))}
-            className={`rounded-lg px-3 py-1.5 text-xs font-medium transition-colors ${
-              explore.browseTab === "albums"
-                ? "bg-primary/15 text-heading"
-                : "text-soft hover:text-heading"
-            }`}
-          >
-            Albums
-          </button>
-        </div>
-        {explore.browseTab === "tracks" && (
-          <div className="flex gap-1">
-            {sortOptions.map((opt) => (
-              <button
-                key={opt.value}
-                onClick={() => dispatch(setExploreSort(opt.value))}
-                className={`rounded-lg px-3 py-1.5 text-xs font-medium transition-colors ${
-                  explore.browseSort === opt.value
-                    ? "bg-primary/15 text-heading"
-                    : "text-soft hover:text-heading"
-                }`}
-              >
-                {opt.label}
-              </button>
-            ))}
-          </div>
+        {/* Filters in use stay on the page; the rest live behind Filter. */}
+        {activeScene && (
+          <span className="inline-flex items-center gap-1 rounded-full border border-border py-0.5 pl-2.5 pr-1 text-xs text-heading">
+            {activeScene.label}
+            <button
+              onClick={() => dispatch(setActiveScene(null))}
+              className="rounded-full p-0.5 text-muted hover:bg-surface-hover hover:text-heading"
+              aria-label={`Remove ${activeScene.label} filter`}
+            >
+              <X size={12} />
+            </button>
+          </span>
         )}
-      </div>
+        {explore.activeGenre && (
+          <span className="inline-flex items-center gap-1 rounded-full border border-border py-0.5 pl-2.5 pr-1 text-xs text-heading">
+            {explore.activeGenre}
+            <button
+              onClick={() => dispatch(setActiveGenre(null))}
+              className="rounded-full p-0.5 text-muted hover:bg-surface-hover hover:text-heading"
+              aria-label={`Remove ${explore.activeGenre} filter`}
+            >
+              <X size={12} />
+            </button>
+          </span>
+        )}
+        {explore.activeTag && (
+          <span className="inline-flex items-center gap-1 rounded-full border border-border py-0.5 pl-2.5 pr-1 text-xs text-heading">
+            #{explore.activeTag}
+            <button
+              onClick={() => dispatch(setActiveTag(null))}
+              className="rounded-full p-0.5 text-muted hover:bg-surface-hover hover:text-heading"
+              aria-label={`Remove #${explore.activeTag} filter`}
+            >
+              <X size={12} />
+            </button>
+          </span>
+        )}
 
-      {/* Results grid */}
-      {explore.isLoading ? (
-        <div className="flex items-center justify-center py-12">
-          <div className="h-6 w-6 animate-spin rounded-full border-2 border-primary border-t-transparent" />
+        <div className="ml-auto flex items-center gap-4">
+          {show === "tracks" && (
+            <div className="flex items-center gap-3 text-xs" aria-label="Sort tracks">
+              {SORT_OPTIONS.map((opt) => (
+                <button
+                  key={opt.value}
+                  onClick={() => dispatch(setExploreSort(opt.value))}
+                  aria-pressed={explore.browseSort === opt.value}
+                  className={`rounded-sm transition-colors ${
+                    explore.browseSort === opt.value ? "text-heading" : "text-muted hover:text-heading"
+                  }`}
+                >
+                  {opt.label}
+                </button>
+              ))}
+            </div>
+          )}
+          {hasFilters && (
+            <button
+              onClick={() => setFiltersOpen((v) => !v)}
+              aria-expanded={filtersOpen}
+              aria-controls="explore-filters"
+              className={`flex h-8 items-center gap-1.5 rounded-lg px-2.5 text-xs transition-colors ${
+                filtersOpen
+                  ? "bg-surface-hover text-heading"
+                  : "text-soft hover:bg-surface-hover hover:text-heading"
+              }`}
+            >
+              <SlidersHorizontal size={14} />
+              Filter
+              {activeFilterCount > 0 && (
+                <span className="readout text-[10px] text-primary">{activeFilterCount}</span>
+              )}
+            </button>
+          )}
         </div>
-      ) : explore.browseTab === "tracks" ? (
-        browseTracks.length > 0 ? (
-          <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6">
-            {browseTracks.map((track, i) => (
+      </header>
+
+      {filtersOpen && hasFilters && (
+        <section id="explore-filters" className="animate-fade-in mb-8">
+          <FacetList className="border-b">
+            {sceneOptions.length > 0 && (
+              <FacetRow label="Scene">
+                {sceneOptions.map((sc) => {
+                  const active = explore.activeScene === sc.value;
+                  return (
+                    <FacetChip
+                      key={sc.value}
+                      active={active}
+                      onClick={() => dispatch(setActiveScene(active ? null : sc.value))}
+                    >
+                      {sc.label}
+                    </FacetChip>
+                  );
+                })}
+              </FacetRow>
+            )}
+            {explore.genres.length > 0 && (
+              <FacetRow label="Genre">
+                {explore.genres.map((g) => {
+                  const active = explore.activeGenre === g.genre;
+                  return (
+                    <FacetChip
+                      key={g.genre}
+                      active={active}
+                      count={g.count}
+                      onClick={() => dispatch(setActiveGenre(active ? null : g.genre))}
+                    >
+                      {g.genre}
+                    </FacetChip>
+                  );
+                })}
+              </FacetRow>
+            )}
+            {explore.popularTags.length > 0 && (
+              <FacetRow label="Tag">
+                {explore.popularTags.map((t) => {
+                  const active = explore.activeTag === t.tag;
+                  return (
+                    <FacetChip
+                      key={t.tag}
+                      active={active}
+                      count={t.count}
+                      onClick={() => dispatch(setActiveTag(active ? null : t.tag))}
+                    >
+                      #{t.tag}
+                    </FacetChip>
+                  );
+                })}
+              </FacetRow>
+            )}
+          </FacetList>
+        </section>
+      )}
+
+      {explore.isLoading && count === 0 ? (
+        <div className="flex items-center justify-center py-16">
+          <div className="h-5 w-5 animate-spin rounded-full border-2 border-border border-t-heading" />
+        </div>
+      ) : count === 0 ? (
+        <p className="py-16 text-center text-sm text-muted">
+          {activeFilterCount > 0 ? `No ${noun} match these filters.` : `No ${noun} published yet.`}
+        </p>
+      ) : show === "all" ? (
+        <div className={GRID}>
+          {mixed.map((item) =>
+            item.kind === "project" ? (
+              <AlbumCard key={item.id} album={item.album} />
+            ) : (
               <TrackCard
-                key={track.addressableId}
-                track={track}
-                queueTracks={browseTrackIds}
-                queueIndex={i}
+                key={item.id}
+                track={item.track}
+                queueTracks={mixedTrackIds}
+                queueIndex={mixedTrackIds.indexOf(item.id)}
               />
-            ))}
-          </div>
-        ) : (
-          <p className="py-8 text-center text-sm text-soft">
-            {explore.activeGenre || explore.activeTag
-              ? "No tracks found for the selected filters."
-              : "No tracks uploaded yet."}
-          </p>
-        )
-      ) : browseAlbumList.length > 0 ? (
-        <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6">
+            ),
+          )}
+        </div>
+      ) : show === "projects" ? (
+        <div className={GRID}>
           {browseAlbumList.map((album) => (
             <AlbumCard key={album.addressableId} album={album} />
           ))}
         </div>
       ) : (
-        <p className="py-8 text-center text-sm text-soft">
-          {explore.activeGenre || explore.activeTag
-            ? "No albums found for the selected filters."
-            : "No albums uploaded yet."}
-        </p>
+        <div className={GRID}>
+          {browseTracks.map((track, i) => (
+            <TrackCard
+              key={track.addressableId}
+              track={track}
+              queueTracks={browseTracks.map((t) => t.addressableId)}
+              queueIndex={i}
+            />
+          ))}
+        </div>
       )}
     </div>
   );

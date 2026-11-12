@@ -189,7 +189,7 @@ export function SearchResults() {
           {/* Artists section */}
           {uniqueArtists.length > 0 && (
             <section className="mb-8">
-              <h3 className="mb-3 text-xs font-semibold uppercase tracking-[0.15em] text-muted">
+              <h3 className="mb-3 label-caps">
                 Artists
               </h3>
               <div className="flex gap-3 overflow-x-auto pb-2">
@@ -215,10 +215,10 @@ export function SearchResults() {
           {/* Albums section */}
           {resultAlbums.length > 0 && (
             <section className="mb-8">
-              <h3 className="mb-3 text-xs font-semibold uppercase tracking-[0.15em] text-muted">
+              <h3 className="mb-3 label-caps">
                 Albums
               </h3>
-              <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6">
+              <div className="grid grid-cols-[repeat(auto-fill,minmax(164px,1fr))] gap-x-5 gap-y-7">
                 {resultAlbums.map((album) => (
                   <AlbumCard key={album.addressableId} album={album} />
                 ))}
@@ -229,10 +229,10 @@ export function SearchResults() {
           {/* Tracks section */}
           {resultTracks.length > 0 && (
             <section className="mb-8">
-              <h3 className="mb-3 text-xs font-semibold uppercase tracking-[0.15em] text-muted">
+              <h3 className="mb-3 label-caps">
                 Tracks
               </h3>
-              <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6">
+              <div className="grid grid-cols-[repeat(auto-fill,minmax(164px,1fr))] gap-x-5 gap-y-7">
                 {resultTracks.map((track, i) => (
                   <TrackCard
                     key={track.addressableId}
@@ -267,7 +267,7 @@ function ArtistChip({
   return (
     <button
       onClick={onClick}
-      className="flex shrink-0 items-center gap-2.5 rounded-xl border border-border card-glass px-3 py-2 transition-all hover:border-border-light hover-lift"
+      className="flex shrink-0 items-center gap-2.5 rounded-xl border border-border card-glass px-3 py-2 transition-all hover:border-faint hover-lift"
     >
       {profile?.picture ? (
         <img

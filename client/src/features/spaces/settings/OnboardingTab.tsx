@@ -62,7 +62,7 @@ export function OnboardingTab({ spaceId }: OnboardingTabProps) {
 
       {/* Questions */}
       <div className="space-y-3">
-        <h4 className="text-xs font-semibold uppercase tracking-wider text-muted">Questions</h4>
+        <h4 className="label-caps">Questions</h4>
         <QuestionsBuilder
           spaceId={spaceId}
           questions={questions}
@@ -78,7 +78,7 @@ export function OnboardingTab({ spaceId }: OnboardingTabProps) {
 
       {/* Todo Checklist */}
       <div className="space-y-3">
-        <h4 className="text-xs font-semibold uppercase tracking-wider text-muted">Welcome Checklist</h4>
+        <h4 className="label-caps">Welcome Checklist</h4>
         <p className="text-[11px] text-muted">
           Suggested actions for new members after they join.
         </p>
@@ -173,7 +173,7 @@ function ConfigSection({
 
       {/* Welcome Message */}
       <div>
-        <label className="mb-1 block text-[10px] font-semibold uppercase tracking-wider text-muted">
+        <label className="mb-1 block label-caps">
           Welcome Message
         </label>
         <WelcomeMessageField
@@ -363,7 +363,7 @@ function QuestionCard({
         <div className="border-t border-border p-3 space-y-3">
           {/* Title */}
           <div>
-            <label className="mb-1 flex items-center gap-2 text-[10px] font-semibold uppercase tracking-wider text-muted">
+            <label className="mb-1 flex items-center gap-2 label-caps">
               Question
               <SavedBadge visible={saved} />
             </label>
@@ -376,7 +376,7 @@ function QuestionCard({
 
           {/* Description */}
           <div>
-            <label className="mb-1 block text-[10px] font-semibold uppercase tracking-wider text-muted">
+            <label className="mb-1 block label-caps">
               Helper Text
             </label>
             <input
@@ -411,7 +411,7 @@ function QuestionCard({
 
           {/* Answers */}
           <div>
-            <label className="mb-1.5 block text-[10px] font-semibold uppercase tracking-wider text-muted">
+            <label className="mb-1.5 block label-caps">
               Answer Options
             </label>
 
@@ -604,7 +604,7 @@ function MappingEditor({
       {/* Roles */}
       {roles.length > 0 && (
         <div>
-          <span className="text-[10px] font-semibold uppercase tracking-wider text-muted">Assigns Roles</span>
+          <span className="label-caps">Assigns Roles</span>
           <div className="flex flex-wrap gap-1 mt-1">
             {roles.map((role) => (
               <button
@@ -614,7 +614,7 @@ function MappingEditor({
                   "flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] border transition-colors",
                   selectedRoles.includes(role.id)
                     ? "border-primary bg-primary/10 text-primary"
-                    : "border-border text-muted hover:border-border-light",
+                    : "border-border text-muted hover:border-faint",
                 )}
               >
                 <span
@@ -631,7 +631,7 @@ function MappingEditor({
       {/* Channels */}
       {channels.length > 0 && (
         <div>
-          <span className="text-[10px] font-semibold uppercase tracking-wider text-muted">Unlocks Channels</span>
+          <span className="label-caps">Unlocks Channels</span>
           <div className="flex flex-wrap gap-1 mt-1">
             {channels.map((ch) => (
               <button
@@ -641,7 +641,7 @@ function MappingEditor({
                   "rounded-full px-2 py-0.5 text-[10px] border transition-colors",
                   selectedChannels.includes(ch.id)
                     ? "border-primary bg-primary/10 text-primary"
-                    : "border-border text-muted hover:border-border-light",
+                    : "border-border text-muted hover:border-faint",
                 )}
               >
                 {ch.label}

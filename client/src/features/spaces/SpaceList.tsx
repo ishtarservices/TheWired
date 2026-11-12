@@ -71,11 +71,15 @@ export function SpaceList() {
   }, [spaces, pinnedSpaceIds, filter]);
 
   const showFilter = spaces.length >= 6;
-  const isFriendsFeedActive = activeSpaceId === FRIENDS_FEED_ID;
+  // A space (or the feed) is only "active" while its view is on screen. On
+  // Discover, Settings or a profile it is remembered, not shown, so two rows
+  // never read as selected at once.
+  const onSpaceView = location.pathname === "/";
+  const isFriendsFeedActive = onSpaceView && activeSpaceId === FRIENDS_FEED_ID;
 
   return (
     <>
-      <div className="p-3 space-y-1.5">
+      <div className="px-2 pb-1 space-y-0.5">
         {/* Quick filter */}
         {showFilter && (
           <div className="flex items-center gap-1.5 rounded-lg bg-field ring-1 ring-border px-2 py-1 transition-all focus-within:ring-primary/30 mb-1">
@@ -103,15 +107,15 @@ export function SpaceList() {
           <button
             onClick={handleSelectFriendsFeed}
             className={cn(
-              "flex w-full items-center gap-2 rounded-xl px-3 py-2 text-sm transition-all duration-150",
+              "flex w-full items-center gap-2.5 rounded-lg px-2.5 py-1.5 text-[13px] transition-colors duration-150",
               isFriendsFeedActive
-                ? "bg-primary/8 text-heading"
-                : "text-soft hover:bg-surface-hover hover:text-heading",
+                ? "bg-surface-hover text-heading"
+                : "text-soft hover:bg-surface hover:text-heading",
             )}
           >
-            <div className="flex h-7 w-7 items-center justify-center rounded-full bg-primary/10 shrink-0">
-              <Users size={14} className="text-primary" />
-            </div>
+            <span className="flex h-6 w-6 shrink-0 items-center justify-center">
+              <Users size={16} />
+            </span>
             <span className="truncate text-left">Feed</span>
           </button>
         )}
@@ -121,15 +125,15 @@ export function SpaceList() {
           <button
             onClick={() => navigate("/discover")}
             className={cn(
-              "flex w-full items-center gap-2 rounded-xl px-3 py-2 text-sm transition-all duration-150",
+              "flex w-full items-center gap-2.5 rounded-lg px-2.5 py-1.5 text-[13px] transition-colors duration-150",
               location.pathname === "/discover"
-                ? "bg-primary/8 text-heading"
-                : "text-soft hover:bg-surface-hover hover:text-heading",
+                ? "bg-surface-hover text-heading"
+                : "text-soft hover:bg-surface hover:text-heading",
             )}
           >
-            <div className="flex h-7 w-7 items-center justify-center rounded-full bg-primary/10 shrink-0">
-              <Compass size={14} className="text-primary" />
-            </div>
+            <span className="flex h-6 w-6 shrink-0 items-center justify-center">
+              <Compass size={16} />
+            </span>
             <span className="truncate text-left">Discover</span>
           </button>
         )}
@@ -139,7 +143,7 @@ export function SpaceList() {
           <>
             <div className="flex items-center gap-1.5 px-2 pt-2 pb-0.5">
               <Star size={10} className="text-primary/60" />
-              <span className="text-[10px] font-semibold uppercase tracking-[0.15em] text-muted">
+              <span className="label-caps">
                 Favorites
               </span>
             </div>
@@ -147,7 +151,7 @@ export function SpaceList() {
               <SpaceButton
                 key={space.id}
                 space={space}
-                isActive={space.id === activeSpaceId}
+                isActive={onSpaceView && space.id === activeSpaceId}
                 mentions={spaceMentions[space.id] ?? 0}
                 unread={spaceUnread[space.id] ?? 0}
                 isMuted={
@@ -164,7 +168,7 @@ export function SpaceList() {
         {/* All Spaces section */}
         {(favoriteSpaces.length > 0 || filter) && otherSpaces.length > 0 && (
           <div className="px-2 pt-2 pb-0.5">
-            <span className="text-[10px] font-semibold uppercase tracking-[0.15em] text-muted">
+            <span className="label-caps">
               {filter ? "Results" : "All Spaces"}
             </span>
           </div>
@@ -186,7 +190,7 @@ export function SpaceList() {
           <SpaceButton
             key={space.id}
             space={space}
-            isActive={space.id === activeSpaceId}
+            isActive={onSpaceView && space.id === activeSpaceId}
             mentions={spaceMentions[space.id] ?? 0}
             unread={spaceUnread[space.id] ?? 0}
             isMuted={
@@ -201,7 +205,7 @@ export function SpaceList() {
         {/* Create / Join button */}
         <button
           onClick={() => setShowAction(true)}
-          className="flex w-full items-center justify-center gap-1 rounded-xl border border-dashed border-border px-3 py-2 text-xs text-muted transition-all duration-150 hover:border-primary/40 hover:text-primary hover:bg-primary/5"
+          className="flex w-full items-center justify-center gap-1 rounded-lg border border-dashed border-border px-3 py-2 text-xs text-muted transition-all duration-150 hover:border-primary/40 hover:text-primary hover:bg-primary/5"
         >
           <Plus size={14} />
           <span>New Space</span>
@@ -250,10 +254,10 @@ function SpaceButton({
       onClick={onClick}
       onContextMenu={onContextMenu}
       className={cn(
-        "flex w-full items-center gap-2 rounded-xl px-3 py-2 text-sm transition-all duration-150",
+        "flex w-full items-center gap-2.5 rounded-lg px-2.5 py-1.5 text-[13px] transition-colors duration-150",
         isActive
-          ? "bg-primary/8 text-heading"
-          : "text-soft hover:bg-surface-hover hover:text-heading",
+          ? "bg-surface-hover text-heading"
+          : "text-soft hover:bg-surface hover:text-heading",
       )}
     >
       <div className="relative shrink-0">

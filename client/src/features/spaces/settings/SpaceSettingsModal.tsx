@@ -82,7 +82,7 @@ export function SpaceSettingsModal({ open, onClose, spaceId }: SpaceSettingsModa
                 key={tab.id}
                 onClick={() => setActiveTab(tab.id)}
                 className={cn(
-                  "flex w-full items-center gap-2 rounded-xl px-3 py-2 text-sm transition-all duration-150",
+                  "flex w-full items-center gap-2 rounded-lg px-2.5 py-1.5 text-[13px] transition-colors duration-150",
                   activeTab === tab.id
                     ? "bg-primary/10 text-primary"
                     : "text-soft hover:bg-surface-hover hover:text-heading",

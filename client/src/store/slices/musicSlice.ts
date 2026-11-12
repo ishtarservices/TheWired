@@ -79,6 +79,9 @@ interface MusicState {
     trendingTrackIds: string[];
     trendingAlbumIds: string[];
     recentlyPlayedIds: string[];
+    /** Unix seconds each id in `recentlyPlayedIds` was last played. Ids
+     *  played before this was recorded have no entry. */
+    recentlyPlayedAt: Record<string, number>;
     newReleaseIds: string[];
     undergroundTrackIds: string[];
     recommendedTrackIds: string[];
@@ -89,6 +92,8 @@ interface MusicState {
     popularTags: { tag: string; count: number }[];
     activeGenre: string | null;
     activeTag: string | null;
+    /** Slug of the scene Explore is narrowed to (see features/discover/taxonomy). */
+    activeScene: string | null;
     browseResults: string[];
     browseAlbumResults: string[];
     browseSort: "trending" | "recent" | "plays";
@@ -226,6 +231,7 @@ const initialState: MusicState = {
     trendingTrackIds: [],
     trendingAlbumIds: [],
     recentlyPlayedIds: [],
+    recentlyPlayedAt: {},
     newReleaseIds: [],
     undergroundTrackIds: [],
     recommendedTrackIds: [],
@@ -236,6 +242,7 @@ const initialState: MusicState = {
     popularTags: [],
     activeGenre: null,
     activeTag: null,
+    activeScene: null,
     browseResults: [],
     browseAlbumResults: [],
     browseSort: "recent",
@@ -539,6 +546,7 @@ export const musicSlice = createSlice({
       // Clean up discovery
       state.discovery.trendingTrackIds = state.discovery.trendingTrackIds.filter((t) => t !== id);
       state.discovery.recentlyPlayedIds = state.discovery.recentlyPlayedIds.filter((t) => t !== id);
+      delete state.discovery.recentlyPlayedAt[id];
       state.discovery.newReleaseIds = state.discovery.newReleaseIds.filter((t) => t !== id);
       state.discovery.undergroundTrackIds = state.discovery.undergroundTrackIds.filter((t) => t !== id);
       state.discovery.recommendedTrackIds = state.discovery.recommendedTrackIds.filter((t) => t !== id);
@@ -730,6 +738,7 @@ export const musicSlice = createSlice({
         rowUpdatedAt: number;
         folderDocs: MusicFolderDocs;
         recentlyPlayedIds: string[];
+        recentlyPlayedAt?: Record<string, number>;
         readFailed: boolean;
       }>,
     ) {
@@ -749,6 +758,7 @@ export const musicSlice = createSlice({
       arraysFromRecord(state);
       foldersFromDocs(state);
       state.discovery.recentlyPlayedIds = p.recentlyPlayedIds;
+      state.discovery.recentlyPlayedAt = p.recentlyPlayedAt ?? {};
     },
     /** Relay copies, merged against CURRENT state (so an edit made while
      *  the fetch was out survives). Never stamps, never bumps the revision. */
@@ -1060,11 +1070,23 @@ export const musicSlice = createSlice({
     setRecentlyPlayedIds(state, action: PayloadAction<string[]>) {
       state.discovery.recentlyPlayedIds = action.payload;
     },
-    addRecentlyPlayed(state, action: PayloadAction<string>) {
-      state.discovery.recentlyPlayedIds = [
-        action.payload,
-        ...state.discovery.recentlyPlayedIds.filter((id) => id !== action.payload),
-      ].slice(0, 50);
+    addRecentlyPlayed: {
+      reducer(state, action: PayloadAction<{ id: string; at: number }>) {
+        const { id, at } = action.payload;
+        const ids = [id, ...state.discovery.recentlyPlayedIds.filter((x) => x !== id)].slice(0, 50);
+        state.discovery.recentlyPlayedIds = ids;
+        // Keep the times in step with the (capped) list.
+        const times: Record<string, number> = {};
+        for (const x of ids) {
+          const t = x === id ? at : state.discovery.recentlyPlayedAt[x];
+          if (t) times[x] = t;
+        }
+        state.discovery.recentlyPlayedAt = times;
+      },
+      // The clock is read here, not in the reducer, so the reducer stays pure.
+      prepare(id: string) {
+        return { payload: { id, at: Math.floor(Date.now() / 1000) } };
+      },
     },
     setNewReleaseIds(state, action: PayloadAction<string[]>) {
       state.discovery.newReleaseIds = action.payload;
@@ -1088,6 +1110,9 @@ export const musicSlice = createSlice({
     },
     setActiveTag(state, action: PayloadAction<string | null>) {
       state.explore.activeTag = action.payload;
+    },
+    setActiveScene(state, action: PayloadAction<string | null>) {
+      state.explore.activeScene = action.payload;
     },
     setExploreResults(state, action: PayloadAction<string[]>) {
       state.explore.browseResults = action.payload;
@@ -1271,6 +1296,7 @@ export const {
   setExplorePopularTags,
   setActiveGenre,
   setActiveTag,
+  setActiveScene,
   setExploreResults,
   setExploreAlbumResults,
   setExploreSort,

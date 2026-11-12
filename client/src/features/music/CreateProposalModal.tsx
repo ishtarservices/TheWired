@@ -92,7 +92,7 @@ export function CreateProposalModal({ album, onClose }: CreateProposalModalProps
 
         {/* Title */}
         <div className="mb-3">
-          <label className="mb-1 block text-xs font-semibold uppercase tracking-wider text-muted">
+          <label className="mb-1 block label-caps">
             Proposal Title
           </label>
           <input
@@ -106,7 +106,7 @@ export function CreateProposalModal({ album, onClose }: CreateProposalModalProps
 
         {/* Description */}
         <div className="mb-4">
-          <label className="mb-1 block text-xs font-semibold uppercase tracking-wider text-muted">
+          <label className="mb-1 block label-caps">
             Description (optional)
           </label>
           <textarea
@@ -120,7 +120,7 @@ export function CreateProposalModal({ album, onClose }: CreateProposalModalProps
 
         {/* Changes */}
         <div className="mb-4">
-          <label className="mb-2 block text-xs font-semibold uppercase tracking-wider text-muted">
+          <label className="mb-2 block label-caps">
             Changes
           </label>
           <div className="space-y-2">
@@ -255,14 +255,14 @@ export function CreateProposalModal({ album, onClose }: CreateProposalModalProps
         <div className="flex justify-end gap-2">
           <button
             onClick={onClose}
-            className="rounded-xl border border-border px-4 py-2 text-sm text-soft hover:border-border-light hover:text-heading transition-colors"
+            className="rounded-xl border border-border px-4 py-2 text-sm text-soft hover:border-faint hover:text-heading transition-colors"
           >
             Cancel
           </button>
           <button
             onClick={handleSubmit}
             disabled={submitting || !title.trim() || changes.length === 0}
-            className="rounded-xl bg-gradient-to-r from-primary to-primary-soft px-4 py-2 text-sm font-medium text-white hover:opacity-90 transition-all duration-150 press-effect disabled:opacity-40"
+            className="rounded-xl bg-primary px-4 py-2 text-sm font-medium text-white hover:opacity-90 transition-all duration-150 press-effect disabled:opacity-40"
           >
             {submitting ? "Submitting..." : "Submit Proposal"}
           </button>

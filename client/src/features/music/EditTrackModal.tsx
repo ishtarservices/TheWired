@@ -302,7 +302,7 @@ export function EditTrackModal({ track, onClose }: EditTrackModalProps) {
           <button
             onClick={handleSubmit}
             disabled={!title.trim() || submitting || (visibility === "space" && !spaceId)}
-            className="w-full rounded-xl bg-gradient-to-r from-primary to-primary-soft py-2 text-sm font-medium text-white transition-opacity hover:opacity-90 press-effect disabled:opacity-50"
+            className="w-full rounded-xl bg-primary py-2 text-sm font-medium text-white transition-opacity hover:opacity-90 press-effect disabled:opacity-50"
           >
             {submitting
               ? "Saving..."

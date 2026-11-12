@@ -1,5 +1,5 @@
 import { memo, useState, useRef } from "react";
-import { Play, MoreHorizontal, HardDriveDownload, Lock } from "lucide-react";
+import { Play, Pause, MoreHorizontal, HardDriveDownload, Lock } from "lucide-react";
 import type { MusicTrack } from "@/types/music";
 import { useAppSelector, useAppDispatch } from "@/store/hooks";
 import { useHoldsProjectKey, useIsMine } from "./sharedKey/ownership";
@@ -24,6 +24,12 @@ interface TrackRowProps {
   onAlbumClick?: (albumId: string) => void;
   /** Optional 1-based number to render in the # column. Falls back to `index + 1`. */
   displayIndex?: number;
+  /**
+   * Where the row sits. Inside a project ("album") the artist and project are
+   * already on screen, so the row is a single line: number, title, duration.
+   * Everywhere else ("list") it carries artist · project and the genre.
+   */
+  context?: "list" | "album";
 }
 
 function formatDuration(seconds?: number): string {
@@ -39,6 +45,7 @@ export const TrackRow = memo(function TrackRow({
   queueTracks,
   onAlbumClick,
   displayIndex,
+  context = "list",
 }: TrackRowProps) {
   const dispatch = useAppDispatch();
   const { playQueue, play, togglePlay, player } = useAudioPlayer();
@@ -102,56 +109,66 @@ export const TrackRow = memo(function TrackRow({
     }
   };
 
+  const inAlbum = context === "album";
+  const badge = "ml-2 inline-block rounded-sm border border-border px-1 py-px align-middle font-mono text-[9px] uppercase leading-none tracking-wider text-muted";
+
   return (
     <div>
       <div
         onClick={handlePlay}
-        className={`group grid cursor-pointer grid-cols-[2rem_1fr_1fr_4rem_2rem] items-center gap-4 rounded-lg px-3 py-1.5 text-sm transition-colors hover:bg-surface ${
-          isCurrent ? "text-primary" : "text-soft"
-        }`}
+        className={`group flex cursor-pointer items-center gap-3 rounded-md px-3 text-sm transition-colors hover:bg-surface ${
+          inAlbum ? "h-10" : "py-1.5"
+        } ${isCurrent ? "bg-surface" : ""}`}
       >
         {/* Index / play icon */}
-        <div className="flex items-center justify-center">
+        <div className="readout flex w-6 shrink-0 items-center justify-center text-xs text-muted">
           {locked ? (
             <Lock size={12} className="text-muted" />
-          ) : isPlaying ? (
-            <div className="flex items-center gap-0.5">
-              <span className="block h-2.5 w-0.5 animate-pulse bg-primary" />
-              <span className="block h-2.5 w-0.5 animate-pulse bg-primary delay-75" />
-            </div>
+          ) : isCurrent ? (
+            <>
+              <span
+                className={`eq-bars text-primary ${isPlaying ? "group-hover:hidden" : ""}`}
+                data-paused={!isPlaying}
+                aria-label={isPlaying ? "Playing" : "Paused"}
+              >
+                <span />
+                <span />
+                <span />
+              </span>
+              {isPlaying && (
+                <Pause size={13} fill="currentColor" className="hidden text-heading group-hover:block" />
+              )}
+            </>
           ) : (
             <>
               <span className="group-hover:hidden">{displayIndex ?? index + 1}</span>
               <Play
-                size={14}
+                size={13}
                 fill="currentColor"
-                className="hidden group-hover:block"
+                className="hidden text-heading group-hover:block"
               />
             </>
           )}
         </div>
 
         {/* Title + artist */}
-        <div className="min-w-0">
-          <p className={`truncate text-sm ${isCurrent ? "text-primary" : "text-heading"}`}>
+        <div className="min-w-0 flex-1">
+          <p className={`truncate text-[13px] ${isCurrent ? "text-primary" : "text-heading"}`}>
             {track.title}
-            {isLocal && (
-              <span className="ml-1.5 inline-block rounded bg-card px-1 py-0.5 text-[10px] text-muted">
-                LOCAL
-              </span>
-            )}
+            {inAlbum && <FeaturedArtistsDisplay pubkeys={track.featuredArtists} />}
+            {isLocal && <span className={badge}>Local</span>}
             {holdsKey && (
               <span
                 title="A shared project you co-own: signed by its own key"
-                className="ml-1.5 inline-block align-middle text-[10px] text-muted"
+                className={badge}
               >
-                shared
+                Shared
               </span>
             )}
             {isOwner && track.inCatalog === false && (
               <span
                 title="Not in your catalog — public and playable where it's embedded, but hidden from your profile, library and browse"
-                className="ml-1.5 inline-block rounded bg-card px-1 py-0.5 align-middle text-[10px] text-muted"
+                className={badge}
               >
                 Unlisted
               </span>
@@ -159,92 +176,81 @@ export const TrackRow = memo(function TrackRow({
             {hasUpdate && (
               <UpdateAvailableBadge
                 title="New version available — play to update"
-                className="ml-1.5 align-middle"
+                className="ml-2 align-middle"
               />
             )}
             {isDownloaded && (
-              <span title="Available offline" className="ml-1.5 inline-block align-middle">
+              <span title="Available offline" className="ml-2 inline-block align-middle">
                 <HardDriveDownload size={12} className="text-primary/70" />
               </span>
             )}
             {locked && (
-              <span
-                title="Private — you don't have access"
-                className="ml-1.5 inline-block rounded bg-card px-1 py-0.5 align-middle text-[10px] text-muted"
-              >
+              <span title="Private — you don't have access" className={badge}>
                 Private
               </span>
             )}
-            {locked && <RequestAccessButton targetRef={track.addressableId} className="ml-1.5" />}
+            {locked && <RequestAccessButton targetRef={track.addressableId} className="ml-2" />}
             {hasError && !locked && (
-              <span className="ml-1.5 inline-block rounded bg-card px-1 py-0.5 align-middle text-[10px] text-red-400">
-                Unavailable
-              </span>
+              <span className={`${badge} border-red-500/30 text-red-400`}>Unavailable</span>
             )}
           </p>
-          <p className="truncate text-xs text-soft">
-            {(() => {
-              const target = resolveArtistDetailTarget(track.artist, track.artistPubkeys);
-              if (!target) return <span>{resolvedArtist}</span>;
-              return (
-                <button
-                  type="button"
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    dispatch(setActiveDetailId(target));
-                  }}
-                  className="cursor-pointer hover:text-heading hover:underline"
-                >
-                  {resolvedArtist}
-                </button>
-              );
-            })()}
-            <FeaturedArtistsDisplay pubkeys={track.featuredArtists} />
-            {albumName && (
-              <>
-                {" "}
-                <span className="text-muted">&middot;</span>{" "}
-                <button
-                  type="button"
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    if (onAlbumClick) {
-                      onAlbumClick(track.albumRef!);
-                    } else {
-                      dispatch(setActiveDetailId({ view: "album-detail", id: track.albumRef! }));
-                    }
-                  }}
-                  className="cursor-pointer text-muted hover:text-heading hover:underline"
-                >
-                  {albumName}
-                </button>
-              </>
-            )}
-          </p>
+          {!inAlbum && (
+            <p className="truncate text-xs text-muted">
+              {(() => {
+                const target = resolveArtistDetailTarget(track.artist, track.artistPubkeys);
+                if (!target) return <span>{resolvedArtist}</span>;
+                return (
+                  <button
+                    type="button"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      dispatch(setActiveDetailId(target));
+                    }}
+                    className="cursor-pointer hover:text-heading hover:underline"
+                  >
+                    {resolvedArtist}
+                  </button>
+                );
+              })()}
+              <FeaturedArtistsDisplay pubkeys={track.featuredArtists} />
+              {albumName && (
+                <>
+                  {" "}
+                  <span className="text-faint">&middot;</span>{" "}
+                  <button
+                    type="button"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      if (onAlbumClick) {
+                        onAlbumClick(track.albumRef!);
+                      } else {
+                        dispatch(setActiveDetailId({ view: "album-detail", id: track.albumRef! }));
+                      }
+                    }}
+                    className="cursor-pointer hover:text-heading hover:underline"
+                  >
+                    {albumName}
+                  </button>
+                </>
+              )}
+            </p>
+          )}
         </div>
 
-        {/* Genre + hashtags */}
-        <div className="flex min-w-0 items-center gap-1 overflow-hidden">
-          {track.genre && (
-            <span className="shrink-0 text-xs text-muted">{track.genre}</span>
-          )}
-          {track.hashtags.slice(0, 2).map((tag) => (
-            <span
-              key={tag}
-              className="shrink-0 rounded-full bg-card px-1.5 py-0.5 text-[10px] text-muted"
-            >
-              #{tag}
-            </span>
-          ))}
-        </div>
+        {/* Genre: only in flat lists, and only when there's room */}
+        {!inAlbum && track.genre && (
+          <span className="hidden w-40 shrink-0 truncate text-xs text-muted lg:block">
+            {track.genre}
+          </span>
+        )}
 
         {/* Duration */}
-        <span className="text-right text-xs text-muted">
+        <span className="readout w-10 shrink-0 text-right text-xs text-muted">
           {formatDuration(track.duration)}
         </span>
 
         {/* Action menu */}
-        <div className="relative flex items-center justify-center">
+        <div className="relative flex w-6 shrink-0 items-center justify-center">
           {(isOwner || !isLocal) && (
             <>
               <button
@@ -253,7 +259,7 @@ export const TrackRow = memo(function TrackRow({
                   e.stopPropagation();
                   setMenuOpen((v) => !v);
                 }}
-                className="opacity-0 group-hover:opacity-100 text-muted hover:text-heading transition-opacity"
+                className="rounded p-0.5 text-muted opacity-0 transition-opacity hover:text-heading focus-visible:opacity-100 group-hover:opacity-100"
               >
                 <MoreHorizontal size={16} />
               </button>

@@ -21,6 +21,8 @@
     "@dnd-kit/utilities": "^3.2.2",
     "@emoji-mart/data": "^1.2.1",
     "@emoji-mart/react": "^1.1.1",
+    "@fontsource-variable/geist": "^5.3.0",
+    "@fontsource-variable/geist-mono": "^5.3.0",
     "@ishtarservices/core": "workspace:*",
     "@ishtarservices/shared-types": "workspace:*",
     "@noble/curves": "^1.9.7",

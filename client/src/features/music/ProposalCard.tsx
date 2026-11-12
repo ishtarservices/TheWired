@@ -39,7 +39,7 @@ export function ProposalCard({ proposal, isOwner, onAccept, onReject }: Proposal
   const date = new Date(proposal.createdAt * 1000);
 
   return (
-    <div className="rounded-xl border border-border card-glass p-4 transition-colors hover:border-border-light">
+    <div className="rounded-xl border border-border card-glass p-4 transition-colors hover:border-faint">
       <div className="mb-3 flex items-start justify-between gap-3">
         <div className="flex items-center gap-2">
           <GitPullRequest size={16} className="shrink-0 text-primary" />

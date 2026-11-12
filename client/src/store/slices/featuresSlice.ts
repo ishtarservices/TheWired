@@ -10,10 +10,12 @@ import type { RootState } from "../index";
 /** Stable feature ids. Add new toggleable features here. */
 export const FEATURE_DECENTRALIZED_SPACES = "decentralized-spaces";
 export const FEATURE_AI = "ai";
+export const FEATURE_MUSIC_INSIGHTS = "music-insights";
 
 export type FeatureId =
   | typeof FEATURE_DECENTRALIZED_SPACES
-  | typeof FEATURE_AI;
+  | typeof FEATURE_AI
+  | typeof FEATURE_MUSIC_INSIGHTS;
 
 /** Features enabled by default for every account. */
 const DEFAULT_ENABLED: FeatureId[] = [];

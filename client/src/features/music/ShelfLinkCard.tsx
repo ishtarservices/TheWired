@@ -24,7 +24,7 @@ export function ShelfLinkCard({ media, footer }: ShelfLinkCardProps) {
   const label = providerLabel(media.provider);
   const title = media.title ?? media.canonicalUrl.replace(/^https?:\/\/(www\.)?/, "");
   return (
-    <div className="group flex w-full flex-col overflow-hidden rounded-xl border border-border card-glass transition-all hover:border-border-light hover-lift">
+    <div className="group flex w-full flex-col overflow-hidden rounded-xl border border-border card-glass transition-all hover:border-faint hover-lift">
       <a
         href={media.canonicalUrl}
         target="_blank"

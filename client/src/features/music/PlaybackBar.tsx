@@ -132,7 +132,7 @@ export function PlaybackBar() {
           </button>
           <button
             onClick={togglePlay}
-            className="flex h-8 w-8 items-center justify-center rounded-full bg-gradient-to-br from-primary to-primary-soft text-white transition-transform hover:scale-105 press-effect"
+            className="flex h-8 w-8 items-center justify-center rounded-full bg-primary text-white transition-colors hover:bg-primary-soft press-effect"
           >
             {player.isPlaying ? (
               <Pause size={16} fill="currentColor" />

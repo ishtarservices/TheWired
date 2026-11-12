@@ -32,9 +32,9 @@ export function RecentlyAdded() {
   }
 
   return (
-    <div className={`flex-1 overflow-y-auto p-4 ${scrollPaddingClass}`}>
-      <div className="mb-3 flex flex-wrap items-center gap-2">
-        <h2 className="text-lg font-semibold text-heading">
+    <div className={`flex-1 overflow-y-auto px-8 py-7 ${scrollPaddingClass}`}>
+      <div className="mb-6 flex flex-wrap items-center gap-2">
+        <h2 className="text-2xl font-semibold tracking-[-0.02em] text-heading">
           Recently Added <span className="text-sm font-normal text-muted">({rows.length})</span>
         </h2>
         <div className="ml-auto flex items-center gap-2">

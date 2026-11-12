@@ -4,7 +4,7 @@ import { User } from "lucide-react";
 interface AvatarProps {
   src?: string | null;
   alt?: string;
-  size?: "xs" | "sm" | "md" | "lg";
+  size?: "xs" | "sm" | "md" | "lg" | "xl";
   className?: string;
 }
 
@@ -13,6 +13,7 @@ const sizeStyles = {
   sm: "h-8 w-8",
   md: "h-10 w-10",
   lg: "h-14 w-14",
+  xl: "h-24 w-24",
 };
 
 const iconSizes = {
@@ -20,6 +21,7 @@ const iconSizes = {
   sm: 14,
   md: 18,
   lg: 28,
+  xl: 40,
 };
 
 export function Avatar({ src, alt, size = "md", className }: AvatarProps) {
@@ -40,12 +42,12 @@ export function Avatar({ src, alt, size = "md", className }: AvatarProps) {
   return (
     <div
       className={cn(
-        "flex items-center justify-center rounded-full bg-gradient-to-br from-primary/20 to-primary-soft/10 ring-1 ring-border",
+        "flex shrink-0 items-center justify-center rounded-full bg-card ring-1 ring-border",
         sizeStyles[size],
         className,
       )}
     >
-      <User size={iconSizes[size]} className="text-soft" />
+      <User size={iconSizes[size]} className="text-muted" />
     </div>
   );
 }

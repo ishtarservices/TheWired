@@ -94,8 +94,8 @@ export function Sidebar({ expanded }: SidebarProps) {
           onDoubleClick={onDoubleClick}
           className="group absolute right-0 top-0 bottom-0 z-20 w-1.5 cursor-col-resize"
         >
-          {/* Decorative gradient edge */}
-          <div className="absolute inset-y-0 right-0 w-px bg-linear-to-b from-primary/20 via-border to-primary-soft/10" />
+          {/* Hairline edge */}
+          <div className="absolute inset-y-0 right-0 w-px bg-border" />
           {/* Interactive highlight */}
           <div
             className={cn(
@@ -108,8 +108,11 @@ export function Sidebar({ expanded }: SidebarProps) {
         </div>
       )}
 
-      <div className="flex h-14 items-center justify-between border-b border-border px-5">
-        <span className="text-sm font-bold tracking-[0.2em] text-gradient-accent uppercase">
+      {/* Same height as the top bar and content headers, so the hairlines
+          line up across panes */}
+      <div className="flex h-12 shrink-0 items-center justify-between border-b border-border pl-4 pr-3">
+        <span className="flex items-center gap-2 font-mono text-[11px] font-medium uppercase tracking-[0.22em] text-heading">
+          <span aria-hidden className="h-1.5 w-1.5 rounded-full bg-primary shadow-[0_0_8px_var(--color-primary)]" />
           The Wired
         </span>
         <div className="flex items-center gap-1">
@@ -120,14 +123,14 @@ export function Sidebar({ expanded }: SidebarProps) {
               navigate("/");
             }}
             className={cn(
-              "rounded-lg p-1.5 transition-colors",
+              "rounded-md p-1.5 transition-colors",
               sidebarMode === "spaces"
-                ? "bg-primary/10 text-primary"
-                : "text-muted hover:text-heading hover:bg-surface",
+                ? "bg-primary/12 text-primary"
+                : "text-muted hover:text-heading hover:bg-surface-hover",
             )}
             title="Spaces"
           >
-            <LayoutGrid size={14} />
+            <LayoutGrid size={15} />
           </button>
           <button
             data-tour="sidebar-music"
@@ -136,14 +139,14 @@ export function Sidebar({ expanded }: SidebarProps) {
               navigate("/");
             }}
             className={cn(
-              "rounded-lg p-1.5 transition-colors",
+              "rounded-md p-1.5 transition-colors",
               sidebarMode === "music"
-                ? "bg-primary/10 text-primary"
-                : "text-muted hover:text-heading hover:bg-surface",
+                ? "bg-primary/12 text-primary"
+                : "text-muted hover:text-heading hover:bg-surface-hover",
             )}
             title="Music"
           >
-            <Music2 size={14} />
+            <Music2 size={15} />
           </button>
           <button
             data-tour="sidebar-messages"
@@ -152,14 +155,14 @@ export function Sidebar({ expanded }: SidebarProps) {
               navigate("/dm");
             }}
             className={cn(
-              "relative rounded-lg p-1.5 transition-colors",
+              "relative rounded-md p-1.5 transition-colors",
               sidebarMode === "messages"
-                ? "bg-primary/10 text-primary"
-                : "text-muted hover:text-heading hover:bg-surface",
+                ? "bg-primary/12 text-primary"
+                : "text-muted hover:text-heading hover:bg-surface-hover",
             )}
             title="Messages"
           >
-            <MessageCircle size={14} />
+            <MessageCircle size={15} />
             {dmUnreadCount > 0 && (
               <span className="absolute -top-0.5 -right-0.5 flex h-3.5 min-w-3.5 items-center justify-center rounded-full bg-primary px-0.5 text-[9px] font-bold text-white">
                 {dmUnreadCount}
@@ -174,10 +177,10 @@ export function Sidebar({ expanded }: SidebarProps) {
                 navigate("/");
               }}
               className={cn(
-                "rounded-lg p-1.5 transition-colors",
+                "rounded-md p-1.5 transition-colors",
                 sidebarMode === "ai"
-                  ? "bg-primary/10 text-primary"
-                  : "text-muted hover:text-heading hover:bg-surface",
+                  ? "bg-primary/12 text-primary"
+                  : "text-muted hover:text-heading hover:bg-surface-hover",
               )}
               title="AI"
             >
@@ -188,14 +191,14 @@ export function Sidebar({ expanded }: SidebarProps) {
         </div>
       </div>
 
-      <div className="flex-1 overflow-y-auto">
+      <div className="flex min-h-0 flex-1 flex-col overflow-y-auto">
         {sidebarMode === "spaces" && (
           <>
             {/* Spaces — collapsible */}
             <div className={cn("border-b border-border", !spacesCollapsed && "pb-2")}>
               <button
                 onClick={toggleSpaces}
-                className="flex w-full items-center gap-1 px-5 pt-4 pb-2 group"
+                className="flex w-full items-center gap-1.5 px-4 pt-4 pb-2 group"
               >
                 <ChevronRight
                   size={10}
@@ -204,7 +207,7 @@ export function Sidebar({ expanded }: SidebarProps) {
                     !spacesCollapsed && "rotate-90",
                   )}
                 />
-                <span className="text-[10px] font-semibold uppercase tracking-[0.15em] text-muted group-hover:text-heading transition-colors">
+                <span className="label-caps group-hover:text-heading transition-colors">
                   Spaces
                 </span>
                 {collapsedSpaceBadge && (
@@ -243,7 +246,7 @@ export function Sidebar({ expanded }: SidebarProps) {
       <VoiceStatusBar />
 
       {/* User profile */}
-      <div className="relative border-t border-border p-4">
+      <div className="relative border-t border-border p-3">
         {isLoggedIn ? (
           <ProfileCard />
         ) : (

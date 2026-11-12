@@ -180,7 +180,7 @@ export function ImageUpload({
             className={`flex-1 flex flex-col items-center justify-center rounded-xl border border-dashed px-3 py-4 cursor-pointer transition-colors ${
               dragOver
                 ? "border-primary bg-primary/5"
-                : "border-border-light hover:border-border-light hover:bg-surface"
+                : "border-border-light hover:border-faint hover:bg-surface"
             }`}
           >
             {uploading ? (

@@ -77,7 +77,7 @@ export function InsightsDashboard() {
 
   return (
     <div className={`flex flex-1 flex-col overflow-y-auto p-6 ${scrollPaddingClass}`}>
-      <h1 className="mb-6 text-xl font-semibold text-heading">Insights</h1>
+      <h1 className="mb-6 text-2xl font-semibold tracking-[-0.02em] text-heading">Insights</h1>
 
       {/* Summary cards */}
       <div className="mb-8 grid grid-cols-3 gap-4">
@@ -101,7 +101,7 @@ export function InsightsDashboard() {
       {/* Per-track chart section */}
       {selectedTrackInsights && selectedTrackTitle && (
         <div className="mb-8">
-          <div className="mb-3 flex items-center justify-between">
+          <div className="mb-6 flex items-center justify-between">
             <h2 className="text-sm font-medium text-heading">
               Daily Plays -- {selectedTrackTitle}
             </h2>

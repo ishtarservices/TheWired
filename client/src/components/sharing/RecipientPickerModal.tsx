@@ -156,7 +156,7 @@ export function RecipientPickerModal({
                 </p>
               ) : (
                 <>
-                  <p className="mb-1 px-1 text-[10px] font-semibold uppercase tracking-wider text-muted">
+                  <p className="mb-1 px-1 label-caps">
                     Recent
                   </p>
                   {contactList.map((pk) => (

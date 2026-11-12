@@ -289,7 +289,7 @@ export function MemberList() {
     return (
       <div className="p-3 space-y-1">
         {/* Feed Sources section */}
-        <div className="mb-1 px-2 text-[10px] font-semibold uppercase tracking-wider text-muted">
+        <div className="mb-1 px-2 label-caps">
           Feed Sources ({feedSources.length})
         </div>
 
@@ -316,7 +316,7 @@ export function MemberList() {
         <div className="mt-3 border-t border-border pt-3">
           <button
             onClick={() => setSpectatorsOpen(!spectatorsOpen)}
-            className="flex w-full items-center gap-1 px-2 text-[10px] font-semibold uppercase tracking-wider text-muted hover:text-soft transition-colors"
+            className="flex w-full items-center gap-1 px-2 label-caps hover:text-soft transition-colors"
           >
             {spectatorsOpen ? <ChevronDown size={12} /> : <ChevronRight size={12} />}
             Spectators ({members.length})

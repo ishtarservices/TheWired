@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useSearchParams } from "react-router-dom";
-import { Compass, Search, X } from "lucide-react";
+import { Search, X } from "lucide-react";
 import { useAppDispatch } from "@/store/hooks";
 import { clearDiscoverPreview } from "@/store/slices/uiSlice";
 import { ChipRow } from "./components/ChipRow";
@@ -69,17 +69,12 @@ export function DiscoverPage() {
     <div data-tour="discover-page" className="flex flex-1 flex-col overflow-hidden">
       {/* Header: identity on the left, the scope switch on the right, then one
           search line under both. Browse (the tabs) reads before search. */}
-      <div className="border-b border-border px-6 pt-5 pb-4">
+      <div className="border-b border-border px-8 pt-6 pb-5">
         <div className="mx-auto w-full max-w-5xl">
           <div className="flex flex-wrap items-center justify-between gap-3">
-            <div className="flex items-center gap-3">
-              <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-primary/10">
-                <Compass size={20} className="text-primary" />
-              </div>
-              <div>
-                <h1 className="text-lg font-bold leading-tight text-heading">Discover</h1>
-                <p className="text-xs text-muted">Find spaces, music, and people</p>
-              </div>
+            <div>
+              <h1 className="text-2xl font-semibold leading-tight tracking-[-0.02em] text-heading">Discover</h1>
+              <p className="mt-0.5 text-xs text-muted">Find spaces, music, and people</p>
             </div>
             <ChipRow
               options={SEGMENTS}
@@ -90,7 +85,7 @@ export function DiscoverPage() {
             />
           </div>
 
-          <div className="mt-3 flex max-w-2xl items-center gap-2 rounded-xl bg-field px-3 py-2 ring-1 ring-border transition-all focus-within:ring-primary/30">
+          <div className="mt-3 flex max-w-2xl items-center gap-2 rounded-xl bg-field px-3 py-2 ring-1 ring-border transition-all focus-within:ring-primary/45">
             <Search size={14} className="shrink-0 text-muted" />
             <input
               type="search"

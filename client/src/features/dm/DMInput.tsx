@@ -328,7 +328,7 @@ export function DMInput({
   );
 
   return (
-    <form onSubmit={handleSubmit} className={`relative border-t border-border p-3 ${inputMarginClass}`}>
+    <form onSubmit={handleSubmit} className={`relative px-4 pb-4 pt-1 ${inputMarginClass}`}>
       <AnchoredPopover
         anchorEl={textareaRef.current}
         open={mentionQuery !== null}
@@ -397,7 +397,7 @@ export function DMInput({
         <GifPreview gif={pendingGif} onRemove={() => setPendingGif(null)} />
       )}
 
-      <div className="rounded-xl bg-field ring-1 ring-border">
+      <div className="rounded-xl bg-field ring-1 ring-border transition-shadow duration-150 focus-within:ring-primary/45">
         <FormattingToolbar textareaRef={textareaRef} value={value} setValue={setValue} />
         <div className="flex items-end gap-2 px-3 py-2">
           <button

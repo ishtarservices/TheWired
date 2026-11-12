@@ -15,6 +15,9 @@ export interface MusicLibraryState {
   /** Written by builds before folders; ignored now. */
   userPlaylists?: string[];
   recentlyPlayedIds: string[];
+  /** Unix seconds each recently played id was last played. Absent in rows
+   *  written by older builds. */
+  recentlyPlayedAt?: Record<string, number>;
   /** Cross-device sync record (docs/MUSIC_LIBRARY_SYNC.md). Written in the
    *  same row as the arrays so the two can never drift apart. Absent in rows
    *  written by older builds — hydrate then seeds it from the arrays. */
@@ -59,6 +62,7 @@ export async function persistMusicLibraryFrom(state: RootState): Promise<void> {
     favoritedAlbumIds,
     followedArtists,
     recentlyPlayedIds: music.discovery.recentlyPlayedIds,
+    recentlyPlayedAt: music.discovery.recentlyPlayedAt,
     sync: { v: 1, record: music.librarySync.record },
     updatedAt: Date.now(),
   });

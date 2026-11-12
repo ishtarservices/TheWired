@@ -2,8 +2,18 @@
 
 import type { ThemeFont } from "./themeTypes";
 
-/** Bundled fonts that don't need external loading */
-const BUNDLED_FONTS = new Set(["Space Grotesk", "Inter"]);
+/** Bundled fonts that don't need external loading. Geist ships through
+ *  @fontsource-variable (imported in main.tsx) under the CSS family name
+ *  "Geist Variable"; Space Grotesk is a local woff2 (index.css). */
+const BUNDLED_FONTS = new Set(["Space Grotesk", "Geist"]);
+
+/** The app's default UI face. */
+export const DEFAULT_FONT = "Geist";
+
+/** Theme family name → the CSS font-family it is registered under. */
+export function cssFontFamily(family: string): string {
+  return family === "Geist" ? "Geist Variable" : family;
+}
 
 /** Google Fonts that can be loaded via API */
 const GOOGLE_FONTS_BASE = "https://fonts.googleapis.com/css2";
@@ -61,7 +71,7 @@ function loadCustomFont(family: string, url: string, weight?: string): void {
 
 /** Main entry point: load a theme font and return the family name */
 export function loadThemeFont(font: ThemeFont | undefined): string {
-  if (!font) return "Inter";
+  if (!font) return DEFAULT_FONT;
 
   const { family, url, weight } = font;
 

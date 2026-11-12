@@ -260,7 +260,7 @@ export function OnboardingFlow({
                         "flex w-full items-center gap-3 rounded-xl border px-4 py-3 text-left transition-all",
                         selected
                           ? "border-primary bg-primary/10 text-heading"
-                          : "border-border bg-surface/50 text-body hover:border-border-light hover:bg-surface-hover",
+                          : "border-border bg-surface/50 text-body hover:border-faint hover:bg-surface-hover",
                       )}
                     >
                       {/* Selection indicator */}

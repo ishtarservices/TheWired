@@ -233,7 +233,7 @@ export function SpaceMusicView() {
         {isMember && (
           <button
             onClick={() => setUploadOpen(true)}
-            className="mt-1 flex items-center gap-1.5 rounded-full bg-gradient-to-r from-primary to-primary-soft px-4 py-1.5 text-sm font-medium text-white hover:opacity-90 press-effect"
+            className="mt-1 flex items-center gap-1.5 rounded-full bg-primary px-4 py-1.5 text-sm font-medium text-white hover:opacity-90 press-effect"
           >
             <Upload size={14} />
             Upload Track
@@ -287,7 +287,7 @@ export function SpaceMusicView() {
         {allTrackIds.length > 0 && (
           <button
             onClick={() => playQueue(allTrackIds, 0)}
-            className="flex items-center gap-1 rounded-full border border-border px-2.5 py-1 text-xs text-soft transition-colors hover:border-border-light hover:text-heading"
+            className="flex items-center gap-1 rounded-full border border-border px-2.5 py-1 text-xs text-soft transition-colors hover:border-faint hover:text-heading"
             title="Play every track on this shelf"
           >
             <Play size={11} fill="currentColor" />
@@ -360,7 +360,7 @@ export function SpaceMusicView() {
         {isMember && (
           <button
             onClick={() => setUploadOpen(true)}
-            className="flex items-center gap-1.5 rounded-full border border-border px-3 py-1 text-xs text-soft transition-colors hover:border-border-light hover:text-heading"
+            className="flex items-center gap-1.5 rounded-full border border-border px-3 py-1 text-xs text-soft transition-colors hover:border-faint hover:text-heading"
           >
             <Upload size={12} />
             Upload
@@ -369,16 +369,16 @@ export function SpaceMusicView() {
       </div>
 
       {/* Content */}
-      <div className={`flex-1 overflow-y-auto p-4 ${scrollPaddingClass}`}>
+      <div className={`flex-1 overflow-y-auto px-8 py-7 ${scrollPaddingClass}`}>
         {showTracks && filteredTracks.length > 0 && (
           <section className="mb-6">
             {tab === "all" && (
-              <h3 className="mb-2 text-sm font-semibold uppercase tracking-wider text-muted">
+              <h3 className="mb-2 label-caps">
                 Tracks ({filteredTracks.length})
               </h3>
             )}
             {viewMode === "grid" ? (
-              <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4">
+              <div className="grid grid-cols-[repeat(auto-fill,minmax(164px,1fr))] gap-x-5 gap-y-7">
                 {filteredTracks.map((track, i) => {
                   const postedBy = attributionByKey.get(track.addressableId);
                   return (
@@ -408,11 +408,11 @@ export function SpaceMusicView() {
         {showAlbums && filteredAlbums.length > 0 && (
           <section className="mb-6">
             {tab === "all" && (
-              <h3 className="mb-2 text-sm font-semibold uppercase tracking-wider text-muted">
+              <h3 className="mb-2 label-caps">
                 Projects ({filteredAlbums.length})
               </h3>
             )}
-            <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4">
+            <div className="grid grid-cols-[repeat(auto-fill,minmax(164px,1fr))] gap-x-5 gap-y-7">
               {filteredAlbums.map((album) => {
                 const postedBy = attributionByKey.get(album.addressableId);
                 return (
@@ -429,11 +429,11 @@ export function SpaceMusicView() {
         {showLinks && filteredLinks.length > 0 && (
           <section>
             {tab === "all" && (
-              <h3 className="mb-2 text-sm font-semibold uppercase tracking-wider text-muted">
+              <h3 className="mb-2 label-caps">
                 Links ({filteredLinks.length})
               </h3>
             )}
-            <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4">
+            <div className="grid grid-cols-[repeat(auto-fill,minmax(164px,1fr))] gap-x-5 gap-y-7">
               {filteredLinks.map((row) => (
                 <ShelfLinkCard
                   key={row.key}

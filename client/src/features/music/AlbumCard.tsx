@@ -1,5 +1,5 @@
 import { memo, useState } from "react";
-import { Disc3, MoreHorizontal, Play } from "lucide-react";
+import { MoreHorizontal, Play } from "lucide-react";
 import type { MusicAlbum } from "@/types/music";
 import { useAppDispatch, useAppSelector } from "@/store/hooks";
 import { useHoldsProjectKey, useIsMine } from "./sharedKey/ownership";
@@ -10,6 +10,8 @@ import { useAudioPlayer } from "./useAudioPlayer";
 import { UpdateAvailableBadge } from "./UpdateAvailableBadge";
 import { useHasPendingUpdate } from "./useSavedVersions";
 import { useResolvedArtist, resolveArtistDetailTarget } from "./useResolvedArtist";
+import { Artwork } from "./Artwork";
+import { SpaceTag } from "./SpaceTag";
 
 interface AlbumCardProps {
   album: MusicAlbum;
@@ -67,24 +69,17 @@ export const AlbumCard = memo(function AlbumCard({ album, onNavigate }: AlbumCar
             }
           }
         }}
-        className="group relative flex w-full cursor-pointer flex-col rounded-xl border border-border card-glass transition-all hover:border-border-light hover-lift"
+        className="group relative flex w-full cursor-pointer flex-col rounded-lg text-left outline-offset-4"
       >
-        <div className="relative aspect-square w-full overflow-hidden rounded-t-xl">
+        <div className="relative">
+          <Artwork
+            src={album.imageUrl}
+            title={album.title}
+            className="aspect-square w-full rounded-lg shadow-[var(--shadow-sm)] transition-[filter,box-shadow] duration-200 group-hover:shadow-[var(--shadow-lg)] group-hover:brightness-90"
+          />
           {hasUpdate && (
             <div className="absolute left-2 top-2 z-10">
               <UpdateAvailableBadge />
-            </div>
-          )}
-          {album.imageUrl ? (
-            <img
-              src={album.imageUrl}
-              alt={album.title}
-              className="h-full w-full object-cover"
-              loading="lazy"
-            />
-          ) : (
-            <div className="flex h-full w-full items-center justify-center bg-card">
-              <Disc3 size={32} className="text-muted" />
             </div>
           )}
           {/* Play All button */}
@@ -93,33 +88,34 @@ export const AlbumCard = memo(function AlbumCard({ album, onNavigate }: AlbumCar
             tabIndex={0}
             onClick={handlePlayAll}
             onKeyDown={(e) => { if (e.key === "Enter") handlePlayAll(e as unknown as React.MouseEvent); }}
-            className="absolute bottom-2 right-2 z-10 translate-y-2 scale-90 rounded-full bg-gradient-to-br from-primary to-primary-soft p-2 text-white opacity-0 shadow-lg transition-all duration-200 group-hover:translate-y-0 group-hover:scale-100 group-hover:opacity-100 hover:scale-110 press-effect"
+            className="absolute bottom-2 right-2 z-10 flex h-9 w-9 translate-y-1 items-center justify-center rounded-full bg-heading text-background opacity-0 shadow-[var(--shadow-md)] transition-all duration-200 ease-out group-hover:translate-y-0 group-hover:opacity-100 focus-visible:translate-y-0 focus-visible:opacity-100 press-effect"
             title="Play All"
           >
-            <Play size={16} fill="currentColor" className="ml-0.5" />
+            <Play size={15} fill="currentColor" className="ml-0.5" />
           </div>
+          {/* Three-dot menu button */}
+          {(isOwner || !isLocal) && (
+            <div className="absolute right-2 top-2 z-10 opacity-0 transition-opacity group-hover:opacity-100 focus-within:opacity-100">
+              <button
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setPanelOpen(true);
+                }}
+                className="flex h-7 w-7 items-center justify-center rounded-full bg-black/55 text-white/85 backdrop-blur-sm hover:text-white"
+                aria-label="Project actions"
+              >
+                <MoreHorizontal size={15} />
+              </button>
+            </div>
+          )}
         </div>
-        {/* Three-dot menu button */}
-        {(isOwner || !isLocal) && (
-          <div className="absolute right-1 top-1 z-10 opacity-0 group-hover:opacity-100 transition-opacity">
-            <button
-              onClick={(e) => {
-                e.stopPropagation();
-                setPanelOpen(true);
-              }}
-              className="rounded-full bg-background/70 p-1 text-soft hover:text-heading"
-            >
-              <MoreHorizontal size={16} />
-            </button>
-          </div>
-        )}
-        <div className="p-2">
-          <p className="truncate text-sm font-medium text-heading">{album.title}</p>
-          <div className="flex items-center gap-1.5">
+        <div className="px-0.5 pt-2.5">
+          <p className="truncate text-[13px] font-medium text-heading">{album.title}</p>
+          <div className="mt-0.5 flex items-center gap-1.5">
             {(() => {
               const target = resolveArtistDetailTarget(album.artist, album.artistPubkeys);
               if (!target) {
-                return <p className="truncate text-xs text-soft">{resolvedArtist}</p>;
+                return <p className="min-w-0 truncate text-xs text-muted">{resolvedArtist}</p>;
               }
               return (
                 <button
@@ -128,18 +124,21 @@ export const AlbumCard = memo(function AlbumCard({ album, onNavigate }: AlbumCar
                     e.stopPropagation();
                     dispatch(setActiveDetailId(target));
                   }}
-                  className="truncate text-xs text-soft hover:text-heading hover:underline"
+                  className="min-w-0 truncate text-xs text-muted hover:text-heading hover:underline"
                 >
                   {resolvedArtist}
                 </button>
               );
             })()}
-            {holdsKey && <span className="shrink-0 text-[10px] text-muted">shared</span>}
             {album.projectType !== "album" && (
-              <span className="shrink-0 rounded bg-card-hover/50 px-1.5 py-0.5 text-[10px] uppercase tracking-wider text-muted">
+              <span className="shrink-0 font-mono text-[9px] uppercase tracking-wider text-faint">
                 {album.projectType}
               </span>
             )}
+            {holdsKey && (
+              <span className="shrink-0 font-mono text-[9px] uppercase tracking-wider text-faint">shared</span>
+            )}
+            <SpaceTag visibility={album.visibility} spaceIds={album.spaceIds} />
           </div>
         </div>
       </div>

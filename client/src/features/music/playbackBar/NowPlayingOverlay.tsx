@@ -288,7 +288,7 @@ export function NowPlayingOverlay() {
               </button>
               <button
                 onClick={togglePlay}
-                className="flex h-14 w-14 items-center justify-center rounded-full bg-gradient-to-br from-primary to-primary-soft text-white transition-transform hover:scale-105 press-effect"
+                className="flex h-14 w-14 items-center justify-center rounded-full bg-heading text-background transition-opacity hover:opacity-90 press-effect"
               >
                 {player.isPlaying ? (
                   <Pause size={24} fill="currentColor" />
@@ -336,7 +336,7 @@ export function NowPlayingOverlay() {
             {player.queue.length > 0 && (
               <div className="w-full pt-2 flex flex-col min-h-0">
                 <div className="flex items-center justify-between mb-2 shrink-0">
-                  <p className="text-xs font-medium text-muted uppercase tracking-wider">
+                  <p className="label-caps">
                     Queue
                     <span className="ml-1.5 text-faint">{player.queue.length}</span>
                   </p>

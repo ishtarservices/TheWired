@@ -1,6 +1,7 @@
 // ─── Theme Engine: HSL manipulation + token derivation + CSS injection ───
 
 import type { DerivedTokens } from "./themeTypes";
+import { cssFontFamily } from "./fontLoader";
 
 // ─── HSL Parsing & Manipulation ──────────────────────────────────────
 
@@ -74,13 +75,15 @@ export function deriveTokens(bg: string, fg: string, primary: string): DerivedTo
 
   return {
     background: toCSS(bg),
-    panel: toCSS(shiftL(bgHSL, dir * 3)),
-    card: toCSS(shiftL(bgHSL, dir * 6)),
-    cardHover: toCSS(shiftL(bgHSL, dir * 9)),
-    field: toCSS(shiftL(bgHSL, dir * 4)),
-    popover: toCSS(shiftL(bgHSL, dir * 3)),
-    surface: withAlpha(fg, 0.03),
-    surfaceHover: withAlpha(fg, 0.06),
+    // Surface steps. Dark themes step up in small, even increments so panels
+    // read as layers rather than boxes; light themes need a touch more.
+    panel: toCSS(shiftL(bgHSL, dir * 2.5)),
+    card: toCSS(shiftL(bgHSL, dir * (isDark ? 5 : 5.5))),
+    cardHover: toCSS(shiftL(bgHSL, dir * (isDark ? 8 : 8.5))),
+    field: toCSS(shiftL(bgHSL, dir * 3.5)),
+    popover: toCSS(shiftL(bgHSL, isDark ? 4 : 2)),
+    surface: withAlpha(fg, isDark ? 0.035 : 0.04),
+    surfaceHover: withAlpha(fg, isDark ? 0.07 : 0.075),
 
     heading: toCSS(fg),
     body: toCSS(lerpL(fgHSL, bgHSL, 0.15)),
@@ -93,10 +96,12 @@ export function deriveTokens(bg: string, fg: string, primary: string): DerivedTo
     primaryDim: withAlpha(primary, 0.15),
     primaryForeground: toCSS(priHSL.l > 60 ? "0 0% 5%" : "0 0% 100%"),
 
-    border: toCSS(lerpL(bgHSL, fgHSL, 0.15)),
-    borderLight: toCSS(lerpL(bgHSL, fgHSL, 0.10)),
+    // Hairlines: the foreground colour at low alpha rather than a solid grey,
+    // so one border token sits correctly on every surface step.
+    border: withAlpha(fg, isDark ? 0.1 : 0.13),
+    borderLight: withAlpha(fg, isDark ? 0.06 : 0.08),
 
-    ring: withAlpha(primary, 0.5),
+    ring: withAlpha(primary, 0.55),
     destructive: toCSS(adjustToTheme("0 72% 51%", isDark)),
     destructiveForeground: toCSS("0 0% 100%"),
     success: toCSS(adjustToTheme("142 71% 45%", isDark)),
@@ -147,9 +152,12 @@ export function applyDerivedVars(bg: string, primary: string, isDark: boolean, m
 
   // Glass
   root.setProperty("--glass-bg", isDark
-    ? `hsl(${bg} / 0.82)`
-    : `hsl(0 0% 100% / 0.85)`);
-  root.setProperty("--glass-border", `hsl(${primary} / 0.06)`);
+    ? `hsl(${bg} / 0.8)`
+    : `hsl(${bg} / 0.86)`);
+  root.setProperty("--glass-border", isDark ? "hsl(0 0% 100% / 0.08)" : "hsl(0 0% 0% / 0.08)");
+
+  // Native controls (scrollbars, form widgets, date pickers) follow the theme
+  root.setProperty("color-scheme", isDark ? "dark" : "light");
 
   // Glows (scaled by motion intensity)
   const glowAlpha = (base: number) => (base * motionIntensity).toFixed(2);
@@ -157,15 +165,19 @@ export function applyDerivedVars(bg: string, primary: string, isDark: boolean, m
   root.setProperty("--glow-primary-strong", `0 0 20px hsl(${primary} / ${glowAlpha(0.3)}), 0 0 40px hsl(${primary} / ${glowAlpha(0.08)})`);
 
   // Shadows
+  // Layered: a tight contact shadow plus a soft ambient one
   root.setProperty("--shadow-sm", isDark
-    ? "0 1px 2px hsl(0 0% 0% / 0.05)"
-    : "0 1px 2px hsl(0 0% 0% / 0.03)");
+    ? "0 1px 2px hsl(0 0% 0% / 0.16)"
+    : "0 1px 2px hsl(0 0% 0% / 0.05)");
   root.setProperty("--shadow-md", isDark
-    ? "0 2px 8px hsl(0 0% 0% / 0.12)"
-    : "0 2px 8px hsl(0 0% 0% / 0.06)");
+    ? "0 1px 2px hsl(0 0% 0% / 0.2), 0 4px 12px -2px hsl(0 0% 0% / 0.22)"
+    : "0 1px 2px hsl(0 0% 0% / 0.05), 0 4px 12px -2px hsl(0 0% 0% / 0.08)");
   root.setProperty("--shadow-lg", isDark
-    ? "0 8px 24px hsl(0 0% 0% / 0.2)"
-    : "0 8px 24px hsl(0 0% 0% / 0.1)");
+    ? "0 2px 4px hsl(0 0% 0% / 0.2), 0 12px 28px -6px hsl(0 0% 0% / 0.34)"
+    : "0 2px 4px hsl(0 0% 0% / 0.05), 0 12px 28px -6px hsl(0 0% 0% / 0.14)");
+  root.setProperty("--shadow-elevated", isDark
+    ? "0 0 0 1px hsl(0 0% 100% / 0.06), 0 2px 4px hsl(0 0% 0% / 0.2), 0 18px 44px -10px hsl(0 0% 0% / 0.5)"
+    : "0 0 0 1px hsl(0 0% 0% / 0.06), 0 2px 4px hsl(0 0% 0% / 0.05), 0 18px 44px -10px hsl(0 0% 0% / 0.2)");
 
   // Ambient (for bg-ambient gradient)
   root.setProperty("--ambient-1", `hsl(${primary} / 0.06)`);
@@ -179,7 +191,7 @@ export function applyDerivedVars(bg: string, primary: string, isDark: boolean, m
   root.setProperty("--primary-border-hover", `hsl(${primary} / 0.25)`);
 
   // Inner glow
-  root.setProperty("--card-inner-glow", `inset 0 1px 0 0 hsl(0 0% 100% / ${isDark ? 0.03 : 0.5})`);
+  root.setProperty("--card-inner-glow", `inset 0 1px 0 0 hsl(0 0% 100% / ${isDark ? 0.04 : 0.6})`);
 
   // Focus glow (for arbitrary shadow values)
   root.setProperty("--focus-glow-color", `hsl(${primary} / 0.1)`);
@@ -189,7 +201,7 @@ export function applyDerivedVars(bg: string, primary: string, isDark: boolean, m
 }
 
 export function applyFont(family: string): void {
-  document.documentElement.style.setProperty("--font-family", `'${family}'`);
+  document.documentElement.style.setProperty("--font-family", `'${cssFontFamily(family)}'`);
 }
 
 /** Determine if a color set represents a dark theme */

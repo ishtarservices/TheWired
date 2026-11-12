@@ -63,7 +63,7 @@ export function SpaceInfoPanel() {
       {/* Description */}
       {space.about && (
         <div>
-          <h4 className="text-[10px] font-semibold uppercase tracking-wider text-muted mb-1.5">
+          <h4 className="label-caps mb-1.5">
             About
           </h4>
           <p className="text-xs text-soft leading-relaxed whitespace-pre-wrap">
@@ -88,7 +88,7 @@ export function SpaceInfoPanel() {
       {/* Admins */}
       {space.adminPubkeys.length > 0 && (
         <div>
-          <h4 className="text-[10px] font-semibold uppercase tracking-wider text-muted mb-2">
+          <h4 className="label-caps mb-2">
             <Shield size={10} className="inline mr-1" />
             Admins
           </h4>

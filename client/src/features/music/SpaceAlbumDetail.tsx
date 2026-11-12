@@ -1,7 +1,8 @@
 import { useMemo } from "react";
-import { ArrowLeft, Play, Shuffle, Disc3, Heart, Plus, Check } from "lucide-react";
+import { ArrowLeft, Play, Shuffle, Heart, Plus, Check } from "lucide-react";
 import { useAppSelector } from "@/store/hooks";
 import { TrackRow } from "./TrackRow";
+import { Artwork } from "./Artwork";
 import { useAudioPlayer } from "./useAudioPlayer";
 import { useLibrary } from "./useLibrary";
 import { useResolvedArtist } from "./useResolvedArtist";
@@ -39,29 +40,23 @@ export function SpaceAlbumDetail({ albumId, onBack }: SpaceAlbumDetailProps) {
   return (
     <div className="flex-1 overflow-y-auto">
       {/* Header */}
-      <div className="flex items-end gap-5 bg-gradient-to-b from-card-hover/30 to-transparent p-5">
+      <div className="flex items-end gap-6 px-6 pb-6 pt-5">
         <button
           onClick={onBack}
-          className="self-start rounded p-1 text-soft hover:text-heading"
+          className="-ml-2 self-start rounded-md p-1.5 text-soft transition-colors hover:bg-surface-hover hover:text-heading"
         >
-          <ArrowLeft size={20} />
+          <ArrowLeft size={16} />
         </button>
-        {album.imageUrl ? (
-          <img
-            src={album.imageUrl}
-            alt={album.title}
-            className="h-28 w-28 rounded-lg object-cover shadow-lg"
-          />
-        ) : (
-          <div className="flex h-28 w-28 items-center justify-center rounded-lg bg-card">
-            <Disc3 size={40} className="text-muted" />
-          </div>
-        )}
+        <Artwork
+          src={album.imageUrl}
+          title={album.title}
+          className="h-36 w-36 rounded-xl shadow-[var(--shadow-lg)]"
+        />
         <div>
-          <p className="text-xs uppercase tracking-wider text-soft">
+          <p className="label-caps text-soft">
             {album.projectType === "album" ? "Album" : album.projectType}
           </p>
-          <h2 className="text-xl font-bold text-heading">{album.title}</h2>
+          <h2 className="mt-2 text-2xl font-semibold tracking-[-0.02em] text-heading">{album.title}</h2>
           <p className="text-sm text-soft">
             {resolvedArtist} &middot; {album.trackCount} track
             {album.trackCount !== 1 ? "s" : ""}
@@ -70,7 +65,7 @@ export function SpaceAlbumDetail({ albumId, onBack }: SpaceAlbumDetailProps) {
             <button
               onClick={() => playQueue(queueIds, 0)}
               disabled={queueIds.length === 0}
-              className="flex items-center gap-1.5 rounded-full bg-gradient-to-r from-primary to-primary-soft px-4 py-1.5 text-sm font-medium text-white transition-transform hover:scale-105 press-effect disabled:opacity-50"
+              className="flex h-9 items-center gap-2 rounded-full bg-heading pl-3.5 pr-4 text-[13px] font-medium text-background transition-opacity hover:opacity-90 press-effect disabled:opacity-40"
             >
               <Play size={14} fill="currentColor" />
               Play All
@@ -81,7 +76,7 @@ export function SpaceAlbumDetail({ albumId, onBack }: SpaceAlbumDetailProps) {
                 playQueue(shuffled, 0);
               }}
               disabled={queueIds.length === 0}
-              className="flex items-center gap-1.5 rounded-full border border-border px-4 py-1.5 text-sm text-soft transition-colors hover:border-border-light hover:text-heading disabled:opacity-50"
+              className="flex items-center gap-1.5 rounded-full border border-border px-4 py-1.5 text-sm text-soft transition-colors hover:border-faint hover:text-heading disabled:opacity-50"
             >
               <Shuffle size={14} />
               Shuffle
@@ -91,7 +86,7 @@ export function SpaceAlbumDetail({ albumId, onBack }: SpaceAlbumDetailProps) {
                 if (saved) unsaveAlbum(albumId);
                 else saveAlbum(albumId);
               }}
-              className="flex items-center gap-1.5 rounded-full border border-border px-4 py-1.5 text-sm text-soft transition-colors hover:border-border-light hover:text-heading"
+              className="flex items-center gap-1.5 rounded-full border border-border px-4 py-1.5 text-sm text-soft transition-colors hover:border-faint hover:text-heading"
             >
               {saved ? (
                 <Check size={14} className="text-green-400" />
@@ -105,7 +100,7 @@ export function SpaceAlbumDetail({ albumId, onBack }: SpaceAlbumDetailProps) {
                 if (favorited) unfavoriteAlbum(albumId);
                 else favoriteAlbum(albumId);
               }}
-              className="flex items-center gap-1.5 rounded-full border border-border px-4 py-1.5 text-sm text-soft transition-colors hover:border-border-light hover:text-heading"
+              className="flex items-center gap-1.5 rounded-full border border-border px-4 py-1.5 text-sm text-soft transition-colors hover:border-faint hover:text-heading"
             >
               <Heart
                 size={14}
@@ -126,6 +121,7 @@ export function SpaceAlbumDetail({ albumId, onBack }: SpaceAlbumDetailProps) {
               track={track}
               index={i}
               queueTracks={queueIds}
+              context="album"
             />
           ))
         ) : (

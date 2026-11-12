@@ -32,14 +32,14 @@ export function LoginScreen() {
       {/* Ambient glow */}
       <div className="pointer-events-none absolute inset-0 bg-ambient opacity-60" />
 
-      <div className="relative z-10 w-96 rounded-2xl border-gradient card-glass p-10 text-center">
+      <div className="relative z-10 w-96 rounded-2xl border-gradient card-glass p-9 text-center">
         <div className="mb-6 flex justify-center">
-          <div className="flex h-16 w-16 items-center justify-center bg-primary/10 rounded-2xl p-4">
-            <Key size={32} className="text-primary-soft" />
+          <div className="flex h-12 w-12 items-center justify-center rounded-xl border border-border bg-surface">
+            <Key size={22} className="text-heading" />
           </div>
         </div>
 
-        <h2 className="mb-2 text-xl font-bold text-gradient-accent tracking-wide">
+        <h2 className="mb-2 text-xl font-semibold text-heading">
           Welcome to The Wired
         </h2>
         <p className="mb-6 text-sm text-soft">
@@ -60,8 +60,10 @@ export function LoginScreen() {
               onClick={logIn}
               disabled={loading}
             >
-              {loading ? <Spinner size="sm" /> : <LogIn size={16} />}
-              Login with Extension
+              <span className="flex items-center gap-2">
+                {loading ? <Spinner size="sm" /> : <LogIn size={16} />}
+                Login with Extension
+              </span>
             </ShimmerButton>
           )}
 

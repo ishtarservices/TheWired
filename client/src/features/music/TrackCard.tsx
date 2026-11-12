@@ -11,6 +11,8 @@ import { TrackActionPanel } from "./TrackActionPanel";
 import { EditTrackModal } from "./EditTrackModal";
 import { getTrackImage } from "./trackImage";
 import { useResolvedArtist, resolveArtistDetailTarget } from "./useResolvedArtist";
+import { Artwork } from "./Artwork";
+import { SpaceTag } from "./SpaceTag";
 import { publishExisting } from "@/lib/nostr/publish";
 import { getEvent } from "@/lib/db/eventStore";
 import { removeLocalEventId } from "@/lib/db/musicStore";
@@ -81,91 +83,90 @@ export const TrackCard = memo(function TrackCard({
         tabIndex={0}
         onClick={handleClick}
         onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); handleClick(); } }}
-        className="group flex w-full cursor-pointer flex-col overflow-hidden rounded-xl border border-border card-glass transition-all hover:border-border-light hover-lift"
+        className="group flex w-full cursor-pointer flex-col rounded-lg text-left outline-offset-4"
       >
-        <div className="relative aspect-square w-full">
-          {imageUrl ? (
-            <img
-              src={imageUrl}
-              alt={track.title}
-              className="h-full w-full object-cover"
-              loading="lazy"
-            />
-          ) : (
-            <div className="flex h-full w-full items-center justify-center bg-card">
-              <Play size={32} className="text-muted" />
-            </div>
-          )}
-          <div className="absolute inset-0 flex items-center justify-center bg-black/0 transition-colors group-hover:bg-black/40">
-            <div className="scale-0 rounded-full bg-gradient-to-br from-primary to-primary-soft p-2.5 text-white transition-transform group-hover:scale-100">
-              {isPlaying ? (
-                <div className="flex items-center gap-0.5">
-                  <span className="block h-3 w-0.5 animate-pulse bg-background" />
-                  <span className="block h-3 w-0.5 animate-pulse bg-background delay-75" />
-                  <span className="block h-3 w-0.5 animate-pulse bg-background delay-150" />
-                </div>
-              ) : (
-                <Play size={18} fill="currentColor" className="ml-0.5" />
-              )}
-            </div>
+        <div className="relative">
+          <Artwork
+            src={imageUrl}
+            title={track.title}
+            className="aspect-square w-full rounded-lg shadow-[var(--shadow-sm)] transition-[filter,box-shadow] duration-200 group-hover:shadow-[var(--shadow-lg)] group-hover:brightness-90"
+          />
+          {/* Play / now-playing */}
+          <div
+            className={`absolute bottom-2 right-2 flex h-9 w-9 items-center justify-center rounded-full bg-heading text-background shadow-[var(--shadow-md)] transition-all duration-200 ease-out ${
+              isPlaying ? "opacity-100" : "translate-y-1 opacity-0 group-hover:translate-y-0 group-hover:opacity-100"
+            }`}
+          >
+            {isPlaying ? (
+              <span className="eq-bars" aria-label="Playing">
+                <span />
+                <span />
+                <span />
+              </span>
+            ) : (
+              <Play size={15} fill="currentColor" className="ml-0.5" />
+            )}
           </div>
           {track.visibility === "local" && (
-            <span className="absolute left-1.5 top-1.5 rounded bg-black/60 px-1.5 py-0.5 text-[10px] text-white/80">
-              LOCAL
+            <span className="absolute left-2 top-2 rounded-sm bg-black/60 px-1.5 py-0.5 font-mono text-[9px] uppercase tracking-wider text-white/85 backdrop-blur-sm">
+              Local
             </span>
           )}
           {isDownloaded && (
-            <span className="absolute left-1.5 bottom-1.5 rounded bg-black/60 p-1" title="Available offline">
-              <HardDriveDownload size={12} className="text-primary/90" />
+            <span className="absolute bottom-2 left-2 rounded-full bg-black/60 p-1 backdrop-blur-sm" title="Available offline">
+              <HardDriveDownload size={12} className="text-white/90" />
             </span>
           )}
-          {/* Library + Favorite buttons */}
-          {!isOwner && !isLocal && (
-            <div className="absolute right-1.5 top-1.5 flex flex-col gap-1 opacity-0 transition-opacity group-hover:opacity-100">
+          {/* Library + Favorite + menu */}
+          <div className="absolute right-2 top-2 flex flex-col gap-1 opacity-0 transition-opacity group-hover:opacity-100 focus-within:opacity-100">
+            {!isOwner && !isLocal && (
+              <>
+                <button
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    if (saved) unsaveTrack(track.addressableId);
+                    else saveTrack(track.addressableId);
+                  }}
+                  className="flex h-7 w-7 items-center justify-center rounded-full bg-black/55 text-white/85 backdrop-blur-sm hover:text-white"
+                  title={saved ? "Remove from Library" : "Add to Library"}
+                >
+                  {saved ? <Check size={14} className="text-green-400" /> : <Plus size={14} />}
+                </button>
+                <button
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    if (favorited) unfavoriteTrack(track.addressableId);
+                    else favoriteTrack(track.addressableId);
+                  }}
+                  className="flex h-7 w-7 items-center justify-center rounded-full bg-black/55 text-white/85 backdrop-blur-sm hover:text-white"
+                  title={favorited ? "Remove from Favorites" : "Add to Favorites"}
+                >
+                  <Heart
+                    size={14}
+                    className={favorited ? "fill-red-500 text-red-500" : ""}
+                  />
+                </button>
+              </>
+            )}
+            {(isOwner || !isLocal) && (
               <button
+                ref={menuBtnRef}
                 onClick={(e) => {
                   e.stopPropagation();
-                  if (saved) unsaveTrack(track.addressableId);
-                  else saveTrack(track.addressableId);
+                  setMenuOpen((v) => !v);
                 }}
-                className="rounded-full bg-background/70 p-1 text-soft hover:text-heading"
-                title={saved ? "Remove from Library" : "Add to Library"}
+                className="flex h-7 w-7 items-center justify-center rounded-full bg-black/55 text-white/85 backdrop-blur-sm hover:text-white"
+                aria-label="Track actions"
               >
-                {saved ? <Check size={14} className="text-green-400" /> : <Plus size={14} />}
+                <MoreHorizontal size={14} />
               </button>
-              <button
-                onClick={(e) => {
-                  e.stopPropagation();
-                  if (favorited) unfavoriteTrack(track.addressableId);
-                  else favoriteTrack(track.addressableId);
-                }}
-                className="rounded-full bg-background/70 p-1 text-soft hover:text-heading"
-                title={favorited ? "Remove from Favorites" : "Add to Favorites"}
-              >
-                <Heart
-                  size={14}
-                  className={favorited ? "fill-red-500 text-red-500" : ""}
-                />
-              </button>
-            </div>
-          )}
-          {/* Three-dot menu button */}
-          {(isOwner || !isLocal) && (
-            <button
-              ref={menuBtnRef}
-              onClick={(e) => {
-                e.stopPropagation();
-                setMenuOpen((v) => !v);
-              }}
-              className="absolute bottom-1.5 right-1.5 rounded-full bg-background/70 p-1 text-soft opacity-0 transition-opacity hover:text-heading group-hover:opacity-100"
-            >
-              <MoreHorizontal size={14} />
-            </button>
-          )}
+            )}
+          </div>
         </div>
-        <div className="p-2 text-left">
-          <p className="truncate text-sm font-medium text-heading">{track.title}</p>
-          <p className="truncate text-xs text-soft">
+        <div className="px-0.5 pt-2.5 text-left">
+          <p className="truncate text-[13px] font-medium text-heading">{track.title}</p>
+          <p className="mt-0.5 flex items-center gap-1.5 text-xs text-muted">
+            <span className="min-w-0 truncate">
             {(() => {
               const target = resolveArtistDetailTarget(track.artist, track.artistPubkeys);
               if (!target) return <span>{resolvedArtist}</span>;
@@ -183,18 +184,24 @@ export const TrackCard = memo(function TrackCard({
               );
             })()}
             <FeaturedArtistsDisplay pubkeys={track.featuredArtists} />
+            {albumName && (
+              <>
+                {" "}
+                <span className="text-faint">&middot;</span>{" "}
+                <span
+                  className="hover:text-heading hover:underline"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    dispatch(setActiveDetailId({ view: "album-detail", id: track.albumRef! }));
+                  }}
+                >
+                  {albumName}
+                </span>
+              </>
+            )}
+            </span>
+            <SpaceTag visibility={track.visibility} spaceIds={track.spaceIds} />
           </p>
-          {albumName && (
-            <p
-              className="truncate text-[11px] text-muted hover:text-heading hover:underline"
-              onClick={(e) => {
-                e.stopPropagation();
-                dispatch(setActiveDetailId({ view: "album-detail", id: track.albumRef! }));
-              }}
-            >
-              {albumName}
-            </p>
-          )}
         </div>
       </div>
 

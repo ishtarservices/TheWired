@@ -144,7 +144,8 @@ interface ActionsTabProps {
   onToggleSharing: () => void;
   onToggleListing: () => void;
   onPublish?: () => void;
-  onInsights: () => void;
+  /** Absent when the Music Insights feature is off. */
+  onInsights?: () => void;
   onDownload: () => void;
   onRemoveDownload: () => void;
   onExport: () => void;
@@ -359,7 +360,7 @@ export function ActionsTab({
           <SectionLabel>Manage</SectionLabel>
           <ActionButton icon={<Pencil size={14} />} label="Edit Track" onClick={onEditTrack} />
           {isOwner && <ActionButton icon={<FolderInput size={14} />} label="Move" onClick={onMove} />}
-          <ActionButton icon={<BarChart3 size={14} />} label="Insights" onClick={onInsights} />
+          {onInsights && <ActionButton icon={<BarChart3 size={14} />} label="Insights" onClick={onInsights} />}
           {!isLocal && (
             <ActionButton
               icon={<FileDown size={14} className={sharingDisabled ? "text-muted" : "text-green-400"} />}

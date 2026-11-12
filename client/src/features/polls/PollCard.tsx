@@ -120,7 +120,7 @@ export function PollCard({ event, variant, compact = false }: PollCardProps) {
       }`}
     >
       {/* Header */}
-      <div className="flex items-center gap-1.5 text-[11px] font-medium uppercase tracking-wide text-muted">
+      <div className="flex items-center gap-1.5 label-caps">
         <BarChart3 size={12} className="text-primary-soft" />
         <span>Poll</span>
         {isMulti && <span className="text-faint">· Multiple choice</span>}
@@ -158,7 +158,7 @@ export function PollCard({ event, variant, compact = false }: PollCardProps) {
           <button
             type="button"
             onClick={() => setShowAllOptions(true)}
-            className="w-full rounded-lg border border-dashed border-border px-3 py-1.5 text-xs text-muted hover:text-heading hover:border-border-light transition-colors"
+            className="w-full rounded-lg border border-dashed border-border px-3 py-1.5 text-xs text-muted hover:text-heading hover:border-faint transition-colors"
           >
             +{hiddenCount} more {hiddenCount === 1 ? "option" : "options"}
           </button>
@@ -172,7 +172,7 @@ export function PollCard({ event, variant, compact = false }: PollCardProps) {
             type="button"
             disabled={selection.size === 0 || isVoting}
             onClick={() => void submitVote([...selection])}
-            className="rounded-lg bg-gradient-to-r from-primary to-primary-soft px-3.5 py-1.5 text-xs font-semibold text-white transition-opacity disabled:opacity-40"
+            className="rounded-lg bg-primary px-3.5 py-1.5 text-xs font-semibold text-white transition-opacity disabled:opacity-40"
           >
             Vote{selection.size > 0 ? ` (${selection.size})` : ""}
           </button>

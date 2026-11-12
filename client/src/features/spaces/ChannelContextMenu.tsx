@@ -107,7 +107,7 @@ export function ChannelContextMenu({
     >
       {showMove && admin ? (
         <div className="py-1 max-h-[60vh] overflow-y-auto">
-          <div className="px-3 py-1.5 text-[10px] font-semibold uppercase tracking-wider text-muted">
+          <div className="px-3 py-1.5 label-caps">
             Move to
           </div>
           {admin.moveTargets.map((target) => (
@@ -128,7 +128,7 @@ export function ChannelContextMenu({
         </div>
       ) : showModes ? (
         <div className="py-1">
-          <div className="px-3 py-1.5 text-[10px] font-semibold uppercase tracking-wider text-muted">
+          <div className="px-3 py-1.5 label-caps">
             Notification Mode
           </div>
           {NOTIF_MODES.map((item) => (

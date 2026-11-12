@@ -100,17 +100,26 @@ export function TopBar({
   } {
     // Route-level overrides
     if (location.pathname === "/settings") {
-      return { icon: <Settings size={18} />, title: "Settings" };
+      return { icon: <Settings size={16} />, title: "Settings" };
     }
     if (location.pathname === "/relays") {
-      return { icon: <Radio size={18} />, title: "Relays" };
+      return { icon: <Radio size={16} />, title: "Relays" };
     }
     if (location.pathname === "/discover") {
-      return { icon: <Compass size={18} />, title: "Discover" };
+      return { icon: <Compass size={16} />, title: "Discover" };
+    }
+    // A DM opened by link or from a profile shows the conversation whatever
+    // the sidebar is on; name it, rather than the space left behind.
+    if (location.pathname.startsWith("/dm")) {
+      return {
+        icon: <MessageCircle size={16} />,
+        title:
+          (dmPubkey && (dmProfile?.display_name || dmProfile?.name)) || "Messages",
+      };
     }
     if (profilePubkey) {
       return {
-        icon: <User size={18} />,
+        icon: <User size={16} />,
         title:
           viewedProfile?.display_name ||
           viewedProfile?.name ||
@@ -121,11 +130,11 @@ export function TopBar({
     // Sidebar-mode based
     if (sidebarMode === "spaces") {
       if (activeSpaceId === "__friends_feed__") {
-        return { icon: <Users size={18} />, title: "Feed" };
+        return { icon: <Users size={16} />, title: "Feed" };
       }
       const space = spaces.find((s) => s.id === activeSpaceId);
       if (!space) {
-        return { icon: <LayoutGrid size={18} />, title: "Spaces" };
+        return { icon: <LayoutGrid size={16} />, title: "Spaces" };
       }
       const channelPart = activeChannelId
         ?.split(":")
@@ -144,7 +153,7 @@ export function TopBar({
             className="h-5 w-5 rounded-full object-cover"
           />
         ) : (
-          <LayoutGrid size={18} />
+          <LayoutGrid size={16} />
         ),
         title: space.name,
         subtitle: channel ? channel.label : undefined,
@@ -167,21 +176,21 @@ export function TopBar({
         if (playlist) title = playlist.title;
       }
 
-      return { icon: <Music2 size={18} />, title };
+      return { icon: <Music2 size={16} />, title };
     }
 
     if (sidebarMode === "messages") {
       if (dmPubkey && dmProfile) {
         return {
-          icon: <MessageCircle size={18} />,
+          icon: <MessageCircle size={16} />,
           title:
             dmProfile.display_name || dmProfile.name || "Messages",
         };
       }
-      return { icon: <MessageCircle size={18} />, title: "Messages" };
+      return { icon: <MessageCircle size={16} />, title: "Messages" };
     }
 
-    return { icon: <LayoutGrid size={18} />, title: "The Wired" };
+    return { icon: <LayoutGrid size={16} />, title: "The Wired" };
   }
 
   const showPanelToggle = context !== "none";
@@ -198,9 +207,9 @@ export function TopBar({
       <div className="flex items-center gap-1 pl-2">
         <Button variant="ghost" size="sm" onClick={onToggleSidebar}>
           {sidebarExpanded ? (
-            <PanelLeftClose size={18} />
+            <PanelLeftClose size={16} />
           ) : (
-            <PanelLeftOpen size={18} />
+            <PanelLeftOpen size={16} />
           )}
         </Button>
 
@@ -211,7 +220,7 @@ export function TopBar({
           className="rounded-md p-1.5 text-soft transition-colors hover:bg-surface-hover hover:text-heading disabled:opacity-30 disabled:hover:bg-transparent disabled:hover:text-soft"
           title="Go back"
         >
-          <ArrowLeft size={16} strokeWidth={2.5} />
+          <ArrowLeft size={16} />
         </button>
         <button
           onClick={goForward}
@@ -219,7 +228,7 @@ export function TopBar({
           className="rounded-md p-1.5 text-soft transition-colors hover:bg-surface-hover hover:text-heading disabled:opacity-30 disabled:hover:bg-transparent disabled:hover:text-soft"
           title="Go forward"
         >
-          <ArrowRight size={16} strokeWidth={2.5} />
+          <ArrowRight size={16} />
         </button>
 
         {/* Separator */}
@@ -228,13 +237,13 @@ export function TopBar({
         {/* Location indicator */}
         <div className="flex items-center gap-2 text-heading">
           <span className="flex-shrink-0 text-soft">{loc.icon}</span>
-          <span className="text-sm font-semibold tracking-wide truncate max-w-[200px]">
+          <span className="text-[13px] font-medium truncate max-w-[220px]">
             {loc.title}
           </span>
           {loc.subtitle && (
             <>
-              <span className="text-xs text-muted">/</span>
-              <span className="text-sm text-soft truncate max-w-[160px]">
+              <span className="text-xs text-faint">/</span>
+              <span className="text-[13px] text-soft truncate max-w-[160px]">
                 {loc.subtitle}
               </span>
             </>
@@ -257,9 +266,9 @@ export function TopBar({
         {showPanelToggle && (
           <Button variant="ghost" size="sm" onClick={toggle}>
             {isOpen ? (
-              <PanelRightClose size={18} />
+              <PanelRightClose size={16} />
             ) : (
-              <PanelRightOpen size={18} />
+              <PanelRightOpen size={16} />
             )}
           </Button>
         )}

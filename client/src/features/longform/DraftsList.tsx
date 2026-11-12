@@ -21,7 +21,7 @@ export function DraftsList({ pubkey }: { pubkey: string | null }) {
 
   return (
     <div className="mb-6">
-      <h3 className="mb-2 px-1 text-xs font-semibold uppercase tracking-wide text-muted">
+      <h3 className="mb-2 px-1 label-caps">
         Drafts
       </h3>
       <div className="divide-y divide-border overflow-hidden rounded-xl border border-border">

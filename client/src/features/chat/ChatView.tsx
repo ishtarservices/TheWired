@@ -249,7 +249,9 @@ export function ChatView() {
         </div>
       )}
 
-      <div ref={scrollRef} onScroll={handleScroll} className={`flex-1 overflow-y-auto py-2 ${scrollPaddingClass}`}>
+      {/* The composer lifts itself above the floating player, so the list
+          only needs the extra bottom room when there is no composer. */}
+      <div ref={scrollRef} onScroll={handleScroll} className={`flex-1 overflow-y-auto py-2 ${isReadOnly ? scrollPaddingClass : ""}`}>
         {messages.length === 0 && pendingMessages.length === 0 ? (
           <div className="flex h-full items-center justify-center">
             <p className="text-sm text-muted">

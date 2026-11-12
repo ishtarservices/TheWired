@@ -245,7 +245,7 @@ function OverridesPanel({ spaceId, target }: { spaceId: string; target: Override
       )}
 
       <div className="flex items-center gap-2">
-        <span className="text-[10px] font-semibold uppercase tracking-wider text-muted">
+        <span className="label-caps">
           Role
         </span>
         <select

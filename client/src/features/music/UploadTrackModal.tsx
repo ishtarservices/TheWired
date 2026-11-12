@@ -426,7 +426,7 @@ export function UploadTrackModal({ open, onClose, defaultAlbumRef, defaultVisibi
           <button
             onClick={handleSubmit}
             disabled={!audioFile || !title.trim() || uploading || (!sharedTarget && visibility === "space" && !spaceId)}
-            className="w-full rounded-xl bg-linear-to-r from-primary to-primary-soft py-2 text-sm font-medium text-white transition-opacity hover:opacity-90 press-effect disabled:opacity-50"
+            className="w-full rounded-xl bg-primary py-2 text-sm font-medium text-white transition-opacity hover:opacity-90 press-effect disabled:opacity-50"
           >
             {uploading
               ? "Uploading..."

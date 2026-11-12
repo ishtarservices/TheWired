@@ -144,7 +144,7 @@ function ArtistZapRow({ artist, onPick }: { artist: ZapArtist; onPick: () => voi
       <div className="min-w-0 flex-1">
         <div className="truncate text-sm text-heading">{name}</div>
         {artist.role !== "primary" && (
-          <div className="text-[10px] uppercase tracking-wider text-muted">
+          <div className="label-caps">
             {artist.role === "featured" ? "Featured" : "Uploader"}
           </div>
         )}

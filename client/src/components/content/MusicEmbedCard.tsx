@@ -207,7 +207,7 @@ export function MusicEmbedCard({ kind, pubkey, identifier, variant }: MusicEmbed
             if (!resolving) open();
           }}
           onKeyDown={onKey}
-          className="flex w-full cursor-pointer items-center gap-3 rounded-xl border border-border card-glass px-3 py-2 text-left transition-colors hover:border-border-light"
+          className="flex w-full cursor-pointer items-center gap-3 rounded-xl border border-border card-glass px-3 py-2 text-left transition-colors hover:border-faint"
         >
           <div className={`flex ${compact ? "h-9 w-9" : "h-12 w-12"} shrink-0 items-center justify-center rounded-lg bg-card`}>
             {resolving ? (
@@ -316,7 +316,7 @@ export function MusicEmbedCard({ kind, pubkey, identifier, variant }: MusicEmbed
         onClick={primary}
         onKeyDown={onKey}
         className={`mt-1.5 flex w-full max-w-sm cursor-pointer items-center gap-2.5 rounded-lg border bg-surface px-2.5 py-1.5 text-left transition-colors ${
-          isCurrent ? "border-primary/40" : "border-border hover:border-border-light"
+          isCurrent ? "border-primary/40" : "border-border hover:border-faint"
         }`}
       >
         {cover("h-9 w-9", 15)}
@@ -344,7 +344,7 @@ export function MusicEmbedCard({ kind, pubkey, identifier, variant }: MusicEmbed
         onClick={primary}
         onKeyDown={onKey}
         className={`group/music mt-2 flex w-full max-w-md cursor-pointer items-center gap-3 rounded-xl border card-glass px-3 py-2.5 text-left transition-colors ${
-          isCurrent ? "border-primary/40" : "border-border hover:border-border-light"
+          isCurrent ? "border-primary/40" : "border-border hover:border-faint"
         }`}
       >
         {cover("h-14 w-14", 20)}
@@ -382,7 +382,7 @@ export function MusicEmbedCard({ kind, pubkey, identifier, variant }: MusicEmbed
             className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-full transition-colors ${
               isPlaying
                 ? "border border-primary/40 bg-white/10 text-primary"
-                : "bg-gradient-to-r from-primary to-primary-soft text-white hover:opacity-90"
+                : "bg-primary text-white hover:opacity-90"
             }`}
             title={isPlaying ? "Pause" : "Play"}
           >

@@ -51,14 +51,14 @@ export function PublishedFolderDetail() {
 
   return (
     <div className={`flex-1 overflow-y-auto ${scrollPaddingClass}`}>
-      <div className="flex items-end gap-6 bg-gradient-to-b from-card-hover/30 to-transparent p-6">
-        <button onClick={() => dispatch(goBack())} className="self-start rounded p-1 text-soft hover:text-heading" aria-label="Back">
-          <ArrowLeft size={20} />
+      <div className="flex items-end gap-7 px-8 pb-7 pt-6">
+        <button onClick={() => dispatch(goBack())} className="-ml-2 self-start rounded-md p-1.5 text-soft transition-colors hover:bg-surface-hover hover:text-heading" aria-label="Back">
+          <ArrowLeft size={16} />
         </button>
-        <FolderCover uri={published.imageUrl ?? null} className="h-36 w-36 shrink-0 rounded-lg shadow-lg" iconSize={48} />
+        <FolderCover uri={published.imageUrl ?? null} className="h-44 w-44 shrink-0 rounded-xl shadow-[var(--shadow-lg)] ring-1 ring-inset ring-border-light" iconSize={48} />
         <div className="flex-1">
-          <p className="text-xs uppercase tracking-wider text-soft">Folder · by {by}</p>
-          <h1 className="text-2xl font-bold text-heading">{published.title}</h1>
+          <p className="label-caps text-soft">Folder · by {by}</p>
+          <h1 className="mt-2 text-3xl font-semibold tracking-[-0.025em] text-heading">{published.title}</h1>
           {published.description && <p className="mt-1 text-sm text-soft">{published.description}</p>}
           <p className="text-sm text-soft">
             {published.trackRefs.length} track{published.trackRefs.length !== 1 ? "s" : ""}
@@ -67,7 +67,7 @@ export function PublishedFolderDetail() {
             <button
               onClick={() => playQueue(queueIds, 0)}
               disabled={queueIds.length === 0}
-              className="flex items-center gap-1.5 rounded-full bg-gradient-to-r from-primary to-primary-soft px-4 py-1.5 text-sm font-medium text-white transition-transform hover:scale-105 press-effect disabled:opacity-50"
+              className="flex h-9 items-center gap-2 rounded-full bg-heading pl-3.5 pr-4 text-[13px] font-medium text-background transition-opacity hover:opacity-90 press-effect disabled:opacity-40"
               aria-label="Play folder"
             >
               <Play size={14} fill="currentColor" />
@@ -76,7 +76,7 @@ export function PublishedFolderDetail() {
             <button
               onClick={() => playQueue([...queueIds].sort(() => Math.random() - 0.5), 0)}
               disabled={queueIds.length === 0}
-              className="flex items-center gap-1.5 rounded-full border border-border px-4 py-1.5 text-sm text-soft transition-colors hover:border-border-light hover:text-heading disabled:opacity-50"
+              className="flex items-center gap-1.5 rounded-full border border-border px-4 py-1.5 text-sm text-soft transition-colors hover:border-faint hover:text-heading disabled:opacity-50"
             >
               <Shuffle size={14} />
               Shuffle
@@ -84,7 +84,7 @@ export function PublishedFolderDetail() {
             {linkedFolder ? (
               <button
                 onClick={() => openFolder(linkedFolder.id)}
-                className="flex items-center gap-1.5 rounded-full border border-border px-4 py-1.5 text-sm text-soft transition-colors hover:border-border-light hover:text-heading"
+                className="flex items-center gap-1.5 rounded-full border border-border px-4 py-1.5 text-sm text-soft transition-colors hover:border-faint hover:text-heading"
               >
                 <Folder size={14} />
                 {isOwner ? "Edit folder" : "Already in your folders"}
@@ -96,7 +96,7 @@ export function PublishedFolderDetail() {
                   const id = createFolder(published.title || "Saved folder", published.trackRefs);
                   if (id) setSavedAs(id);
                 }}
-                className="flex items-center gap-1.5 rounded-full border border-border px-4 py-1.5 text-sm text-soft transition-colors hover:border-border-light hover:text-heading"
+                className="flex items-center gap-1.5 rounded-full border border-border px-4 py-1.5 text-sm text-soft transition-colors hover:border-faint hover:text-heading"
               >
                 {savedAs ? <Check size={14} /> : <FolderPlus size={14} />}
                 {savedAs ? "Saved — open folder" : "Save as folder"}

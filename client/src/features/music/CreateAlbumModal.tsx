@@ -676,7 +676,7 @@ export function CreateAlbumModal({ open, onClose, album }: CreateAlbumModalProps
             {parsedTracks.length > 0 && (
               <div className="space-y-0.5">
                 {/* Track header row */}
-                <div className="flex items-center gap-1.5 px-1 text-[10px] font-medium uppercase tracking-wider text-muted">
+                <div className="flex items-center gap-1.5 px-1 label-caps">
                   <span className="w-5" />
                   <span className="w-7 text-center">#</span>
                   <span className="flex-1">Title</span>
@@ -1012,7 +1012,7 @@ export function CreateAlbumModal({ open, onClose, album }: CreateAlbumModalProps
               </div>
               <div className="h-1.5 overflow-hidden rounded-full bg-surface">
                 <div
-                  className="h-full rounded-full bg-gradient-to-r from-primary to-primary-soft transition-all duration-300"
+                  className="h-full rounded-full bg-primary transition-all duration-300"
                   style={{ width: `${(uploadProgress.current / uploadProgress.total) * 100}%` }}
                 />
               </div>
@@ -1024,7 +1024,7 @@ export function CreateAlbumModal({ open, onClose, album }: CreateAlbumModalProps
           <button
             onClick={handleSubmit}
             disabled={!title.trim() || submitting || (visibility === "space" && !spaceId)}
-            className="w-full rounded-xl bg-gradient-to-r from-primary to-primary-soft py-2 text-sm font-medium text-white transition-opacity hover:opacity-90 press-effect disabled:opacity-50"
+            className="w-full rounded-xl bg-primary py-2 text-sm font-medium text-white transition-opacity hover:opacity-90 press-effect disabled:opacity-50"
           >
             {submitting
               ? uploadProgress.total > 0

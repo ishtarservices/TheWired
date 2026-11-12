@@ -102,7 +102,7 @@ export function ChannelsTab({ spaceId }: ChannelsTabProps) {
       )}
 
       {hasCategories && tree.uncategorized.length > 0 && (
-        <div className="px-1 text-[10px] font-semibold uppercase tracking-wider text-muted">No subfolder</div>
+        <div className="px-1 label-caps">No subfolder</div>
       )}
 
       <div className="space-y-1">

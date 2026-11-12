@@ -513,7 +513,7 @@ function StatusBadge({ status }: { status: AIProviderStatusKind }) {
 
 function FieldLabel({ children }: { children: React.ReactNode }) {
   return (
-    <span className="mb-1 block text-[10px] font-semibold uppercase tracking-wide text-muted">
+    <span className="mb-1 block label-caps">
       {children}
     </span>
   );

@@ -127,8 +127,8 @@ export function ArtistList() {
   }
 
   return (
-    <div className={`flex-1 overflow-y-auto p-4 ${scrollPaddingClass}`}>
-      <h2 className="mb-3 text-lg font-semibold text-heading">Artists</h2>
+    <div className={`flex-1 overflow-y-auto px-8 py-7 ${scrollPaddingClass}`}>
+      <h2 className="mb-5 text-2xl font-semibold tracking-[-0.02em] text-heading">Artists</h2>
       <div className="grid grid-cols-3 gap-2 sm:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6">
         {entries.map((entry) =>
           entry.type === "pubkey" ? (

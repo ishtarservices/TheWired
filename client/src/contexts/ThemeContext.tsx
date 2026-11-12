@@ -28,6 +28,7 @@ const STORAGE_CUSTOM = "thewired_custom_theme";
 const MOTION_INTENSITY: Record<string, number> = {
   "clean-dark": 0.5,
   "clean-light": 0.5,
+  wired: 0.6,
   neon: 1.0,
   midnight: 0.7,
   forest: 0.5,

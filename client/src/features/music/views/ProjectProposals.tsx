@@ -98,7 +98,7 @@ export function ProjectProposals() {
           }
           className="rounded p-1 text-soft hover:text-heading"
         >
-          <ArrowLeft size={20} />
+          <ArrowLeft size={16} />
         </button>
         <GitPullRequest size={20} className="text-primary" />
         <div>
@@ -110,7 +110,7 @@ export function ProjectProposals() {
         {(isOwner || isCollaborator) && (
           <button
             onClick={() => setShowCreate(true)}
-            className="ml-auto flex items-center gap-1.5 rounded-full bg-gradient-to-r from-primary to-primary-soft px-4 py-1.5 text-sm font-medium text-white transition-transform hover:scale-105 press-effect"
+            className="ml-auto flex items-center gap-1.5 rounded-full bg-primary px-4 py-1.5 text-sm font-medium text-white transition-colors hover:bg-primary-soft press-effect"
           >
             <Plus size={14} />
             New Proposal
@@ -136,7 +136,7 @@ export function ProjectProposals() {
           <>
             {openProposals.length > 0 && (
               <div className="mb-6">
-                <h2 className="mb-3 text-xs font-semibold uppercase tracking-wider text-muted">
+                <h2 className="mb-3 label-caps">
                   Open ({openProposals.length})
                 </h2>
                 <div className="space-y-3">
@@ -155,7 +155,7 @@ export function ProjectProposals() {
 
             {resolvedProposals.length > 0 && (
               <div>
-                <h2 className="mb-3 text-xs font-semibold uppercase tracking-wider text-muted">
+                <h2 className="mb-3 label-caps">
                   Resolved ({resolvedProposals.length})
                 </h2>
                 <div className="space-y-3">

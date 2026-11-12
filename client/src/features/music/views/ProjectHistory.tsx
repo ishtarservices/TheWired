@@ -88,7 +88,7 @@ export function ProjectHistory() {
           onClick={goBack}
           className="rounded p-1 text-soft hover:text-heading transition-colors"
         >
-          <ArrowLeft size={20} />
+          <ArrowLeft size={16} />
         </button>
         <Clock size={18} className="text-muted" />
         <div>

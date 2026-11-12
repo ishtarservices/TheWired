@@ -587,7 +587,7 @@ export function NotesTab({ targetRef, targetName, ownerPubkey }: NotesTabProps) 
             <button
               onClick={handlePost}
               disabled={submitting || (!content.trim() && !hasAttachments && !pendingGif) || (visibility === "space" && !selectedSpaceId) || isUploading}
-              className="rounded-full bg-gradient-to-r from-primary to-primary-soft px-4 py-1 text-[11px] font-medium text-white transition-all hover:opacity-90 press-effect disabled:opacity-40"
+              className="rounded-full bg-primary px-4 py-1 text-[11px] font-medium text-white transition-all hover:opacity-90 press-effect disabled:opacity-40"
             >
               {submitting ? "Posting..." : "Post"}
             </button>

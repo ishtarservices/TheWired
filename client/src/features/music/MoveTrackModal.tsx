@@ -263,7 +263,7 @@ export function MoveTrackModal({ track, onClose, onBack }: MoveTrackModalProps) 
           <button
             onClick={handleMove}
             disabled={isSameAlbum || submitting}
-            className="w-full rounded-xl bg-gradient-to-r from-primary to-primary-soft py-2 text-sm font-medium text-white transition-opacity hover:opacity-90 press-effect disabled:opacity-50"
+            className="w-full rounded-xl bg-primary py-2 text-sm font-medium text-white transition-opacity hover:opacity-90 press-effect disabled:opacity-50"
           >
             {submitting ? "Moving..." : "Move Track"}
           </button>

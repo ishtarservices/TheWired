@@ -39,7 +39,7 @@ import {
 } from "../folderActions";
 
 const pill =
-  "flex items-center gap-1.5 rounded-full border border-border px-3 py-1.5 text-sm text-soft transition-colors hover:border-border-light hover:text-heading disabled:opacity-50";
+  "flex items-center gap-1.5 rounded-full border border-border px-3 py-1.5 text-sm text-soft transition-colors hover:border-faint hover:text-heading disabled:opacity-50";
 
 export function FolderDetail() {
   const dispatch = useAppDispatch();
@@ -110,22 +110,22 @@ export function FolderDetail() {
 
   return (
     <div className={`flex-1 overflow-y-auto ${scrollPaddingClass}`}>
-      <div className="flex items-end gap-6 bg-gradient-to-b from-card-hover/30 to-transparent p-6">
-        <button onClick={() => dispatch(goBack())} className="self-start rounded p-1 text-soft hover:text-heading" aria-label="Back">
-          <ArrowLeft size={20} />
+      <div className="flex items-end gap-7 px-8 pb-7 pt-6">
+        <button onClick={() => dispatch(goBack())} className="-ml-2 self-start rounded-md p-1.5 text-soft transition-colors hover:bg-surface-hover hover:text-heading" aria-label="Back">
+          <ArrowLeft size={16} />
         </button>
-        <FolderCover uri={cover} className="h-36 w-36 shrink-0 rounded-lg shadow-lg" iconSize={48} />
+        <FolderCover uri={cover} className="h-44 w-44 shrink-0 rounded-xl shadow-[var(--shadow-lg)] ring-1 ring-inset ring-border-light" iconSize={48} />
         <div className="min-w-0 flex-1">
-          <p className="text-xs uppercase tracking-wider text-soft">
+          <p className="label-caps text-soft">
             Folder · {folder.publishedAs ? "published" : "private"}
           </p>
-          <h1 className="truncate text-2xl font-bold text-heading">{folder.name}</h1>
+          <h1 className="mt-2 truncate text-3xl font-semibold tracking-[-0.025em] text-heading">{folder.name}</h1>
           <p className="text-sm text-soft">{folderStatusLine(folder, members)}</p>
           <div className="mt-3 flex flex-wrap gap-2">
             <button
               onClick={() => playQueue(queueIds, 0)}
               disabled={queueIds.length === 0}
-              className="flex items-center gap-1.5 rounded-full bg-gradient-to-r from-primary to-primary-soft px-4 py-1.5 text-sm font-medium text-white transition-transform hover:scale-105 press-effect disabled:opacity-50"
+              className="flex h-9 items-center gap-2 rounded-full bg-heading pl-3.5 pr-4 text-[13px] font-medium text-background transition-opacity hover:opacity-90 press-effect disabled:opacity-40"
             >
               <Play size={14} fill="currentColor" />
               Play All

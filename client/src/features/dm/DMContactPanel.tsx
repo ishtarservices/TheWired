@@ -143,7 +143,7 @@ export function DMContactPanel() {
       {/* Room participants */}
       {isRoom && contact?.participants && (
         <div>
-          <h4 className="text-[10px] font-semibold uppercase tracking-wider text-muted mb-1.5">
+          <h4 className="label-caps mb-1.5">
             Participants
           </h4>
           <ul className="space-y-1">
@@ -157,14 +157,14 @@ export function DMContactPanel() {
       {/* About */}
       {!isRoom && profile?.about && (
         <div>
-          <h4 className="text-[10px] font-semibold uppercase tracking-wider text-muted mb-1.5">About</h4>
+          <h4 className="label-caps mb-1.5">About</h4>
           <p className="text-xs text-soft leading-relaxed whitespace-pre-wrap line-clamp-6">{profile.about}</p>
         </div>
       )}
 
       {/* Quick actions */}
       <div className="space-y-1">
-        <h4 className="text-[10px] font-semibold uppercase tracking-wider text-muted mb-2">Actions</h4>
+        <h4 className="label-caps mb-2">Actions</h4>
         {!isRoom && (
           <>
             <ActionButton
@@ -226,7 +226,7 @@ export function DMContactPanel() {
 
       {/* Disappearing messages */}
       <div>
-        <h4 className="text-[10px] font-semibold uppercase tracking-wider text-muted mb-1.5 flex items-center gap-1">
+        <h4 className="label-caps mb-1.5 flex items-center gap-1">
           <Timer size={11} /> Disappearing messages
         </h4>
         <div className="flex flex-wrap gap-1">
@@ -248,7 +248,7 @@ export function DMContactPanel() {
 
       {/* Pubkey / room id */}
       <div>
-        <h4 className="text-[10px] font-semibold uppercase tracking-wider text-muted mb-1">
+        <h4 className="label-caps mb-1">
           {isRoom ? "Room ID" : "Public Key"}
         </h4>
         <p className="text-[10px] text-muted font-mono break-all select-all">{activeId}</p>

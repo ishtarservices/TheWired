@@ -74,16 +74,16 @@ export function ProgressBar({ position, duration, onSeek }: ProgressBarProps) {
       onMouseLeave={handleMouseLeave}
     >
       {/* Track */}
-      <div className="relative h-[3px] w-full rounded-full bg-white/10 transition-[height] duration-150 group-hover:h-[5px]">
+      <div className="relative h-[3px] w-full rounded-full bg-heading/12 transition-[height] duration-150 group-hover:h-[4px]">
         {/* Fill */}
         <div
-          className="absolute inset-y-0 left-0 rounded-full bg-gradient-to-r from-primary to-primary-soft"
+          className="absolute inset-y-0 left-0 rounded-full bg-heading/80 group-hover:bg-primary"
           style={{ width: `${displayFraction * 100}%` }}
         />
         {/* Thumb */}
         <div
-          className="absolute top-1/2 -translate-y-1/2 h-3 w-3 rounded-full bg-heading shadow-md opacity-0 transition-opacity group-hover:opacity-100"
-          style={{ left: `calc(${displayFraction * 100}% - 6px)` }}
+          className="absolute top-1/2 h-2.5 w-2.5 -translate-y-1/2 rounded-full bg-heading shadow-[var(--shadow-sm)] opacity-0 transition-opacity group-hover:opacity-100"
+          style={{ left: `calc(${displayFraction * 100}% - 5px)` }}
         />
       </div>
     </div>

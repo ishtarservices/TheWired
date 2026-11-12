@@ -145,7 +145,7 @@ export function NotificationsTab({ spaceId }: NotificationsTabProps) {
               .filter((node) => node.channels.length > 0)
               .map((node) => (
                 <div key={node.category.id} className="pt-2">
-                  <div className="px-3 pb-1 text-[10px] font-semibold uppercase tracking-wider text-muted">
+                  <div className="px-3 pb-1 label-caps">
                     {node.category.name}
                   </div>
                   {node.channels.map((ch) => (
