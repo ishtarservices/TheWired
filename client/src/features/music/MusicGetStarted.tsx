@@ -34,11 +34,11 @@ export function MusicGetStarted({ variant = "page" }: { variant?: "page" | "bann
     return (
       <section
         aria-label="Get started with music"
-        className="mb-8 flex flex-wrap items-center gap-3 rounded-2xl border border-border bg-card px-4 py-3"
+        className="mb-9 flex flex-wrap items-center gap-3 rounded-xl border border-border-light bg-surface px-4 py-3"
       >
         <div className="min-w-0 flex-1">
-          <p className="text-sm font-semibold text-heading">Nothing of yours here yet</p>
-          <p className="text-xs text-soft">
+          <p className="text-[13px] font-medium text-heading">Nothing of yours here yet</p>
+          <p className="mt-0.5 text-xs text-muted">
             Upload a track or start a project, and it shows up across your spaces.
           </p>
         </div>
@@ -47,7 +47,7 @@ export function MusicGetStarted({ variant = "page" }: { variant?: "page" | "bann
             <button
               type="button"
               onClick={() => setProjectOpen(true)}
-              className="flex items-center gap-1.5 rounded-xl border border-border px-3 py-1.5 text-xs text-soft transition-colors hover:border-faint hover:text-heading press-effect"
+              className="flex h-8 items-center gap-1.5 rounded-full px-3 text-xs text-soft transition-colors hover:bg-surface-hover hover:text-heading press-effect"
             >
               <Disc3 size={14} />
               Start a project
@@ -55,7 +55,7 @@ export function MusicGetStarted({ variant = "page" }: { variant?: "page" | "bann
             <button
               type="button"
               onClick={() => setUploadOpen(true)}
-              className="flex items-center gap-1.5 rounded-xl bg-primary px-3 py-1.5 text-xs font-medium text-white transition-opacity hover:opacity-90 press-effect"
+              className="flex h-8 items-center gap-1.5 rounded-full bg-heading px-3 text-xs font-medium text-background transition-opacity hover:opacity-90 press-effect"
             >
               <Upload size={14} />
               Upload a track
@@ -75,14 +75,14 @@ export function MusicGetStarted({ variant = "page" }: { variant?: "page" | "bann
         {pubkey ? (
           <div className="grid gap-3 sm:grid-cols-2">
             <DoorCard
-              icon={<Upload size={22} />}
+              icon={<Upload size={18} />}
               title="Upload a track"
               body="Drop in an audio file, add a cover and genre, and decide who can hear it."
               primary
               onClick={() => setUploadOpen(true)}
             />
             <DoorCard
-              icon={<Disc3 size={22} />}
+              icon={<Disc3 size={18} />}
               title="Start a project"
               body="An album or EP that holds your tracks, with collaborators and release notes."
               onClick={() => setProjectOpen(true)}
@@ -95,7 +95,7 @@ export function MusicGetStarted({ variant = "page" }: { variant?: "page" | "bann
         <button
           type="button"
           onClick={explore}
-          className="mx-auto mt-6 flex items-center gap-1.5 text-sm text-soft transition-colors hover:text-heading"
+          className="mx-auto mt-6 flex items-center gap-1.5 rounded-md px-2 py-1 text-[13px] text-muted transition-colors hover:text-heading"
         >
           <Compass size={15} />
           Browse what others are making
@@ -124,24 +124,22 @@ function DoorCard({
       type="button"
       onClick={onClick}
       className={cn(
-        "group flex flex-col items-start gap-3 rounded-2xl border p-5 text-left transition-all hover-lift press-effect",
-        primary
-          ? "border-primary/30 bg-primary/5 hover:border-primary/60 hover:bg-primary/10"
-          : "border-border bg-card hover:border-faint hover:bg-card-hover",
+        "group flex flex-col items-start gap-2.5 rounded-xl border border-border p-5 text-left transition-colors press-effect",
+        primary ? "bg-surface hover:bg-surface-hover" : "hover:bg-surface",
       )}
     >
       <span
         className={cn(
-          "flex h-11 w-11 items-center justify-center rounded-xl",
+          "mb-1 flex h-9 w-9 items-center justify-center rounded-lg",
           primary
-            ? "bg-primary text-white"
-            : "bg-surface text-soft group-hover:text-heading",
+            ? "bg-heading text-background"
+            : "border border-border text-soft group-hover:text-heading",
         )}
       >
         {icon}
       </span>
-      <span className="text-base font-semibold text-heading">{title}</span>
-      <span className="text-sm leading-relaxed text-soft">{body}</span>
+      <span className="text-[15px] font-semibold tracking-[-0.01em] text-heading">{title}</span>
+      <span className="text-[13px] leading-relaxed text-muted">{body}</span>
     </button>
   );
 }

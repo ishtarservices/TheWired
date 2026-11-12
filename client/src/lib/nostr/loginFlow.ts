@@ -1186,6 +1186,7 @@ export async function performLogin(
       rowUpdatedAt: Math.floor((musicLibWrittenAt || Date.now()) / 1000),
       folderDocs: parseFolderDocs(musicFoldersRow?.docs),
       recentlyPlayedIds: musicLib?.recentlyPlayedIds ?? [],
+      recentlyPlayedAt: musicLib?.recentlyPlayedAt,
       readFailed: musicReadFailed,
     }),
   );

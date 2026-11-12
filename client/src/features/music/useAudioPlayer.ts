@@ -2,6 +2,7 @@ import { useCallback, useEffect } from "react";
 import type HlsType from "hls.js";
 import { useAppDispatch, useAppSelector } from "@/store/hooks";
 import { store } from "@/store";
+import { persistMusicLibraryFrom } from "@/lib/db/musicStore";
 import {
   setCurrentTrack,
   togglePlay,
@@ -478,6 +479,12 @@ export function useAudioPlayer() {
     }
 
     dispatch(addRecentlyPlayed(currentTrack.addressableId));
+    // Write the play to disk now: Music home orders the collection by last
+    // interaction, and a play that only lived in memory was lost on restart.
+    // (No-op until the library row has been read, and never over a failed read.)
+    persistMusicLibraryFrom(store.getState()).catch((err) =>
+      console.error("[music] Failed to persist play history:", err),
+    );
   }, [currentTrack?.addressableId]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // React to isPlaying state changes from Redux (e.g. nextTrack reducer)
