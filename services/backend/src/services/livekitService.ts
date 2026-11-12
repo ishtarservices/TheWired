@@ -1,6 +1,7 @@
 import { AccessToken, RoomServiceClient } from "livekit-server-sdk";
-import { TrackSource } from "@livekit/protocol";
+import type { TrackSource } from "@livekit/protocol";
 import { config } from "../config.js";
+import { TRACK_SOURCE_MAP } from "../lib/trackSource.js";
 
 /** LiveKit HTTP API base URL (http, not ws) */
 const livekitHttpUrl = config.livekitUrl.replace(/^ws/, "http");
@@ -10,14 +11,6 @@ const roomService = new RoomServiceClient(
   config.livekitApiKey,
   config.livekitApiSecret,
 );
-
-/** Map string source names to LiveKit TrackSource enum values */
-const TRACK_SOURCE_MAP: Record<string, TrackSource> = {
-  microphone: TrackSource.MICROPHONE,
-  camera: TrackSource.CAMERA,
-  screen_share: TrackSource.SCREEN_SHARE,
-  screen_share_audio: TrackSource.SCREEN_SHARE_AUDIO,
-};
 
 export interface TokenGrants {
   canPublish: boolean;

@@ -1,6 +1,7 @@
 import type { FastifyPluginAsync } from "fastify";
 import { z } from "zod";
 import { livekitService } from "../services/livekitService.js";
+import { trackMatchesSource } from "../lib/trackSource.js";
 import { permissionService } from "../services/permissionService.js";
 import { channelService } from "../services/channelService.js";
 import { db } from "../db/connection.js";
@@ -256,7 +257,8 @@ export const voiceRoutes: FastifyPluginAsync = async (server) => {
         return reply.status(404).send({ error: "Participant not found in room", code: "NOT_FOUND" });
       }
 
-      const track = target.tracks?.find((t: any) => t.source === trackSource);
+      // `t.source` is LiveKit's numeric enum, not the client's name (#48).
+      const track = target.tracks?.find((t: any) => trackMatchesSource(t.source, trackSource));
       if (!track) {
         return reply.status(404).send({ error: `No ${trackSource} track found`, code: "NOT_FOUND" });
       }
