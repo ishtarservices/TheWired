@@ -20,7 +20,7 @@ async fn main() -> anyhow::Result<()> {
     let config = config::Config::from_env();
     tracing::info!("Starting {} on port {}", config.relay_name, config.port);
 
-    let pool = db::pool::create_pool(&config.database_url).await?;
+    let pool = db::pool::create_pool_with(&config.database_url, &config.pool_settings()).await?;
     db::pool::run_migrations(&pool).await?;
 
     server::run(config, db::Db::Pg(pool)).await
