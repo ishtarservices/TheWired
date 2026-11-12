@@ -1,7 +1,8 @@
 import { useMemo, useState } from "react";
-import { ArrowLeft, Play, Shuffle, Folder, FolderPlus, Check } from "lucide-react";
+import { Play, Shuffle, Folder, FolderPlus, Check } from "lucide-react";
 import { useAppSelector, useAppDispatch } from "@/store/hooks";
-import { goBack, setActiveDetailId } from "@/store/slices/musicSlice";
+import { setActiveDetailId } from "@/store/slices/musicSlice";
+import { BackLink } from "../BackLink";
 import { useProfile } from "@/features/profile/useProfile";
 import { getDisplayName } from "@/features/dm/dmUtils";
 import { TrackRow } from "../TrackRow";
@@ -37,9 +38,7 @@ export function PublishedFolderDetail() {
     return (
       <div className="flex flex-1 flex-col items-center justify-center gap-2">
         <p className="text-sm text-soft">{published?.deleted ? "This folder was unpublished" : "Folder unavailable"}</p>
-        <button onClick={() => dispatch(goBack())} className="text-xs text-soft underline hover:text-heading">
-          Go back
-        </button>
+        <BackLink className="ml-0" />
       </div>
     );
   }
@@ -51,10 +50,10 @@ export function PublishedFolderDetail() {
 
   return (
     <div className={`flex-1 overflow-y-auto ${scrollPaddingClass}`}>
-      <div className="flex items-end gap-7 px-8 pb-7 pt-6">
-        <button onClick={() => dispatch(goBack())} className="-ml-2 self-start rounded-md p-1.5 text-soft transition-colors hover:bg-surface-hover hover:text-heading" aria-label="Back">
-          <ArrowLeft size={16} />
-        </button>
+      <div className="px-8 pt-5">
+        <BackLink />
+      </div>
+      <div className="flex items-end gap-7 px-8 pb-7 pt-5">
         <FolderCover uri={published.imageUrl ?? null} className="h-44 w-44 shrink-0 rounded-xl shadow-[var(--shadow-lg)] ring-1 ring-inset ring-border-light" iconSize={48} />
         <div className="flex-1">
           <p className="label-caps text-soft">Folder · by {by}</p>

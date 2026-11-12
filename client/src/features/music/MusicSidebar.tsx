@@ -6,6 +6,7 @@ import { setMusicView } from "@/store/slices/musicSlice";
 import type { MusicView } from "@/types/music";
 import { useIncomingListenRequests } from "./useListenRequests";
 import { selectFeatureEnabled, FEATURE_MUSIC_INSIGHTS } from "@/store/slices/featuresSlice";
+import { MUSIC_DETAIL_VIEWS, isMusicSection, useNavigationTrail } from "@/hooks/useNavigationHistory";
 
 interface NavItem {
   view: MusicView;
@@ -36,6 +37,15 @@ export function MusicSidebar() {
   const { groups: listenRequests } = useIncomingListenRequests();
   const insightsEnabled = useAppSelector(selectFeatureEnabled(FEATURE_MUSIC_INSIGHTS));
 
+  // A project, artist or folder page belongs to wherever it was opened from.
+  // While one is open the sidebar keeps that section marked, so opening
+  // something from Home doesn't read as having left Home. Opened from outside
+  // the music section (Discover, a post, a space), nothing here is marked.
+  const { origin } = useNavigationTrail();
+  const onDetail = MUSIC_DETAIL_VIEWS.has(activeView);
+  const originView = origin && isMusicSection(origin) ? origin.musicView : null;
+  const section: MusicView | null = onDetail ? originView : activeView;
+
   const handleNav = (view: MusicView) => {
     dispatch(setMusicView(view));
     if (location.pathname !== "/") {
@@ -62,12 +72,7 @@ export function MusicSidebar() {
           ) {
             return null;
           }
-          // Highlight parent nav when viewing a detail sub-view
-          const isActive =
-            activeView === item.view ||
-            (item.view === "albums" && (activeView === "album-detail" || activeView === "project-history")) ||
-            (item.view === "artists" && activeView === "artist-detail") ||
-            (item.view === "folders" && (activeView === "folder-detail" || activeView === "published-folder"));
+          const isActive = section === item.view || (item.view === "explore" && section === "for-you");
           return (
             <button
               key={item.view}
@@ -100,7 +105,7 @@ export function MusicSidebar() {
             onClick={() => handleNav("my-uploads")}
             className={cn(
               "flex w-full items-center gap-2.5 rounded-lg px-2.5 py-1.5 text-[13px] font-medium transition-colors duration-150",
-              activeView === "my-uploads"
+              section === "my-uploads"
                 ? "bg-surface-hover text-heading"
                 : "text-soft hover:bg-surface hover:text-heading",
             )}

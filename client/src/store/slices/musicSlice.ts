@@ -1172,9 +1172,20 @@ export const musicSlice = createSlice({
       state.activeView = action.payload.view;
       state.activeDetailId = action.payload.id;
     },
+    /** Fallback for a detail page with no navigation history behind it (a
+     *  share link opened first): step out to the view it replaced, or Home.
+     *  Everything else goes back through `useNavigationTrail`. */
     goBack(state) {
       state.activeView = state.previousView ?? "home";
       state.activeDetailId = state.previousDetailId;
+      state.previousView = null;
+      state.previousDetailId = null;
+    },
+    /** Put a recorded view back exactly as it was (back/forward). Unlike
+     *  `setActiveDetailId` it is not a new step, so nothing is remembered. */
+    restoreMusicView(state, action: PayloadAction<{ view: MusicView; detailId: string | null }>) {
+      state.activeView = action.payload.view;
+      state.activeDetailId = action.payload.detailId;
       state.previousView = null;
       state.previousDetailId = null;
     },
@@ -1310,6 +1321,7 @@ export const {
   setMusicView,
   setActiveDetailId,
   goBack,
+  restoreMusicView,
   setBarMode,
   setMiniBarCorner,
   toggleNowPlaying,

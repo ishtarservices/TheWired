@@ -1,6 +1,5 @@
 import { useMemo, useState } from "react";
 import {
-  ArrowLeft,
   ChevronDown,
   ChevronUp,
   ChevronsUp,
@@ -18,7 +17,8 @@ import {
 } from "lucide-react";
 import { folderCoverSeeds, folderStatusLine } from "@ishtarservices/core";
 import { useAppDispatch, useAppSelector } from "@/store/hooks";
-import { goBack, setActiveDetailId, setMusicView } from "@/store/slices/musicSlice";
+import { setActiveDetailId, setMusicView } from "@/store/slices/musicSlice";
+import { BackLink } from "../BackLink";
 import { usePlaybackBarSpacing } from "@/hooks/usePlaybackBarSpacing";
 import { TrackRow } from "../TrackRow";
 import { useAudioPlayer } from "../useAudioPlayer";
@@ -110,10 +110,10 @@ export function FolderDetail() {
 
   return (
     <div className={`flex-1 overflow-y-auto ${scrollPaddingClass}`}>
-      <div className="flex items-end gap-7 px-8 pb-7 pt-6">
-        <button onClick={() => dispatch(goBack())} className="-ml-2 self-start rounded-md p-1.5 text-soft transition-colors hover:bg-surface-hover hover:text-heading" aria-label="Back">
-          <ArrowLeft size={16} />
-        </button>
+      <div className="px-8 pt-5">
+        <BackLink />
+      </div>
+      <div className="flex items-end gap-7 px-8 pb-7 pt-5">
         <FolderCover uri={cover} className="h-44 w-44 shrink-0 rounded-xl shadow-[var(--shadow-lg)] ring-1 ring-inset ring-border-light" iconSize={48} />
         <div className="min-w-0 flex-1">
           <p className="label-caps text-soft">

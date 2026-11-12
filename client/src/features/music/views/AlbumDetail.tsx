@@ -1,12 +1,13 @@
 import { useMemo, useState, useRef, useEffect } from "react";
-import { ArrowLeft, Play, Shuffle, Link2, Heart, Plus, Check, Trash2, Users, UserPlus, X, Clock, RefreshCw, Pencil, Search, KeyRound } from "lucide-react";
+import { Play, Shuffle, Link2, Heart, Plus, Check, Trash2, Users, UserPlus, X, Clock, RefreshCw, Pencil, Search, KeyRound } from "lucide-react";
 import { useAppSelector, useAppDispatch } from "@/store/hooks";
 import { signerForRelease, useHoldsProjectKey, useIsMine } from "../sharedKey/ownership";
 import { isSharedRelease } from "../sharedKey/members";
 import { albumParamsFrom } from "../sharedKey/releaseEdit";
 import { addProjectOwner } from "../sharedKey/projectOwners";
 import type { MusicMember } from "@/types/music";
-import { goBack, setActiveDetailId } from "@/store/slices/musicSlice";
+import { setActiveDetailId } from "@/store/slices/musicSlice";
+import { BackLink } from "../BackLink";
 import { TrackRow } from "../TrackRow";
 import { useAudioPlayer } from "../useAudioPlayer";
 import { useLibrary } from "../useLibrary";
@@ -291,13 +292,7 @@ export function AlbumDetail() {
             </div>
           )}
           <div className="px-8 pt-5">
-            <button
-              onClick={() => dispatch(goBack())}
-              className="-ml-1.5 flex items-center gap-1.5 rounded-md px-1.5 py-1 text-xs text-soft transition-colors hover:bg-surface-hover hover:text-heading"
-            >
-              <ArrowLeft size={14} />
-              Back
-            </button>
+            <BackLink />
           </div>
           <div className="flex flex-wrap items-end gap-x-8 gap-y-5 px-8 pb-7 pt-5">
             <Artwork

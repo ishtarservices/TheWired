@@ -1,8 +1,9 @@
-import { useEffect, useRef } from "react";
+import { useEffect, useLayoutEffect, useRef } from "react";
 import { useAppDispatch, useAppSelector } from "@/store/hooks";
 import { setMusicView } from "@/store/slices/musicSlice";
 import { selectFeatureEnabled, FEATURE_MUSIC_INSIGHTS } from "@/store/slices/featuresSlice";
 import type { MusicView } from "@/types/music";
+import { MUSIC_DETAIL_VIEWS } from "@/hooks/useNavigationHistory";
 import { MusicHome } from "./views/MusicHome";
 import { SongList } from "./views/SongList";
 import { AlbumGrid } from "./views/AlbumGrid";
@@ -55,7 +56,19 @@ export function MusicRouter() {
   const dispatch = useAppDispatch();
   const activeView = useAppSelector((s) => s.music.activeView);
   const insightsEnabled = useAppSelector(selectFeatureEnabled(FEATURE_MUSIC_INSIGHTS));
+  const activeDetailId = useAppSelector((s) => s.music.activeDetailId);
   const visitedRef = useRef(new Set<MusicView>());
+  const activeRef = useRef<HTMLDivElement>(null);
+
+  // Each detail view is one kept-alive component that shows whichever project,
+  // artist or folder is open, so it would otherwise keep the scroll offset of
+  // the last one. A different thing starts at the top. Sections (Home,
+  // Explore, the lists) are left alone: returning to one is meant to land
+  // where you were.
+  useLayoutEffect(() => {
+    if (!MUSIC_DETAIL_VIEWS.has(activeView)) return;
+    activeRef.current?.querySelector(".overflow-y-auto")?.scrollTo({ top: 0 });
+  }, [activeView, activeDetailId]);
 
   // Insights is optional (Settings → Features). Switching it off while the
   // page is open would leave a view with no way back to it in the sidebar.
@@ -74,6 +87,7 @@ export function MusicRouter() {
         return (
           <div
             key={view}
+            ref={isActive ? activeRef : undefined}
             className={isActive ? "flex flex-1 overflow-hidden" : "hidden"}
           >
             <Component />
