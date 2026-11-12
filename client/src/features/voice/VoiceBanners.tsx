@@ -1,7 +1,7 @@
 import { AlertTriangle, RefreshCw, ShieldAlert, Volume2, WifiOff, X } from "lucide-react";
 import { useAppDispatch, useAppSelector } from "@/store/hooks";
 import { setMediaError, setE2EEError } from "@/store/slices/voiceSlice";
-import { getLivekitRoom } from "@/lib/webrtc/livekitClient";
+import { resumeAudioPlayback } from "@/lib/webrtc/livekitClient";
 import { retryMicrophone } from "./voiceService";
 
 /**
@@ -26,9 +26,9 @@ export function VoiceBanners() {
       {audioBlocked && (
         <button
           onClick={() => {
-            getLivekitRoom()
-              ?.startAudio()
-              .catch((err) => console.warn("[voice] startAudio failed:", err));
+            resumeAudioPlayback().catch((err) =>
+              console.warn("[voice] could not start audio playback:", err),
+            );
           }}
           className="flex items-center gap-2 rounded-full bg-amber-500/15 px-4 py-1.5 text-xs font-medium text-amber-400 hover:bg-amber-500/25 transition-colors"
         >

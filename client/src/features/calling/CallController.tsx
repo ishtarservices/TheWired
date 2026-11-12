@@ -325,7 +325,6 @@ function FloatingCallStage({
       {main ? (
         <MediaTile
           tile={main}
-          fit="cover"
           onFocus={onExpand}
           extras={!main.isLocal && main.source === "camera" ? <TileVolumeControl pubkey={main.pubkey} /> : null}
         />
@@ -411,7 +410,7 @@ function CallPip({ tile }: { tile: MediaTileModel }) {
       onPointerCancel={onPointerUp}
       title="Drag to move · click to swap"
     >
-      <MediaTile tile={tile} fit="cover" compact />
+      <MediaTile tile={tile} compact />
     </div>
   );
 }

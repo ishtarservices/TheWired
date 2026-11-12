@@ -7,9 +7,10 @@
 //   join      → send our CURRENT key to the joiner (and the NEXT one if a
 //               rotation is in flight)
 //   leave     → rotate: new random key at index (i+1) mod 256, send it to
-//               everyone still here, then switch our encoder to it after
-//               USE_KEY_DELAY_MS so receivers hold it before the first frame
-//               under the new index arrives. Leave bursts are debounced.
+//               everyone still here (and once more RESEND_DELAY_MS later),
+//               then switch our encoder to it after USE_KEY_DELAY_MS so
+//               receivers hold it before the first frame under the new index
+//               arrives. Leave bursts are debounced.
 //   reconnect → re-install our key locally and re-send it (a full LiveKit
 //               reconnect can reset the worker's current index).
 //
@@ -24,8 +25,19 @@ import {
 import { hexToBytes, bytesToHex } from "@noble/hashes/utils";
 import type { SenderKeySink } from "./callKeys";
 
-/** Grace between distributing a new key and encoding with it. */
-export const USE_KEY_DELAY_MS = 2000;
+/** Grace between distributing a new key and encoding with it.
+ *
+ *  A receiver that does not hold the new key yet drops every frame under it
+ *  (silence, not noise), so this has to outlast a slow hand-over, not a
+ *  typical one: each recipient costs the sender a seal + sign and the
+ *  receiver two decrypts through its signer queue, and when someone leaves
+ *  EVERY remaining member rotates at once. At 2 s a remote signer or a slow
+ *  relay turned each leave into a second or two of people not hearing each
+ *  other. It must also stay above RESEND_DELAY_MS so the repeat goes out
+ *  before the switch and a single lost envelope costs nothing audible.
+ *  The price is that the previous key lives this much longer after a leave,
+ *  which only matters against an SFU that keeps feeding the leaver media. */
+export const USE_KEY_DELAY_MS = 5000;
 /** Leave events inside this window collapse into one rotation. */
 export const ROTATE_DEBOUNCE_MS = 500;
 /** Above this many recipients a rotation is O(N) signer round-trips; warn. */
@@ -237,8 +249,10 @@ export class ChannelKeyManager {
     this.info(`rotating → idx=${this.next.idx} (${this.members.size} recipients)`);
     await this.sendTo([...this.members], [{ idx: this.next.idx, key: bytesToHex(this.next.key) }]);
     if (this.disposed || !this.next) return;
-    // The repeat lands after the encoder switch, so it carries the key that
-    // is by then current — exactly what a receiver that missed it needs.
+    // The repeat goes out while the rotation is still pending (RESEND_DELAY_MS
+    // < USE_KEY_DELAY_MS), carrying the current AND the next key, so a
+    // receiver that missed the first envelope still holds the new key before
+    // the first frame under it arrives.
     this.scheduleResend([...this.members]);
     this.switchTimer = setTimeout(() => {
       this.switchTimer = null;

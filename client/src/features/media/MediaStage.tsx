@@ -100,18 +100,17 @@ export function MediaStage({
   }, [screenShareTileIds, tiles, onFocusTile]);
 
   const renderTile = (tile: MediaTileModel, opts: { compact: boolean; onStage: boolean }) => {
-    const fit: TileFit = layout.fitOverrides[tile.id] ?? "cover";
     return (
       <MediaTile
         tile={tile}
-        fit={fit}
+        fit={layout.fitOverrides[tile.id]}
         compact={opts.compact}
         isOnStage={opts.onStage}
         isPinned={layout.pinnedTileId === tile.id}
         onFocus={() => onFocusTile(tile.id)}
         onExitFocus={() => onSetLayoutMode("grid")}
         onPin={() => onPinTile(layout.pinnedTileId === tile.id ? null : tile.id)}
-        onToggleFit={() => onSetFit(tile.id, fit === "cover" ? "contain" : "cover")}
+        onSetFit={(fit) => onSetFit(tile.id, fit)}
         onStopLocalShare={onStopLocalShare}
         extras={renderTileExtras?.(tile)}
       />

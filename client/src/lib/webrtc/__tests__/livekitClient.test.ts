@@ -39,6 +39,10 @@ const h = vi.hoisted(() => {
     localParticipant = { identity: ME, setMicrophoneEnabled: async () => {} };
     remoteParticipants = new Map<string, unknown>();
     canPlaybackAudio = true;
+    startAudio = async () => {
+      trace.push("startAudio");
+      this.canPlaybackAudio = true;
+    };
     disconnectCalls = 0;
     connect = async () => {
       for (const [k, v] of state.seedOnConnect) this.remoteParticipants.set(k, v);
@@ -95,6 +99,9 @@ vi.mock("livekit-client", () => ({
     TrackUnmuted: "trackUnmuted",
     TrackSubscribed: "trackSubscribed",
     TrackUnsubscribed: "trackUnsubscribed",
+    LocalTrackPublished: "localTrackPublished",
+    LocalTrackUnpublished: "localTrackUnpublished",
+    TrackStreamStateChanged: "trackStreamStateChanged",
     AudioPlaybackStatusChanged: "audioPlaybackChanged",
     Disconnected: "disconnected",
     MediaDevicesError: "mediaDevicesError",
@@ -112,8 +119,9 @@ vi.mock("livekit-client", () => ({
   Track: {
     Source: { Microphone: "microphone", Camera: "camera", ScreenShare: "screen_share" },
     Kind: { Audio: "audio", Video: "video" },
+    StreamState: { Active: "active", Paused: "paused" },
   },
-  ConnectionQuality: { Excellent: "excellent", Good: "good", Poor: "poor", Unknown: "unknown" },
+  ConnectionQuality: { Excellent: "excellent", Good: "good", Poor: "poor", Lost: "lost", Unknown: "unknown" },
   DisconnectReason: { CLIENT_INITIATED: 1 },
   VideoPresets: {
     h360: { resolution: { width: 640, height: 360, frameRate: 20 } },
@@ -121,8 +129,9 @@ vi.mock("livekit-client", () => ({
     h1080: { resolution: { width: 1920, height: 1080, frameRate: 30 } },
   },
   ScreenSharePresets: {
-    h1080fps15: { encoding: { maxBitrate: 2_500_000, maxFramerate: 15 }, resolution: { width: 1920, height: 1080 } },
-    h1080fps30: { encoding: { maxBitrate: 5_000_000, maxFramerate: 30 }, resolution: { width: 1920, height: 1080 } },
+    // As in the SDK: a preset's resolution carries its own frame rate.
+    h1080fps15: { encoding: { maxBitrate: 2_500_000, maxFramerate: 15 }, resolution: { width: 1920, height: 1080, frameRate: 15 } },
+    h1080fps30: { encoding: { maxBitrate: 5_000_000, maxFramerate: 30 }, resolution: { width: 1920, height: 1080, frameRate: 30 } },
   },
 }));
 vi.mock("../e2ee/e2eeWorker", () => ({
@@ -155,7 +164,21 @@ import {
   getE2EESession,
   disconnectFromRoom,
   getLivekitRoom,
+  resumeAudioPlayback,
+  onTrackTopologyChanged,
+  getParticipantTrack,
+  setScreenShareEnabled,
 } from "../livekitClient";
+import { deliverMediaKey, resetMediaKeyInbox } from "../e2ee/mediaKeyInbox";
+import { attachRemoteAudio, clearRemoteAudio } from "../remoteAudio";
+import { startOutgoingCall } from "@/store/slices/callSlice";
+import {
+  toggleMute,
+  toggleVideo,
+  setScreenSharing,
+  setAudioPlaybackBlocked,
+} from "@/store/slices/voiceSlice";
+import type { Track as LiveKitTrack } from "livekit-client";
 import {
   abandonMediaSessions,
   invalidateMediaJoins,
@@ -166,7 +189,7 @@ import { store, resetAll } from "@/store";
 import { login } from "@/store/slices/identitySlice";
 import { addParticipant } from "@/store/slices/voiceSlice";
 import { buildRoomOptions } from "../livekitClient";
-import { DEFAULT_MEDIA_PREFS } from "../mediaPrefs";
+import { DEFAULT_MEDIA_PREFS, setMediaPrefs, __resetMediaPrefsForTests } from "../mediaPrefs";
 import { E2EEUnsupportedError } from "../e2ee/session";
 import { sendMediaKey } from "../e2ee/mediaKeySender";
 import { handleIncomingMessage, broadcastSessionToLateJoiner } from "@/features/listenTogether/listenTogetherService";
@@ -243,6 +266,226 @@ describe("remote camera on/off", () => {
     seedRemote({ hasVideo: true });
     room().emit("trackMuted", { source: "camera" }, local);
     expect(store.getState().voice.participants[REMOTE].hasVideo).toBe(true);
+  });
+});
+
+/**
+ * Our own mute / camera / share flags follow what LiveKit really publishes.
+ *
+ * pre-fix: local TrackMuted / TrackUnpublished were ignored. When the SDK
+ * muted a mic whose device went away (and could not be replaced), a
+ * moderator muted the track server-side, or the OS "stop sharing" button
+ * ended a share, the UI kept showing "unmuted" / "sharing" while nothing was
+ * being sent — the user was silent without knowing, and had to toggle twice.
+ */
+describe("local media state follows the SDK", () => {
+  const ended = { mediaStreamTrack: { readyState: "ended" } };
+  const live = { mediaStreamTrack: { readyState: "live" } };
+
+  it("a mic the SDK muted after its device died: muted in the UI, with the reason", () => {
+    expect(store.getState().voice.localState.muted).toBe(false);
+    room().emit("trackMuted", { source: "microphone", track: ended }, local);
+    expect(store.getState().voice.localState.muted).toBe(true);
+    expect(store.getState().voice.mediaError).toMatch(/microphone stopped working/i);
+  });
+
+  it("a server-side (moderator) mute shows as muted, without a device error", () => {
+    room().emit("trackMuted", { source: "microphone", track: live }, local);
+    expect(store.getState().voice.localState.muted).toBe(true);
+    expect(store.getState().voice.mediaError).toBeNull();
+  });
+
+  it("a mute the user made from the controls changes nothing here", () => {
+    store.dispatch(toggleMute()); // the controls flip Redux first
+    room().emit("trackMuted", { source: "microphone", track: live }, local);
+    expect(store.getState().voice.localState.muted).toBe(true);
+    expect(store.getState().voice.mediaError).toBeNull();
+    store.dispatch(toggleMute());
+    room().emit("trackUnmuted", { source: "microphone", track: live }, local);
+    expect(store.getState().voice.localState.muted).toBe(false);
+  });
+
+  it("a camera that died is shown as off", () => {
+    store.dispatch(toggleVideo());
+    expect(store.getState().voice.localState.videoEnabled).toBe(true);
+    room().emit("trackMuted", { source: "camera", track: ended }, local);
+    expect(store.getState().voice.localState.videoEnabled).toBe(false);
+    expect(store.getState().voice.mediaError).toMatch(/camera stopped working/i);
+  });
+
+  it("a screen share ended from the OS control clears the sharing flag", () => {
+    room().emit("localTrackPublished", { source: "screen_share" });
+    expect(store.getState().voice.localState.screenSharing).toBe(true);
+    room().emit("localTrackUnpublished", { source: "screen_share" });
+    expect(store.getState().voice.localState.screenSharing).toBe(false);
+    // A mic (un)publish is not a mute and leaves the flags alone.
+    store.dispatch(setScreenSharing(true));
+    room().emit("localTrackUnpublished", { source: "microphone" });
+    expect(store.getState().voice.localState.screenSharing).toBe(true);
+    expect(store.getState().voice.localState.muted).toBe(false);
+  });
+
+  it("during a 1:1 call the call's own flags are the ones that follow", () => {
+    store.dispatch(
+      startOutgoingCall({
+        partnerPubkey: REMOTE,
+        callType: "video",
+        roomId: ROOM_ID,
+        roomSecretKey: SECRET,
+        e2ee: true,
+      }),
+    );
+    room().emit("trackMuted", { source: "microphone", track: ended }, local);
+    room().emit("trackMuted", { source: "camera", track: live }, local);
+    room().emit("localTrackPublished", { source: "screen_share" });
+    const call = store.getState().call.activeCall!;
+    expect(call.isMuted).toBe(true);
+    expect(call.isVideoEnabled).toBe(false);
+    expect(call.isScreenSharing).toBe(true);
+    expect(store.getState().voice.localState.muted).toBe(false);
+    room().emit("localTrackUnpublished", { source: "screen_share" });
+    expect(store.getState().call.activeCall!.isScreenSharing).toBe(false);
+  });
+});
+
+describe("audio playback recovery", () => {
+  it("the Enable-audio action restarts SDK playback, resumes paused elements and clears the flag", async () => {
+    const el = document.createElement("audio");
+    const play = vi.fn(async () => {});
+    Object.defineProperty(el, "paused", { get: () => true });
+    el.play = play;
+    const track = { kind: "audio", attach: () => el, detach: () => {} } as unknown as LiveKitTrack;
+    attachRemoteAudio(track, REMOTE);
+    store.dispatch(setAudioPlaybackBlocked(true));
+    h.trace.length = 0;
+
+    await resumeAudioPlayback();
+
+    expect(h.trace).toContain("startAudio");
+    expect(play).toHaveBeenCalledTimes(1);
+    expect(store.getState().voice.audioPlaybackBlocked).toBe(false);
+    clearRemoteAudio();
+  });
+
+  it("an element the WebView will not let us resume raises the Enable-audio pill", async () => {
+    const el = document.createElement("audio");
+    el.play = vi.fn(async () => {
+      throw Object.assign(new Error("gesture required"), { name: "NotAllowedError" });
+    });
+    const track = { kind: "audio", attach: () => el, detach: () => {} } as unknown as LiveKitTrack;
+    attachRemoteAudio(track, REMOTE);
+    expect(store.getState().voice.audioPlaybackBlocked).toBe(false);
+
+    el.dispatchEvent(new Event("pause"));
+    await Promise.resolve();
+    await Promise.resolve();
+
+    expect(store.getState().voice.audioPlaybackBlocked).toBe(true);
+    clearRemoteAudio();
+  });
+});
+
+/**
+ * pre-fix: a subscription was bound to whichever Room existed when it was
+ * made, and was a silent no-op when there was none. A 1:1 call renders its
+ * tiles as soon as the call starts — before the room is connected — so the
+ * self-view never heard that the camera had been published and stayed black
+ * for the whole call (until the panel was expanded, which remounted it).
+ */
+describe("track change notifications outlive the room", () => {
+  it("a listener registered before the room exists hears the room come up and its tracks change", async () => {
+    await disconnectFromRoom();
+    room().emit("disconnected", 1);
+    const seen = vi.fn();
+    const off = onTrackTopologyChanged(seen);
+
+    await connectToRoom("wss://x", "token");
+    expect(seen).toHaveBeenCalled(); // the room itself coming up
+    seen.mockClear();
+
+    const cameraTrack = { kind: "video" };
+    (room().localParticipant as unknown as Record<string, unknown>).getTrackPublication = (src: string) =>
+      src === "camera" ? { track: cameraTrack } : undefined;
+    room().emit("localTrackPublished", { source: "camera" });
+    expect(seen).toHaveBeenCalledTimes(1);
+    // ...and at that moment the self-view can resolve its track.
+    expect(getParticipantTrack(ME, "camera", true)).toBe(cameraTrack);
+
+    off();
+    room().emit("localTrackUnpublished", { source: "camera" });
+    expect(seen).toHaveBeenCalledTimes(1);
+  });
+
+  it("tells listeners when the room goes away, so tiles drop their dead tracks", () => {
+    const seen = vi.fn();
+    const off = onTrackTopologyChanged(seen);
+    room().emit("disconnected", 3);
+    expect(seen).toHaveBeenCalled();
+    expect(getParticipantTrack(ME, "camera", true)).toBeNull();
+    off();
+  });
+});
+
+describe("remote video health", () => {
+  it("a camera stream the SFU pauses is flagged on the participant, and cleared when it resumes or turns off", () => {
+    seedRemote({ hasVideo: true });
+    const who = () => store.getState().voice.participants[REMOTE];
+    room().emit("trackStreamStateChanged", { source: "camera" }, "paused", remote);
+    expect(who().videoPaused).toBe(true);
+    room().emit("trackStreamStateChanged", { source: "camera" }, "active", remote);
+    expect(who().videoPaused).toBe(false);
+
+    room().emit("trackStreamStateChanged", { source: "camera" }, "paused", remote);
+    room().emit("trackMuted", { source: "camera" }, remote);
+    expect(who().videoPaused).toBe(false);
+    // Only cameras: a paused screen share is not a frozen face.
+    room().emit("trackStreamStateChanged", { source: "screen_share" }, "paused", remote);
+    expect(who().videoPaused).toBe(false);
+  });
+
+  it("a participant whose connection is lost shows as poor, not unknown", () => {
+    seedRemote();
+    room().emit("connectionQualityChanged", "lost", remote);
+    expect(store.getState().voice.participants[REMOTE].connectionQuality).toBe("poor");
+  });
+});
+
+describe("screen share capture", () => {
+  // pre-fix: the capture always used the 15 fps preset's resolution (which
+  // carries frameRate: 15), so "smooth motion" encoded at 30 fps from a
+  // 15 fps capture. And the room-wide "balanced" degradation, chosen for
+  // faces, let a text share go soft under congestion.
+  const shareWith = async (motion: boolean) => {
+    const setScreenShare = vi.fn(async (..._args: unknown[]) => {});
+    (room().localParticipant as unknown as Record<string, unknown>).setScreenShareEnabled = setScreenShare;
+    setMediaPrefs({ screenShareMotion: motion });
+    try {
+      await setScreenShareEnabled(true);
+    } finally {
+      __resetMediaPrefsForTests();
+    }
+    const [, capture, publish] = setScreenShare.mock.calls[0] as [
+      boolean,
+      { resolution: { frameRate: number }; contentHint: string },
+      { screenShareEncoding: { maxFramerate: number }; degradationPreference: string },
+    ];
+    return { capture, publish };
+  };
+
+  it("text mode: 15 fps capture and encode, keeps resolution under congestion", async () => {
+    const { capture, publish } = await shareWith(false);
+    expect(capture.resolution.frameRate).toBe(15);
+    expect(capture.contentHint).toBe("detail");
+    expect(publish.screenShareEncoding.maxFramerate).toBe(15);
+    expect(publish.degradationPreference).toBe("maintain-resolution");
+  });
+
+  it("motion mode: captures at the 30 fps it encodes at, keeps frame rate under congestion", async () => {
+    const { capture, publish } = await shareWith(true);
+    expect(capture.resolution.frameRate).toBe(30);
+    expect(capture.contentHint).toBe("motion");
+    expect(publish.screenShareEncoding.maxFramerate).toBe(30);
+    expect(publish.degradationPreference).toBe("maintain-framerate");
   });
 });
 
@@ -340,6 +583,33 @@ describe("E2EE", () => {
       await vi.advanceTimersByTimeAsync(6_000);
       room().emit("encryptionError", new Error("boom"), undefined);
       expect(store.getState().voice.e2ee.error).toMatch(/encrypt outgoing/);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("in a channel, the key that was still on its way retires its own decrypt banner when it lands", async () => {
+    vi.useFakeTimers();
+    try {
+      resetMediaKeyInbox();
+      h.state.lastRoom = null;
+      await connectToRoom("wss://x", "token", { e2ee: { kind: "channel", roomName: "s:c" } });
+      room().emit("participantConnected", { identity: REMOTE, isMicrophoneEnabled: true, trackPublications: new Map() });
+      await vi.advanceTimersByTimeAsync(9_000);
+      room().emit("encryptionError", new Error("missing key"), remote);
+      expect(store.getState().voice.e2ee.error).toMatch(/aaaaaaaa/);
+
+      // A key from someone else leaves the banner about REMOTE alone.
+      const other = "b".repeat(64);
+      const env = { v: 1 as const, room: "s:c", keys: [{ idx: 1, key: "0a".repeat(32) }], ts: Date.now() };
+      expect(deliverMediaKey(other, env, "w-other")).toBe(true);
+      expect(store.getState().voice.e2ee.error).toMatch(/aaaaaaaa/);
+
+      expect(deliverMediaKey(REMOTE, env, "w-remote")).toBe(true);
+      expect(store.getState().voice.e2ee.error).toBeNull();
+      // ...and a fresh failure from them is reported at once, not debounced.
+      room().emit("encryptionError", new Error("missing key"), remote);
+      expect(store.getState().voice.e2ee.error).toMatch(/aaaaaaaa/);
     } finally {
       vi.useRealTimers();
     }
@@ -458,6 +728,45 @@ describe("media prefs → room options", () => {
   it("omits deviceId for system default", () => {
     const opts = buildRoomOptions(DEFAULT_MEDIA_PREFS);
     expect((opts.audioCaptureDefaults as Record<string, unknown>).deviceId).toBeUndefined();
+  });
+
+  // pre-fix: LiveKit's default `voiceIsolation: true` was merged into the
+  // capture options whatever the toggles said, so a user who turned echo
+  // cancellation off to stop being lowered under other speakers still had
+  // the strongest voice filter running.
+  it("voice isolation follows the toggles instead of always riding along", () => {
+    const audioOf = (patch: Partial<typeof DEFAULT_MEDIA_PREFS>) =>
+      buildRoomOptions({ ...DEFAULT_MEDIA_PREFS, ...patch }).audioCaptureDefaults as Record<string, unknown>;
+    expect(audioOf({}).voiceIsolation).toBe(true);
+    expect(audioOf({ echoCancellation: false })).toMatchObject({
+      echoCancellation: false,
+      voiceIsolation: false,
+      noiseSuppression: true,
+      autoGainControl: true,
+    });
+    expect(audioOf({ noiseSuppression: false }).voiceIsolation).toBe(false);
+  });
+
+  it("\"Let voices overlap\" mid-call re-captures the mic without echo cancellation or voice isolation", async () => {
+    const restartTrack = vi.fn(async (_opts: Record<string, unknown>) => {});
+    (room().localParticipant as unknown as Record<string, unknown>).getTrackPublication = () => ({
+      track: { restartTrack },
+    });
+    try {
+      setMediaPrefs({ echoCancellation: false });
+      await vi.waitFor(() => expect(restartTrack).toHaveBeenCalledTimes(1));
+      expect(restartTrack.mock.calls[0][0]).toMatchObject({
+        echoCancellation: false,
+        voiceIsolation: false,
+        noiseSuppression: true,
+      });
+      // Back on: the same path restores both.
+      setMediaPrefs({ echoCancellation: true });
+      await vi.waitFor(() => expect(restartTrack).toHaveBeenCalledTimes(2));
+      expect(restartTrack.mock.calls[1][0]).toMatchObject({ echoCancellation: true, voiceIsolation: true });
+    } finally {
+      __resetMediaPrefsForTests();
+    }
   });
 });
 

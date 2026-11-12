@@ -17,6 +17,10 @@ import {
   clearRemoteAudio,
   attachedRemoteAudioCount,
   attachedElementsFor,
+  resumeRemoteAudio,
+  setRemoteAudioBlockedHandler,
+  setRemoteAudioOutputVolume,
+  getRemoteAudioOutputVolume,
 } from "../remoteAudio";
 import { setParticipantAudio, __resetMediaPrefsForTests } from "../mediaPrefs";
 
@@ -153,5 +157,140 @@ describe("per-participant volume / local mute", () => {
     attachRemoteAudio(asTrack(t), PK);
     expect(attachedElementsFor(PK)).toEqual([t.el]);
     expect(attachedElementsFor("c".repeat(64))).toEqual([]);
+  });
+});
+
+/**
+ * pre-fix: LiveKit's `startAudio()` sets `muted = false` on every attached
+ * element, and the SDK calls it by itself each time the local mic stream is
+ * (re)acquired — so switching input device while deafened, or with one
+ * participant muted locally, made them audible again. And an element the
+ * WebView paused (audio-route change, interruption) stayed paused: that
+ * participant was silent until they republished.
+ */
+describe("elements changed behind our back", () => {
+  const PK = "b".repeat(64);
+
+  beforeEach(() => {
+    __resetMediaPrefsForTests();
+    clearRemoteAudio();
+    setRemoteAudioBlockedHandler(null);
+  });
+
+  it("deafen survives something else unmuting the element", () => {
+    const t = fakeTrack("audio");
+    attachRemoteAudio(asTrack(t), PK);
+    setRemoteAudioOutputMuted(true);
+    t.el.muted = false; // what room.startAudio() does
+    t.el.dispatchEvent(new Event("volumechange"));
+    expect(t.el.muted).toBe(true);
+  });
+
+  it("a per-participant local mute and volume survive it too", () => {
+    setParticipantAudio(PK, { volume: 0.25, muted: true });
+    const t = fakeTrack("audio");
+    attachRemoteAudio(asTrack(t), PK);
+    t.el.muted = false;
+    t.el.volume = 1;
+    t.el.dispatchEvent(new Event("volumechange"));
+    expect(t.el.muted).toBe(true);
+    expect(t.el.volume).toBeCloseTo(0.25);
+  });
+
+  it("an element paused while attached is resumed", () => {
+    const t = fakeTrack("audio");
+    const play = vi.fn(async () => {});
+    t.el.play = play;
+    attachRemoteAudio(asTrack(t), PK);
+    t.el.dispatchEvent(new Event("pause"));
+    expect(play).toHaveBeenCalledTimes(1);
+  });
+
+  it("the pause that comes with a detach is left alone", () => {
+    const t = fakeTrack("audio");
+    const play = vi.fn(async () => {});
+    t.el.play = play;
+    attachRemoteAudio(asTrack(t), PK);
+    detachRemoteAudio(asTrack(t));
+    t.el.dispatchEvent(new Event("pause"));
+    expect(play).not.toHaveBeenCalled();
+  });
+
+  it("asks for a gesture when resuming is refused, and when the element is paused again at once", async () => {
+    const blocked = vi.fn();
+    setRemoteAudioBlockedHandler(blocked);
+    const refused = fakeTrack("audio");
+    refused.el.play = vi.fn(async () => {
+      throw Object.assign(new Error("gesture required"), { name: "NotAllowedError" });
+    });
+    attachRemoteAudio(asTrack(refused), PK);
+    refused.el.dispatchEvent(new Event("pause"));
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(blocked).toHaveBeenCalledTimes(1);
+
+    // Resumed fine, but the WebView pauses it again straight away: no loop.
+    const flapping = fakeTrack("audio");
+    const play = vi.fn(async () => {});
+    flapping.el.play = play;
+    attachRemoteAudio(asTrack(flapping), PK);
+    flapping.el.dispatchEvent(new Event("pause"));
+    flapping.el.dispatchEvent(new Event("pause"));
+    expect(play).toHaveBeenCalledTimes(1);
+    expect(blocked).toHaveBeenCalledTimes(2);
+  });
+
+  it("resumeRemoteAudio plays only the elements that are paused", () => {
+    const paused = fakeTrack("audio");
+    const playing = fakeTrack("audio");
+    const playPaused = vi.fn(async () => {});
+    const playPlaying = vi.fn(async () => {});
+    paused.el.play = playPaused;
+    playing.el.play = playPlaying;
+    Object.defineProperty(playing.el, "paused", { get: () => false });
+    attachRemoteAudio(asTrack(paused), PK);
+    attachRemoteAudio(asTrack(playing), PK);
+    resumeRemoteAudio();
+    expect(playPaused).toHaveBeenCalledTimes(1);
+    expect(playPlaying).not.toHaveBeenCalled();
+  });
+});
+
+/**
+ * The Listen Together music/voice balance. pre-fix it wrote `el.volume` on
+ * whatever elements existed at that moment: people who joined later played
+ * at full volume, and it overwrote each participant's own volume.
+ */
+describe("room-wide voice volume", () => {
+  const PK = "c".repeat(64);
+
+  beforeEach(() => {
+    __resetMediaPrefsForTests();
+    clearRemoteAudio();
+  });
+
+  it("scales every voice, keeps per-participant volumes in proportion, and reaches late joiners", () => {
+    setParticipantAudio(PK, { volume: 0.5 });
+    const quiet = fakeTrack("audio");
+    const normal = fakeTrack("audio");
+    attachRemoteAudio(asTrack(quiet), PK);
+    attachRemoteAudio(asTrack(normal));
+    setRemoteAudioOutputVolume(0.4);
+    expect(quiet.el.volume).toBeCloseTo(0.2);
+    expect(normal.el.volume).toBeCloseTo(0.4);
+    const late = fakeTrack("audio");
+    attachRemoteAudio(asTrack(late));
+    expect(late.el.volume).toBeCloseTo(0.4);
+  });
+
+  it("survives the element being reset, and goes back to full for the next room", () => {
+    const t = fakeTrack("audio");
+    attachRemoteAudio(asTrack(t));
+    setRemoteAudioOutputVolume(0.3);
+    t.el.volume = 1;
+    t.el.dispatchEvent(new Event("volumechange"));
+    expect(t.el.volume).toBeCloseTo(0.3);
+    clearRemoteAudio();
+    expect(getRemoteAudioOutputVolume()).toBe(1);
   });
 });

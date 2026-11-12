@@ -111,7 +111,12 @@ describe("channel session", () => {
         sends.push({ to, env });
       });
       const worker = fakeWorker();
-      const s = createE2EESession(ctx, ME, { worker, send });
+      const installedFrom: string[] = [];
+      const s = createE2EESession(ctx, ME, {
+        worker,
+        send,
+        onRemoteKeyInstalled: (sender) => installedFrom.push(sender),
+      });
       await s.installInitialKeys(); // no-op for channels
       expect(h.set).toHaveLength(0);
 
@@ -137,12 +142,18 @@ describe("channel session", () => {
       deliverMediaKey(B, { ...env, room: "other" }, "w2");
       await vi.advanceTimersByTimeAsync(0);
       expect(h.set.find((c) => c.identity === B && c.keyIndex === 2)).toBeUndefined();
+      // The room hears about accepted keys only (it retires a stale
+      // "could not decrypt" banner on them), never about a dropped one.
+      expect(installedFrom).toEqual([B, PEER]);
 
       // Leave → rotation to the remaining member, then the encoder switch.
       sends.length = 0;
       s.onParticipantLeft(PEER);
       await vi.advanceTimersByTimeAsync(ROTATE_DEBOUNCE_MS + USE_KEY_DELAY_MS);
-      expect(sends.map((x) => x.to)).toEqual([B]);
+      // Everything in that window goes to B alone, and key 1 reached B
+      // (envelope + repeat) before our encoder moved onto it.
+      expect([...new Set(sends.map((x) => x.to))]).toEqual([B]);
+      expect(sends.filter((x) => x.env.keys.some((k) => k.idx === 1)).length).toBeGreaterThanOrEqual(2);
       expect(h.set[h.set.length - 1]).toEqual({ identity: ME, keyIndex: 1 });
 
       s.dispose();
