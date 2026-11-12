@@ -381,7 +381,7 @@ pub async fn query_events_ctx(
     ctx: &ReadCtx<'_>,
 ) -> anyhow::Result<Vec<Event>> {
     if let Some(ref q) = filter.search {
-        return search_events_ctx(pool, q, filter.limit.unwrap_or(100), ctx).await;
+        return search_events_ctx(pool, filter, q, ctx).await;
     }
 
     let mut qb: QueryBuilder<Sqlite> =
@@ -574,38 +574,44 @@ fn push_tag_subquery(qb: &mut QueryBuilder<Sqlite>, name: &str, values: &[String
     qb.push("))");
 }
 
-/// NIP-50 full-text search via FTS5 (bm25 ranking), visibility-gated (#18).
+/// NIP-50 full-text search by bare query (FTS5 over `content`), gated like
+/// every other read. A REQ carrying `search` goes through `query_events_ctx`,
+/// which applies the whole filter.
 pub async fn search_events(
     pool: &SqlitePool,
     query: &str,
     limit: i64,
     authed_pubkey: Option<&str>,
 ) -> anyhow::Result<Vec<Event>> {
-    search_events_ctx(pool, query, limit, &ReadCtx::plain(authed_pubkey)).await
+    let filter = Filter {
+        search: Some(query.to_string()),
+        limit: Some(limit),
+        ..Filter::default()
+    };
+    search_events_ctx(pool, &filter, query, &ReadCtx::plain(authed_pubkey)).await
 }
 
-/// NIP-50 search under a full read context: wraps never match, expired never served.
+/// Search under the FULL filter (`kinds`, `authors`, `#h`, `since`/`until`,
+/// tags) plus the read gates `push_filter_conditions` applies to a plain REQ —
+/// the Postgres `event_store::search_events_ctx` twin (audit 2026-09-18
+/// C-01). Gift wraps and reports are never searchable whatever the role.
+/// Unqualified column names resolve to `events`: the FTS table only declares
+/// `content`, which no filter condition touches.
 pub async fn search_events_ctx(
     pool: &SqlitePool,
+    filter: &Filter,
     query: &str,
-    limit: i64,
     ctx: &ReadCtx<'_>,
 ) -> anyhow::Result<Vec<Event>> {
     let mut qb: QueryBuilder<Sqlite> = QueryBuilder::new(
-        "SELECT e.id, e.pubkey, e.created_at, e.kind, e.tags, e.content, e.sig \
-         FROM events_fts f JOIN events e ON e.rowid = f.rowid WHERE events_fts MATCH ",
+        "SELECT events.id, events.pubkey, events.created_at, events.kind, events.tags, events.content, events.sig \
+         FROM events_fts f JOIN events ON events.rowid = f.rowid WHERE events_fts MATCH ",
     );
     qb.push_bind(query.to_string());
-    qb.push(format!(" AND e.kind <> {KIND_GIFT_WRAP} AND e.kind <> {KIND_REPORT} AND (e.expires_at IS NULL OR e.expires_at > "))
-        .push_bind(ctx.now)
-        .push(")");
-    match ctx.authed {
-        Some(pk) => push_authed_gate(&mut qb, pk, "e", "e.", ctx.serve_all_spaces),
-        None => {
-            qb.push(" AND e.visibility IS NULL AND e.h_tag IS NULL");
-        }
-    }
-    qb.push(" ORDER BY bm25(events_fts) LIMIT ").push_bind(limit.clamp(0, MAX_QUERY_LIMIT));
+    qb.push(format!(" AND events.kind <> {KIND_GIFT_WRAP} AND events.kind <> {KIND_REPORT}"));
+    push_filter_conditions(&mut qb, filter, ctx);
+    qb.push(" ORDER BY bm25(events_fts) LIMIT ")
+        .push_bind(filter.limit.unwrap_or(100).clamp(0, MAX_QUERY_LIMIT));
     let rows: Vec<EventRow> = qb.build_query_as().fetch_all(pool).await?;
     Ok(rows.into_iter().map(row_to_event).collect())
 }
