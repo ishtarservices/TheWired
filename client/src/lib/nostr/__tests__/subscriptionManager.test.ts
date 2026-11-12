@@ -156,7 +156,7 @@ describe("subscriptionManager EOSE quorum", () => {
     subscriptionManager.close(subId);
     vi.advanceTimersByTime(10_000);
     expect(onEOSE).not.toHaveBeenCalled();
-    expect(relayCloseMock).toHaveBeenCalled();
+    expect(relayCloseMock).toHaveBeenCalledWith("relayman-sub");
   });
 
   it("fires onEOSE immediately when every requested relay was stripped", async () => {
@@ -241,7 +241,7 @@ describe("subscriptionManager — subscribeOnce", () => {
     });
     lastSubOpts().onEOSE("sub", LOCAL); // all-eose
     await expect(p).resolves.toEqual({ reason: "all-eose" });
-    expect(relayCloseMock).toHaveBeenCalled(); // guaranteed close (no leak)
+    expect(relayCloseMock).toHaveBeenCalledWith("relayman-sub"); // guaranteed close (no leak)
   });
 
   it("resolves 'no-relays' (and closes) when there's nothing to wait on", async () => {
@@ -250,6 +250,52 @@ describe("subscriptionManager — subscribeOnce", () => {
       relayUrls: [PURPLEPAG],
     });
     await expect(p).resolves.toEqual({ reason: "no-relays" });
-    expect(relayCloseMock).toHaveBeenCalled();
+    expect(relayCloseMock).toHaveBeenCalledWith("relayman-sub");
+  });
+});
+
+describe("subscriptionManager — close reaches the relay", () => {
+  // relayManager mints the id that goes on the wire; the manager returns a
+  // different id of its own. Closing with the manager's id matched nothing, so
+  // no CLOSE was ever sent and the relay kept every subscription open until
+  // the socket dropped (a channel switch leaked one slot of the relay's 100).
+  it("closes with the id relayManager put on the wire, not its own", () => {
+    relaySubMock.mockReturnValue("sub_7_wire");
+    const id = subscriptionManager.subscribe({ filters: [{ kinds: [9], "#h": ["space"] }], relayUrls: [LOCAL] });
+    expect(id).not.toBe("sub_7_wire");
+
+    subscriptionManager.close(id);
+
+    expect(relayCloseMock).toHaveBeenCalledTimes(1);
+    expect(relayCloseMock).toHaveBeenCalledWith("sub_7_wire");
+  });
+
+  it("closes each subscription with its own wire id", () => {
+    relaySubMock.mockReturnValueOnce("wire-a").mockReturnValueOnce("wire-b");
+    const a = subscriptionManager.subscribe({ filters: [{ kinds: [1] }], relayUrls: [LOCAL] });
+    const b = subscriptionManager.subscribe({ filters: [{ kinds: [1] }], relayUrls: [LOCAL] });
+
+    subscriptionManager.close(b);
+    expect(relayCloseMock).toHaveBeenCalledWith("wire-b");
+    subscriptionManager.close(a);
+    expect(relayCloseMock).toHaveBeenLastCalledWith("wire-a");
+  });
+
+  it("closing twice sends one CLOSE", () => {
+    const id = subscriptionManager.subscribe({ filters: [{ kinds: [1] }], relayUrls: [LOCAL] });
+    subscriptionManager.close(id);
+    subscriptionManager.close(id);
+    expect(relayCloseMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("still closes on the relay when EOSE fires before relayManager has returned its id", () => {
+    // A relay that answers synchronously: the one-shot's onEOSE closes the sub
+    // while relayManager.subscribe is still on the stack.
+    relaySubMock.mockImplementation((opts: { onEOSE: (id: string, url: string) => void }) => {
+      opts.onEOSE("early", LOCAL);
+      return "wire-early";
+    });
+    void subscriptionManager.subscribeOnce({ filters: [{ kinds: [1] }], relayUrls: [LOCAL] });
+    expect(relayCloseMock).toHaveBeenCalledWith("wire-early");
   });
 });
