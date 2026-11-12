@@ -1,4 +1,6 @@
 mod cloudflared;
+#[cfg(test)]
+mod ipc_acl_tests;
 mod keystore;
 #[cfg(not(dev))]
 mod localhost;
