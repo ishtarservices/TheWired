@@ -86,14 +86,20 @@ Membership of a 1:1 room is fixed, so nothing rotates. Pinned vectors live in
   `{ v:1, room:"<spaceId>:<channelId>", keys:[{ idx, key:<64 hex> }], ts:<sender ms> }`.
 - **Join** → send the current key (and the next one if a rotation is in flight) to the joiner.
 - **Leave** → rotate: new random key at `(idx+1) mod 256`, sent to everyone still
-  present, then the local encoder switches after `USE_KEY_DELAY_MS` (2 s) so
-  receivers hold it first. Leave bursts are debounced (500 ms); a leave during a
-  rotation queues another one. Long sessions also rotate every 30 min.
+  present, then the local encoder switches after `USE_KEY_DELAY_MS` (5 s) so
+  receivers hold it first. A receiver without the new key drops every frame
+  under it, so the delay is sized for a slow hand-over (a remote signer, a
+  busy relay, every member rotating at once), not a typical one, and it stays
+  longer than the repeat below so the second copy is out before the switch.
+  Leave bursts are debounced (500 ms); a leave during a rotation queues
+  another one. Long sessions also rotate every 30 min.
 - **Reconnect** → re-install our key locally and re-send it.
 - **Repeat** → every hand-over (start fan-out, join, rotation) is sent a
   second time 3 s later with a fresh `ts` (idempotent: newest-wins, wrap-id
   dedupe), so one lost envelope on either side never leaves a participant
-  undecryptable until the next rotation. Mobile does the same.
+  undecryptable until the next rotation. During a rotation the repeat goes
+  out before the encoder switch and carries both the current and the pending
+  key. Mobile does the same.
 - **Receive** → bound to the session's own room name, dropped when `|now − ts| > 120 s`
   or older than the newest seen from that sender; wrap ids are deduped so a relay
   replay never re-installs a key.

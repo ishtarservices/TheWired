@@ -36,7 +36,10 @@ byte-for-byte unchanged:
   `allowedSpaceIds` h-tag guard); `POST/GET/DELETE /spaces/:id/relays`; `ingestion_tier`
   none → discovery → full so private decentralized spaces cost zero backend ingestion.
 - **M4 — Portable channel layout (kind 30078).** `wired:layout:<groupId>` overlay (and reads
-  Obelisk's `obelisk:layout:`), author-authorized + sanitized.
+  Obelisk's `obelisk:layout:`), author-authorized + sanitized. Admins now publish it (h-tagged,
+  real subfolder names, a pinned `default` channel) when they create, move, rename or delete
+  channels and subfolders; the binding layout is chosen among authorized candidates. Contract:
+  `docs/CHANNEL_LAYOUT.md`.
 - **M5 — Private / gated spaces.** REQ-AUTH cold-start race fix in `relayConnection.ts`;
   per-group `is_private` enforcement — an anonymous/non-member REQ to a private group gets an
   explicit `CLOSED auth-required` instead of a silent empty EOSE.

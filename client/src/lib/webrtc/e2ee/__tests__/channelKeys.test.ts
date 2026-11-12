@@ -118,7 +118,7 @@ describe("belt-and-braces re-send", () => {
     expect(toB[1].env.ts).toBeGreaterThan(toB[0].env.ts);
   });
 
-  it("repeats the initial fan-out and the post-rotation key, but not to members who left", async () => {
+  it("repeats the initial fan-out and the rotation key, but not to members who left", async () => {
     const h = harness();
     await h.mgr.start([A, B]);
     await vi.advanceTimersByTimeAsync(RESEND_DELAY_MS);
@@ -126,11 +126,32 @@ describe("belt-and-braces re-send", () => {
     h.sends.length = 0;
     h.mgr.onParticipantLeft(A);
     await vi.advanceTimersByTimeAsync(ROTATE_DEBOUNCE_MS + RESEND_DELAY_MS);
-    // First: the rotation envelope (idx 1); then, after the 2 s switch, the
-    // repeat carrying the now-current idx 1 — both only to B.
+    // First: the rotation envelope (idx 1). Then the repeat, still BEFORE the
+    // encoder switch, so it carries the current key and the pending one —
+    // both only to B.
     expect(h.sends.map((s) => s.to)).toEqual([B, B]);
     expect(h.sends[0].env.keys.map((k) => k.idx)).toEqual([1]);
-    expect(h.sends[1].env.keys.map((k) => k.idx)).toEqual([1]);
+    expect(h.sends[1].env.keys.map((k) => k.idx)).toEqual([0, 1]);
+    expect(h.mgr.currentIndex).toBe(0);
+  });
+
+  it("gets the repeat out before the encoder switches to the new key", async () => {
+    // pre-fix: the switch came 2 s after the first envelope and the repeat
+    // 3 s after it, so a receiver that missed the first one (or was still
+    // working through its signer queue) dropped every frame until the repeat
+    // landed — people going silent for a moment each time someone left.
+    expect(RESEND_DELAY_MS).toBeLessThan(USE_KEY_DELAY_MS);
+    const h = harness();
+    await h.mgr.start([A, B]);
+    await vi.advanceTimersByTimeAsync(RESEND_DELAY_MS);
+    h.sends.length = 0;
+    h.mgr.onParticipantLeft(A);
+    await vi.advanceTimersByTimeAsync(ROTATE_DEBOUNCE_MS + USE_KEY_DELAY_MS - 1);
+    // Both hand-overs of key 1 are out and our encoder is still on key 0.
+    expect(h.sends.filter((s) => s.env.keys.some((k) => k.idx === 1))).toHaveLength(2);
+    expect(h.mgr.currentIndex).toBe(0);
+    await vi.advanceTimersByTimeAsync(1);
+    expect(h.mgr.currentIndex).toBe(1);
   });
 
   it("is cancelled by dispose and skips a joiner who already left", async () => {
@@ -173,12 +194,15 @@ describe("leave → rotate", () => {
   it("collapses a burst of leaves into one rotation", async () => {
     const h = harness();
     await h.mgr.start([A, B, C]);
+    await vi.advanceTimersByTimeAsync(RESEND_DELAY_MS); // let the start repeat go
     h.sends.length = 0;
     h.mgr.onParticipantLeft(A);
     await vi.advanceTimersByTimeAsync(100);
     h.mgr.onParticipantLeft(B);
     await vi.advanceTimersByTimeAsync(ROTATE_DEBOUNCE_MS + USE_KEY_DELAY_MS);
-    expect(h.sends.map((s) => s.to)).toEqual([C]);
+    // One rotation (its envelope plus the repeat), only to C.
+    expect(h.sends.map((s) => s.to)).toEqual([C, C]);
+    expect(h.sends.filter((s) => s.env.keys.some((k) => k.idx === 2))).toHaveLength(0);
     expect(h.mgr.currentIndex).toBe(1);
   });
 

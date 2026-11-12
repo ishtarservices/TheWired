@@ -1,8 +1,10 @@
 import type { FastifyPluginAsync } from "fastify";
 import { z } from "zod";
 import { livekitService } from "../services/livekitService.js";
+import { trackMatchesSource } from "../lib/trackSource.js";
 import { permissionService } from "../services/permissionService.js";
 import { channelService } from "../services/channelService.js";
+import { notifySpaceChanged } from "../services/spaceSignalService.js";
 import { db } from "../db/connection.js";
 import { spaceMembers } from "../db/schema/members.js";
 import { spaceChannels } from "../db/schema/channels.js";
@@ -256,7 +258,8 @@ export const voiceRoutes: FastifyPluginAsync = async (server) => {
         return reply.status(404).send({ error: "Participant not found in room", code: "NOT_FOUND" });
       }
 
-      const track = target.tracks?.find((t: any) => t.source === trackSource);
+      // `t.source` is LiveKit's numeric enum, not the client's name (#48).
+      const track = target.tracks?.find((t: any) => trackMatchesSource(t.source, trackSource));
       if (!track) {
         return reply.status(404).send({ error: `No ${trackSource} track found`, code: "NOT_FOUND" });
       }
@@ -409,8 +412,15 @@ export const voiceRoutes: FastifyPluginAsync = async (server) => {
         // Delete if room doesn't exist or has 0 participants
         const participantCount = (room as any)?.numParticipants ?? 0;
         if (participantCount === 0) {
-          await db.delete(spaceChannels).where(eq(spaceChannels.id, ch.id));
-          deleted++;
+          // Through the service: space lock, layout revision, default promotion,
+          // and its overrides cascade. Members' clients refetch on the nudge.
+          try {
+            await channelService.deleteChannel(ch.spaceId, ch.id);
+            deleted++;
+            notifySpaceChanged(ch.spaceId, "channels");
+          } catch {
+            // Already gone (deleted concurrently) — nothing to count.
+          }
         }
       }
 

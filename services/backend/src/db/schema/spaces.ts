@@ -35,6 +35,8 @@ export const spaces = appSchema.table("spaces", {
   listedAt: timestamp("listed_at"),
   discoveryScore: integer("discovery_score").notNull().default(0),
   creatorPubkey: text("creator_pubkey"),
+  // Bumped by every channel/category mutation; optimistic lock for the layout PUT.
+  channelLayoutRev: integer("channel_layout_rev").notNull().default(0),
   createdAt: bigint("created_at", { mode: "number" }).notNull(),
   updatedAt: timestamp("updated_at").defaultNow(),
 });

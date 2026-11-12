@@ -18,6 +18,7 @@ import {
   getMediaPrefs,
   subscribeMediaPrefs,
   audioProcessingChanged,
+  audioProcessingConstraints,
   type MediaPrefs,
 } from "./mediaPrefs";
 import { supportsAudioOutputSelection, isWindows } from "../platform";
@@ -35,11 +36,17 @@ import {
   disconnectRoom,
   setE2EEActive,
   setE2EEError,
+  setMuted,
+  setVideoEnabled,
+  setScreenSharing,
 } from "@/store/slices/voiceSlice";
+import { syncCallMedia } from "@/store/slices/callSlice";
 import {
   attachRemoteAudio,
   detachRemoteAudio,
   clearRemoteAudio,
+  resumeRemoteAudio,
+  setRemoteAudioBlockedHandler,
 } from "./remoteAudio";
 import { describeMediaError } from "./mediaDevices";
 import { playJoinSound, playLeaveSound } from "@/features/calling/callRingtone";
@@ -173,9 +180,7 @@ export function buildRoomOptions(
     },
     audioCaptureDefaults: {
       deviceId: prefs.audioInput ?? undefined,
-      echoCancellation: prefs.echoCancellation,
-      noiseSuppression: prefs.noiseSuppression,
-      autoGainControl: prefs.autoGainControl,
+      ...audioProcessingConstraints(prefs),
     },
     ...(prefs.audioOutput && supportsAudioOutputSelection
       ? { audioOutput: { deviceId: prefs.audioOutput } }
@@ -244,7 +249,22 @@ export async function connectToRoom(
   disposeE2EE(currentE2EE);
 
   const myPubkey = store.getState().identity.pubkey ?? "";
-  const e2ee = opts.e2ee ? createE2EESession(opts.e2ee, myPubkey) : null;
+  /** Whose media the decrypt-error banner on screen is about (null = none,
+   *  or our own encoder). Lets a late key clear exactly its own banner. */
+  let decryptErrorFrom: string | null = null;
+  const lastEncryptionErrorAt = new Map<string, number>();
+  const e2ee = opts.e2ee
+    ? createE2EESession(opts.e2ee, myPubkey, {
+        // The key that was "still on its way" has landed: the banner saying
+        // so is now wrong, and would otherwise sit there until dismissed.
+        onRemoteKeyInstalled(sender) {
+          lastEncryptionErrorAt.delete(sender);
+          if (decryptErrorFrom !== sender) return;
+          decryptErrorFrom = null;
+          store.dispatch(setE2EEError(null));
+        },
+      })
+    : null;
   currentE2EE = e2ee;
 
   const room = new Room({
@@ -254,7 +274,60 @@ export async function connectToRoom(
   latestRoom = room;
   /** When each remote joined — decrypt errors right after are key-in-flight. */
   const joinedAt = new Map<string, number>();
-  const lastEncryptionErrorAt = new Map<string, number>();
+
+  /**
+   * Keep our own mute / camera / share flags in step with what LiveKit is
+   * really publishing. The controls flip Redux first and then drive the SDK,
+   * so for a user toggle this finds nothing to change. It matters for the
+   * changes that do not come from our controls: the SDK mutes a mic or camera
+   * whose device went away and could not be replaced, a moderator mutes a
+   * track server-side, the OS "stop sharing" button ends a screen share.
+   * Before, the UI kept showing "unmuted" (or "sharing") while nothing was
+   * being sent, and the user had to toggle twice to recover.
+   */
+  const syncLocalPublication = (publication: TrackPublication, live: boolean) => {
+    const { call, voice } = store.getState();
+    const activeCall = call.activeCall;
+    const deviceEnded = publication.track?.mediaStreamTrack?.readyState === "ended";
+    switch (publication.source) {
+      case Track.Source.Microphone: {
+        const muted = !live;
+        if ((activeCall ? activeCall.isMuted : voice.localState.muted) === muted) return;
+        log.warn(`local microphone ${muted ? "muted" : "unmuted"} outside the controls`);
+        store.dispatch(activeCall ? syncCallMedia({ isMuted: muted }) : setMuted(muted));
+        if (muted && deviceEnded) {
+          store.dispatch(
+            setMediaError(
+              "Your microphone stopped working, so you are muted. Reconnect it or pick another input, then unmute.",
+            ),
+          );
+        }
+        break;
+      }
+      case Track.Source.Camera: {
+        if ((activeCall ? activeCall.isVideoEnabled : voice.localState.videoEnabled) === live) return;
+        log.warn(`local camera turned ${live ? "on" : "off"} outside the controls`);
+        store.dispatch(activeCall ? syncCallMedia({ isVideoEnabled: live }) : setVideoEnabled(live));
+        if (!live && deviceEnded) {
+          store.dispatch(
+            setMediaError(
+              "Your camera stopped working, so it was turned off. Reconnect it or pick another camera, then turn it back on.",
+            ),
+          );
+        }
+        break;
+      }
+      case Track.Source.ScreenShare: {
+        if ((activeCall ? activeCall.isScreenSharing : voice.localState.screenSharing) === live) return;
+        store.dispatch(
+          activeCall ? syncCallMedia({ isScreenSharing: live }) : setScreenSharing(live),
+        );
+        break;
+      }
+      default:
+        break;
+    }
+  };
 
   /** Mirror a publication's muted flag into the participant record. LiveKit
    *  `setCameraEnabled(false)` MUTES the camera track (it does not unpublish),
@@ -265,13 +338,27 @@ export async function connectToRoom(
     participant: Participant,
     muted: boolean,
   ) => {
-    if (participant.identity === room.localParticipant.identity) return;
+    if (participant.identity === room.localParticipant.identity) {
+      // Mic and camera only: a screen share is published / unpublished, never
+      // muted, and is followed through LocalTrack(Un)Published below.
+      if (publication.source !== Track.Source.ScreenShare) {
+        syncLocalPublication(publication, !muted);
+      }
+      return;
+    }
     switch (publication.source) {
       case Track.Source.Microphone:
         store.dispatch(updateParticipant({ pubkey: participant.identity, isMuted: muted }));
         break;
       case Track.Source.Camera:
-        store.dispatch(updateParticipant({ pubkey: participant.identity, hasVideo: !muted }));
+        store.dispatch(
+          updateParticipant({
+            pubkey: participant.identity,
+            hasVideo: !muted,
+            // A camera that is off is not "paused"; a fresh one starts clean.
+            ...(muted ? { videoPaused: false } : {}),
+          }),
+        );
         break;
       case Track.Source.ScreenShare:
         store.dispatch(
@@ -340,6 +427,7 @@ export async function connectToRoom(
     const last = lastEncryptionErrorAt.get(who) ?? 0;
     if (now - last < ENCRYPTION_ERROR_DEBOUNCE_MS) return;
     lastEncryptionErrorAt.set(who, now);
+    decryptErrorFrom = participant?.identity ?? null;
     e2eeLog.warn(`encryption error (${who === "local" ? "local" : shortKey(who)}): ${error.message}`);
     store.dispatch(
       setE2EEError(
@@ -379,6 +467,36 @@ export async function connectToRoom(
   room.on(RoomEvent.TrackUnmuted, (publication, participant) => {
     applyPublicationMuted(publication, participant, false);
   });
+
+  // Our own screen share starting / ending. Ending is the case that matters:
+  // the OS or browser "stop sharing" control ends the capture track and the
+  // SDK unpublishes it without any of our controls being involved.
+  room.on(RoomEvent.LocalTrackPublished, (publication: TrackPublication) => {
+    if (publication.source === Track.Source.ScreenShare) syncLocalPublication(publication, true);
+  });
+  room.on(RoomEvent.LocalTrackUnpublished, (publication: TrackPublication) => {
+    if (publication.source === Track.Source.ScreenShare) syncLocalPublication(publication, false);
+  });
+
+  // Tiles re-resolve their track on any of these (see onTrackTopologyChanged).
+  for (const ev of TOPOLOGY_EVENTS) {
+    (room as unknown as { on(ev: string, fn: () => void): unknown }).on(ev, notifyTopology);
+  }
+
+  // The SFU pauses a camera stream it cannot fit down our link and resumes
+  // it later. Without this the tile just freezes on the last frame.
+  room.on(
+    RoomEvent.TrackStreamStateChanged,
+    (publication: TrackPublication, streamState: Track.StreamState, participant: Participant) => {
+      if (publication.source !== Track.Source.Camera) return;
+      store.dispatch(
+        updateParticipant({
+          pubkey: participant.identity,
+          videoPaused: streamState === Track.StreamState.Paused,
+        }),
+      );
+    },
+  );
 
   room.on(
     RoomEvent.TrackSubscribed,
@@ -459,6 +577,7 @@ export async function connectToRoom(
     cleanupListenTogether();
     clearRemoteAudio();
     store.dispatch(disconnectRoom());
+    notifyTopology();
     // The room singleton is shared between voice channels and 1:1 calls;
     // callService ends the call on a non-client drop via this hook.
     const clientInitiated = reason === DisconnectReason.CLIENT_INITIATED;
@@ -554,6 +673,8 @@ export async function connectToRoom(
   }
 
   currentRoom = room;
+  // Tiles that mounted before the room existed can resolve their tracks now.
+  notifyTopology();
   if (e2ee) {
     for (const p of room.remoteParticipants.values()) joinedAt.set(p.identity, Date.now());
     await e2ee.start([...room.remoteParticipants.keys()]);
@@ -608,6 +729,31 @@ onAbandonMediaSessions(async () => {
   if (pending) await pending.disconnect().catch(() => {});
 });
 
+// A remote audio element the WebView paused and would not let us resume
+// needs the same user gesture as an autoplay block: raise the same pill.
+setRemoteAudioBlockedHandler(() => {
+  if (currentRoom) store.dispatch(setAudioPlaybackBlocked(true));
+});
+
+/**
+ * (Re)start remote audio playback. Must run inside a user gesture (the
+ * "Enable audio" pill). Covers both ways playback gets stuck: the SDK's
+ * autoplay block, and an element the WebView paused that the SDK still
+ * believes is playing (so it would never report a status change).
+ */
+export async function resumeAudioPlayback(): Promise<void> {
+  const room = currentRoom;
+  if (!room) return;
+  try {
+    await room.startAudio();
+    resumeRemoteAudio();
+  } finally {
+    if (currentRoom === room) {
+      store.dispatch(setAudioPlaybackBlocked(!room.canPlaybackAudio));
+    }
+  }
+}
+
 /**
  * Enable/disable the local microphone.
  */
@@ -634,7 +780,8 @@ export async function setCameraEnabled(enabled: boolean): Promise<void> {
  *    control while sharing.
  *  - systemAudio: Windows (WebView2) can capture desktop audio; WKWebView
  *    cannot, so don't ask for it there.
- *  - contentHint "detail" + 1080p15: text stays legible; motion is rare.
+ *  - contentHint "detail" + 1080p15 for text (the default), or "motion" +
+ *    1080p30 with the smooth-motion preference.
  */
 export async function setScreenShareEnabled(enabled: boolean): Promise<void> {
   if (!currentRoom) return;
@@ -643,6 +790,10 @@ export async function setScreenShareEnabled(enabled: boolean): Promise<void> {
     return;
   }
   const motion = getMediaPrefs().screenShareMotion;
+  // A preset's `resolution` carries its frame rate, so the capture has to
+  // come from the same preset as the encoding: capturing with the 15 fps one
+  // capped "smooth motion" at 15 fps however the encoder was set.
+  const preset = motion ? ScreenSharePresets.h1080fps30 : ScreenSharePresets.h1080fps15;
   await currentRoom.localParticipant.setScreenShareEnabled(
     true,
     {
@@ -651,9 +802,14 @@ export async function setScreenShareEnabled(enabled: boolean): Promise<void> {
       selfBrowserSurface: "exclude",
       surfaceSwitching: "include",
       contentHint: motion ? "motion" : "detail",
-      resolution: ScreenSharePresets.h1080fps15.resolution,
+      resolution: preset.resolution,
     },
-    { screenShareEncoding: screenShareEncoding(getMediaPrefs()) },
+    {
+      screenShareEncoding: preset.encoding,
+      // The room default ("balanced") is chosen for faces. Under congestion a
+      // text share must stay sharp and lose frames; a motion share the reverse.
+      degradationPreference: motion ? "maintain-framerate" : "maintain-resolution",
+    },
   );
 }
 
@@ -687,16 +843,28 @@ const TOPOLOGY_EVENTS = [
   RoomEvent.TrackUnmuted,
 ] as const;
 
-/** Fires whenever any track is (un)published / (un)subscribed / (un)muted. */
+/** Everyone who resolves tracks (video tiles). Deliberately not bound to one
+ *  Room: see `onTrackTopologyChanged`. */
+const topologyListeners = new Set<() => void>();
+
+function notifyTopology(): void {
+  for (const cb of [...topologyListeners]) cb();
+}
+
+/**
+ * Fires whenever a track may have changed: (un)published, (un)subscribed,
+ * (un)muted, and when the room itself comes up or goes away.
+ *
+ * Subscriptions outlive any single Room. They used to be bound to whatever
+ * room existed at subscribe time, and did nothing if there was none — but a
+ * 1:1 call renders its tiles the moment the call starts, before the room is
+ * connected, so the self-view never learned its camera had been published
+ * and stayed black for the whole call.
+ */
 export function onTrackTopologyChanged(cb: () => void): () => void {
-  const room = currentRoom as unknown as {
-    on(ev: string, fn: () => void): unknown;
-    off(ev: string, fn: () => void): unknown;
-  } | null;
-  if (!room) return () => {};
-  for (const ev of TOPOLOGY_EVENTS) room.on(ev, cb);
+  topologyListeners.add(cb);
   return () => {
-    for (const ev of TOPOLOGY_EVENTS) room.off(ev, cb);
+    topologyListeners.delete(cb);
   };
 }
 
@@ -741,9 +909,7 @@ async function restartMicrophone(prefs: MediaPrefs): Promise<void> {
   try {
     await track.restartTrack({
       deviceId: prefs.audioInput ?? undefined,
-      echoCancellation: prefs.echoCancellation,
-      noiseSuppression: prefs.noiseSuppression,
-      autoGainControl: prefs.autoGainControl,
+      ...audioProcessingConstraints(prefs),
     });
   } catch (err) {
     console.warn("[LiveKit] restartTrack failed:", err);
@@ -788,6 +954,9 @@ function mapConnectionQuality(
     case ConnectionQuality.Good:
       return "good";
     case ConnectionQuality.Poor:
+    // Lost = they dropped off and may come back. The tile badge has one
+    // "bad" state; this is the worst of it, not "unknown".
+    case ConnectionQuality.Lost:
       return "poor";
     default:
       return "unknown";

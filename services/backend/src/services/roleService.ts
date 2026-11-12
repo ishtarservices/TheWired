@@ -326,35 +326,8 @@ export const roleService = {
     }));
   },
 
-  /** Set channel overrides for a role (replaces all; scoped to the role's space) */
-  async setChannelOverrides(
-    spaceId: string,
-    roleId: string,
-    overrides: Array<{ channelId: string; allow: string[]; deny: string[] }>,
-  ) {
-    const [owned] = await db
-      .select({ id: spaceRoles.id })
-      .from(spaceRoles)
-      .where(and(eq(spaceRoles.id, roleId), eq(spaceRoles.spaceId, spaceId)))
-      .limit(1);
-    if (!owned) throw new Error("Role not found");
-
-    await db.delete(channelOverrides).where(eq(channelOverrides.roleId, roleId));
-
-    const values: Array<{ roleId: string; channelId: string; permission: string; effect: string }> = [];
-    for (const o of overrides) {
-      for (const p of o.allow) {
-        values.push({ roleId, channelId: o.channelId, permission: p, effect: "allow" });
-      }
-      for (const p of o.deny) {
-        values.push({ roleId, channelId: o.channelId, permission: p, effect: "deny" });
-      }
-    }
-
-    if (values.length > 0) {
-      await db.insert(channelOverrides).values(values);
-    }
-  },
+  // Channel override writes live in channelLayoutService (setRoleChannelOverrides /
+  // setChannelOverride): they run under the space lock and keep category sync state.
 
   /** Get effective permissions for a user in a space */
   async getEffectivePermissions(spaceId: string, pubkey: string): Promise<string[]> {

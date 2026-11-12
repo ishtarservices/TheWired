@@ -1,5 +1,18 @@
 import { api } from "./client";
-import type { SpaceChannel } from "../../types/space";
+import type { SpaceChannel, SpaceChannelCategory } from "../../types/space";
+
+export interface ChannelLayoutResponse {
+  revision: number;
+  categories: SpaceChannelCategory[];
+  channels: SpaceChannel[];
+}
+
+export interface ChannelLayoutDoc {
+  baseRevision: number;
+  uncategorized: string[];
+  /** Omit `id` to create a category; leaving one out deletes it. */
+  categories: Array<{ id?: string; name: string; channelIds: string[] }>;
+}
 
 export async function fetchChannels(spaceId: string): Promise<SpaceChannel[]> {
   const res = await api<SpaceChannel[]>(`/spaces/${spaceId}/channels`);
@@ -8,7 +21,16 @@ export async function fetchChannels(spaceId: string): Promise<SpaceChannel[]> {
 
 export async function createChannel(
   spaceId: string,
-  params: { type: string; label: string; categoryId?: string; adminOnly?: boolean; slowModeSeconds?: number; feedMode?: "all" | "curated" },
+  params: {
+    type: string;
+    label: string;
+    /** A category id (null/absent = none). */
+    categoryId?: string | null;
+    adminOnly?: boolean;
+    slowModeSeconds?: number;
+    temporary?: boolean;
+    feedMode?: "all" | "curated";
+  },
 ): Promise<SpaceChannel> {
   const res = await api<SpaceChannel>(`/spaces/${spaceId}/channels`, {
     method: "POST",
@@ -38,4 +60,34 @@ export async function reorderChannels(spaceId: string, orderedIds: string[]): Pr
     method: "POST",
     body: { orderedIds },
   });
+}
+
+/** Categories + channels + revision (404 when the backend predates subfolders). */
+/** Layout calls run inside a per-space write queue; a stalled request must not
+ *  hold every later edit in that space hostage. */
+const LAYOUT_TIMEOUT_MS = 20_000;
+
+export async function fetchLayout(spaceId: string): Promise<ChannelLayoutResponse> {
+  const res = await api<ChannelLayoutResponse>(`/spaces/${spaceId}/channels/layout`, {
+    signal: AbortSignal.timeout(LAYOUT_TIMEOUT_MS),
+  });
+  return res.data;
+}
+
+/** Replace the layout; 409 (`LAYOUT_STALE`) when `baseRevision` is behind. */
+export async function putLayout(spaceId: string, doc: ChannelLayoutDoc): Promise<ChannelLayoutResponse> {
+  const res = await api<ChannelLayoutResponse>(`/spaces/${spaceId}/channels/layout`, {
+    method: "PUT",
+    body: doc,
+    signal: AbortSignal.timeout(LAYOUT_TIMEOUT_MS),
+  });
+  return res.data;
+}
+
+/** Make a channel follow its category's permissions again. */
+export async function syncChannelPermissions(spaceId: string, channelId: string): Promise<SpaceChannel> {
+  const res = await api<SpaceChannel>(`/spaces/${spaceId}/channels/${channelId}/sync-permissions`, {
+    method: "POST",
+  });
+  return res.data;
 }

@@ -15,6 +15,9 @@ export interface MediaTileModel {
   hasVideo: boolean;
   handRaised: boolean;
   connectionQuality: "excellent" | "good" | "poor" | "unknown";
+  /** Camera tiles: the SFU paused this stream to us (weak downlink); the
+   *  picture is frozen until it resumes. */
+  videoPaused: boolean;
   /** Frame-level E2EE: true = encrypted, false = plaintext in an encrypted
    *  room (outdated client), undefined = not known yet / room not encrypted. */
   encrypted?: boolean;

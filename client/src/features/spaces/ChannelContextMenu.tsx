@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import { Bell, BellOff, Volume2, AtSign, VolumeX, Check, BrainCircuit } from "lucide-react";
+import { Bell, BellOff, Volume2, AtSign, VolumeX, Check, BrainCircuit, Pencil, FolderInput, Trash2, ChevronRight } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useAppDispatch, useAppSelector } from "../../store/hooks";
 import { selectFeatureEnabled, FEATURE_AI } from "../../store/slices/featuresSlice";
@@ -21,11 +21,22 @@ const NOTIF_MODES: { mode: ChannelNotifMode; label: string; icon: typeof Bell; d
   { mode: "muted", label: "Mute Channel", icon: BellOff, description: "Silence everything" },
 ];
 
+/** Management actions, shown to people who can manage channels. */
+export interface ChannelAdminActions {
+  onEdit: () => void;
+  onDelete?: () => void;
+  /** Subfolders to move into (null id = no subfolder), in sidebar order. */
+  moveTargets: Array<{ id: string | null; name: string }>;
+  currentCategoryId: string | null;
+  onMove: (categoryId: string | null) => void;
+}
+
 interface ChannelContextMenuProps {
   open: boolean;
   onClose: () => void;
   channelId: string;
   position: { x: number; y: number };
+  admin?: ChannelAdminActions;
 }
 
 export function ChannelContextMenu({
@@ -33,6 +44,7 @@ export function ChannelContextMenu({
   onClose,
   channelId,
   position,
+  admin,
 }: ChannelContextMenuProps) {
   const dispatch = useAppDispatch();
   const currentMode = useChannelNotifMode(channelId);
@@ -41,6 +53,7 @@ export function ChannelContextMenu({
   const activeSpaceId = useAppSelector((s) => s.spaces.activeSpaceId);
   const askAI = useAskAI();
   const [showModes, setShowModes] = useState(false);
+  const [showMove, setShowMove] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -57,6 +70,7 @@ export function ChannelContextMenu({
     const onClick = (e: MouseEvent) => {
       if (ref.current && !ref.current.contains(e.target as Node)) {
         setShowModes(false);
+        setShowMove(false);
         onClose();
       }
     };
@@ -65,7 +79,10 @@ export function ChannelContextMenu({
   }, [open, onClose]);
 
   useEffect(() => {
-    if (!open) setShowModes(false);
+    if (!open) {
+      setShowModes(false);
+      setShowMove(false);
+    }
   }, [open]);
 
   if (!open) return null;
@@ -86,8 +103,30 @@ export function ChannelContextMenu({
       ref={ref}
       className="fixed z-50 w-max min-w-[180px] rounded-xl card-glass py-1.5 shadow-xl animate-fade-in-up"
       style={{ left: position.x, top: position.y }}
+      role="menu"
     >
-      {showModes ? (
+      {showMove && admin ? (
+        <div className="py-1 max-h-[60vh] overflow-y-auto">
+          <div className="px-3 py-1.5 label-caps">
+            Move to
+          </div>
+          {admin.moveTargets.map((target) => (
+            <button
+              key={target.id ?? "__none__"}
+              role="menuitem"
+              disabled={target.id === admin.currentCategoryId}
+              onClick={() => {
+                admin.onMove(target.id);
+                onClose();
+              }}
+              className="flex w-full items-center gap-2 rounded-lg mx-1 px-3.5 py-2 text-sm text-body hover:bg-surface-hover hover:text-heading transition-colors disabled:opacity-50 disabled:hover:bg-transparent"
+            >
+              <span className={cn("flex-1 text-left truncate", target.id === null && "italic")}>{target.name}</span>
+              {target.id === admin.currentCategoryId && <Check size={14} className="text-primary shrink-0" />}
+            </button>
+          ))}
+        </div>
+      ) : showModes ? (
         <div className="py-1">
           <div className="px-3 py-1.5 label-caps">
             Notification Mode
@@ -147,6 +186,47 @@ export function ChannelContextMenu({
               {currentMode === "default" ? "Default" : NOTIF_MODES.find((m) => m.mode === currentMode)?.label}
             </span>
           </button>
+
+          {admin && (
+            <>
+              <div className="my-1 border-t border-border" />
+              <button
+                role="menuitem"
+                onClick={() => {
+                  admin.onEdit();
+                  onClose();
+                }}
+                className="flex w-full items-center gap-2 rounded-lg mx-1 px-3.5 py-2.5 text-sm text-body hover:bg-surface-hover hover:text-heading transition-colors"
+              >
+                <Pencil size={14} />
+                Edit channel
+              </button>
+              {admin.moveTargets.length > 1 && (
+                <button
+                  role="menuitem"
+                  onClick={() => setShowMove(true)}
+                  className="flex w-full items-center gap-2 rounded-lg mx-1 px-3.5 py-2.5 text-sm text-body hover:bg-surface-hover hover:text-heading transition-colors"
+                >
+                  <FolderInput size={14} />
+                  Move to
+                  <ChevronRight size={12} className="ml-auto text-muted" />
+                </button>
+              )}
+              {admin.onDelete && (
+                <button
+                  role="menuitem"
+                  onClick={() => {
+                    admin.onDelete!();
+                    onClose();
+                  }}
+                  className="flex w-full items-center gap-2 rounded-lg mx-1 px-3.5 py-2.5 text-sm text-red-400 hover:bg-red-500/10 transition-colors"
+                >
+                  <Trash2 size={14} />
+                  Delete channel
+                </button>
+              )}
+            </>
+          )}
         </>
       )}
     </div>

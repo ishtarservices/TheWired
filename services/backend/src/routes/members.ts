@@ -6,6 +6,7 @@ import { spaceMembers, memberRoles, spaceFeedSources } from "../db/schema/member
 import { spaces } from "../db/schema/spaces.js";
 import { spaceRoles } from "../db/schema/permissions.js";
 import { spaceChannels } from "../db/schema/channels.js";
+import { channelLayoutService } from "../services/channelLayoutService.js";
 import { eq, and, asc } from "drizzle-orm";
 import { onboardingService } from "../services/onboardingService.js";
 import { profileCacheService, toMemberProfile, PROFILE_JOIN_CAP } from "../services/profileCacheService.js";
@@ -102,6 +103,7 @@ export const membersRoutes: FastifyPluginAsync = async (server) => {
 
     // Return space info + channels + feed sources for client to hydrate
     const channels = await db.select().from(spaceChannels).where(eq(spaceChannels.spaceId, id)).orderBy(asc(spaceChannels.position));
+    const { categoriesBySpace, revisionBySpace } = await channelLayoutService.layoutsForSpaces([id]);
 
     // Feed sources for read-only spaces
     let feedPubkeys: string[] = [];
@@ -126,6 +128,8 @@ export const membersRoutes: FastifyPluginAsync = async (server) => {
           memberCount: memberCount ?? space.memberCount ?? 0,
         },
         channels,
+        categories: categoriesBySpace[id] ?? [],
+        layoutRevision: revisionBySpace[id] ?? 0,
         feedPubkeys,
         onboarding: obConfig?.enabled
           ? { hasOnboarding: true, requireCompletion: obConfig.requireCompletion }

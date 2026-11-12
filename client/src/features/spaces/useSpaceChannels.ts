@@ -1,41 +1,24 @@
-import { useEffect, useCallback, useRef } from "react";
+import { useEffect, useCallback, useRef, useMemo } from "react";
 import { useAppSelector, useAppDispatch } from "../../store/hooks";
-import {
-  setChannels,
-  addChannelToList,
-  removeChannelFromList,
-  updateChannelInList,
-  setChannelsLoading,
-} from "../../store/slices/spacesSlice";
-import type { Space, SpaceChannel, SpaceChannelType } from "../../types/space";
+import { setChannels, setChannelsLoading } from "../../store/slices/spacesSlice";
+import type { Space, SpaceChannel, SpaceChannelCategory, SpaceChannelType } from "../../types/space";
 import { isNip29Native } from "./spaceType";
+import { loadChannels, loadCategories } from "../../lib/db/channelStore";
+import { buildChannelTree, type TreeOp } from "./channelTree";
+import { defaultNativeChannels } from "./channelLayout";
+import {
+  hydrateChannelLayout,
+  loadChannelLayout,
+  applyChannelLayoutOp,
+  createChannelCategory,
+  createSpaceChannel,
+  updateSpaceChannel,
+  deleteSpaceChannel,
+  type NewChannelParams,
+  type ChannelPatch,
+} from "../../store/thunks/channelLayout";
 
 const EMPTY_CHANNELS: SpaceChannel[] = [];
-import * as channelsApi from "../../lib/api/channels";
-import { saveChannels, loadChannels } from "../../lib/db/channelStore";
-
-/** Channels for a NIP-29-native space. Until a kind:30078 layout overlay (M4)
- *  is present, a native group is a single interoperable chat channel. */
-function makeNativeChannels(spaceId: string): SpaceChannel[] {
-  return [
-    {
-      id: "chat",
-      spaceId,
-      type: "chat",
-      label: "#chat",
-      position: 0,
-      isDefault: true,
-      adminOnly: false,
-      slowModeSeconds: 0,
-      feedMode: "all",
-    },
-  ];
-}
-
-/** Ensure all channels have feedMode (backward compat for cached data without it) */
-function normalizeChannels(channels: SpaceChannel[]): SpaceChannel[] {
-  return channels.map((ch) => ch.feedMode ? ch : { ...ch, feedMode: "all" as const });
-}
 
 /** Hardcoded defaults used when backend is unavailable */
 function makeDefaultChannels(spaceId: string, mode: Space["mode"]): SpaceChannel[] {
@@ -61,10 +44,20 @@ function makeDefaultChannels(spaceId: string, mode: Space["mode"]): SpaceChannel
   }));
 }
 
+const EMPTY_CATEGORIES: SpaceChannelCategory[] | undefined = undefined;
+
+/**
+ * A space's channels + subfolders, loaded for every space mode, plus the
+ * mode-aware write actions (REST for backend-backed spaces, a signed layout
+ * event for relay-only ones). See store/thunks/channelLayout.ts.
+ */
 export function useSpaceChannels(spaceId: string | null) {
   const dispatch = useAppDispatch();
   const channels = useAppSelector(
     (s) => (spaceId ? s.spaces.channels[spaceId] : undefined) ?? EMPTY_CHANNELS,
+  );
+  const categories = useAppSelector(
+    (s) => (spaceId ? s.spaces.categories[spaceId] : undefined) ?? EMPTY_CATEGORIES,
   );
   const isLoading = useAppSelector(
     (s) => (spaceId ? s.spaces.channelsLoading[spaceId] : false) ?? false,
@@ -76,6 +69,9 @@ export function useSpaceChannels(spaceId: string | null) {
     const sp = spaceId ? s.spaces.list.find((x) => x.id === spaceId) : undefined;
     return sp ? isNip29Native(sp) : false;
   });
+  const backendLayoutSupported = useAppSelector(
+    (s) => (spaceId ? s.spaces.layoutSupported[spaceId] : undefined),
+  );
 
   // Track the last spaceId we fetched from backend to avoid redundant calls
   // within the same space selection (but allow refetch when switching back)
@@ -85,10 +81,10 @@ export function useSpaceChannels(spaceId: string | null) {
     if (!spaceId) return;
 
     // NIP-29-native spaces have no backend channels — synthesize a chat channel
-    // (M4 will load a kind:30078 layout overlay for richer channels).
+    // until the space's kind:30078 layout arrives (nip29SpaceSync applies it).
     if (native) {
       if (channels.length === 0) {
-        dispatch(setChannels({ spaceId, channels: makeNativeChannels(spaceId) }));
+        dispatch(setChannels({ spaceId, channels: defaultNativeChannels(spaceId) }));
       }
       dispatch(setChannelsLoading({ spaceId, loading: false }));
       return;
@@ -106,25 +102,31 @@ export function useSpaceChannels(spaceId: string | null) {
     (async () => {
       // Serve cached data immediately (from Redux or IndexedDB)
       if (!hasCached) {
-        const cached = await loadChannels(spaceId);
+        const [cached, cachedCategories] = await Promise.all([
+          loadChannels(spaceId).catch(() => undefined),
+          loadCategories(spaceId).catch(() => undefined),
+        ]);
         if (cached && cached.length > 0 && !cancelled) {
-          dispatch(setChannels({ spaceId, channels: normalizeChannels(cached) }));
+          dispatch(
+            hydrateChannelLayout({
+              spaceId,
+              channels: cached,
+              categories: cachedCategories?.categories,
+              revision: cachedCategories?.revision,
+            }),
+          );
         }
       }
 
       // Always revalidate from backend when entering a space
       if (needsBackendFetch) {
         try {
-          const fetched = normalizeChannels(await channelsApi.fetchChannels(spaceId));
-          if (!cancelled) {
-            dispatch(setChannels({ spaceId, channels: fetched }));
-            saveChannels(spaceId, fetched);
-            lastFetchedRef.current = spaceId;
-          }
+          await dispatch(loadChannelLayout(spaceId));
+          if (!cancelled) lastFetchedRef.current = spaceId;
         } catch {
           // Backend unavailable — fall back to defaults if nothing cached
           if (!cancelled && !hasCached) {
-            const cached = await loadChannels(spaceId);
+            const cached = await loadChannels(spaceId).catch(() => undefined);
             if (!cached || cached.length === 0) {
               dispatch(setChannels({ spaceId, channels: makeDefaultChannels(spaceId, spaceMode) }));
             }
@@ -141,71 +143,61 @@ export function useSpaceChannels(spaceId: string | null) {
   }, [spaceId, dispatch, native]); // eslint-disable-line react-hooks/exhaustive-deps
   // Note: channels.length intentionally excluded to avoid infinite loops
 
-  const handleCreateChannel = useCallback(
-    async (params: { type: string; label: string; categoryId?: string; adminOnly?: boolean; slowModeSeconds?: number; feedMode?: "all" | "curated" }) => {
-      if (!spaceId) return;
-      const channel = await channelsApi.createChannel(spaceId, params);
-      dispatch(addChannelToList(channel));
-      const updated = [...channels, channel];
-      saveChannels(spaceId, updated);
+  const tree = useMemo(() => buildChannelTree(channels, categories), [channels, categories]);
+
+  const createChannel = useCallback(
+    async (params: NewChannelParams) => {
+      if (!spaceId) throw new Error("No space");
+      return dispatch(createSpaceChannel(spaceId, params));
     },
-    [spaceId, dispatch, channels],
+    [spaceId, dispatch],
   );
 
-  const handleDeleteChannel = useCallback(
+  const deleteChannel = useCallback(
     async (channelId: string) => {
       if (!spaceId) return;
-      await channelsApi.deleteChannel(spaceId, channelId);
-      dispatch(removeChannelFromList({ spaceId, channelId }));
-      const updated = channels.filter((c) => c.id !== channelId);
-      saveChannels(spaceId, updated);
+      await dispatch(deleteSpaceChannel(spaceId, channelId));
     },
-    [spaceId, dispatch, channels],
+    [spaceId, dispatch],
   );
 
-  const handleUpdateChannel = useCallback(
-    async (channelId: string, params: { label?: string; categoryId?: string | null; adminOnly?: boolean; slowModeSeconds?: number; isDefault?: boolean; feedMode?: "all" | "curated" }) => {
+  const updateChannel = useCallback(
+    async (channelId: string, patch: ChannelPatch) => {
       if (!spaceId) return;
-      const updated = await channelsApi.updateChannel(spaceId, channelId, params);
-      // When setting a new home channel, clear isDefault on all others in Redux
-      // (backend already does this, but client state needs to match)
-      if (params.isDefault) {
-        const allUpdated = channels.map((c) =>
-          c.id === channelId ? updated : { ...c, isDefault: false },
-        );
-        dispatch(setChannels({ spaceId, channels: allUpdated }));
-        saveChannels(spaceId, allUpdated);
-      } else {
-        dispatch(updateChannelInList(updated));
-        const allUpdated = channels.map((c) => (c.id === channelId ? updated : c));
-        saveChannels(spaceId, allUpdated);
-      }
+      await dispatch(updateSpaceChannel(spaceId, channelId, patch));
     },
-    [spaceId, dispatch, channels],
+    [spaceId, dispatch],
   );
 
-  const handleReorderChannels = useCallback(
-    async (orderedIds: string[]) => {
+  /** Apply a structural edit (move, reorder, rename/delete subfolder). */
+  const applyOp = useCallback(
+    async (op: TreeOp) => {
       if (!spaceId) return;
-      await channelsApi.reorderChannels(spaceId, orderedIds);
-      const reordered = orderedIds
-        .map((id, i) => {
-          const ch = channels.find((c) => c.id === id);
-          return ch ? { ...ch, position: i } : null;
-        })
-        .filter((c): c is SpaceChannel => c !== null);
-      dispatch(setChannels({ spaceId, channels: reordered }));
-      saveChannels(spaceId, reordered);
+      await dispatch(applyChannelLayoutOp(spaceId, op));
     },
-    [spaceId, dispatch, channels],
+    [spaceId, dispatch],
+  );
+
+  const createCategory = useCallback(
+    async (name: string) => {
+      if (!spaceId) throw new Error("No space");
+      return dispatch(createChannelCategory(spaceId, name));
+    },
+    [spaceId, dispatch],
   );
 
   return {
     channels,
+    categories,
+    tree,
     isLoading,
-    createChannel: handleCreateChannel,
-    deleteChannel: handleDeleteChannel,
-    updateChannel: handleUpdateChannel,
-    reorderChannels: handleReorderChannels,
+    native,
+    /** Subfolders can be managed (backend supports it, or a relay-only space). */
+    layoutManageable: native || backendLayoutSupported === true,
+    createChannel,
+    deleteChannel,
+    updateChannel,
+    applyOp,
+    createCategory,
   };
 }

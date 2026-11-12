@@ -1,4 +1,4 @@
-import { useState, type ReactNode } from "react";
+import { useCallback, useState, type ReactNode } from "react";
 import {
   Hand,
   Lock,
@@ -12,6 +12,7 @@ import {
   Pin,
   PinOff,
   Scan,
+  WifiOff,
   Eye,
   EyeOff,
 } from "lucide-react";
@@ -20,13 +21,16 @@ import { useAppSelector } from "@/store/hooks";
 import { Avatar } from "@/components/ui/Avatar";
 import { useProfile } from "@/features/profile/useProfile";
 import { useLiveKitTrack } from "@/features/voice/useLiveKitTrack";
-import { VideoSurface } from "./VideoSurface";
+import { VideoSurface, type VideoFrameInfo } from "./VideoSurface";
 import type { MediaTileModel } from "./types";
 import type { TileFit } from "@/types/calling";
 
 export interface MediaTileProps {
   tile: MediaTileModel;
-  fit: TileFit;
+  /** Explicit cover/contain choice. Omitted = automatic: fill the tile,
+   *  except an upright (phone) picture, which is shown whole — cropping it
+   *  to a wide tile leaves a band across the middle of a face. */
+  fit?: TileFit;
   /** Small filmstrip rendering: smaller text/avatar, fewer controls. */
   compact?: boolean;
   isOnStage?: boolean;
@@ -34,7 +38,7 @@ export interface MediaTileProps {
   onFocus?: () => void;
   onExitFocus?: () => void;
   onPin?: () => void;
-  onToggleFit?: () => void;
+  onSetFit?: (fit: TileFit) => void;
   onStopLocalShare?: () => void;
   /** Extra toolbar controls (e.g. per-user volume). */
   extras?: ReactNode;
@@ -44,6 +48,10 @@ export interface MediaTileProps {
  * One participant/screen tile. Fills its parent; positioning is the
  * layout's job. Double-click enlarges; the hover toolbar pins, toggles
  * cover/contain, and hosts caller-provided extras.
+ *
+ * The avatar stays up until a picture is actually on screen: between
+ * "camera on" and the first decoded frame the element is empty, which read
+ * as a black tile (and as a broken camera).
  */
 export function MediaTile({
   tile,
@@ -54,17 +62,31 @@ export function MediaTile({
   onFocus,
   onExitFocus,
   onPin,
-  onToggleFit,
+  onSetFit,
   onStopLocalShare,
   extras,
 }: MediaTileProps) {
+  const [frame, setFrame] = useState<VideoFrameInfo | null>(null);
+  const onFrame = useCallback((info: VideoFrameInfo | null) => {
+    setFrame((prev) => (prev?.portrait === info?.portrait && !prev === !info ? prev : info));
+  }, []);
   const { profile } = useProfile(tile.pubkey);
-  const displayName = profile?.name ?? profile?.display_name ?? tile.displayName;
+  // Someone with no profile name comes through as their raw 64-character
+  // key, which ran the full width of the tile and under the self-view.
+  const fallbackName = /^[0-9a-f]{64}$/i.test(tile.displayName)
+    ? `${tile.displayName.slice(0, 8)}…`
+    : tile.displayName;
+  const displayName = profile?.name ?? profile?.display_name ?? fallbackName;
   const isShare = tile.source === "screenshare";
   const isLocalShare = isShare && tile.isLocal;
   const showVideo = tile.hasVideo && !isLocalShare;
 
   const track = useLiveKitTrack(tile.pubkey, tile.source, tile.isLocal);
+  const effectiveFit: TileFit = isShare ? "contain" : (fit ?? (frame?.portrait ? "contain" : "cover"));
+  // Picture on screen and moving. A paused stream keeps its element (it has
+  // to stay attached for the SFU to resume it) under the placeholder.
+  const hasPicture = showVideo && frame !== null && !tile.videoPaused;
+  const poorConnection = tile.connectionQuality === "poor";
   // Lock = this participant's media is end-to-end encrypted. In an encrypted
   // room a participant reporting plaintext is on an outdated client — amber
   // open lock, so the "why can't I hear them" is visible on the tile.
@@ -92,36 +114,61 @@ export function MediaTile({
       {/* Content */}
       {isLocalShare ? (
         <LocalShareCard compact={compact} onStop={onStopLocalShare} track={track} />
-      ) : showVideo ? (
-        <VideoSurface
-          track={track}
-          fit={isShare ? "contain" : fit}
-          mirror={tile.isLocal && !isShare}
-          className="absolute inset-0"
-        />
       ) : (
-        <div className="flex h-full w-full items-center justify-center">
-          <div className="relative">
-            <Avatar
-              src={profile?.picture}
-              alt={displayName}
-              size="lg"
-              className={compact ? "h-9 w-9" : "h-20 w-20"}
+        <>
+          {showVideo && (
+            <VideoSurface
+              track={track}
+              fit={effectiveFit}
+              mirror={tile.isLocal && !isShare}
+              className="absolute inset-0"
+              onFrame={onFrame}
             />
-            {tile.isSpeaking && (
-              <div className="absolute -inset-1.5 rounded-full ring-2 ring-green-400 animate-pulse" />
-            )}
-          </div>
-        </div>
+          )}
+          {!hasPicture && (
+            <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 bg-card">
+              {isShare ? (
+                <div className="flex h-10 w-10 items-center justify-center rounded-full bg-primary/15 text-primary">
+                  <Monitor size={compact ? 16 : 20} />
+                </div>
+              ) : (
+                <div className="relative">
+                  <Avatar
+                    src={profile?.picture}
+                    alt={displayName}
+                    size="lg"
+                    className={compact ? "h-9 w-9" : "h-20 w-20"}
+                  />
+                  {tile.isSpeaking && (
+                    <div className="absolute -inset-1.5 rounded-full ring-2 ring-green-400 animate-pulse" />
+                  )}
+                </div>
+              )}
+              {tile.videoPaused && !compact && (
+                <span role="status" className="rounded-full bg-black/50 px-2 py-0.5 text-[11px] text-white/80">
+                  Video paused, weak connection
+                </span>
+              )}
+            </div>
+          )}
+        </>
       )}
 
       {/* Name + status overlay */}
       <div className="pointer-events-none absolute inset-x-0 bottom-0 flex items-center gap-1.5 bg-gradient-to-t from-black/70 to-transparent px-2 pb-1.5 pt-5">
         <span className={cn("truncate font-medium text-white", compact ? "text-[10px]" : "text-xs")}>
           {isShare ? `${tile.isLocal ? "Your" : `${displayName}'s`} screen` : displayName}
-          {tile.isLocal && !isShare ? " (You)" : ""}
+          {/* No profile name falls back to "You" already; don't say it twice. */}
+          {tile.isLocal && !isShare && displayName !== "You" ? " (You)" : ""}
         </span>
         <span className="ml-auto flex items-center gap-1">
+          {poorConnection && (
+            <WifiOff
+              size={compact ? 10 : 12}
+              className="text-amber-400"
+              aria-label={tile.isLocal ? "Your connection is poor" : "Poor connection"}
+            />
+          )}
           {lock}
           {tile.handRaised && <Hand size={10} className="text-amber-400" />}
           {isPinned && <Pin size={10} className="text-primary" />}
@@ -161,8 +208,11 @@ export function MediaTile({
               {isPinned ? <PinOff size={13} /> : <Pin size={13} />}
             </ToolbarButton>
           )}
-          {onToggleFit && showVideo && !isShare && (
-            <ToolbarButton label={fit === "cover" ? "Show whole frame" : "Fill tile"} onClick={onToggleFit}>
+          {onSetFit && hasPicture && !isShare && (
+            <ToolbarButton
+              label={effectiveFit === "cover" ? "Show whole frame" : "Fill tile"}
+              onClick={() => onSetFit(effectiveFit === "cover" ? "contain" : "cover")}
+            >
               <Scan size={13} />
             </ToolbarButton>
           )}

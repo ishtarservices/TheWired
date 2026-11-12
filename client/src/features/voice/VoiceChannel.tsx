@@ -159,12 +159,16 @@ export function VoiceChannel() {
           {count + 1}
         </span>
         <span className="ml-auto flex items-center gap-1 text-xs">
+          {/* "unknown" is the state before LiveKit's first report: say so
+              neutrally instead of showing a green signal labelled "Unknown". */}
           {connectionQuality === "poor" ? (
             <WifiOff size={12} className="text-red-400" />
           ) : (
-            <Wifi size={12} className="text-green-400" />
+            <Wifi size={12} className={connectionQuality === "unknown" ? "text-muted" : "text-green-400"} />
           )}
-          <span className="text-muted capitalize">{connectionQuality}</span>
+          <span className="text-muted capitalize">
+            {connectionQuality === "unknown" ? "Checking…" : connectionQuality}
+          </span>
         </span>
         <button
           onClick={() => setStageExpanded((v) => !v)}

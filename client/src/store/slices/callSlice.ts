@@ -167,6 +167,26 @@ export const callSlice = createSlice({
       }
     },
 
+    /**
+     * Bring the flags in line with what LiveKit actually publishes, for the
+     * changes the user did not make from our controls: a device that went
+     * away, a moderator mute, the OS "stop sharing" button. User toggles keep
+     * using the toggle reducers above.
+     */
+    syncCallMedia(
+      state,
+      action: PayloadAction<{ isMuted?: boolean; isVideoEnabled?: boolean; isScreenSharing?: boolean }>,
+    ) {
+      if (!state.activeCall) return;
+      const { isMuted, isVideoEnabled, isScreenSharing } = action.payload;
+      if (isMuted !== undefined) state.activeCall.isMuted = isMuted;
+      if (isVideoEnabled !== undefined) state.activeCall.isVideoEnabled = isVideoEnabled;
+      if (isScreenSharing !== undefined) {
+        state.activeCall.isScreenSharing = isScreenSharing;
+        state.activeCall.isScreenSharePending = false;
+      }
+    },
+
     toggleCallScreenShare(state) {
       if (state.activeCall) {
         state.activeCall.isScreenSharing = !state.activeCall.isScreenSharing;
@@ -241,6 +261,7 @@ export const {
   endCall,
   toggleCallMute,
   toggleCallVideo,
+  syncCallMedia,
   toggleCallScreenShare,
   setCallScreenSharing,
   setCallScreenSharePending,

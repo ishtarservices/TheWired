@@ -274,7 +274,9 @@ export function planNotifications(
       if (!spaceId) return out;
       const channel = tagValue(event, "channel");
       const spaceName = deps.spaceName(spaceId) ?? "a space";
-      const body = preview(event.content);
+      // Content-free, like DM pushes: space chat (private spaces included)
+      // must not transit Expo/APNs/FCM. The app fetches the message on open.
+      const body = "mentioned you";
       for (const recipient of mentionedPubkeys(event)) {
         out.push({
           recipient,

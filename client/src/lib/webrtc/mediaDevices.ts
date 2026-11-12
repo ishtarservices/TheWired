@@ -88,8 +88,12 @@ function permissionHint(): string {
  * WebView) no capture is started. Otherwise audio and video are requested
  * SEPARATELY so a busy camera (Windows NotReadableError) cannot block
  * microphone labels.
+ *
+ * `video: false` skips the camera probe: a caller that does not list cameras
+ * (an audio call's device menu) has no business switching the camera on,
+ * even for the instant it takes to read its name.
  */
-export async function enumerateDevices(): Promise<MediaDeviceInfo[]> {
+export async function enumerateDevices(opts: { video?: boolean } = {}): Promise<MediaDeviceInfo[]> {
   if (!isMediaDevicesAvailable()) return [];
 
   let devices = await navigator.mediaDevices.enumerateDevices();
@@ -98,7 +102,7 @@ export async function enumerateDevices(): Promise<MediaDeviceInfo[]> {
 
   const probes: MediaStreamConstraints[] = [];
   if (!hasLabels("audioinput")) probes.push({ audio: true });
-  if (!hasLabels("videoinput") && devices.some((d) => d.kind === "videoinput")) {
+  if (opts.video !== false && !hasLabels("videoinput") && devices.some((d) => d.kind === "videoinput")) {
     probes.push({ video: true });
   }
   for (const constraints of probes) {
