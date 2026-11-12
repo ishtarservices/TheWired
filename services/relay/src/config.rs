@@ -94,6 +94,14 @@ pub struct Config {
     /// closed (1013) instead of resynced a second time.
     /// `RELAY_RESYNC_COOLDOWN_SECS` (10).
     pub resync_cooldown_secs: u64,
+
+    // ── Postgres pool (`db::pool::PoolSettings`; ignored by the embedded relay) ──
+    /// `RELAY_DB_MAX_CONNECTIONS` (20) / `RELAY_DB_MIN_CONNECTIONS` (2).
+    pub db_max_connections: u32,
+    pub db_min_connections: u32,
+    /// Per-statement cap in ms, the session default of every pooled
+    /// connection; 0 disables. `RELAY_DB_STATEMENT_TIMEOUT_MS` (10000).
+    pub db_statement_timeout_ms: u64,
 }
 
 impl Default for Config {
@@ -122,6 +130,9 @@ impl Default for Config {
             ws_idle_timeout_secs: 90,
             broadcast_capacity: 4096,
             resync_cooldown_secs: 10,
+            db_max_connections: 20,
+            db_min_connections: 2,
+            db_statement_timeout_ms: 10_000,
         }
     }
 }
@@ -192,6 +203,18 @@ impl Config {
             ws_idle_timeout_secs: env_or("RELAY_WS_IDLE_TIMEOUT_SECS", d.ws_idle_timeout_secs),
             broadcast_capacity: env_or("RELAY_BROADCAST_CAPACITY", d.broadcast_capacity).max(1),
             resync_cooldown_secs: env_or("RELAY_RESYNC_COOLDOWN_SECS", d.resync_cooldown_secs),
+            db_max_connections: env_or("RELAY_DB_MAX_CONNECTIONS", d.db_max_connections),
+            db_min_connections: env_or("RELAY_DB_MIN_CONNECTIONS", d.db_min_connections),
+            db_statement_timeout_ms: env_or("RELAY_DB_STATEMENT_TIMEOUT_MS", d.db_statement_timeout_ms),
+        }
+    }
+
+    /// Postgres pool knobs for `db::pool::create_pool_with`.
+    pub fn pool_settings(&self) -> crate::db::pool::PoolSettings {
+        crate::db::pool::PoolSettings {
+            max_connections: self.db_max_connections,
+            min_connections: self.db_min_connections,
+            statement_timeout_ms: self.db_statement_timeout_ms,
         }
     }
 

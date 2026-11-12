@@ -100,6 +100,10 @@ export function MoveTrackModal({ track, onClose, onBack }: MoveTrackModalProps) 
         spaceIds: track.visibility === "space" ? track.spaceIds : undefined,
         channelId: track.visibility === "space" ? track.channelId : undefined,
         inCatalog: track.inCatalog,
+        // Tags the move doesn't own must survive the rebuild: the per-track
+        // export policy and the license are otherwise silently reset.
+        sharingDisabled: track.sharingDisabled,
+        license: track.license,
         revisionSummary: revisionSummary || undefined,
         members: track.members,
       });

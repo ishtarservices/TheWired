@@ -19,6 +19,7 @@ vi.mock("../../src/services/livekitService.js", () => ({
 }));
 
 import type { FastifyInstance } from "fastify";
+import { TrackSource } from "@livekit/protocol";
 import { buildTestServer, closeTestServer } from "../helpers/testServer.js";
 import { LUNA, MARCUS, DECKARD, JAYDEE } from "../helpers/testUsers.js";
 import { db } from "../../src/db/connection.js";
@@ -60,10 +61,15 @@ beforeEach(async () => {
   });
   expect(ch.statusCode).toBe(200);
   channelId = ch.json().data.id;
+  // The room service reports `source` as LiveKit's numeric enum (CAMERA = 1,
+  // MICROPHONE = 2), never the client's lowercase name.
   lk.listParticipants.mockImplementation(async () => [
-    { identity: LUNA.pubkey, tracks: [{ source: "microphone", sid: "TR_luna" }] },
-    { identity: MARCUS.pubkey, tracks: [{ source: "microphone", sid: "TR_marcus" }] },
-    { identity: DECKARD.pubkey, tracks: [{ source: "microphone", sid: "TR_deckard" }] },
+    { identity: LUNA.pubkey, tracks: [{ source: TrackSource.MICROPHONE, sid: "TR_luna" }] },
+    {
+      identity: MARCUS.pubkey,
+      tracks: [{ source: TrackSource.CAMERA, sid: "TR_marcus_cam" }, { source: TrackSource.MICROPHONE, sid: "TR_marcus" }],
+    },
+    { identity: DECKARD.pubkey, tracks: [{ source: TrackSource.MICROPHONE, sid: "TR_deckard" }] },
   ]);
 });
 

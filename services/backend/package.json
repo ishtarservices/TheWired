@@ -16,6 +16,7 @@
     "reports:resolve": "tsx --env-file=.env src/scripts/reports.ts resolve",
     "reports:lift": "tsx --env-file=.env src/scripts/reports.ts lift",
     "reports:restore": "tsx --env-file=.env src/scripts/reports.ts restore",
+    "search:purge-nonpublic": "tsx --env-file=.env src/scripts/purgeNonPublicSearchDocs.ts",
     "test": "vitest run",
     "test:watch": "vitest",
     "test:coverage": "vitest run --coverage"

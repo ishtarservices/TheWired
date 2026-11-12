@@ -80,7 +80,30 @@ export async function hydrateConversation(conversationId: string): Promise<void>
   }
 }
 
-/** Create a new empty conversation and make it active. Returns its id. */
+/** Is this conversation known to hold no messages? A conversation whose
+ *  messages were never hydrated may still have history on disk, so only a
+ *  hydrated (or just-created) empty one counts. */
+function isKnownEmpty(conversationId: string): boolean {
+  const s = store.getState().ai;
+  return (
+    !!s.conversations.entities[conversationId] &&
+    s.hydratedConversations.includes(conversationId) &&
+    (s.messagesByConversation[conversationId]?.length ?? 0) === 0
+  );
+}
+
+/** "New chat": when the active conversation is still empty it already IS a
+ *  new chat, so keep it instead of piling up blank ones. Returns the id of
+ *  the conversation to show. */
+export function startNewChat(): string {
+  const active = store.getState().ai.activeConversationId;
+  if (active && isKnownEmpty(active)) return active;
+  return createConversation();
+}
+
+/** Create a new empty conversation and make it active. Returns its id. Not
+ *  persisted yet: the row reaches IndexedDB with the first message, so an
+ *  abandoned blank chat never does. */
 export function createConversation(): string {
   const now = Date.now();
   const conversation: AIConversation = {
@@ -96,8 +119,6 @@ export function createConversation(): string {
   store.dispatch(
     setConversationMessages({ conversationId: conversation.id, messages: [] }),
   );
-  const acc = account();
-  if (acc) void putConversation(conversation, acc);
   return conversation.id;
 }
 
@@ -131,9 +152,11 @@ export async function sendUserMessage(
   if (convo && (!convo.title || convo.title === "New chat")) {
     const title = trimmed.replace(/\s+/g, " ").slice(0, 60);
     store.dispatch(renameConversation({ id: conversationId, title, updatedAt: now }));
-    const updated = store.getState().ai.conversations.entities[conversationId];
-    if (acc && updated) void putConversation(updated, acc);
   }
+  // First message = first write of the conversation row (createConversation
+  // persists nothing); later messages re-put the bumped updatedAt.
+  const current = store.getState().ai.conversations.entities[conversationId];
+  if (acc && current) void putConversation(current, acc);
 
   await runTurn(conversationId);
 }
@@ -145,6 +168,9 @@ export function setConversationModelEverywhere(
   model: string,
 ): void {
   store.dispatch(setConversationModel({ conversationId, providerId, model }));
+  // A still-empty chat is not on disk yet; its first message carries the
+  // choice along with it.
+  if (isKnownEmpty(conversationId)) return;
   const acc = account();
   const updated = store.getState().ai.conversations.entities[conversationId];
   if (acc && updated) void putConversation(updated, acc);

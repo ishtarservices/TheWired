@@ -34,6 +34,12 @@ struct Obs {
     by_id_count: usize,
     by_author_count: usize,
     by_kind_ids_newest_first: Vec<String>,
+    // --- NIP-50 search honours the rest of the filter (audit 2026-09-18 C-01) ---
+    search_all: usize,
+    search_by_author: usize,
+    search_by_kind_miss: usize,
+    search_since: usize,
+    search_until: usize,
     tie_lower_replaces_higher: bool,
     tie_higher_refused_after_lower: bool,
     tie_survivor_is_lowest: bool,
@@ -130,6 +136,30 @@ async fn exercise(db: &Db, alice: &TestIdentity, bob: &TestIdentity) -> Obs {
         .query_events(&filt(serde_json::json!({ "kinds": [1] })), None)
         .await
         .unwrap();
+
+    // --- NIP-50: `search` plus kinds/authors/since/until all apply at once.
+    //     Three public "zebra" notes: alice at 50 and 110, bob at 111. ---
+    db.store_event(&sign_event(alice, 1, vec![], "zebra early", 50)).await.unwrap();
+    db.store_event(&sign_event(alice, 1, vec![], "zebra crossing", 110)).await.unwrap();
+    db.store_event(&sign_event(bob, 1, vec![], "zebra crossing", 111)).await.unwrap();
+    let search = |extra: serde_json::Value| {
+        let mut f = serde_json::json!({ "search": "zebra" });
+        f.as_object_mut().unwrap().extend(extra.as_object().unwrap().clone());
+        filt(f)
+    };
+    let search_all = db.query_events(&search(serde_json::json!({})), None).await.unwrap().len();
+    let search_by_author = db
+        .query_events(&search(serde_json::json!({ "authors": [alice.pubkey] })), None)
+        .await
+        .unwrap()
+        .len();
+    let search_by_kind_miss = db
+        .query_events(&search(serde_json::json!({ "kinds": [7] })), None)
+        .await
+        .unwrap()
+        .len();
+    let search_since = db.query_events(&search(serde_json::json!({ "since": 100 })), None).await.unwrap().len();
+    let search_until = db.query_events(&search(serde_json::json!({ "until": 110 })), None).await.unwrap().len();
 
     // --- NIP-29 group store ---
     let group_created = db.create_group("g1", "Group One", &alice.pubkey).await.unwrap();
@@ -261,6 +291,11 @@ async fn exercise(db: &Db, alice: &TestIdentity, bob: &TestIdentity) -> Obs {
         by_id_count: by_id.len(),
         by_author_count: by_author.len(),
         by_kind_ids_newest_first: by_kind.iter().map(|e| e.id.clone()).collect(),
+        search_all,
+        search_by_author,
+        search_by_kind_miss,
+        search_since,
+        search_until,
         tie_lower_replaces_higher,
         tie_higher_refused_after_lower,
         tie_survivor_is_lowest,
@@ -327,6 +362,11 @@ fn expected(alice: &TestIdentity, bob: &TestIdentity, note_a_id: &str, note_b_id
         by_author_count: 1,
         // newest-first: note_b (ts 101) before note_a (ts 100)
         by_kind_ids_newest_first: vec![note_b_id.to_string(), note_a_id.to_string()],
+        search_all: 3,
+        search_by_author: 2,
+        search_by_kind_miss: 0,
+        search_since: 2,
+        search_until: 2,
         tie_lower_replaces_higher: true,
         tie_higher_refused_after_lower: false,
         tie_survivor_is_lowest: true,

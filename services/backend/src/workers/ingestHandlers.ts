@@ -892,10 +892,21 @@ async function processDeletion(event: NostrEvent) {
   for (const tag of event.tags) {
     if (tag[0] !== "e" || !tag[1]) continue;
     try {
+      // The relay hard-deletes the target before it broadcasts the kind 5,
+      // so relay.events usually no longer has the row; the search doc itself
+      // carries the author. Either source proves authorship.
       const rows = (await db.execute(
         sql`SELECT pubkey FROM relay.events WHERE id = ${tag[1]} LIMIT 1`,
       )) as unknown as { pubkey: string }[];
-      if (rows.length > 0 && rows[0].pubkey === event.pubkey) {
+      let author: string | undefined = rows[0]?.pubkey;
+      if (!author) {
+        const doc = await ms
+          .index("events")
+          .getDocument<{ pubkey?: string }>(tag[1])
+          .catch(() => null);
+        author = doc?.pubkey;
+      }
+      if (author === event.pubkey) {
         await ms.index("events").deleteDocument(tag[1]);
       }
     } catch {
