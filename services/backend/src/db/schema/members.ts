@@ -1,4 +1,4 @@
-import { text, timestamp, primaryKey } from "drizzle-orm/pg-core";
+import { text, timestamp, primaryKey, index } from "drizzle-orm/pg-core";
 import { appSchema, spaces } from "./spaces.js";
 
 export const spaceMembers = appSchema.table("space_members", {
@@ -7,6 +7,8 @@ export const spaceMembers = appSchema.table("space_members", {
   joinedAt: timestamp("joined_at").defaultNow(),
 }, (t) => [
   primaryKey({ columns: [t.spaceId, t.pubkey] }),
+  // "Which spaces is this pubkey in" — the relay's AUTH/REQ membership lookup.
+  index("idx_space_members_pubkey").on(t.pubkey),
 ]);
 
 export const memberRoles = appSchema.table("member_roles", {
