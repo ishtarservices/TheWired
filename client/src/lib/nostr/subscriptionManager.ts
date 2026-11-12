@@ -26,6 +26,10 @@ const HIGH_VOLUME_THRESHOLD = 100;
 
 interface ManagedSubscription {
   id: string;
+  /** The id relayManager put on the wire for this subscription. It is NOT
+   *  `id`: relayManager mints its own. Closing must use this one, or no CLOSE
+   *  is sent and the relay keeps the subscription open until the socket drops. */
+  relaySubId: string | null;
   filters: NostrFilter[];
   relayUrls: string[];
   eoseReceived: Map<string, boolean>;
@@ -87,6 +91,7 @@ class SubscriptionManagerImpl {
 
     const sub: ManagedSubscription = {
       id,
+      relaySubId: null,
       filters: opts.filters,
       relayUrls: trackedUrls,
       eoseReceived,
@@ -116,7 +121,7 @@ class SubscriptionManagerImpl {
 
     // Open via relayManager — pass the ORIGINAL requested URLs (relayManager
     // does its own strip). The tracking map only governs the EOSE quorum.
-    relayManager.subscribe({
+    sub.relaySubId = relayManager.subscribe({
       filters: opts.filters,
       relayUrls: requestedUrls,
       onEvent: (event, relayUrl) => {
@@ -140,6 +145,12 @@ class SubscriptionManagerImpl {
       },
     });
 
+    // Closed from inside a callback before relayManager returned its id (a
+    // synchronous EOSE): close() had nothing to send, so finish the job now.
+    if (!sub.isActive && sub.relaySubId) {
+      relayManager.closeSubscription(sub.relaySubId);
+    }
+
     return id;
   }
 
@@ -154,15 +165,21 @@ class SubscriptionManagerImpl {
     timeoutMs?: number;
   }): Promise<{ reason: EoseReason }> {
     return new Promise((resolve) => {
-      const subId = this.subscribe({
+      // onEOSE can run before subscribe() has returned the id (a relay that
+      // answers on the same tick); remember that and close right after.
+      let subId: string | undefined;
+      let done = false;
+      subId = this.subscribe({
         filters: opts.filters,
         relayUrls: opts.relayUrls,
         timeoutMs: opts.timeoutMs,
         onEOSE: (info) => {
-          this.close(subId);
+          done = true;
+          if (subId) this.close(subId);
           resolve(info);
         },
       });
+      if (done) this.close(subId);
     });
   }
 
@@ -181,7 +198,8 @@ class SubscriptionManagerImpl {
           `high-volume sub ${subId} closed — ${sub.eventCount} events over ${lifetimeSec}s  kinds=[${kinds}]`,
         );
       }
-      relayManager.closeSubscription(subId);
+      // The relay knows this subscription by relayManager's id, not ours.
+      if (sub.relaySubId) relayManager.closeSubscription(sub.relaySubId);
       this.subscriptions.delete(subId);
     }
   }
