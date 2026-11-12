@@ -7,7 +7,7 @@ import type { CoreColors } from "../../lib/themeTypes";
 
 export function ThemeCustomEditor() {
   const { config, setCustomColors, setCustomFont, setPreset } = useTheme();
-  const [fontInput, setFontInput] = useState(config.font?.family || "Inter");
+  const [fontInput, setFontInput] = useState(config.font?.family || "Geist");
 
   const handleColorChange = (key: keyof CoreColors) => (value: string) => {
     setCustomColors({ ...config.colors, [key]: value });
@@ -85,7 +85,7 @@ export function ThemeCustomEditor() {
             onChange={(e) => setFontInput(e.target.value)}
             onBlur={handleFontSubmit}
             onKeyDown={(e) => e.key === "Enter" && handleFontSubmit()}
-            placeholder="Font family (e.g. Inter, Lora)"
+            placeholder="Font family (e.g. Geist, Inter, Lora)"
             className="flex-1 rounded-md border border-border bg-field px-3 py-1.5 text-sm text-heading placeholder:text-muted focus:border-primary focus:outline-none"
           />
         </div>

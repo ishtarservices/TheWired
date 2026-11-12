@@ -122,7 +122,7 @@ export function AIModelPicker({
           ) : (
             groups.map((group) => (
               <div key={group.providerId} className="py-0.5">
-                <div className="flex items-center gap-1.5 px-3 py-1 text-[10px] font-semibold uppercase tracking-wide text-muted">
+                <div className="flex items-center gap-1.5 px-3 py-1 label-caps">
                   <span
                     className={cn(
                       "h-1.5 w-1.5 shrink-0 rounded-full",

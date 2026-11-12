@@ -1,5 +1,5 @@
 import { useMemo, useState, useRef, useEffect } from "react";
-import { ArrowLeft, Play, Shuffle, Disc3, Link2, Heart, Plus, Check, Trash2, Users, UserPlus, X, Clock, RefreshCw, Pencil, Search, KeyRound } from "lucide-react";
+import { ArrowLeft, Play, Shuffle, Link2, Heart, Plus, Check, Trash2, Users, UserPlus, X, Clock, RefreshCw, Pencil, Search, KeyRound } from "lucide-react";
 import { useAppSelector, useAppDispatch } from "@/store/hooks";
 import { signerForRelease, useHoldsProjectKey, useIsMine } from "../sharedKey/ownership";
 import { isSharedRelease } from "../sharedKey/members";
@@ -25,6 +25,21 @@ import { AnnotationsPanel } from "../AnnotationsPanel";
 import { usePlaybackBarSpacing } from "@/hooks/usePlaybackBarSpacing";
 import { useResolvedArtist, resolveArtistDetailTarget } from "../useResolvedArtist";
 import { ListenRequestsSection } from "../ListenRequestsSection";
+import { Artwork } from "../Artwork";
+import { resolveMusic } from "@/lib/api/music";
+import { processIncomingEvent } from "@/lib/nostr/eventPipeline";
+
+const ICON_BTN =
+  "flex h-9 w-9 items-center justify-center rounded-full border border-border text-soft transition-colors hover:bg-surface-hover hover:text-heading disabled:opacity-40";
+const TEXT_BTN =
+  "flex h-9 items-center gap-1.5 rounded-full px-3 text-[13px] text-soft transition-colors hover:bg-surface-hover hover:text-heading";
+
+/** "22 min" / "1 hr 4 min" for a project's total running time. */
+function formatRuntime(seconds: number): string {
+  const mins = Math.max(1, Math.round(seconds / 60));
+  if (mins < 60) return `${mins} min`;
+  return `${Math.floor(mins / 60)} hr ${mins % 60} min`;
+}
 
 function CollaboratorRow({
   pubkey,
@@ -138,6 +153,46 @@ export function AlbumDetail() {
     return allAlbumTracks.length - albumTracks.length;
   }, [shouldFilterByLibrary, allAlbumTracks.length, albumTracks.length]);
 
+  const totalDuration = useMemo(
+    () => albumTracks.reduce((sum, t) => sum + (t.duration && isFinite(t.duration) ? t.duration : 0), 0),
+    [albumTracks],
+  );
+
+  // A project that reached the store without its tracks (browse and search
+  // return the project event alone) lists track refs it can't show. Resolve it
+  // once so the page isn't "7 tracks" over an empty list.
+  const [loadingTracks, setLoadingTracks] = useState(false);
+  const resolvedFor = useRef<string | null>(null);
+  const missingTracks =
+    !!album && album.trackRefs.length > 0 && album.trackRefs.some((id) => !tracks[id]);
+  useEffect(() => {
+    if (!album || !missingTracks || resolvedFor.current === album.addressableId) return;
+    resolvedFor.current = album.addressableId;
+    const [, authorPubkey, ...slugParts] = album.addressableId.split(":");
+    const slug = slugParts.join(":");
+    if (!authorPubkey || !slug) return;
+    let cancelled = false;
+    setLoadingTracks(true);
+    resolveMusic("album", authorPubkey, slug)
+      .catch((err) => {
+        if (!pubkey) throw err;
+        return resolveMusic("album", authorPubkey, slug, { auth: true });
+      })
+      .then(async (result) => {
+        const data = result.data as { tracks?: unknown[] };
+        for (const trackEvent of data.tracks ?? []) {
+          await processIncomingEvent(trackEvent, "resolve");
+        }
+      })
+      .catch(() => {})
+      .finally(() => {
+        if (!cancelled) setLoadingTracks(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [album, missingTracks, pubkey]);
+
   // A rotation stub replaced this project: follow it to its new address.
   useEffect(() => {
     if (!album && movedTo && movedTarget) {
@@ -222,201 +277,206 @@ export function AlbumDetail() {
       {/* Main content */}
       <div className={`flex-1 overflow-y-auto ${scrollPaddingClass}`}>
         {/* Header */}
-        <div className="flex items-end gap-6 bg-linear-to-b from-card-hover/30 to-transparent p-6">
-          <button
-            onClick={() => dispatch(goBack())}
-            className="self-start rounded p-1 text-soft hover:text-heading"
-          >
-            <ArrowLeft size={20} />
-          </button>
-          {album.imageUrl ? (
-            <img
-              src={album.imageUrl}
-              alt={album.title}
-              className="h-36 w-36 rounded-lg object-cover shadow-lg"
-            />
-          ) : (
-            <div className="flex h-36 w-36 items-center justify-center rounded-lg bg-card">
-              <Disc3 size={48} className="text-muted" />
+        <header className="relative isolate overflow-hidden">
+          {/* The cover, blurred far out, tints the header. Colour in the music
+              section comes from the artwork, not from the chrome. */}
+          {album.imageUrl && (
+            <div aria-hidden className="pointer-events-none absolute inset-0 -z-10">
+              <img
+                src={album.imageUrl}
+                alt=""
+                className="h-full w-full scale-150 object-cover opacity-30 blur-3xl saturate-150"
+              />
+              <div className="absolute inset-0 bg-linear-to-b from-background/20 via-background/70 to-background" />
             </div>
           )}
-          <div>
-            <p className="text-xs uppercase tracking-wider text-soft">
-              {album.projectType === "album" ? "Album" : album.projectType}
-              {holdsKey && <span className="ml-2 normal-case tracking-normal text-muted">shared</span>}
-            </p>
-            <h1 className="text-2xl font-bold text-heading">{album.title}</h1>
-            <p className="text-sm text-soft">
-              {(() => {
-                const target = resolveArtistDetailTarget(album.artist, album.artistPubkeys);
-                if (!target) return <span>{resolvedArtist}</span>;
-                return (
-                  <button
-                    type="button"
-                    onClick={() => dispatch(setActiveDetailId(target))}
-                    className="hover:text-heading hover:underline"
-                  >
-                    {resolvedArtist}
-                  </button>
-                );
-              })()}
-              {" "}&middot; {album.trackCount} track
-              {album.trackCount !== 1 ? "s" : ""}
-              {collaborators.length > 0 && (
-                <> &middot; {collaborators.length} collaborator{collaborators.length !== 1 ? "s" : ""}</>
-              )}
-            </p>
-            {(album.genre || album.hashtags.length > 0) && (
-              <div className="mt-1.5 flex flex-wrap gap-1">
-                {album.genre && (
-                  <span className="rounded-full bg-card px-2 py-0.5 text-xs text-soft">
-                    {album.genre}
-                  </span>
-                )}
-                {album.hashtags.map((tag) => (
-                  <span
-                    key={tag}
-                    className="rounded-full bg-card px-2 py-0.5 text-xs text-muted"
-                  >
-                    #{tag}
-                  </span>
-                ))}
-              </div>
-            )}
-            <div className="mt-3 flex flex-wrap gap-2">
-              <button
-                onClick={() => playQueue(queueIds, 0)}
-                disabled={queueIds.length === 0}
-                className="flex items-center gap-1.5 rounded-full bg-linear-to-r from-primary to-primary-soft px-4 py-1.5 text-sm font-medium text-white transition-transform hover:scale-105 press-effect disabled:opacity-50"
-              >
-                <Play size={14} fill="currentColor" />
-                Play All
-              </button>
-              <button
-                onClick={() => {
-                  const shuffled = [...queueIds].sort(() => Math.random() - 0.5);
-                  playQueue(shuffled, 0);
-                }}
-                disabled={queueIds.length === 0}
-                className="flex items-center gap-1.5 rounded-full border border-border px-4 py-1.5 text-sm text-soft transition-colors hover:border-border-light hover:text-heading disabled:opacity-50"
-              >
-                <Shuffle size={14} />
-                Shuffle
-              </button>
-              {album.visibility !== "local" && (
-                <button
-                  onClick={async () => {
-                    const link = buildMusicLink(album.addressableId);
-                    const ok = await copyToClipboard(link);
-                    if (ok) {
-                      setCopied(true);
-                      setTimeout(() => setCopied(false), 2000);
-                    }
-                  }}
-                  className="flex items-center gap-1.5 rounded-full border border-border px-4 py-1.5 text-sm text-soft transition-colors hover:border-border-light hover:text-heading"
-                >
-                  <Link2 size={14} />
-                  {copied ? "Copied!" : "Copy Link"}
-                </button>
-              )}
-              {!isMine(album.pubkey) && album.visibility !== "local" && (
-                <>
-                  {confirmRemove ? (
+          <div className="px-8 pt-5">
+            <button
+              onClick={() => dispatch(goBack())}
+              className="-ml-1.5 flex items-center gap-1.5 rounded-md px-1.5 py-1 text-xs text-soft transition-colors hover:bg-surface-hover hover:text-heading"
+            >
+              <ArrowLeft size={14} />
+              Back
+            </button>
+          </div>
+          <div className="flex flex-wrap items-end gap-x-8 gap-y-5 px-8 pb-7 pt-5">
+            <Artwork
+              src={album.imageUrl}
+              title={album.title}
+              loading="eager"
+              className="h-52 w-52 rounded-xl shadow-[var(--shadow-lg)]"
+            />
+            <div className="min-w-0 flex-1 basis-72">
+              <p className="label-caps text-soft">
+                {album.projectType === "album" ? "Album" : album.projectType}
+                {holdsKey && <span className="ml-2 text-muted">· shared</span>}
+              </p>
+              <h1 className="mt-2.5 text-4xl font-semibold leading-[1.05] tracking-[-0.03em] text-heading">
+                {album.title}
+              </h1>
+              <p className="mt-3 text-sm text-body">
+                {(() => {
+                  const target = resolveArtistDetailTarget(album.artist, album.artistPubkeys);
+                  if (!target) return <span>{resolvedArtist}</span>;
+                  return (
                     <button
-                      onClick={() => {
-                        unsaveAlbum(album.addressableId);
-                        setConfirmRemove(false);
-                      }}
-                      className="flex items-center gap-1.5 rounded-full border border-red-500/30 bg-red-500/10 px-4 py-1.5 text-sm text-red-400 transition-colors hover:bg-red-500/20"
+                      type="button"
+                      onClick={() => dispatch(setActiveDetailId(target))}
+                      className="font-medium text-heading hover:underline"
                     >
-                      <Trash2 size={14} />
-                      Confirm Remove
+                      {resolvedArtist}
                     </button>
-                  ) : (
+                  );
+                })()}
+              </p>
+              <p className="readout mt-1.5 text-[11px] uppercase tracking-wider text-muted">
+                {album.trackCount} track{album.trackCount !== 1 ? "s" : ""}
+                {totalDuration > 0 && <> · {formatRuntime(totalDuration)}</>}
+                {album.genre && <> · {album.genre}</>}
+                {collaborators.length > 0 && (
+                  <> · {collaborators.length} collaborator{collaborators.length !== 1 ? "s" : ""}</>
+                )}
+              </p>
+              {album.hashtags.length > 0 && (
+                <p className="mt-1.5 flex flex-wrap gap-x-2.5 text-xs text-muted">
+                  {album.hashtags.map((tag) => (
+                    <span key={tag}>#{tag}</span>
+                  ))}
+                </p>
+              )}
+              <div className="mt-5 flex flex-wrap items-center gap-2">
+                <button
+                  onClick={() => playQueue(queueIds, 0)}
+                  disabled={queueIds.length === 0}
+                  className="flex h-9 items-center gap-2 rounded-full bg-heading pl-3.5 pr-4 text-[13px] font-medium text-background transition-opacity hover:opacity-90 press-effect disabled:opacity-40"
+                >
+                  <Play size={14} fill="currentColor" />
+                  Play
+                </button>
+                <button
+                  onClick={() => {
+                    const shuffled = [...queueIds].sort(() => Math.random() - 0.5);
+                    playQueue(shuffled, 0);
+                  }}
+                  disabled={queueIds.length === 0}
+                  className={ICON_BTN}
+                  title="Shuffle"
+                  aria-label="Shuffle"
+                >
+                  <Shuffle size={15} />
+                </button>
+                {!isMine(album.pubkey) && album.visibility !== "local" && (
+                  <>
+                    {confirmRemove ? (
+                      <button
+                        onClick={() => {
+                          unsaveAlbum(album.addressableId);
+                          setConfirmRemove(false);
+                        }}
+                        className="flex h-9 items-center gap-1.5 rounded-full border border-red-500/30 bg-red-500/10 px-3.5 text-[13px] text-red-400 transition-colors hover:bg-red-500/20"
+                      >
+                        <Trash2 size={14} />
+                        Remove from library?
+                      </button>
+                    ) : (
+                      <button
+                        onClick={() => {
+                          if (isAlbumSaved(album.addressableId)) {
+                            setConfirmRemove(true);
+                          } else {
+                            saveAlbum(album.addressableId);
+                          }
+                        }}
+                        className={ICON_BTN}
+                        title={isAlbumSaved(album.addressableId) ? "In your library" : "Add to library"}
+                        aria-label={isAlbumSaved(album.addressableId) ? "In your library" : "Add to library"}
+                      >
+                        {isAlbumSaved(album.addressableId) ? (
+                          <Check size={15} className="text-success" />
+                        ) : (
+                          <Plus size={15} />
+                        )}
+                      </button>
+                    )}
                     <button
                       onClick={() => {
-                        if (isAlbumSaved(album.addressableId)) {
-                          setConfirmRemove(true);
+                        if (isAlbumFavorited(album.addressableId)) {
+                          unfavoriteAlbum(album.addressableId);
                         } else {
-                          saveAlbum(album.addressableId);
+                          favoriteAlbum(album.addressableId);
                         }
                       }}
-                      className="flex items-center gap-1.5 rounded-full border border-border px-4 py-1.5 text-sm text-soft transition-colors hover:border-border-light hover:text-heading"
+                      className={ICON_BTN}
+                      title={isAlbumFavorited(album.addressableId) ? "Favorited" : "Favorite"}
+                      aria-label={isAlbumFavorited(album.addressableId) ? "Favorited" : "Favorite"}
                     >
-                      {isAlbumSaved(album.addressableId) ? (
-                        <Check size={14} className="text-green-400" />
-                      ) : (
-                        <Plus size={14} />
-                      )}
-                      {isAlbumSaved(album.addressableId) ? "In Library" : "Add to Library"}
+                      <Heart
+                        size={15}
+                        className={isAlbumFavorited(album.addressableId) ? "fill-red-500 text-red-500" : ""}
+                      />
                     </button>
-                  )}
+                  </>
+                )}
+                {album.visibility !== "local" && (
                   <button
-                    onClick={() => {
-                      if (isAlbumFavorited(album.addressableId)) {
-                        unfavoriteAlbum(album.addressableId);
-                      } else {
-                        favoriteAlbum(album.addressableId);
+                    onClick={async () => {
+                      const link = buildMusicLink(album.addressableId);
+                      const ok = await copyToClipboard(link);
+                      if (ok) {
+                        setCopied(true);
+                        setTimeout(() => setCopied(false), 2000);
                       }
                     }}
-                    className="flex items-center gap-1.5 rounded-full border border-border px-4 py-1.5 text-sm text-soft transition-colors hover:border-border-light hover:text-heading"
+                    className={ICON_BTN}
+                    title={copied ? "Link copied" : "Copy link"}
+                    aria-label={copied ? "Link copied" : "Copy link"}
                   >
-                    <Heart
-                      size={14}
-                      className={isAlbumFavorited(album.addressableId) ? "fill-red-500 text-red-500" : ""}
-                    />
-                    {isAlbumFavorited(album.addressableId) ? "Favorited" : "Favorite"}
+                    {copied ? <Check size={15} className="text-success" /> : <Link2 size={15} />}
                   </button>
-                </>
-              )}
-              {isOwner && (
-                <button
-                  onClick={() => setEditOpen(true)}
-                  className="flex items-center gap-1.5 rounded-full border border-border px-4 py-1.5 text-sm text-soft transition-colors hover:border-border-light hover:text-heading"
-                >
-                  <Pencil size={14} />
-                  Edit Project
-                </button>
-              )}
-              {(isOwner || isCollaborator) && (
-                <button
-                  onClick={() => setShowMembers((v) => !v)}
-                  className={`flex items-center gap-1.5 rounded-full border px-4 py-1.5 text-sm transition-colors ${
-                    showMembers
-                      ? "border-primary/40 text-heading"
-                      : "border-border text-soft hover:border-border-light hover:text-heading"
-                  }`}
-                >
-                  <Users size={14} />
-                  Members
-                </button>
-              )}
-              {(isOwner || isCollaborator) && (
-                <button
-                  onClick={() =>
-                    dispatch(
-                      setActiveDetailId({
-                        view: "project-history",
-                        id: album.addressableId,
-                      }),
-                    )
-                  }
-                  className="flex items-center gap-1.5 rounded-full border border-border px-4 py-1.5 text-sm text-soft transition-colors hover:border-border-light hover:text-heading"
-                >
-                  <Clock size={14} />
-                  History
-                </button>
-              )}
-              {/* TODO: Re-enable proposals/changes system later */}
+                )}
+                {(isOwner || isCollaborator) && <span aria-hidden className="mx-1 h-5 w-px bg-border" />}
+                {isOwner && (
+                  <button onClick={() => setEditOpen(true)} className={TEXT_BTN}>
+                    <Pencil size={14} />
+                    Edit
+                  </button>
+                )}
+                {(isOwner || isCollaborator) && (
+                  <button
+                    onClick={() => setShowMembers((v) => !v)}
+                    className={`${TEXT_BTN} ${showMembers ? "bg-surface-hover text-heading" : ""}`}
+                  >
+                    <Users size={14} />
+                    Members
+                  </button>
+                )}
+                {(isOwner || isCollaborator) && (
+                  <button
+                    onClick={() =>
+                      dispatch(
+                        setActiveDetailId({
+                          view: "project-history",
+                          id: album.addressableId,
+                        }),
+                      )
+                    }
+                    className={TEXT_BTN}
+                  >
+                    <Clock size={14} />
+                    History
+                  </button>
+                )}
+                {/* TODO: Re-enable proposals/changes system later */}
+              </div>
             </div>
           </div>
-        </div>
+        </header>
 
         {/* Update Available banner — derived from saved vs newest known version */}
         {hasUpdate && !isOwner && (
           <div
             role="status"
-            className="mx-6 mt-2 flex items-center gap-3 rounded-xl border border-primary/30 bg-primary/5 px-4 py-3"
+            className="mx-8 mb-4 flex items-center gap-3 rounded-lg border border-primary/30 bg-primary/5 px-4 py-3"
           >
             <RefreshCw size={16} className="shrink-0 text-primary" />
             <div className="min-w-0 flex-1">
@@ -450,18 +510,23 @@ export function AlbumDetail() {
         )}
 
         {/* Track list */}
-        <div className="px-6 py-4">
+        <div className="px-5 pb-4">
           {albumTracks.length > 0 ? (
-            albumTracks.map((track, i) => (
-              <TrackRow
-                key={track.addressableId}
-                track={track}
-                index={i}
-                queueTracks={queueIds}
-              />
-            ))
+            <div className="border-t border-border-light pt-2">
+              {albumTracks.map((track, i) => (
+                <TrackRow
+                  key={track.addressableId}
+                  track={track}
+                  index={i}
+                  queueTracks={queueIds}
+                  context="album"
+                />
+              ))}
+            </div>
           ) : (
-            <p className="text-sm text-soft">No tracks in this album yet</p>
+            <p className="border-t border-border-light px-3 pt-5 text-sm text-muted">
+              {loadingTracks ? "Loading tracks…" : "No tracks in this project yet"}
+            </p>
           )}
           {unsavedTrackCount > 0 && (
             <button
@@ -472,7 +537,7 @@ export function AlbumDetail() {
                   }
                 }
               }}
-              className="mt-3 flex items-center gap-1.5 rounded-lg border border-dashed border-border px-3 py-2 text-sm text-soft transition-colors hover:border-border-light hover:text-heading"
+              className="ml-3 mt-3 flex items-center gap-1.5 rounded-lg border border-dashed border-border px-3 py-2 text-[13px] text-soft transition-colors hover:bg-surface hover:text-heading"
             >
               <Plus size={14} />
               Add {unsavedTrackCount} remaining track{unsavedTrackCount !== 1 ? "s" : ""}
@@ -530,7 +595,7 @@ export function AlbumDetail() {
 
           <div className="flex-1 overflow-y-auto p-2">
             {/* Owner(s): a shared project lists its key holders (first = started it) */}
-            <div className="mb-1 px-2 text-[10px] font-semibold uppercase tracking-wider text-muted">
+            <div className="mb-1 px-2 label-caps">
               {owners.length > 1 ? `Owners (${owners.length})` : "Owner"}
             </div>
             {owners.map((pk) => (
@@ -545,7 +610,7 @@ export function AlbumDetail() {
             {/* Collaborators list */}
             {collaborators.length > 0 && (
               <>
-                <div className="mb-1 mt-3 px-2 text-[10px] font-semibold uppercase tracking-wider text-muted">
+                <div className="mb-1 mt-3 px-2 label-caps">
                   Collaborators ({collaborators.length})
                 </div>
                 {collaborators.map((pk) => (
@@ -634,7 +699,7 @@ function AddCollaboratorSearch({
 
   return (
     <div ref={containerRef} className="mt-3 border-t border-border pt-3 px-1">
-      <div className="mb-1.5 flex items-center gap-1 text-[10px] font-semibold uppercase tracking-wider text-muted">
+      <div className="mb-1.5 flex items-center gap-1 label-caps">
         <Icon size={10} />
         {label}
       </div>

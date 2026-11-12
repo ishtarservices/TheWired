@@ -358,7 +358,7 @@ export function ChatInput({
   return (
     <form
       onSubmit={handleSubmit}
-      className={`relative border-t border-border p-3 ${inputMarginClass}`}
+      className={`relative px-4 pb-4 pt-1 ${inputMarginClass}`}
     >
       <AnchoredPopover
         anchorEl={textareaRef.current}
@@ -448,7 +448,7 @@ export function ChatInput({
         <GifPreview gif={pendingGif} onRemove={() => setPendingGif(null)} />
       )}
 
-      <div className="rounded-xl bg-field ring-1 ring-border">
+      <div className="rounded-xl bg-field ring-1 ring-border transition-shadow duration-150 focus-within:ring-primary/45">
         <FormattingToolbar textareaRef={textareaRef} value={value} setValue={setValue} />
         <div className="flex items-end gap-2 px-3 py-2">
           {canAttachFiles && (
@@ -545,7 +545,7 @@ export function ChatInput({
             spellCheck
             autoCorrect="on"
             autoCapitalize="sentences"
-            className="flex-1 resize-none overflow-hidden bg-transparent text-sm text-heading placeholder:text-muted focus:outline-none focus:ring-primary/30 focus:shadow-[0_0_12px_var(--focus-glow-color)]"
+            className="flex-1 resize-none overflow-hidden bg-transparent text-sm text-heading placeholder:text-muted focus:outline-none"
           />
           <Button
             type="submit"

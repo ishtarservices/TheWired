@@ -26,14 +26,14 @@ export function ListenRequests() {
   }
 
   return (
-    <div className={`flex-1 overflow-y-auto p-4 ${scrollPaddingClass}`}>
+    <div className={`flex-1 overflow-y-auto px-8 py-7 ${scrollPaddingClass}`}>
       <div className="mb-1 flex items-center gap-2">
-        <h2 className="text-lg font-semibold text-heading">Listen Requests</h2>
+        <h2 className="text-2xl font-semibold tracking-[-0.02em] text-heading">Listen Requests</h2>
         {groups.length > 0 && <span className="text-sm text-muted">{groups.length}</span>}
         <button
           onClick={refresh}
           disabled={loading}
-          className="ml-auto flex items-center gap-1.5 rounded-xl border border-border px-3 py-1.5 text-xs text-soft transition-colors hover:border-border-light hover:text-heading press-effect disabled:opacity-50"
+          className="ml-auto flex items-center gap-1.5 rounded-xl border border-border px-3 py-1.5 text-xs text-soft transition-colors hover:border-faint hover:text-heading press-effect disabled:opacity-50"
         >
           <RefreshCw size={14} className={loading ? "animate-spin" : undefined} />
           Refresh

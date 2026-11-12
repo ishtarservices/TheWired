@@ -2,6 +2,9 @@
 
 /* ═══════════════════════════════════════════════════
    Bundled Fonts
+   Geist (UI) and Geist Mono (timecodes, counts, labels) are imported from
+   @fontsource-variable in main.tsx, so the default theme never depends on a
+   system font or the network.
    ═══════════════════════════════════════════════════ */
 
 @font-face {
@@ -19,35 +22,51 @@
    ═══════════════════════════════════════════════════ */
 
 @theme {
+  /* Type */
+  --font-sans: var(--font-family, 'Geist Variable'), 'Geist Variable', ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Helvetica, Arial, sans-serif;
+  --font-mono: 'Geist Mono Variable', ui-monospace, 'SF Mono', SFMono-Regular, Menlo, Consolas, monospace;
+
+  /* Radius scale: 4 / 6 / 8 / 12 / 16 / 24 */
+  --radius-sm: 4px;
+  --radius-md: 6px;
+  --radius-lg: 8px;
+  --radius-xl: 12px;
+  --radius-2xl: 16px;
+  --radius-3xl: 24px;
+
+  /* Easing */
+  --ease-out-quint: cubic-bezier(0.22, 1, 0.36, 1);
+
   /* Backgrounds */
-  --color-background: hsl(220 14% 8%);
-  --color-panel: hsl(220 14% 11%);
-  --color-card: hsl(220 14% 14%);
-  --color-card-hover: hsl(220 14% 17%);
-  --color-field: hsl(220 14% 12%);
-  --color-popover: hsl(220 14% 11%);
-  --color-surface: hsl(220 14% 92% / 0.03);
-  --color-surface-hover: hsl(220 14% 92% / 0.06);
+  --color-background: hsl(228 10% 6.5%);
+  --color-panel: hsl(228 10% 9%);
+  --color-card: hsl(228 10% 11.5%);
+  --color-card-hover: hsl(228 10% 14.5%);
+  --color-field: hsl(228 10% 10%);
+  --color-popover: hsl(228 10% 10.5%);
+  --color-surface: hsl(220 12% 93% / 0.035);
+  --color-surface-hover: hsl(220 12% 93% / 0.07);
 
   /* Text */
-  --color-heading: hsl(220 14% 92%);
-  --color-body: hsl(220 14% 79.6%);
-  --color-soft: hsl(220 14% 66.8%);
-  --color-muted: hsl(220 14% 51%);
-  --color-faint: hsl(220 14% 38.2%);
+  --color-heading: hsl(220 12% 93%);
+  --color-body: hsl(220 12% 80%);
+  --color-soft: hsl(220 12% 67%);
+  --color-muted: hsl(220 12% 50%);
+  --color-faint: hsl(220 12% 37%);
 
   /* Primary accent */
-  --color-primary: hsl(235 55% 58%);
-  --color-primary-soft: hsl(235 55% 68%);
-  --color-primary-dim: hsl(235 55% 58% / 0.15);
+  --color-primary: hsl(236 62% 63%);
+  --color-primary-soft: hsl(236 62% 73%);
+  --color-primary-dim: hsl(236 62% 63% / 0.15);
   --color-primary-fg: hsl(0 0% 100%);
 
-  /* Borders */
-  --color-border: hsl(220 14% 20.6%);
-  --color-border-light: hsl(220 14% 16.4%);
+  /* Borders: hairlines drawn in the foreground colour at low alpha, so they
+     sit correctly on every surface step */
+  --color-border: hsl(220 12% 93% / 0.1);
+  --color-border-light: hsl(220 12% 93% / 0.06);
 
   /* Focus ring */
-  --color-ring: hsl(235 55% 58% / 0.5);
+  --color-ring: hsl(236 62% 63% / 0.55);
 
   /* Semantic */
   --color-destructive: hsl(0 72% 56%);
@@ -68,10 +87,12 @@
    ═══════════════════════════════════════════════════ */
 
 :root {
-  font-family: var(--font-family, 'Inter'), system-ui, Avenir, Helvetica, Arial, sans-serif;
+  font-family: var(--font-sans);
   line-height: 1.45;
-  letter-spacing: -0.01em;
+  letter-spacing: -0.006em;
   font-weight: 400;
+  font-optical-sizing: auto;
+  font-feature-settings: "kern", "calt";
   color: var(--color-body);
   background-color: var(--color-background);
   font-synthesis: none;
@@ -91,14 +112,53 @@ body {
   overflow: hidden;
 }
 
+h1, h2, h3, h4 {
+  text-wrap: balance;
+  letter-spacing: -0.015em;
+}
+
+::selection {
+  background: color-mix(in oklch, var(--color-primary) 38%, transparent);
+  color: var(--color-heading);
+}
+
+/* One focus ring everywhere. Fields that draw their own focus state opt out
+   with Tailwind's outline-none / focus:outline-none. */
+:where(a, button, [role="button"], [role="tab"], [role="menuitem"], [tabindex]):focus-visible {
+  outline: 2px solid var(--color-ring);
+  outline-offset: 2px;
+}
+
+/* ═══════════════════════════════════════════════════
+   Type utilities
+   ═══════════════════════════════════════════════════ */
+
+/* Section / column labels: SPACES, CHANNELS, ADMIN, TRACKS … */
+@utility label-caps {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  line-height: 1;
+  font-weight: 500;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+  color: var(--color-muted);
+}
+
+/* Timecodes, counts, ids: mono with fixed-width digits */
+@utility readout {
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0;
+}
+
 /* ═══════════════════════════════════════════════════
    Non-color Theme Variables (set by themeEngine.ts)
    ═══════════════════════════════════════════════════ */
 
 :root {
   /* Glass (overridden by JS for each theme) */
-  --glass-bg: hsl(220 14% 8% / 0.82);
-  --glass-border: hsl(235 55% 58% / 0.06);
+  --glass-bg: hsl(228 10% 6.5% / 0.8);
+  --glass-border: hsl(220 12% 93% / 0.08);
   --glass-blur: 20px;
 
   /* Glow (scaled by --motion-intensity, set by JS) */
@@ -123,25 +183,19 @@ body {
   --primary-border: hsl(235 55% 58% / 0.1);
   --primary-border-hover: hsl(235 55% 58% / 0.25);
 
-  /* Card shadows */
-  --card-inner-glow: inset 0 1px 0 0 hsl(0 0% 100% / 0.03);
-  --shadow-sm: 0 1px 2px hsl(0 0% 0% / 0.05);
-  --shadow-md: 0 2px 8px hsl(0 0% 0% / 0.12);
-  --shadow-lg: 0 8px 24px hsl(0 0% 0% / 0.2);
-  --shadow-card: var(--shadow-md);
-  --shadow-card-hover: var(--shadow-lg);
-  --shadow-elevated: 0 12px 40px hsl(0 0% 0% / 0.25);
+  /* Card shadows (layered: a tight contact shadow plus a soft ambient one) */
+  --card-inner-glow: inset 0 1px 0 0 hsl(0 0% 100% / 0.04);
+  --shadow-sm: 0 1px 2px hsl(0 0% 0% / 0.16);
+  --shadow-md: 0 1px 2px hsl(0 0% 0% / 0.2), 0 4px 12px -2px hsl(0 0% 0% / 0.22);
+  --shadow-lg: 0 2px 4px hsl(0 0% 0% / 0.2), 0 12px 28px -6px hsl(0 0% 0% / 0.34);
+  --shadow-card: var(--shadow-sm);
+  --shadow-card-hover: var(--shadow-md);
+  --shadow-elevated: 0 0 0 1px var(--color-border-light), 0 2px 4px hsl(0 0% 0% / 0.2), 0 18px 44px -10px hsl(0 0% 0% / 0.5);
 
   /* Transitions */
-  --transition-fast: 150ms cubic-bezier(0.4, 0, 0.2, 1);
-  --transition-smooth: 250ms cubic-bezier(0.4, 0, 0.2, 1);
+  --transition-fast: 140ms cubic-bezier(0.22, 1, 0.36, 1);
+  --transition-smooth: 240ms cubic-bezier(0.22, 1, 0.36, 1);
   --transition-spring: 300ms cubic-bezier(0.34, 1.56, 0.64, 1);
-
-  /* Radii */
-  --radius-sm: 6px;
-  --radius-md: 8px;
-  --radius-lg: 12px;
-  --radius-xl: 16px;
 
   /* Motion intensity (0 = none, 0.5 = subtle, 1 = full) */
   --motion-intensity: 0.5;
@@ -163,14 +217,14 @@ body {
 
 .glass {
   background: var(--glass-bg);
-  backdrop-filter: blur(var(--glass-blur)) saturate(1.2);
-  -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(1.2);
+  backdrop-filter: blur(var(--glass-blur)) saturate(1.4);
+  -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(1.4);
 }
 
 .glass-panel {
   background: var(--glass-bg);
-  backdrop-filter: blur(var(--glass-blur)) saturate(1.2);
-  -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(1.2);
+  backdrop-filter: blur(var(--glass-blur)) saturate(1.4);
+  -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(1.4);
   border: 1px solid var(--glass-border);
   box-shadow: var(--card-inner-glow);
 }
@@ -241,34 +295,22 @@ body {
   background-clip: text;
 }
 
+/* Was a primary gradient. Headings are set in the heading colour now; the
+   accent is kept for state, not for titles. */
 .text-gradient-accent {
-  background: linear-gradient(135deg, var(--color-primary) 0%, var(--color-primary-soft) 100%);
-  -webkit-background-clip: text;
-  -webkit-text-fill-color: transparent;
-  background-clip: text;
+  color: var(--color-heading);
+  letter-spacing: -0.015em;
 }
 
 /* ═══════════════════════════════════════════════════
    Gradient Border
    ═══════════════════════════════════════════════════ */
 
+/* Was a primary gradient outline. Dialogs get a hairline and the elevated
+   shadow instead. */
 .border-gradient {
-  position: relative;
-  border: 1px solid transparent;
-  background-clip: padding-box;
-}
-
-.border-gradient::before {
-  content: '';
-  position: absolute;
-  inset: -1px;
-  border-radius: inherit;
-  padding: 1px;
-  background: linear-gradient(135deg, var(--color-primary), var(--color-primary-soft));
-  mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
-  mask-composite: exclude;
-  -webkit-mask-composite: xor;
-  pointer-events: none;
+  border: 1px solid var(--color-border);
+  box-shadow: var(--shadow-elevated);
 }
 
 /* ═══════════════════════════════════════════════════
@@ -285,8 +327,8 @@ body {
   left: 0;
   top: 15%;
   bottom: 15%;
-  width: 3px;
-  background: linear-gradient(to bottom, var(--color-primary), var(--color-primary-soft));
+  width: 2px;
+  background: var(--color-primary);
   border-radius: 2px;
 }
 
@@ -298,8 +340,8 @@ body {
   left: 0;
   top: 15%;
   bottom: 15%;
-  width: 3px;
-  background: linear-gradient(to bottom, var(--color-primary), var(--color-primary-soft));
+  width: 2px;
+  background: var(--color-primary);
   border-radius: 2px;
 }
 
@@ -325,7 +367,7 @@ body {
 
 .focus-glow:focus-visible {
   outline: none;
-  box-shadow: 0 0 0 2px var(--color-background), 0 0 0 4px var(--color-ring), 0 0 12px hsl(235 55% 58% / 0.15);
+  box-shadow: 0 0 0 2px var(--color-background), 0 0 0 4px var(--color-ring);
 }
 
 /* ═══════════════════════════════════════════════════
@@ -348,6 +390,45 @@ body {
 
 .animate-neon-breathe {
   animation: neon-breathe 3s ease-in-out infinite;
+}
+
+@keyframes fade-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+.animate-fade-in {
+  animation: fade-in 0.18s ease-out both;
+}
+
+/* Now-playing indicator: three bars, used on track rows and cards */
+@keyframes eq-bar {
+  0%, 100% { transform: scaleY(0.35); }
+  50% { transform: scaleY(1); }
+}
+
+.eq-bars {
+  display: inline-flex;
+  align-items: flex-end;
+  gap: 2px;
+  height: 12px;
+}
+
+.eq-bars > span {
+  display: block;
+  width: 2px;
+  height: 100%;
+  border-radius: 1px;
+  background: currentColor;
+  transform-origin: bottom;
+  animation: eq-bar 0.9s ease-in-out infinite;
+}
+
+.eq-bars > span:nth-child(2) { animation-delay: -0.3s; }
+.eq-bars > span:nth-child(3) { animation-delay: -0.6s; }
+
+.eq-bars[data-paused="true"] > span {
+  animation-play-state: paused;
 }
 
 @keyframes fade-in-up {
@@ -428,7 +509,6 @@ body {
 }
 
 .hover-lift:hover {
-  transform: translateY(-1px);
   box-shadow: var(--shadow-card-hover);
 }
 
@@ -437,7 +517,7 @@ body {
 }
 
 .press-effect:active {
-  transform: scale(0.97);
+  transform: scale(0.98);
 }
 
 .hover-scale {
@@ -453,8 +533,8 @@ body {
    ═══════════════════════════════════════════════════ */
 
 ::-webkit-scrollbar {
-  width: 6px;
-  height: 6px;
+  width: 8px;
+  height: 8px;
 }
 
 ::-webkit-scrollbar-track {
@@ -462,17 +542,20 @@ body {
 }
 
 ::-webkit-scrollbar-thumb {
-  background: var(--color-border-light);
-  border-radius: 3px;
+  background: var(--color-border);
+  background-clip: padding-box;
+  border: 2px solid transparent;
+  border-radius: 8px;
 }
 
 ::-webkit-scrollbar-thumb:hover {
-  background: var(--color-soft);
+  background: var(--color-faint);
+  background-clip: padding-box;
 }
 
 * {
   scrollbar-width: thin;
-  scrollbar-color: var(--color-border-light) transparent;
+  scrollbar-color: var(--color-border) transparent;
 }
 
 /* ═══════════════════════════════════════════════════

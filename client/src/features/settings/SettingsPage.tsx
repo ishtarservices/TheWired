@@ -71,10 +71,10 @@ export function SettingsPage() {
             key={tab.id}
             onClick={() => setActiveTab(tab.id)}
             className={cn(
-              "px-4 py-2 text-sm font-medium transition-colors",
+              "-mb-px border-b-2 px-3 py-2 text-[13px] font-medium transition-colors",
               activeTab === tab.id
-                ? "border-b-2 border-primary text-primary"
-                : "text-soft hover:text-heading",
+                ? "border-primary text-heading"
+                : "border-transparent text-soft hover:text-heading",
             )}
           >
             {tab.label}

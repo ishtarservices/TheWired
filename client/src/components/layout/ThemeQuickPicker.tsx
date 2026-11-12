@@ -49,7 +49,7 @@ export function ThemeQuickPicker() {
         <div className="absolute right-0 top-full mt-2 w-56 rounded-lg border border-border bg-panel p-2 shadow-lg animate-fade-in-up"
           style={{ zIndex: "var(--z-dropdown)" }}
         >
-          <div className="mb-2 px-2 text-[10px] font-semibold uppercase tracking-wider text-muted">
+          <div className="mb-2 px-2 label-caps">
             Theme
           </div>
 

@@ -126,7 +126,7 @@ export function CoverImageField({
         className={`flex cursor-pointer items-center gap-2 rounded-xl border px-3 py-2.5 text-sm transition-colors ${
           dragOver
             ? "border-primary bg-primary/5 text-heading"
-            : "border-border text-muted hover:border-border-light hover:text-soft"
+            : "border-border text-muted hover:border-faint hover:text-soft"
         }`}
       >
         {uploading ? <Loader2 size={15} className="animate-spin" /> : <ImagePlus size={15} />}

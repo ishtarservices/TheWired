@@ -115,12 +115,12 @@ export function ExpandedBar() {
       animate={{ opacity: 1, y: 0, scale: 1 }}
       exit={{ opacity: 0, y: 20, scale: 0.95 }}
       transition={{ type: "spring", duration: 0.3, bounce: 0.1 }}
-      className="fixed bottom-4 left-1/2 z-40 -translate-x-1/2 w-[680px] max-w-[calc(100vw-2rem)]"
+      className="fixed bottom-4 left-1/2 z-40 -translate-x-1/2 w-[780px] max-w-[calc(100vw-2rem)]"
     >
-      <div className="glass-panel rounded-2xl shadow-[var(--shadow-elevated)] border border-primary/8 px-4 py-2.5">
+      <div className="glass-panel rounded-2xl px-3 py-2.5 shadow-[var(--shadow-elevated)]">
         <div className="flex items-center gap-3">
           {/* ── Left: Art + Info + Heart ── */}
-          <div className="flex items-center gap-3 w-[180px] shrink-0">
+          <div className="flex w-[250px] shrink-0 items-center gap-3">
             <button
               onClick={() => dispatch(toggleNowPlaying())}
               className="shrink-0 group relative"
@@ -129,19 +129,19 @@ export function ExpandedBar() {
                 <img
                   src={imageUrl}
                   alt={currentTrack.title}
-                  className="h-12 w-12 rounded-xl object-cover transition-transform group-hover:scale-105"
+                  className="h-11 w-11 rounded-lg object-cover ring-1 ring-inset ring-border-light"
                 />
               ) : (
-                <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-card">
+                <div className="flex h-11 w-11 items-center justify-center rounded-lg bg-card ring-1 ring-inset ring-border-light">
                   <ListMusic size={20} className="text-muted" />
                 </div>
               )}
-              <div className="absolute inset-0 flex items-center justify-center rounded-xl bg-black/40 opacity-0 transition-opacity group-hover:opacity-100">
+              <div className="absolute inset-0 flex items-center justify-center rounded-lg bg-black/45 opacity-0 transition-opacity group-hover:opacity-100">
                 <Maximize2 size={14} className="text-white" />
               </div>
             </button>
             <div className="min-w-0 flex-1">
-              <p className="truncate text-sm font-medium text-heading leading-tight">
+              <p className="truncate text-[13px] font-medium leading-tight text-heading">
                 {currentTrack.title}
               </p>
               {errored ? (
@@ -157,7 +157,7 @@ export function ExpandedBar() {
                 );
                 if (!target) {
                   return (
-                    <p className="truncate text-xs text-soft leading-tight">
+                    <p className="mt-0.5 truncate text-xs leading-tight text-muted">
                       {resolvedArtist}
                     </p>
                   );
@@ -170,7 +170,7 @@ export function ExpandedBar() {
                       dispatch(setActiveDetailId(target));
                       navigate("/");
                     }}
-                    className="block max-w-full truncate text-xs text-soft leading-tight hover:text-heading hover:underline"
+                    className="mt-0.5 block max-w-full truncate text-xs leading-tight text-muted hover:text-heading hover:underline"
                   >
                     {resolvedArtist}
                   </button>
@@ -179,7 +179,7 @@ export function ExpandedBar() {
             </div>
             <button
               onClick={handleFavoriteToggle}
-              className="shrink-0 rounded p-1 text-soft transition-colors hover:text-heading"
+              className="shrink-0 rounded-md p-1.5 text-soft transition-colors hover:bg-surface-hover hover:text-heading"
             >
               <Heart
                 size={15}
@@ -189,7 +189,7 @@ export function ExpandedBar() {
             {isPublic && (
               <button
                 onClick={() => setPostModalOpen(true)}
-                className="shrink-0 rounded p-1 text-soft transition-colors hover:text-heading"
+                className="shrink-0 rounded-md p-1.5 text-soft transition-colors hover:bg-surface-hover hover:text-heading"
                 title="Share track"
               >
                 <Share2 size={15} />
@@ -200,10 +200,10 @@ export function ExpandedBar() {
 
           {/* ── Center: Transport + Progress ── */}
           <div className="flex flex-1 flex-col items-center gap-0.5 min-w-0">
-            <div className={`flex items-center gap-3 ${ltIsFollower ? "opacity-50 pointer-events-none" : ""}`} title={ltIsFollower ? "DJ is controlling playback" : undefined}>
+            <div className={`flex items-center gap-1.5 ${ltIsFollower ? "opacity-50 pointer-events-none" : ""}`} title={ltIsFollower ? "DJ is controlling playback" : undefined}>
               <button
                 onClick={toggleShuffle}
-                className={`rounded p-1 transition-colors ${
+                className={`rounded-md p-1.5 transition-colors ${
                   player.shuffle ? "text-primary" : "text-soft hover:text-heading"
                 }`}
               >
@@ -211,13 +211,13 @@ export function ExpandedBar() {
               </button>
               <button
                 onClick={prev}
-                className="rounded p-1 text-soft transition-colors hover:text-heading"
+                className="rounded-md p-1.5 text-soft transition-colors hover:bg-surface-hover hover:text-heading"
               >
                 <SkipBack size={16} />
               </button>
               <button
                 onClick={togglePlay}
-                className="flex h-8 w-8 items-center justify-center rounded-full bg-gradient-to-br from-primary to-primary-soft text-white transition-transform hover:scale-105 press-effect"
+                className="flex h-8 w-8 items-center justify-center rounded-full bg-heading text-background transition-opacity hover:opacity-90 press-effect"
               >
                 {player.isPlaying ? (
                   <Pause size={14} fill="currentColor" />
@@ -227,13 +227,13 @@ export function ExpandedBar() {
               </button>
               <button
                 onClick={next}
-                className="rounded p-1 text-soft transition-colors hover:text-heading"
+                className="rounded-md p-1.5 text-soft transition-colors hover:bg-surface-hover hover:text-heading"
               >
                 <SkipForward size={16} />
               </button>
               <button
                 onClick={cycleRepeat}
-                className={`rounded p-1 transition-colors ${
+                className={`rounded-md p-1.5 transition-colors ${
                   player.repeat !== "none" ? "text-primary" : "text-soft hover:text-heading"
                 }`}
               >
@@ -242,7 +242,7 @@ export function ExpandedBar() {
             </div>
 
             <div className="flex w-full items-center gap-2">
-              <span className="w-9 text-right text-[10px] text-muted tabular-nums">
+              <span className="readout w-9 text-right text-[10px] text-muted">
                 {formatTime(player.position)}
               </span>
               <ProgressBar
@@ -250,14 +250,14 @@ export function ExpandedBar() {
                 duration={player.duration}
                 onSeek={seek}
               />
-              <span className="w-9 text-[10px] text-muted tabular-nums">
+              <span className="readout w-9 text-[10px] text-muted">
                 {formatTime(player.duration)}
               </span>
             </div>
           </div>
 
           {/* ── Right: Volume, Queue, Minimize ── */}
-          <div className="flex items-center gap-1.5 shrink-0">
+          <div className="flex w-[110px] shrink-0 items-center justify-end gap-0.5">
             <div
               className="relative"
               onMouseEnter={handleVolumeEnter}
@@ -265,7 +265,7 @@ export function ExpandedBar() {
             >
               <button
                 onClick={toggleMute}
-                className="rounded p-1 text-soft transition-colors hover:text-heading"
+                className="rounded-md p-1.5 text-soft transition-colors hover:bg-surface-hover hover:text-heading"
               >
                 <VolumeIcon size={15} />
               </button>
@@ -291,7 +291,7 @@ export function ExpandedBar() {
                   ? dispatch(toggleRightPanel("music"))
                   : dispatch(openRightPanelToTab({ context: "music", tab: "queue" }))
               }
-              className={`rounded p-1 transition-colors ${
+              className={`rounded-md p-1.5 transition-colors ${
                 queueVisible ? "text-primary" : "text-soft hover:text-heading"
               }`}
             >
@@ -299,7 +299,7 @@ export function ExpandedBar() {
             </button>
             <button
               onClick={() => dispatch(setBarMode("mini"))}
-              className="rounded p-1 text-soft transition-colors hover:text-heading"
+              className="rounded-md p-1.5 text-soft transition-colors hover:bg-surface-hover hover:text-heading"
             >
               <ChevronDown size={15} />
             </button>

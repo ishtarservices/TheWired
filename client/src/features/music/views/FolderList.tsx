@@ -21,12 +21,12 @@ export function FolderList() {
   const open = (id: string) => dispatch(setActiveDetailId({ view: "folder-detail", id }));
 
   return (
-    <div className={`flex-1 overflow-y-auto p-4 ${scrollPaddingClass}`}>
+    <div className={`flex-1 overflow-y-auto px-8 py-7 ${scrollPaddingClass}`}>
       <div className="mb-1 flex items-center justify-between">
-        <h2 className="text-lg font-semibold text-heading">Folders</h2>
+        <h2 className="text-2xl font-semibold tracking-[-0.02em] text-heading">Folders</h2>
         <button
           onClick={() => setCreateOpen(true)}
-          className="flex items-center gap-1.5 rounded-xl border border-border px-3 py-1.5 text-sm text-soft transition-colors hover:border-border-light hover:text-heading press-effect"
+          className="flex items-center gap-1.5 rounded-xl border border-border px-3 py-1.5 text-sm text-soft transition-colors hover:border-faint hover:text-heading press-effect"
         >
           <Plus size={14} />
           <span>New folder</span>

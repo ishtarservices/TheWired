@@ -154,7 +154,7 @@ function NoteEmbed({ event, depth }: { event: NostrEvent; depth: number }) {
   return (
     <div
       onClick={onCardClick}
-      className={`mt-2 cursor-pointer rounded-xl border border-border card-glass p-3 transition-colors hover:border-border-light ${
+      className={`mt-2 cursor-pointer rounded-xl border border-border card-glass p-3 transition-colors hover:border-faint ${
         inMessage ? "w-full max-w-[28rem]" : ""
       }`}
     >
@@ -217,7 +217,7 @@ function ArticleEmbed({ event }: { event: NostrEvent }) {
   return (
     <div
       onClick={() => navigate(`/article/${event.id}`)}
-      className={`mt-2 cursor-pointer overflow-hidden rounded-xl border border-border card-glass transition-colors hover:border-border-light ${
+      className={`mt-2 cursor-pointer overflow-hidden rounded-xl border border-border card-glass transition-colors hover:border-faint ${
         inMessage ? "w-full max-w-[28rem]" : ""
       }`}
     >

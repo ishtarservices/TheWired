@@ -63,7 +63,7 @@ export function ReleaseNotesModal({ albumId, onClose, onUpdate }: ReleaseNotesMo
 
           {album.revisionSummary && !notYetReceived && (
             <div className="mt-3 border-t border-border pt-3">
-              <p className="text-[10px] font-semibold uppercase tracking-wider text-muted">
+              <p className="label-caps">
                 What changed
               </p>
               <p className="mt-1 text-xs text-body">{album.revisionSummary}</p>
@@ -74,13 +74,13 @@ export function ReleaseNotesModal({ albumId, onClose, onUpdate }: ReleaseNotesMo
         <div className="flex justify-end gap-2">
           <button
             onClick={onClose}
-            className="rounded-xl border border-border px-4 py-2 text-sm text-soft hover:border-border-light hover:text-heading transition-colors"
+            className="rounded-xl border border-border px-4 py-2 text-sm text-soft hover:border-faint hover:text-heading transition-colors"
           >
             Later
           </button>
           <button
             onClick={onUpdate}
-            className="rounded-xl bg-gradient-to-r from-primary to-primary-soft px-4 py-2 text-sm font-medium text-white hover:opacity-90 transition-all duration-150 press-effect"
+            className="rounded-xl bg-primary px-4 py-2 text-sm font-medium text-white hover:opacity-90 transition-all duration-150 press-effect"
           >
             Update Now
           </button>

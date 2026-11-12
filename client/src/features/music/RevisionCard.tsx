@@ -129,11 +129,11 @@ export function RevisionCard({ revision, isFirst, isLast }: RevisionCardProps) {
 
       {/* Content */}
       <div className="flex-1 pb-5">
-        <div className="rounded-xl border border-border bg-card/50 p-3 transition-colors hover:border-border-light">
+        <div className="rounded-xl border border-border bg-card/50 p-3 transition-colors hover:border-faint">
           {/* Header row */}
           <div className="flex items-start justify-between gap-2">
             <div className="flex items-center gap-2">
-              <span className="rounded-md bg-surface px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wider text-muted">
+              <span className="rounded-md bg-surface px-1.5 py-0.5 label-caps">
                 v{revision.version}
               </span>
               <span className="text-xs text-soft" title={formatDate(revision.createdAt)}>

@@ -427,7 +427,7 @@ export function UserPopoverCard({
         {/* Mutual Spaces */}
         {mutualSpaces.length > 0 && (
           <div className="px-4 mt-3">
-            <div className="text-[10px] font-semibold uppercase tracking-wider text-muted mb-1.5">
+            <div className="label-caps mb-1.5">
               Mutual Spaces
             </div>
             <div className="flex flex-wrap gap-1.5">

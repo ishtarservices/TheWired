@@ -53,7 +53,7 @@ export function ProfileShowcaseTab({ pubkey }: ProfileShowcaseTabProps) {
         {isMe && (
           <button
             onClick={() => setPickerOpen(true)}
-            className="flex items-center gap-1.5 rounded-xl bg-gradient-to-r from-primary to-primary-soft px-4 py-2 text-sm font-medium text-white transition-opacity hover:opacity-90 press-effect"
+            className="flex items-center gap-1.5 rounded-xl bg-primary px-4 py-2 text-sm font-medium text-white transition-opacity hover:opacity-90 press-effect"
           >
             <Plus size={14} />
             Add Music
@@ -101,7 +101,7 @@ export function ProfileShowcaseTab({ pubkey }: ProfileShowcaseTabProps) {
 
       {/* Albums */}
       {resolvedAlbums.length > 0 && (
-        <div className="grid grid-cols-[repeat(auto-fill,minmax(160px,1fr))] gap-3">
+        <div className="grid grid-cols-[repeat(auto-fill,minmax(164px,1fr))] gap-x-5 gap-y-7">
           {resolvedAlbums.map((album) => (
             <div key={album.addressableId} className="relative group">
               <AlbumCard album={album} />
@@ -120,7 +120,7 @@ export function ProfileShowcaseTab({ pubkey }: ProfileShowcaseTabProps) {
 
       {/* Tracks */}
       {resolvedTracks.length > 0 && (
-        <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4">
+        <div className="grid grid-cols-[repeat(auto-fill,minmax(164px,1fr))] gap-x-5 gap-y-7">
           {resolvedTracks.map((track, i) => (
             <div key={track.addressableId} className="relative group">
               <TrackCard

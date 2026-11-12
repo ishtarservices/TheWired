@@ -53,7 +53,7 @@ export function TileModerationMenu({ spaceId, channelId, pubkey }: TileModeratio
         </ToolbarButton>
       </span>
       <PopoverMenu open={open} onClose={onClose} anchorRef={anchorRef} position="below">
-        <div className="px-3 pb-1 pt-1.5 text-[10px] font-semibold uppercase tracking-wide text-muted">
+        <div className="px-3 pb-1 pt-1.5 label-caps">
           Moderation
         </div>
         <PopoverMenuItem

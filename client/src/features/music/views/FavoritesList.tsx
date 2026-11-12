@@ -44,9 +44,9 @@ export function FavoritesList() {
   }
 
   return (
-    <div className={`flex-1 overflow-y-auto p-4 ${scrollPaddingClass}`}>
-      <div className="mb-3 flex flex-wrap items-center gap-2">
-        <h2 className="text-lg font-semibold text-heading">Favorites</h2>
+    <div className={`flex-1 overflow-y-auto px-8 py-7 ${scrollPaddingClass}`}>
+      <div className="mb-6 flex flex-wrap items-center gap-2">
+        <h2 className="text-2xl font-semibold tracking-[-0.02em] text-heading">Favorites</h2>
         <div className="ml-auto">
           <FilterInput value={filter} onChange={setFilter} />
         </div>
@@ -56,7 +56,7 @@ export function FavoritesList() {
       {favAlbums.length > 0 && (
         <section className="mb-6">
           <div className="mb-2 flex items-center gap-2">
-            <h3 className="text-sm font-semibold uppercase tracking-[0.15em] text-muted">
+            <h3 className="label-caps">
               Projects ({albums.length})
             </h3>
             <div className="ml-auto">
@@ -72,7 +72,7 @@ export function FavoritesList() {
           {albums.length === 0 ? (
             <p className="px-1 py-4 text-sm text-soft">No projects match “{filter}”.</p>
           ) : (
-            <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5">
+            <div className="grid grid-cols-[repeat(auto-fill,minmax(164px,1fr))] gap-x-5 gap-y-7">
               {albums.map((album) => (
                 <AlbumCard key={album.addressableId} album={album} />
               ))}
@@ -85,7 +85,7 @@ export function FavoritesList() {
       {favTracks.length > 0 && (
         <section>
           <div className="mb-2 flex items-center gap-2">
-            <h3 className="text-sm font-semibold uppercase tracking-[0.15em] text-muted">
+            <h3 className="label-caps">
               Songs ({tracks.length})
             </h3>
             <div className="ml-auto">

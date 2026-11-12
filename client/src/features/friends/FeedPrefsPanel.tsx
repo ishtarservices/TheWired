@@ -21,7 +21,7 @@ import {
 
 function SectionHeader({ title }: { title: string }) {
   return (
-    <div className="border-t border-border px-4 pb-1 pt-2.5 text-xs font-medium uppercase tracking-wide text-muted">
+    <div className="border-t border-border px-4 pb-1 pt-2.5 label-caps">
       {title}
     </div>
   );

@@ -144,7 +144,7 @@ export function NoteThreadPage({ noteId }: NoteThreadPageProps) {
       {/* Replies */}
       <div className="px-6 py-4 flex-1">
         {replies.length > 0 && (
-          <p className="text-xs font-semibold text-muted uppercase tracking-wider mb-4">
+          <p className="label-caps mb-4">
             {replies.length} {replies.length === 1 ? "Reply" : "Replies"}
           </p>
         )}

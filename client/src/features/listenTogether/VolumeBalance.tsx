@@ -41,7 +41,7 @@ export function VolumeBalance() {
 
   return (
     <div className="flex flex-col gap-3 p-3">
-      <p className="text-[10px] text-muted uppercase tracking-wider">Volume Balance</p>
+      <p className="label-caps">Volume Balance</p>
 
       {/* Music volume */}
       <div className="flex items-center gap-2">

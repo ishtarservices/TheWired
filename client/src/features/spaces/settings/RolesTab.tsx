@@ -131,7 +131,7 @@ export function RolesTab({ spaceId }: RolesTabProps) {
                 <div className="border-t border-border p-3 space-y-3">
                   {/* Name */}
                   <div>
-                    <label className="mb-1 block text-[10px] font-semibold uppercase tracking-wider text-muted">
+                    <label className="mb-1 block label-caps">
                       Name
                     </label>
                     <input
@@ -144,7 +144,7 @@ export function RolesTab({ spaceId }: RolesTabProps) {
 
                   {/* Color */}
                   <div>
-                    <label className="mb-1 block text-[10px] font-semibold uppercase tracking-wider text-muted">
+                    <label className="mb-1 block label-caps">
                       Color
                     </label>
                     <div className="flex gap-1.5">
@@ -165,7 +165,7 @@ export function RolesTab({ spaceId }: RolesTabProps) {
                   {/* Permissions */}
                   {!role.isAdmin && (
                     <div>
-                      <label className="mb-2 block text-[10px] font-semibold uppercase tracking-wider text-muted">
+                      <label className="mb-2 block label-caps">
                         Permissions
                       </label>
                       {PERMISSION_GROUPS.map((group) => (

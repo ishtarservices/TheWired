@@ -71,7 +71,7 @@ export function FilterInput({ value, onChange, placeholder = "Filter…" }: Filt
         onChange={(e) => onChange(e.target.value)}
         placeholder={placeholder}
         aria-label="Filter list"
-        className="w-36 rounded-full border border-border bg-field pl-8 pr-3 py-1 text-xs text-heading placeholder-muted outline-none transition-all focus:w-48 focus:border-primary/30"
+        className="w-36 rounded-full border border-border bg-field pl-8 pr-3 py-1 text-xs text-heading placeholder-muted outline-none transition-all focus:w-48 focus:border-primary/40"
       />
     </div>
   );
@@ -100,12 +100,13 @@ export function SortableTrackHeader({ sortKey, dir, onSort }: SortableTrackHeade
     sortKey === key ? "text-primary" : "hover:text-heading";
 
   return (
-    <div className="grid grid-cols-[2rem_1fr_1fr_4rem_2rem] gap-4 border-b border-border px-3 pb-2 text-xs font-semibold uppercase tracking-[0.15em] text-muted">
-      <span>#</span>
+    // Column widths mirror TrackRow: number, title, genre (wide screens), time, menu.
+    <div className="label-caps flex items-center gap-3 border-b border-border-light px-3 pb-2.5">
+      <span className="w-6 shrink-0 text-center">#</span>
       <button
         type="button"
         onClick={() => onSort("title")}
-        className={`flex items-center gap-1 text-left uppercase tracking-[0.15em] transition-colors ${active("title")}`}
+        className={`flex min-w-0 flex-1 items-center gap-1 text-left uppercase tracking-[0.09em] transition-colors ${active("title")}`}
       >
         Title
         {sortKey === "title" && <HeaderArrow dir={dir} />}
@@ -113,7 +114,7 @@ export function SortableTrackHeader({ sortKey, dir, onSort }: SortableTrackHeade
       <button
         type="button"
         onClick={() => onSort("genre")}
-        className={`flex items-center gap-1 text-left uppercase tracking-[0.15em] transition-colors ${active("genre")}`}
+        className={`hidden w-40 shrink-0 items-center gap-1 text-left uppercase tracking-[0.09em] transition-colors lg:flex ${active("genre")}`}
       >
         Genre
         {sortKey === "genre" && <HeaderArrow dir={dir} />}
@@ -121,12 +122,12 @@ export function SortableTrackHeader({ sortKey, dir, onSort }: SortableTrackHeade
       <button
         type="button"
         onClick={() => onSort("duration")}
-        className={`flex items-center justify-end gap-1 uppercase tracking-[0.15em] transition-colors ${active("duration")}`}
+        className={`flex w-10 shrink-0 items-center justify-end gap-1 uppercase tracking-[0.09em] transition-colors ${active("duration")}`}
       >
         Time
         {sortKey === "duration" && <HeaderArrow dir={dir} />}
       </button>
-      <span />
+      <span className="w-6 shrink-0" />
     </div>
   );
 }

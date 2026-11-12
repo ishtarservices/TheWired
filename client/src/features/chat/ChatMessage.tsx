@@ -107,7 +107,7 @@ export function ChatMessage({
   if (isBlocked) {
     return (
       <BlockedMessage variant="chat" onUnblock={unblock}>
-        <div className="group flex gap-3.5 px-5 py-2">
+        <div className="group flex gap-3 px-5 py-1.5">
           <button
             ref={avatarRef}
             type="button"
@@ -121,8 +121,8 @@ export function ChatMessage({
           </button>
           <div className="min-w-0 flex-1">
             <div className="flex items-baseline gap-2">
-              <span className="text-sm font-semibold text-primary-soft">{displayName}</span>
-              <span className="text-xs text-muted">{timeAgo}</span>
+              <span className="text-[13px] font-semibold text-heading">{displayName}</span>
+              <span className="text-[11px] text-muted">{timeAgo}</span>
             </div>
             <div className="text-sm text-body break-words">
               <RichContent content={displayContent} emojiTags={event.tags.filter((t) => t[0] === "emoji")} event={event} onMentionClick={onMentionClick} musicShape="poster" layout="message" />
@@ -135,7 +135,7 @@ export function ChatMessage({
 
   return (
     <div
-      className={`group flex gap-3.5 px-5 py-2 hover:bg-surface transition-colors duration-100 ${
+      className={`group flex gap-3 px-5 py-1.5 hover:bg-surface transition-colors duration-100 ${
         isMentioned ? "bg-primary/[0.06] border-l-2 border-l-primary/50" : ""
       }`}
       onContextMenu={handleContextMenu}
@@ -153,10 +153,10 @@ export function ChatMessage({
       </button>
       <div className="min-w-0 flex-1">
         <div className="flex items-baseline gap-2">
-          <span className="text-sm font-semibold text-primary-soft">
+          <span className="text-[13px] font-semibold text-heading">
             {displayName}
           </span>
-          <span className="text-xs text-muted">{timeAgo}</span>
+          <span className="text-[11px] text-muted">{timeAgo}</span>
           {isEdited && (
             <span className="text-[10px] text-faint italic">(edited)</span>
           )}

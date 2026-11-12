@@ -193,7 +193,7 @@ export function DMSidebar({ activePartner, onSelectContact }: DMSidebarProps) {
                   <button
                     type="button"
                     onClick={() => setShowArchived((v) => !v)}
-                    className="flex w-full items-center gap-2 px-4 py-2 text-[10px] font-semibold uppercase tracking-wider text-muted hover:text-heading"
+                    className="flex w-full items-center gap-2 px-4 py-2 label-caps hover:text-heading"
                     data-testid="dm-archived-toggle"
                   >
                     <ChevronRight size={12} className={`transition-transform ${showArchived ? "rotate-90" : ""}`} />
@@ -228,7 +228,7 @@ export function DMSidebar({ activePartner, onSelectContact }: DMSidebarProps) {
             {pendingIncoming.length > 0 && (
               <div className="border-b border-border">
                 <div className="flex items-center gap-2 px-4 pt-3 pb-1.5">
-                  <span className="text-[10px] font-semibold uppercase tracking-wider text-muted">
+                  <span className="label-caps">
                     Pending Requests
                   </span>
                   <span className="flex h-4 min-w-4 items-center justify-center rounded-full bg-primary px-1 text-[10px] font-bold text-white">

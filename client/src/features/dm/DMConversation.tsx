@@ -125,7 +125,9 @@ export function DMConversation({ partnerPubkey, onBack }: DMConversationProps) {
       if (sent) for (const id of fresh) receiptedRef.current.add(id);
     });
   }, [messages, partnerPubkey, myPubkey, friends]);
-  const { scrollPaddingClass, inputMarginClass } = usePlaybackBarSpacing();
+  // The composer lifts itself above the floating player (DMInput), so the
+  // message list needs no extra bottom room of its own.
+  const { inputMarginClass } = usePlaybackBarSpacing();
 
   // Unread divider: count captured by setActiveConversation before clearing
   const unreadCount = useAppSelector(
@@ -371,7 +373,7 @@ export function DMConversation({ partnerPubkey, onBack }: DMConversationProps) {
       )}
 
       {/* Header */}
-      <div className="flex items-center gap-3 border-b border-border px-4 py-3">
+      <div className="flex h-12 shrink-0 items-center gap-3 border-b border-border px-4">
         <button
           onClick={onBack}
           className="rounded-lg p-1 text-muted hover:text-heading hover:bg-surface-hover transition-colors"
@@ -397,7 +399,7 @@ export function DMConversation({ partnerPubkey, onBack }: DMConversationProps) {
           </button>
         )}
         <div className="min-w-0 flex-1">
-          <div className="text-sm font-semibold text-heading truncate">
+          <div className="truncate text-[13px] font-semibold leading-tight text-heading">
             {isRoom ? contact?.subject || `Room · ${contact?.participants?.length ?? 0} people` : displayName}
           </div>
           {typingPubkeys.length > 0 ? (
@@ -407,7 +409,7 @@ export function DMConversation({ partnerPubkey, onBack }: DMConversationProps) {
           ) : isRoom ? (
             <div className="text-xs text-muted truncate">{contact?.participants?.length ?? 0} participants · encrypted room</div>
           ) : (
-            profile?.nip05 && <div className="text-xs text-muted truncate">{profile.nip05}</div>
+            profile?.nip05 && <div className="truncate text-[11px] leading-tight text-muted">{profile.nip05}</div>
           )}
         </div>
         <div className="flex items-center gap-1">
@@ -421,7 +423,7 @@ export function DMConversation({ partnerPubkey, onBack }: DMConversationProps) {
           ) : (
             <button
               onClick={() => setSearchOpen(true)}
-              className="rounded-lg p-2 text-muted hover:text-heading hover:bg-surface-hover transition-colors"
+              className="rounded-md p-1.5 text-muted hover:text-heading hover:bg-surface-hover transition-colors"
               title="Search conversation"
             >
               <Search size={16} />
@@ -432,7 +434,7 @@ export function DMConversation({ partnerPubkey, onBack }: DMConversationProps) {
           <button
             onClick={() => startCall(partnerPubkey, "audio")}
             disabled={isInCall}
-            className="rounded-lg p-2 text-muted hover:text-heading hover:bg-surface-hover transition-colors disabled:opacity-50"
+            className="rounded-md p-1.5 text-muted hover:text-heading hover:bg-surface-hover transition-colors disabled:opacity-50"
             title="Voice call"
           >
             <Phone size={16} />
@@ -440,14 +442,14 @@ export function DMConversation({ partnerPubkey, onBack }: DMConversationProps) {
           <button
             onClick={() => startCall(partnerPubkey, "video")}
             disabled={isInCall}
-            className="rounded-lg p-2 text-muted hover:text-heading hover:bg-surface-hover transition-colors disabled:opacity-50"
+            className="rounded-md p-1.5 text-muted hover:text-heading hover:bg-surface-hover transition-colors disabled:opacity-50"
             title="Video call"
           >
             <Video size={16} />
           </button>
           <button
             onClick={() => openZap({ recipientPubkey: partnerPubkey, displayName })}
-            className="rounded-lg p-2 text-muted hover:text-yellow-400 hover:bg-surface-hover transition-colors"
+            className="rounded-md p-1.5 text-muted hover:text-warning hover:bg-surface-hover transition-colors"
             title="Send a zap"
           >
             <Zap size={16} />
@@ -461,7 +463,7 @@ export function DMConversation({ partnerPubkey, onBack }: DMConversationProps) {
       <div
         ref={scrollRef}
         onScroll={handleScroll}
-        className={`flex-1 overflow-y-auto py-4 ${scrollPaddingClass}`}
+        className="flex-1 overflow-y-auto py-4"
         style={{ overflowAnchor: "auto" }}
       >
         {messages.length === 0 ? (

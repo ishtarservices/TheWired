@@ -185,7 +185,7 @@ export function NowPlayingPanel({ onClose }: NowPlayingPanelProps) {
                   </button>
                   <button
                     onClick={togglePlay}
-                    className="flex h-8 w-8 items-center justify-center rounded-full bg-linear-to-br from-primary to-primary-soft text-white transition-transform hover:scale-105"
+                    className="flex h-8 w-8 items-center justify-center rounded-full bg-primary text-white transition-colors hover:bg-primary-soft"
                   >
                     {player.isPlaying ? (
                       <Pause size={14} fill="currentColor" />
@@ -229,7 +229,7 @@ export function NowPlayingPanel({ onClose }: NowPlayingPanelProps) {
         {/* Suggestions from listeners (DJ only) */}
         {isLocalDJ && suggestions.length > 0 && (
           <div className="mt-3 border-t border-border/30 pt-2">
-            <p className="text-[10px] text-muted uppercase tracking-wider mb-1">Suggestions</p>
+            <p className="label-caps mb-1">Suggestions</p>
             {suggestions.map((s) => (
               <SuggestionRow
                 key={s.trackId}
@@ -244,7 +244,7 @@ export function NowPlayingPanel({ onClose }: NowPlayingPanelProps) {
         {/* Up next */}
         {upcomingTracks.length > 0 && (
           <div className="mt-3 border-t border-border/30 pt-2">
-            <p className="text-[10px] text-muted uppercase tracking-wider mb-1">Up Next</p>
+            <p className="label-caps mb-1">Up Next</p>
             {upcomingTracks.map((track) => (
               <div key={track.addressableId} className="flex items-center gap-2 py-0.5">
                 <span className="truncate text-xs text-soft flex-1">

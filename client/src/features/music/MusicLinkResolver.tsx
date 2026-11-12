@@ -177,7 +177,7 @@ export function MusicLinkResolver({ type }: MusicLinkResolverProps) {
           )}
           <button
             onClick={() => navigate("/", { replace: true })}
-            className="mt-4 rounded-full border border-border px-4 py-1.5 text-sm text-soft hover:border-border-light hover:text-heading"
+            className="mt-4 rounded-full border border-border px-4 py-1.5 text-sm text-soft hover:border-faint hover:text-heading"
           >
             Go Home
           </button>

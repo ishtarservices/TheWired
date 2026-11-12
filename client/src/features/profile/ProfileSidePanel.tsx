@@ -93,7 +93,7 @@ export function ProfileSidePanel() {
       {/* Mutual follows */}
       {mutualFollows.length > 0 && (
         <div>
-          <h4 className="text-[10px] font-semibold uppercase tracking-wider text-muted mb-2">
+          <h4 className="label-caps mb-2">
             <Users size={10} className="inline mr-1" />
             {mutualFollows.length} Mutual Follow
             {mutualFollows.length !== 1 ? "s" : ""}
@@ -114,7 +114,7 @@ export function ProfileSidePanel() {
       {/* Shared spaces */}
       {sharedSpaces.length > 0 && (
         <div>
-          <h4 className="text-[10px] font-semibold uppercase tracking-wider text-muted mb-2">
+          <h4 className="label-caps mb-2">
             Shared Spaces
           </h4>
           <div className="space-y-1.5">

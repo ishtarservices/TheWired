@@ -9,6 +9,7 @@ import { useDownload } from "./useDownload";
 import { buildMusicLink } from "./musicLinks";
 import { copyToClipboard } from "@/lib/clipboard";
 import { addToQueue, insertNextInQueue, setActiveDetailId } from "@/store/slices/musicSlice";
+import { selectFeatureEnabled, FEATURE_MUSIC_INSIGHTS } from "@/store/slices/featuresSlice";
 import { selectAudioSource } from "./trackParser";
 import { signAndPublish, publishExisting } from "@/lib/nostr/publish";
 import { relayManager } from "@/lib/nostr/relayManager";
@@ -98,6 +99,7 @@ export function TrackActionPanel({
   anchorRef: _anchorRef,
 }: TrackActionPanelProps) {
   const dispatch = useAppDispatch();
+  const insightsEnabled = useAppSelector(selectFeatureEnabled(FEATURE_MUSIC_INSIGHTS));
   const pubkey = useAppSelector((s) => s.identity.pubkey);
   const isCollaborator = !!pubkey && (
     track.featuredArtists.includes(pubkey) || track.collaborators.includes(pubkey)
@@ -473,10 +475,14 @@ export function TrackActionPanel({
                   onMove={() => setMoveOpen(true)}
                   onToggleSharing={handleToggleSharing}
                   onPublish={onPublish ? () => { onClose(); onPublish(); } : undefined}
-                  onInsights={() => {
-                    onClose();
-                    dispatch(setActiveDetailId({ view: "insights", id: track.addressableId }));
-                  }}
+                  onInsights={
+                    insightsEnabled
+                      ? () => {
+                          onClose();
+                          dispatch(setActiveDetailId({ view: "insights", id: track.addressableId }));
+                        }
+                      : undefined
+                  }
                   onDownload={() => downloadTrack(track)}
                   onRemoveDownload={() => removeDownload(track.addressableId)}
                   onExport={handleExport}

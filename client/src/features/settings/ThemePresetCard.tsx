@@ -26,7 +26,7 @@ export function ThemePresetCard({ preset, isActive, onClick }: ThemePresetCardPr
         "group relative flex flex-col overflow-hidden rounded-lg border p-3 text-left transition-all duration-150",
         isActive
           ? "border-primary ring-2 ring-primary/20"
-          : "border-border hover:border-border-light hover:shadow-md",
+          : "border-border hover:border-faint hover:shadow-md",
       )}
     >
       {/* Color preview */}

@@ -46,7 +46,7 @@ export function ProfileMusicTab({ pubkey }: ProfileMusicTabProps) {
         {isMe && (
           <button
             onClick={() => navigate("/music/uploads")}
-            className="flex items-center gap-1.5 rounded-xl bg-gradient-to-r from-primary to-primary-soft px-4 py-2 text-sm font-medium text-white transition-opacity hover:opacity-90 press-effect"
+            className="flex items-center gap-1.5 rounded-xl bg-primary px-4 py-2 text-sm font-medium text-white transition-opacity hover:opacity-90 press-effect"
           >
             <Upload size={14} />
             Upload Your First Track
@@ -94,7 +94,7 @@ export function ProfileMusicTab({ pubkey }: ProfileMusicTabProps) {
       {albums.length > 0 && (
         <div>
           <h3 className="mb-2 text-sm font-semibold text-soft">Projects</h3>
-          <div className="grid grid-cols-[repeat(auto-fill,minmax(160px,1fr))] gap-3">
+          <div className="grid grid-cols-[repeat(auto-fill,minmax(164px,1fr))] gap-x-5 gap-y-7">
             {albums.map((album) => (
               <AlbumCard key={album.addressableId} album={album} />
             ))}
@@ -106,7 +106,7 @@ export function ProfileMusicTab({ pubkey }: ProfileMusicTabProps) {
       {collaborations.length > 0 && (
         <div>
           <h3 className="mb-2 text-sm font-semibold text-soft">Collaborations</h3>
-          <div className="grid grid-cols-[repeat(auto-fill,minmax(160px,1fr))] gap-3">
+          <div className="grid grid-cols-[repeat(auto-fill,minmax(164px,1fr))] gap-x-5 gap-y-7">
             {collaborations.map((album) => (
               <AlbumCard key={album.addressableId} album={album} />
             ))}
@@ -121,7 +121,7 @@ export function ProfileMusicTab({ pubkey }: ProfileMusicTabProps) {
             <h3 className="mb-2 text-sm font-semibold text-soft">Tracks</h3>
           )}
           {viewMode === "grid" ? (
-            <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4">
+            <div className="grid grid-cols-[repeat(auto-fill,minmax(164px,1fr))] gap-x-5 gap-y-7">
               {tracks.map((track, i) => (
                 <TrackCard
                   key={track.addressableId}
@@ -133,12 +133,12 @@ export function ProfileMusicTab({ pubkey }: ProfileMusicTabProps) {
             </div>
           ) : (
             <>
-              <div className="grid grid-cols-[2rem_1fr_1fr_4rem_2rem] gap-4 border-b border-border px-3 pb-2 text-xs font-semibold uppercase tracking-[0.15em] text-muted">
-                <span>#</span>
-                <span>Title</span>
-                <span>Genre</span>
-                <span className="text-right">Time</span>
-                <span />
+              <div className="label-caps flex items-center gap-3 border-b border-border-light px-3 pb-2.5">
+                <span className="w-6 shrink-0 text-center">#</span>
+                <span className="min-w-0 flex-1">Title</span>
+                <span className="hidden w-40 shrink-0 lg:block">Genre</span>
+                <span className="w-10 shrink-0 text-right">Time</span>
+                <span className="w-6 shrink-0" />
               </div>
               <div className="mt-1">
                 {tracks.map((track, i) => (

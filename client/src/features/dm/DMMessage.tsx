@@ -147,7 +147,7 @@ export const DMMessage = memo(function DMMessage({
           )
         )}
         <div className={`max-w-[70%] ${isMe ? "items-end" : "items-start"}`}>
-          <div className="rounded-2xl px-4 py-2 text-sm italic text-faint bg-surface border border-border rounded-bl-sm">
+          <div className="rounded-2xl rounded-bl-md bg-surface px-3.5 py-2 text-sm italic text-faint">
             Message deleted
           </div>
         </div>
@@ -184,10 +184,10 @@ export const DMMessage = memo(function DMMessage({
             className={
               mediaOnly && !message.replyToWrapId && !(isRoom && !isMe && !isGrouped)
                 ? `flex flex-col text-sm ${isMe ? "items-end" : "items-start"}`
-                : `rounded-2xl px-4 py-2 text-sm ${
+                : `rounded-2xl px-3.5 py-2 text-sm ${
                     isMe
-                      ? "bg-primary-dim text-heading rounded-br-sm border border-primary/15"
-                      : "bg-card text-body rounded-bl-sm border border-border"
+                      ? "bg-primary-dim text-heading rounded-br-md"
+                      : "bg-card text-body rounded-bl-md"
                   }`
             }
           >

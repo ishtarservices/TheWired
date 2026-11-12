@@ -12,11 +12,11 @@ export const PRESETS: Record<string, ThemePreset> = {
     category: "minimal",
     featured: true,
     colors: {
-      background: "220 14% 8%",
-      foreground: "220 14% 92%",
-      primary: "235 55% 58%",
+      background: "228 10% 6.5%",
+      foreground: "220 12% 93%",
+      primary: "236 62% 63%",
     },
-    font: { family: "Inter", weight: "300 700" },
+    font: { family: "Geist" },
   },
   "clean-light": {
     key: "clean-light",
@@ -25,11 +25,25 @@ export const PRESETS: Record<string, ThemePreset> = {
     category: "minimal",
     featured: true,
     colors: {
-      background: "220 14% 97%",
-      foreground: "220 14% 10%",
-      primary: "235 55% 52%",
+      background: "220 16% 97.5%",
+      foreground: "224 14% 10%",
+      primary: "236 58% 52%",
     },
-    font: { family: "Inter", weight: "300 700" },
+    font: { family: "Geist" },
+  },
+  // The house theme: near-black with a single phosphor-green signal colour.
+  wired: {
+    key: "wired",
+    title: "Wired",
+    emoji: "\u{1F4E1}",
+    category: "atmospheric",
+    featured: true,
+    colors: {
+      background: "200 14% 5.5%",
+      foreground: "180 10% 90%",
+      primary: "162 62% 48%",
+    },
+    font: { family: "Geist" },
   },
   neon: {
     key: "neon",
@@ -38,9 +52,9 @@ export const PRESETS: Record<string, ThemePreset> = {
     category: "expressive",
     featured: true,
     colors: {
-      background: "225 20% 2%",
-      foreground: "213 27% 95%",
-      primary: "258 70% 60%",
+      background: "250 22% 4.5%",
+      foreground: "240 20% 95%",
+      primary: "262 80% 66%",
     },
     font: { family: "Space Grotesk", weight: "300 700" },
   },
@@ -55,7 +69,7 @@ export const PRESETS: Record<string, ThemePreset> = {
       foreground: "210 20% 92%",
       primary: "200 80% 55%",
     },
-    font: { family: "Inter", weight: "300 700" },
+    font: { family: "Geist" },
   },
   forest: {
     key: "forest",
@@ -148,7 +162,7 @@ export const PRESETS: Record<string, ThemePreset> = {
       foreground: "215 16% 88%",
       primary: "215 50% 50%",
     },
-    font: { family: "Inter", weight: "300 700" },
+    font: { family: "Geist" },
   },
   warm: {
     key: "warm",
@@ -160,7 +174,7 @@ export const PRESETS: Record<string, ThemePreset> = {
       foreground: "30 12% 88%",
       primary: "30 55% 52%",
     },
-    font: { family: "Inter", weight: "300 700" },
+    font: { family: "Geist" },
   },
   terminal: {
     key: "terminal",
@@ -217,10 +231,10 @@ export const PRESETS: Record<string, ThemePreset> = {
     category: "expressive",
     colors: {
       background: "0 0% 7%",
-      foreground: "0 0% 80%",
-      primary: "0 50% 48%",
+      foreground: "0 0% 87%",
+      primary: "0 58% 52%",
     },
-    font: { family: "Inter", weight: "300 700" },
+    font: { family: "Geist" },
   },
   paper: {
     key: "paper",
@@ -252,11 +266,11 @@ export const PRESETS: Record<string, ThemePreset> = {
     emoji: "\u25FC\uFE0F",
     category: "minimal",
     colors: {
-      background: "0 0% 8%",
-      foreground: "0 0% 88%",
-      primary: "0 0% 55%",
+      background: "0 0% 6.5%",
+      foreground: "0 0% 92%",
+      primary: "0 0% 94%",
     },
-    font: { family: "Inter", weight: "300 700" },
+    font: { family: "Geist" },
   },
 };
 

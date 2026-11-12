@@ -5,6 +5,7 @@ import { useAppDispatch, useAppSelector } from "@/store/hooks";
 import { setMusicView } from "@/store/slices/musicSlice";
 import type { MusicView } from "@/types/music";
 import { useIncomingListenRequests } from "./useListenRequests";
+import { selectFeatureEnabled, FEATURE_MUSIC_INSIGHTS } from "@/store/slices/featuresSlice";
 
 interface NavItem {
   view: MusicView;
@@ -33,6 +34,7 @@ export function MusicSidebar() {
   const activeView = useAppSelector((s) => s.music.activeView);
   const pubkey = useAppSelector((s) => s.identity.pubkey);
   const { groups: listenRequests } = useIncomingListenRequests();
+  const insightsEnabled = useAppSelector(selectFeatureEnabled(FEATURE_MUSIC_INSIGHTS));
 
   const handleNav = (view: MusicView) => {
     dispatch(setMusicView(view));
@@ -44,11 +46,22 @@ export function MusicSidebar() {
   return (
     <div className="flex flex-1 flex-col">
       <div className="space-y-0.5 p-2">
-        <div className="mb-1 px-2 text-[10px] font-semibold uppercase tracking-[0.15em] text-muted">
+        <div className="label-caps px-2 pb-2 pt-2">
           Music
         </div>
         {navItems.map((item) => {
           if (item.requiresAuth && !pubkey) return null;
+          // Insights is an optional feature (Settings → Features).
+          if (item.view === "insights" && !insightsEnabled) return null;
+          // Listen Requests is an inbox: it appears when someone has asked,
+          // and stays while you are looking at it.
+          if (
+            item.view === "listen-requests" &&
+            listenRequests.length === 0 &&
+            activeView !== "listen-requests"
+          ) {
+            return null;
+          }
           // Highlight parent nav when viewing a detail sub-view
           const isActive =
             activeView === item.view ||
@@ -60,9 +73,9 @@ export function MusicSidebar() {
               key={item.view}
               onClick={() => handleNav(item.view)}
               className={cn(
-                "flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-sm transition-all duration-150",
+                "flex w-full items-center gap-2.5 rounded-lg px-2.5 py-1.5 text-[13px] transition-colors duration-150",
                 isActive
-                  ? "bg-primary/8 text-heading"
+                  ? "bg-surface-hover text-heading"
                   : "text-soft hover:bg-surface hover:text-heading",
               )}
             >
@@ -82,14 +95,14 @@ export function MusicSidebar() {
       </div>
 
       {pubkey && (
-        <div className="mt-auto p-2">
+        <div className="mt-auto border-t border-border-light p-2">
           <button
             onClick={() => handleNav("my-uploads")}
             className={cn(
-              "flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-sm font-medium transition-all duration-150",
+              "flex w-full items-center gap-2.5 rounded-lg px-2.5 py-1.5 text-[13px] font-medium transition-colors duration-150",
               activeView === "my-uploads"
-                ? "bg-primary/15 text-heading"
-                : "border border-dashed border-border text-soft hover:border-primary/40 hover:text-heading",
+                ? "bg-surface-hover text-heading"
+                : "text-soft hover:bg-surface hover:text-heading",
             )}
           >
             <FolderUp size={16} />

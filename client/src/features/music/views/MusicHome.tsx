@@ -7,19 +7,17 @@ import {
   setTrendingTrackIds,
   setTrendingAlbumIds,
   setExploreGenres,
-  setExplorePopularTags,
   setActiveGenre,
   setActiveTag,
   setMusicView,
 } from "@/store/slices/musicSlice";
 import { selectLibraryTracks, selectLibraryAlbums } from "../musicSelectors";
-import { getGenres, getPopularTags, browseMusic, browseAlbums as browseAlbumsApi } from "@/lib/api/music";
+import { getGenres, browseMusic, browseAlbums as browseAlbumsApi } from "@/lib/api/music";
 import { processIncomingEvent } from "@/lib/nostr/eventPipeline";
 import { parseTrackEvent } from "../trackParser";
 import { parseAlbumEvent } from "../albumParser";
 import { TrackCard } from "../TrackCard";
 import { AlbumCard } from "../AlbumCard";
-import { GenreCard } from "../GenreCard";
 import { MusicGetStarted } from "../MusicGetStarted";
 
 export function MusicHome() {
@@ -32,7 +30,6 @@ export function MusicHome() {
   const trendingAlbumIds = useAppSelector((s) => s.music.discovery.trendingAlbumIds);
   const newReleaseIds = useAppSelector((s) => s.music.discovery.newReleaseIds);
   const exploreGenres = useAppSelector((s) => s.music.explore.genres);
-  const popularTags = useAppSelector((s) => s.music.explore.popularTags);
 
   const libraryTracksSelector = useMemo(() => selectLibraryTracks(pubkey), [pubkey]);
   const libraryAlbumsSelector = useMemo(() => selectLibraryAlbums(pubkey), [pubkey]);
@@ -45,11 +42,6 @@ export function MusicHome() {
       getGenres()
         .then((res) => dispatch(setExploreGenres(res.data)))
         .catch((err) => console.debug("[music] Failed to load genres:", err));
-    }
-    if (popularTags.length === 0) {
-      getPopularTags()
-        .then((res) => dispatch(setExplorePopularTags(res.data)))
-        .catch((err) => console.debug("[music] Failed to load tags:", err));
     }
 
     // Fetch trending tracks
@@ -121,61 +113,20 @@ export function MusicHome() {
     dispatch(setMusicView("explore"));
   };
 
-  const handleTagClick = (tag: string) => {
-    dispatch(setActiveTag(tag));
-    dispatch(setActiveGenre(null));
-    dispatch(setMusicView("explore"));
-  };
 
   return (
-    <div className={`flex-1 overflow-y-auto p-6 ${scrollPaddingClass}`}>
+    <div className={`flex-1 overflow-y-auto px-8 py-7 ${scrollPaddingClass}`}>
       {libraryEmpty && <MusicGetStarted variant="banner" />}
-
-      {/* Browse by Genre */}
-      {exploreGenres.length > 0 && (
-        <section className="mb-8">
-          <h2 className="mb-3 text-lg font-semibold text-heading">Browse by Genre</h2>
-          <div className="flex gap-2 overflow-x-auto pb-2">
-            {exploreGenres.slice(0, 10).map((g) => (
-              <GenreCard
-                key={g.genre}
-                genre={g.genre}
-                count={g.count}
-                onClick={() => handleGenreClick(g.genre)}
-              />
-            ))}
-          </div>
-        </section>
-      )}
-
-      {/* Popular Tags */}
-      {popularTags.length > 0 && (
-        <section className="mb-8">
-          <h2 className="mb-3 text-lg font-semibold text-heading">Popular Tags</h2>
-          <div className="flex flex-wrap gap-1.5">
-            {popularTags.slice(0, 15).map((t) => (
-              <button
-                key={t.tag}
-                onClick={() => handleTagClick(t.tag)}
-                className="rounded-full bg-card px-2.5 py-1 text-xs text-soft transition-colors hover:bg-card-hover hover:text-heading"
-              >
-                #{t.tag}
-                <span className="ml-1 text-muted">{t.count}</span>
-              </button>
-            ))}
-          </div>
-        </section>
-      )}
 
       {/* Trending / Library Tracks */}
       {displayTracks.length > 0 && (
-        <section className="mb-8">
-          <h2 className="mb-3 text-lg font-semibold text-heading">
-            {trendingTracks.length > 0 ? "Trending Tracks" : "Your Library"}
+        <section className="mb-9">
+          <h2 className="mb-3.5 text-[15px] font-semibold tracking-[-0.01em] text-heading">
+            {trendingTracks.length > 0 ? "Trending tracks" : "Your Library"}
           </h2>
-          <div className="flex gap-3 overflow-x-auto pb-2">
+          <div className="-mx-1 flex gap-5 overflow-x-auto px-1 pb-3 pt-1">
             {displayTracks.map((track, i) => (
-              <div key={track.addressableId} className="w-40 shrink-0">
+              <div key={track.addressableId} className="w-44 shrink-0">
                 <TrackCard
                   track={track}
                   queueTracks={trackAddrIds}
@@ -189,13 +140,13 @@ export function MusicHome() {
 
       {/* Albums */}
       {displayAlbums.length > 0 && (
-        <section className="mb-8">
-          <h2 className="mb-3 text-lg font-semibold text-heading">
-            {newReleases.length > 0 ? "New Releases" : "Projects"}
+        <section className="mb-9">
+          <h2 className="mb-3.5 text-[15px] font-semibold tracking-[-0.01em] text-heading">
+            {newReleases.length > 0 ? "New releases" : "Projects"}
           </h2>
-          <div className="flex gap-3 overflow-x-auto pb-2">
+          <div className="-mx-1 flex gap-5 overflow-x-auto px-1 pb-3 pt-1">
             {displayAlbums.map((album) => (
-              <div key={album.addressableId} className="w-40 shrink-0">
+              <div key={album.addressableId} className="w-44 shrink-0">
                 <AlbumCard album={album} />
               </div>
             ))}
@@ -205,15 +156,35 @@ export function MusicHome() {
 
       {/* Trending Albums */}
       {trendingAlbums.length > 0 && (
-        <section className="mb-8">
-          <h2 className="mb-3 text-lg font-semibold text-heading">
-            Trending Albums
+        <section className="mb-9">
+          <h2 className="mb-3.5 text-[15px] font-semibold tracking-[-0.01em] text-heading">
+            Trending projects
           </h2>
-          <div className="flex gap-3 overflow-x-auto pb-2">
+          <div className="-mx-1 flex gap-5 overflow-x-auto px-1 pb-3 pt-1">
             {trendingAlbums.map((album) => (
-              <div key={album.addressableId} className="w-40 shrink-0">
+              <div key={album.addressableId} className="w-44 shrink-0">
                 <AlbumCard album={album} />
               </div>
+            ))}
+          </div>
+        </section>
+      )}
+
+      {/* Genres are a way in to Explore, not content: one quiet line at the
+          end of the page. */}
+      {exploreGenres.length > 0 && (
+        <section className="border-t border-border-light pt-5">
+          <h2 className="label-caps mb-3">Browse by genre</h2>
+          <div className="-ml-2.5 flex flex-wrap gap-x-0.5 gap-y-1">
+            {exploreGenres.slice(0, 14).map((g) => (
+              <button
+                key={g.genre}
+                onClick={() => handleGenreClick(g.genre)}
+                className="rounded-full px-2.5 py-1 text-xs text-soft transition-colors hover:bg-surface-hover hover:text-heading"
+              >
+                {g.genre}
+                <span className="readout ml-1.5 text-[10px] opacity-55">{g.count}</span>
+              </button>
             ))}
           </div>
         </section>

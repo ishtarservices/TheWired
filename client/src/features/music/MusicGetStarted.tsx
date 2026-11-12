@@ -47,7 +47,7 @@ export function MusicGetStarted({ variant = "page" }: { variant?: "page" | "bann
             <button
               type="button"
               onClick={() => setProjectOpen(true)}
-              className="flex items-center gap-1.5 rounded-xl border border-border px-3 py-1.5 text-xs text-soft transition-colors hover:border-border-light hover:text-heading press-effect"
+              className="flex items-center gap-1.5 rounded-xl border border-border px-3 py-1.5 text-xs text-soft transition-colors hover:border-faint hover:text-heading press-effect"
             >
               <Disc3 size={14} />
               Start a project
@@ -55,7 +55,7 @@ export function MusicGetStarted({ variant = "page" }: { variant?: "page" | "bann
             <button
               type="button"
               onClick={() => setUploadOpen(true)}
-              className="flex items-center gap-1.5 rounded-xl bg-gradient-to-r from-primary to-primary-soft px-3 py-1.5 text-xs font-medium text-white transition-opacity hover:opacity-90 press-effect"
+              className="flex items-center gap-1.5 rounded-xl bg-primary px-3 py-1.5 text-xs font-medium text-white transition-opacity hover:opacity-90 press-effect"
             >
               <Upload size={14} />
               Upload a track
@@ -127,14 +127,14 @@ function DoorCard({
         "group flex flex-col items-start gap-3 rounded-2xl border p-5 text-left transition-all hover-lift press-effect",
         primary
           ? "border-primary/30 bg-primary/5 hover:border-primary/60 hover:bg-primary/10"
-          : "border-border bg-card hover:border-border-light hover:bg-card-hover",
+          : "border-border bg-card hover:border-faint hover:bg-card-hover",
       )}
     >
       <span
         className={cn(
           "flex h-11 w-11 items-center justify-center rounded-xl",
           primary
-            ? "bg-gradient-to-br from-primary to-primary-soft text-white"
+            ? "bg-primary text-white"
             : "bg-surface text-soft group-hover:text-heading",
         )}
       >

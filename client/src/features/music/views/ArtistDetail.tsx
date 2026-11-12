@@ -5,6 +5,7 @@ import { useAppSelector, useAppDispatch } from "@/store/hooks";
 import { useZap } from "@/features/wallet/WalletProvider";
 import { goBack, setActiveDetailId } from "@/store/slices/musicSlice";
 import { TrackRow } from "../TrackRow";
+import { Artwork } from "../Artwork";
 import { AlbumCard } from "../AlbumCard";
 import { Avatar } from "@/components/ui/Avatar";
 import { useProfile } from "@/features/profile/useProfile";
@@ -181,12 +182,13 @@ function PubkeyArtistDetail({ pubkey }: { pubkey: string }) {
   return (
     <div className={`flex-1 overflow-y-auto ${scrollPaddingClass}`}>
       {/* Header */}
-      <div className="flex items-end gap-6 bg-gradient-to-b from-card-hover/30 to-transparent p-6">
+      <div className="flex items-end gap-6 px-8 pb-7 pt-6">
         <button
           onClick={() => dispatch(goBack())}
-          className="self-start rounded p-1 text-soft hover:text-heading"
+          className="-ml-2 self-start rounded-md p-1.5 text-soft transition-colors hover:bg-surface-hover hover:text-heading"
+          aria-label="Back"
         >
-          <ArrowLeft size={20} />
+          <ArrowLeft size={16} />
         </button>
         <div className="group relative">
           {profile?.picture ? (
@@ -201,35 +203,35 @@ function PubkeyArtistDetail({ pubkey }: { pubkey: string }) {
               className="rounded-full focus:outline-none focus:ring-2 focus:ring-primary/40"
               title="View profile"
             >
-              <Avatar src={avatarSrc} alt={name} size="lg" />
+              <Avatar src={avatarSrc} alt={name} size="xl" />
             </button>
           ) : (
             <>
-              <Avatar src={avatarSrc} alt={name} size="lg" />
+              <Avatar src={avatarSrc} alt={name} size="xl" />
               <button
                 onClick={pickImage}
                 className="absolute inset-0 flex items-center justify-center rounded-full bg-background/60 opacity-0 transition-opacity group-hover:opacity-100"
                 title="Set artist image"
               >
-                <Camera size={16} className="text-heading" />
+                <Camera size={18} className="text-heading" />
               </button>
             </>
           )}
         </div>
         <div className="min-w-0 flex-1">
-          <p className="text-xs uppercase tracking-wider text-soft">Artist</p>
-          <h1 className="truncate text-2xl font-bold text-heading">{name}</h1>
-          <p className="text-sm text-soft">
+          <p className="label-caps text-soft">Artist</p>
+          <h1 className="mt-2.5 truncate text-4xl font-semibold leading-[1.1] tracking-[-0.03em] text-heading">{name}</h1>
+          <p className="readout mt-2 text-[11px] uppercase tracking-wider text-muted">
             {artistTracks.length} track{artistTracks.length !== 1 ? "s" : ""}
             {artistAlbums.length > 0 &&
               ` \u00B7 ${artistAlbums.length} album${artistAlbums.length !== 1 ? "s" : ""}`}
           </p>
           {profile?.nip05 && (
-            <p className="mt-0.5 truncate text-[11px] text-primary/70">
+            <p className="mt-1 truncate text-xs text-soft">
               {profile.nip05}
             </p>
           )}
-          <div className="mt-3 flex flex-wrap gap-2">
+          <div className="mt-4 flex flex-wrap gap-2">
             <button
               ref={profileBtnRef}
               type="button"
@@ -238,7 +240,7 @@ function PubkeyArtistDetail({ pubkey }: { pubkey: string }) {
                   openUserPopover(pubkey, profileBtnRef.current);
                 }
               }}
-              className="flex items-center gap-1.5 rounded-full border border-border px-3 py-1 text-xs text-soft transition-colors hover:border-border-light hover:text-heading press-effect"
+              className="flex h-8 items-center gap-1.5 rounded-full border border-border px-3 text-xs text-soft transition-colors hover:bg-surface-hover hover:text-heading press-effect"
               title="Quick view with follow, message, and more"
             >
               <UserSquare2 size={12} />
@@ -247,7 +249,7 @@ function PubkeyArtistDetail({ pubkey }: { pubkey: string }) {
             <button
               type="button"
               onClick={() => navigate(`/profile/${pubkey}`)}
-              className="flex items-center gap-1.5 rounded-full border border-border px-3 py-1 text-xs text-soft transition-colors hover:border-border-light hover:text-heading press-effect"
+              className="flex h-8 items-center gap-1.5 rounded-full border border-border px-3 text-xs text-soft transition-colors hover:bg-surface-hover hover:text-heading press-effect"
               title="Open full profile page"
             >
               Open full profile
@@ -255,7 +257,7 @@ function PubkeyArtistDetail({ pubkey }: { pubkey: string }) {
             <button
               type="button"
               onClick={() => openZap({ recipientPubkey: pubkey, displayName: name })}
-              className="flex items-center gap-1.5 rounded-full border border-border px-3 py-1 text-xs text-yellow-400 transition-colors hover:border-yellow-400/40 hover:bg-yellow-400/10 press-effect"
+              className="flex h-8 items-center gap-1.5 rounded-full border border-border px-3 text-xs text-warning transition-colors hover:border-warning/40 hover:bg-warning/10 press-effect"
               title="Send a zap"
             >
               <Zap size={12} />
@@ -287,16 +289,16 @@ function PubkeyArtistDetail({ pubkey }: { pubkey: string }) {
         const sectionStart = trackOffset;
         trackOffset += section.tracks.length;
         return (
-          <section key={section.album.addressableId} className="px-6 py-4">
-            <div className="mb-2 flex items-center gap-3">
+          <section key={section.album.addressableId} className="border-t border-border-light px-5 py-5">
+            <div className="mb-2 flex items-center gap-3 px-3">
               {section.album.imageUrl && (
                 <button
                   onClick={() =>
                     dispatch(setActiveDetailId({ view: "album-detail", id: section.album.addressableId }))
                   }
-                  className="h-10 w-10 shrink-0 overflow-hidden rounded-lg transition-opacity hover:opacity-80"
+                  className="shrink-0 rounded-md transition-opacity hover:opacity-80"
                 >
-                  <img src={section.album.imageUrl} alt="" className="h-full w-full object-cover" />
+                  <Artwork src={section.album.imageUrl} title={section.album.title} compact className="h-12 w-12 rounded-md" />
                 </button>
               )}
               <div>
@@ -304,13 +306,13 @@ function PubkeyArtistDetail({ pubkey }: { pubkey: string }) {
                   onClick={() =>
                     dispatch(setActiveDetailId({ view: "album-detail", id: section.album.addressableId }))
                   }
-                  className="text-sm font-semibold text-heading hover:underline"
+                  className="text-[15px] font-semibold tracking-[-0.01em] text-heading hover:underline"
                 >
                   {section.album.title}
                 </button>
                 {section.album.projectType !== "album" && (
-                  <span className="ml-1.5 text-[10px] text-muted">
-                    ({section.album.projectType})
+                  <span className="ml-2 font-mono text-[9px] uppercase tracking-wider text-muted">
+                    {section.album.projectType}
                   </span>
                 )}
               </div>
@@ -322,6 +324,7 @@ function PubkeyArtistDetail({ pubkey }: { pubkey: string }) {
                 index={sectionStart + i}
                 displayIndex={i + 1}
                 queueTracks={allQueueIds}
+                context="album"
               />
             ))}
           </section>
@@ -330,11 +333,11 @@ function PubkeyArtistDetail({ pubkey }: { pubkey: string }) {
 
       {/* Albums whose tracks aren't loaded yet — one combined wrap-grid. */}
       {moreAlbums.length > 0 && (
-        <section className="px-6 py-4">
-          <h2 className="mb-2 text-sm font-semibold uppercase tracking-[0.15em] text-muted">
-            More albums
+        <section className="border-t border-border-light px-8 py-5">
+          <h2 className="mb-3 label-caps">
+            More projects
           </h2>
-          <div className="grid grid-cols-[repeat(auto-fill,minmax(160px,1fr))] gap-3">
+          <div className="grid grid-cols-[repeat(auto-fill,minmax(160px,1fr))] gap-x-5 gap-y-6">
             {moreAlbums.map((album) => (
               <AlbumCard key={album.addressableId} album={album} />
             ))}
@@ -347,8 +350,8 @@ function PubkeyArtistDetail({ pubkey }: { pubkey: string }) {
         const sectionStart = trackOffset;
         trackOffset += singles.length;
         return (
-          <section key="__singles__" className="px-6 py-4">
-            <h2 className="mb-2 text-sm font-semibold uppercase tracking-[0.15em] text-muted">
+          <section key="__singles__" className="border-t border-border-light px-5 py-5">
+            <h2 className="mb-3 px-3 label-caps">
               Singles
             </h2>
             {singles.map((track, i) => (
@@ -358,6 +361,7 @@ function PubkeyArtistDetail({ pubkey }: { pubkey: string }) {
                 index={sectionStart + i}
                 displayIndex={i + 1}
                 queueTracks={allQueueIds}
+                context="album"
               />
             ))}
           </section>
@@ -414,22 +418,23 @@ function NameArtistDetail({ normalizedName }: { normalizedName: string }) {
   return (
     <div className={`flex-1 overflow-y-auto ${scrollPaddingClass}`}>
       {/* Header */}
-      <div className="flex items-end gap-6 bg-gradient-to-b from-card-hover/30 to-transparent p-6">
+      <div className="flex items-end gap-6 px-8 pb-7 pt-6">
         <button
           onClick={() => dispatch(goBack())}
-          className="self-start rounded p-1 text-soft hover:text-heading"
+          className="-ml-2 self-start rounded-md p-1.5 text-soft transition-colors hover:bg-surface-hover hover:text-heading"
+          aria-label="Back"
         >
-          <ArrowLeft size={20} />
+          <ArrowLeft size={16} />
         </button>
         <div className="group relative">
           {avatarSrc ? (
             <img
               src={avatarSrc}
               alt={displayName}
-              className="h-16 w-16 rounded-full object-cover ring-1 ring-border"
+              className="h-24 w-24 rounded-full object-cover ring-1 ring-border"
             />
           ) : (
-            <div className="flex h-16 w-16 items-center justify-center rounded-full bg-card text-soft">
+            <div className="flex h-24 w-24 items-center justify-center rounded-full bg-card text-muted ring-1 ring-border">
               <Music size={28} />
             </div>
           )}
@@ -438,13 +443,13 @@ function NameArtistDetail({ normalizedName }: { normalizedName: string }) {
             className="absolute inset-0 flex items-center justify-center rounded-full bg-background/60 opacity-0 transition-opacity group-hover:opacity-100"
             title="Set artist image"
           >
-            <Camera size={16} className="text-heading" />
+            <Camera size={18} className="text-heading" />
           </button>
         </div>
         <div>
-          <p className="text-xs uppercase tracking-wider text-soft">Artist</p>
-          <h1 className="text-2xl font-bold text-heading">{displayName}</h1>
-          <p className="text-sm text-soft">
+          <p className="label-caps text-soft">Artist</p>
+          <h1 className="mt-2.5 text-4xl font-semibold leading-[1.1] tracking-[-0.03em] text-heading">{displayName}</h1>
+          <p className="readout mt-2 text-[11px] uppercase tracking-wider text-muted">
             {artistTracks.length} track{artistTracks.length !== 1 ? "s" : ""}
             {artistAlbums.length > 0 &&
               ` \u00B7 ${artistAlbums.length} album${artistAlbums.length !== 1 ? "s" : ""}`}
@@ -465,16 +470,16 @@ function NameArtistDetail({ normalizedName }: { normalizedName: string }) {
         const sectionStart = trackOffset;
         trackOffset += section.tracks.length;
         return (
-          <section key={section.album.addressableId} className="px-6 py-4">
-            <div className="mb-2 flex items-center gap-3">
+          <section key={section.album.addressableId} className="border-t border-border-light px-5 py-5">
+            <div className="mb-2 flex items-center gap-3 px-3">
               {section.album.imageUrl && (
                 <button
                   onClick={() =>
                     dispatch(setActiveDetailId({ view: "album-detail", id: section.album.addressableId }))
                   }
-                  className="h-10 w-10 shrink-0 overflow-hidden rounded-lg transition-opacity hover:opacity-80"
+                  className="shrink-0 rounded-md transition-opacity hover:opacity-80"
                 >
-                  <img src={section.album.imageUrl} alt="" className="h-full w-full object-cover" />
+                  <Artwork src={section.album.imageUrl} title={section.album.title} compact className="h-12 w-12 rounded-md" />
                 </button>
               )}
               <div>
@@ -482,13 +487,13 @@ function NameArtistDetail({ normalizedName }: { normalizedName: string }) {
                   onClick={() =>
                     dispatch(setActiveDetailId({ view: "album-detail", id: section.album.addressableId }))
                   }
-                  className="text-sm font-semibold text-heading hover:underline"
+                  className="text-[15px] font-semibold tracking-[-0.01em] text-heading hover:underline"
                 >
                   {section.album.title}
                 </button>
                 {section.album.projectType !== "album" && (
-                  <span className="ml-1.5 text-[10px] text-muted">
-                    ({section.album.projectType})
+                  <span className="ml-2 font-mono text-[9px] uppercase tracking-wider text-muted">
+                    {section.album.projectType}
                   </span>
                 )}
               </div>
@@ -500,6 +505,7 @@ function NameArtistDetail({ normalizedName }: { normalizedName: string }) {
                 index={sectionStart + i}
                 displayIndex={i + 1}
                 queueTracks={allQueueIds}
+                context="album"
               />
             ))}
           </section>
@@ -508,11 +514,11 @@ function NameArtistDetail({ normalizedName }: { normalizedName: string }) {
 
       {/* Combined cards grid for albums whose tracks aren't loaded */}
       {moreAlbums.length > 0 && (
-        <section className="px-6 py-4">
-          <h2 className="mb-2 text-sm font-semibold uppercase tracking-[0.15em] text-muted">
-            More albums
+        <section className="border-t border-border-light px-8 py-5">
+          <h2 className="mb-3 label-caps">
+            More projects
           </h2>
-          <div className="grid grid-cols-[repeat(auto-fill,minmax(160px,1fr))] gap-3">
+          <div className="grid grid-cols-[repeat(auto-fill,minmax(160px,1fr))] gap-x-5 gap-y-6">
             {moreAlbums.map((album) => (
               <AlbumCard key={album.addressableId} album={album} />
             ))}
@@ -525,8 +531,8 @@ function NameArtistDetail({ normalizedName }: { normalizedName: string }) {
         const sectionStart = trackOffset;
         trackOffset += singles.length;
         return (
-          <section key="__singles__" className="px-6 py-4">
-            <h2 className="mb-2 text-sm font-semibold uppercase tracking-[0.15em] text-muted">
+          <section key="__singles__" className="border-t border-border-light px-5 py-5">
+            <h2 className="mb-3 px-3 label-caps">
               Singles
             </h2>
             {singles.map((track, i) => (
@@ -536,6 +542,7 @@ function NameArtistDetail({ normalizedName }: { normalizedName: string }) {
                 index={sectionStart + i}
                 displayIndex={i + 1}
                 queueTracks={allQueueIds}
+                context="album"
               />
             ))}
           </section>

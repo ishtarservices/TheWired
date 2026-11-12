@@ -174,7 +174,7 @@ export function SpaceContextMenu({
     >
       {showDurations ? (
         <div className="py-1">
-          <div className="px-3 py-1.5 text-[10px] font-semibold uppercase tracking-wider text-muted">
+          <div className="px-3 py-1.5 label-caps">
             Mute Duration
           </div>
           {MUTE_DURATIONS.map((d) => (
@@ -193,7 +193,7 @@ export function SpaceContextMenu({
         </div>
       ) : confirmLeave ? (
         <div className="max-w-[280px] py-1">
-          <div className="px-3 py-1.5 text-[10px] font-semibold uppercase tracking-wider text-muted">
+          <div className="px-3 py-1.5 label-caps">
             Leave this space?
           </div>
           {isCreator && !leaveError && (

@@ -1,5 +1,7 @@
-import { useRef } from "react";
-import { useAppSelector } from "@/store/hooks";
+import { useEffect, useRef } from "react";
+import { useAppDispatch, useAppSelector } from "@/store/hooks";
+import { setMusicView } from "@/store/slices/musicSlice";
+import { selectFeatureEnabled, FEATURE_MUSIC_INSIGHTS } from "@/store/slices/featuresSlice";
 import type { MusicView } from "@/types/music";
 import { MusicHome } from "./views/MusicHome";
 import { SongList } from "./views/SongList";
@@ -50,8 +52,16 @@ const VIEW_COMPONENTS: Record<MusicView, React.ComponentType> = {
  * to preserve scroll positions and component state across view switches.
  */
 export function MusicRouter() {
+  const dispatch = useAppDispatch();
   const activeView = useAppSelector((s) => s.music.activeView);
+  const insightsEnabled = useAppSelector(selectFeatureEnabled(FEATURE_MUSIC_INSIGHTS));
   const visitedRef = useRef(new Set<MusicView>());
+
+  // Insights is optional (Settings → Features). Switching it off while the
+  // page is open would leave a view with no way back to it in the sidebar.
+  useEffect(() => {
+    if (activeView === "insights" && !insightsEnabled) dispatch(setMusicView("home"));
+  }, [activeView, insightsEnabled, dispatch]);
   visitedRef.current.add(activeView);
 
   return (

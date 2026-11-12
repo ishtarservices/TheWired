@@ -37,7 +37,7 @@ export function MusicLinkCard({ media }: { media: ExternalMediaItem }) {
       target="_blank"
       rel="noopener noreferrer"
       onClick={(e) => e.stopPropagation()}
-      className="mt-2 flex w-full max-w-md items-center gap-3 rounded-xl border border-border card-glass px-3 py-2.5 transition-colors hover:border-border-light"
+      className="mt-2 flex w-full max-w-md items-center gap-3 rounded-xl border border-border card-glass px-3 py-2.5 transition-colors hover:border-faint"
       title={`Open on ${label}`}
     >
       {media.thumb ? (

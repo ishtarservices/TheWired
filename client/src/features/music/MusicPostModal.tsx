@@ -344,7 +344,7 @@ export function MusicPostModal({ open, onClose, target }: MusicPostModalProps) {
             <p className="truncate text-sm font-medium text-heading">{target.title}</p>
             <p className="truncate text-xs text-soft">{target.artist}</p>
           </div>
-          <span className="shrink-0 rounded-full bg-surface/60 px-2 py-0.5 text-[10px] font-medium uppercase tracking-wider text-muted">
+          <span className="shrink-0 rounded-full bg-surface/60 px-2 py-0.5 label-caps">
             {kindLabel}
           </span>
         </div>
@@ -513,7 +513,7 @@ export function MusicPostModal({ open, onClose, target }: MusicPostModalProps) {
                   type="button"
                   onClick={handleRepost}
                   disabled={reposting}
-                  className="flex items-center gap-1.5 rounded-lg border border-border px-3 py-1.5 text-xs font-medium text-soft transition-colors hover:border-border-light hover:text-heading disabled:opacity-40"
+                  className="flex items-center gap-1.5 rounded-lg border border-border px-3 py-1.5 text-xs font-medium text-soft transition-colors hover:border-faint hover:text-heading disabled:opacity-40"
                 >
                   {reposting ? (
                     <Loader2 size={13} className="animate-spin" />
@@ -527,7 +527,7 @@ export function MusicPostModal({ open, onClose, target }: MusicPostModalProps) {
                 type="button"
                 onClick={handlePost}
                 disabled={gated || publishing || isUploading}
-                className="flex items-center gap-1.5 rounded-lg bg-gradient-to-r from-primary to-primary-soft px-4 py-1.5 text-xs font-medium text-white transition-all hover:opacity-90 press-effect disabled:opacity-40"
+                className="flex items-center gap-1.5 rounded-lg bg-primary px-4 py-1.5 text-xs font-medium text-white transition-all hover:opacity-90 press-effect disabled:opacity-40"
               >
                 {publishing ? (
                   <Loader2 size={13} className="animate-spin" />

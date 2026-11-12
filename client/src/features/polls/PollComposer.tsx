@@ -127,7 +127,7 @@ export function PollComposer({ onSubmit, onClose, allowMusicOptions = true }: Po
     // also has its own inner scroll for the common case.
     <div className="w-[min(460px,var(--popover-max-w,calc(100vw-24px)))] max-h-[var(--popover-max-h,90vh)] overflow-y-auto rounded-xl border border-border bg-panel p-4 shadow-xl">
       {/* Header */}
-      <div className="flex items-center gap-2 text-[11px] font-medium uppercase tracking-wide text-muted">
+      <div className="flex items-center gap-2 label-caps">
         <BarChart3 size={13} className="text-primary-soft" />
         <span>Create poll</span>
         <button
@@ -231,7 +231,7 @@ export function PollComposer({ onSubmit, onClose, allowMusicOptions = true }: Po
         <button
           type="button"
           onClick={addOption}
-          className="mt-2 flex w-full items-center justify-center gap-1.5 rounded-lg border border-dashed border-border px-3 py-2 text-xs text-muted hover:text-heading hover:border-border-light transition-colors"
+          className="mt-2 flex w-full items-center justify-center gap-1.5 rounded-lg border border-dashed border-border px-3 py-2 text-xs text-muted hover:text-heading hover:border-faint transition-colors"
         >
           <Plus size={13} />
           Add option
@@ -295,7 +295,7 @@ export function PollComposer({ onSubmit, onClose, allowMusicOptions = true }: Po
               type="button"
               disabled={!canSubmit}
               onClick={handleSubmit}
-              className="rounded-lg bg-gradient-to-r from-primary to-primary-soft px-4 py-2 text-xs font-semibold text-white transition-opacity disabled:opacity-40"
+              className="rounded-lg bg-primary px-4 py-2 text-xs font-semibold text-white transition-opacity disabled:opacity-40"
             >
               Create poll
             </button>

@@ -187,7 +187,7 @@ export function AnnotationComposer({
           <button
             onClick={handleSave}
             disabled={submitting || !content.trim() || (visibility === "space" && !selectedSpaceId)}
-            className="rounded-full bg-gradient-to-r from-primary to-primary-soft px-5 py-1.5 text-xs font-medium text-white transition-all hover:opacity-90 press-effect disabled:opacity-40"
+            className="rounded-full bg-primary px-5 py-1.5 text-xs font-medium text-white transition-all hover:opacity-90 press-effect disabled:opacity-40"
           >
             {submitting ? "Saving..." : "Post"}
           </button>

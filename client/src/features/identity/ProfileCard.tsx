@@ -172,7 +172,7 @@ function AccountList({
 }) {
   return (
     <div className="px-1 py-1">
-      <div className="px-2 py-1 text-[10px] font-semibold uppercase tracking-wider text-muted">
+      <div className="px-2 py-1 label-caps">
         Accounts
       </div>
       {accounts.map((account) => (

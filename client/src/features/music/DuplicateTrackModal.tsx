@@ -91,7 +91,7 @@ export function DuplicateTrackModal({ track, onClose }: DuplicateTrackModalProps
           <button
             onClick={handleDuplicate}
             disabled={!newTitle.trim() || submitting}
-            className="w-full rounded-xl bg-gradient-to-r from-primary to-primary-soft py-2 text-sm font-medium text-white transition-opacity hover:opacity-90 press-effect disabled:opacity-50"
+            className="w-full rounded-xl bg-primary py-2 text-sm font-medium text-white transition-opacity hover:opacity-90 press-effect disabled:opacity-50"
           >
             {submitting ? "Duplicating..." : "Duplicate"}
           </button>

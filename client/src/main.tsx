@@ -9,6 +9,8 @@ import { startPerfMonitor } from "./lib/debug/perfMonitor";
 import { installAudioUnlock } from "./lib/audio/unlockAudio";
 // Side-effect import: registers wiredDebug.calls() (lazy-loads the call stack on use)
 import "./lib/debug/callTracker";
+import "@fontsource-variable/geist";
+import "@fontsource-variable/geist-mono";
 import "./index.css";
 
 // Apply persisted zoom synchronously before render to avoid layout flash.

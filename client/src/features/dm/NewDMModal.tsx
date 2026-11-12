@@ -284,7 +284,7 @@ function Section({
     <div className="py-1">
       <div className="flex items-center gap-1.5 px-4 pt-2 pb-1">
         <Icon size={11} className="text-muted" />
-        <span className="text-[10px] font-semibold uppercase tracking-wider text-muted">
+        <span className="label-caps">
           {label}
         </span>
       </div>

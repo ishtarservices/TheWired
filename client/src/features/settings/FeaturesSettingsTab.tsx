@@ -3,6 +3,7 @@ import { useAppDispatch, useAppSelector } from "../../store/hooks";
 import {
   FEATURE_AI,
   FEATURE_DECENTRALIZED_SPACES,
+  FEATURE_MUSIC_INSIGHTS,
   setFeatureEnabled,
   type FeatureId,
 } from "../../store/slices/featuresSlice";
@@ -34,6 +35,12 @@ const FEATURES: FeatureRow[] = [
         ? "keys are stored in your OS keychain."
         : "keys stay in memory for this session unless you opt into persistent storage in Settings → Security."
     }`,
+  },
+  {
+    id: FEATURE_MUSIC_INSIGHTS,
+    label: "Music Insights",
+    description:
+      "Play and listener counts for the music you publish: an Insights page in the Music sidebar and an Insights action on your tracks.",
   },
 ];
 

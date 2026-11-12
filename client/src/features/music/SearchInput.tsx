@@ -153,7 +153,7 @@ export function SearchInput() {
 
           {results.tracks.length > 0 && (
             <div className="border-b border-border/50">
-              <p className="px-3 pb-1 pt-2.5 text-[10px] font-semibold uppercase tracking-wider text-muted">
+              <p className="px-3 pb-1 pt-2.5 label-caps">
                 Tracks
               </p>
               {results.tracks.slice(0, 5).map((hit) => {
@@ -195,7 +195,7 @@ export function SearchInput() {
 
           {results.albums.length > 0 && (
             <div className="border-b border-border/50">
-              <p className="px-3 pb-1 pt-2.5 text-[10px] font-semibold uppercase tracking-wider text-muted">
+              <p className="px-3 pb-1 pt-2.5 label-caps">
                 Albums
               </p>
               {results.albums.slice(0, 3).map((hit) => {

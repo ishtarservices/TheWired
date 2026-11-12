@@ -194,7 +194,7 @@ export function ChannelList() {
   const hasCategories = groupedChannels.some((g) => g.categoryId !== null);
 
   return (
-    <div className="p-3 space-y-1">
+    <div className="px-2 py-3 space-y-0.5">
       <div className="mb-1 flex items-center justify-between px-2">
         <button
           onClick={toggleChannels}
@@ -207,7 +207,7 @@ export function ChannelList() {
               !channelsCollapsed && "rotate-90",
             )}
           />
-          <span className="text-[10px] font-semibold uppercase tracking-[0.15em] text-muted group-hover:text-heading transition-colors">
+          <span className="label-caps group-hover:text-heading transition-colors">
             Channels
           </span>
           {channelsCollapsed && (
@@ -326,7 +326,7 @@ function CategoryHeader({
           !isCollapsed && "rotate-90",
         )}
       />
-      <span className="text-[10px] font-semibold uppercase tracking-[0.12em] text-muted group-hover:text-heading transition-colors">
+      <span className="label-caps group-hover:text-heading transition-colors">
         {categoryId}
       </span>
       {isCollapsed && (
@@ -380,7 +380,10 @@ function ChannelItem({
   onContextMenu: (e: React.MouseEvent, channelId: string) => void;
 }) {
   const channelActiveId = `${spaceId}:${ch.id}`;
-  const isActive = channelActiveId === activeChannelId;
+  // Only "active" while the space view is on screen: on Discover, Settings or a
+  // profile the channel is remembered, not shown.
+  const onSpaceView = useLocation().pathname === "/";
+  const isActive = onSpaceView && channelActiveId === activeChannelId;
   const Icon = CHANNEL_ICONS[ch.type] ?? MessageSquare;
   const isVoice = ch.type === "voice" || ch.type === "video";
 
@@ -450,12 +453,12 @@ const ChannelButton = memo(function ChannelButton({
       onClick={onClick}
       onContextMenu={onContextMenu}
       className={cn(
-        "flex w-full items-center gap-2 rounded-xl px-3 py-2 text-sm transition-all duration-150",
+        "flex w-full items-center gap-2 rounded-lg px-2.5 py-1.5 text-[13px] transition-colors duration-150",
         isActive
           ? "bg-surface-hover text-heading"
           : hasUnread && !isMuted
-            ? "text-heading font-semibold hover:bg-surface-hover"
-            : "text-soft hover:bg-surface-hover hover:text-heading",
+            ? "text-heading font-medium hover:bg-surface"
+            : "text-soft hover:bg-surface hover:text-heading",
       )}
     >
       <Icon size={16} className={isConnectedToThis || (isVoiceType && effectiveCount > 0) ? "text-green-400" : undefined} />
