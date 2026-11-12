@@ -275,6 +275,50 @@ describe("music upload + delete lifecycle", () => {
     expect(existsSync(join(BLOB_DIR, sha256))).toBe(true);
   });
 
+  it("delete keeps an audio blob another of the owner's tracks still references", async () => {
+    const audioData = makeAudioFile("lifecycle-shared-audio");
+    const { body, boundary } = buildMultipartPayload("shared.mp3", "audio/mpeg", audioData);
+    const uploadRes = await server.inject({
+      method: "POST",
+      url: "/music/upload",
+      headers: {
+        "x-auth-pubkey": LUNA.pubkey,
+        "content-type": `multipart/form-data; boundary=${boundary}`,
+      },
+      payload: body,
+    });
+    expect(uploadRes.statusCode).toBe(200);
+    const { sha256, url: audioUrl } = uploadRes.json().data;
+
+    // Two of Luna's tracks carry the same recording.
+    await insertRelayEvent({ pubkey: LUNA.pubkey, slug: "shared-audio-a", audioUrl, sha256 });
+    await insertRelayEvent({ pubkey: LUNA.pubkey, slug: "shared-audio-b", audioUrl, sha256 });
+
+    const first = await server.inject({
+      method: "DELETE",
+      url: `/music/track/${LUNA.pubkey}/shared-audio-a`,
+      headers: { "x-auth-pubkey": LUNA.pubkey },
+    });
+    expect(first.statusCode).toBe(200);
+
+    // Track B still plays: upload row, ownership, blob row and bytes all stay.
+    expect((await db.select().from(musicUploads).where(sql`${musicUploads.sha256} = ${sha256}`)).length).toBe(1);
+    expect((await db.select().from(blobOwners).where(sql`${blobOwners.sha256} = ${sha256}`)).length).toBe(1);
+    expect((await db.select().from(blobs).where(sql`${blobs.sha256} = ${sha256}`)).length).toBe(1);
+    expect(existsSync(join(BLOB_DIR, sha256))).toBe(true);
+
+    // Deleting the last reference frees everything.
+    const second = await server.inject({
+      method: "DELETE",
+      url: `/music/track/${LUNA.pubkey}/shared-audio-b`,
+      headers: { "x-auth-pubkey": LUNA.pubkey },
+    });
+    expect(second.statusCode).toBe(200);
+    expect((await db.select().from(blobOwners).where(sql`${blobOwners.sha256} = ${sha256}`)).length).toBe(0);
+    expect((await db.select().from(blobs).where(sql`${blobs.sha256} = ${sha256}`)).length).toBe(0);
+    expect(existsSync(join(BLOB_DIR, sha256))).toBe(false);
+  });
+
   it("re-upload after delete works (no orphan conflicts)", async () => {
     // Upload
     const audioData = makeAudioFile("lifecycle-reupload");

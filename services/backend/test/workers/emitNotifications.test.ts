@@ -158,10 +158,11 @@ describe("kind 9 space mention through processEvent", () => {
 
     const rows = await rowsFor(LUNA.pubkey);
     expect(rows).toHaveLength(1);
+    expect(rows[0].body).not.toContain("luna");
     expect(rows[0]).toMatchObject({
       type: "chat",
       title: "marcus in neon dungeon",
-      body: "yo luna",
+      body: "mentioned you",
       collapseKey: `space:${SPACE}:${LUNA.pubkey}`,
     });
 

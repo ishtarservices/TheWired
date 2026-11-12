@@ -122,9 +122,28 @@ export function ChatView() {
   const dividerRef = useRef<HTMLDivElement>(null);
   const hasScrolledToUnread = useRef(false);
   const hasMessages = messages.length > 0 || pendingMessages.length > 0;
+  // Where the reader is: near the bottom (follow new messages) or up in
+  // history (keep their place, offer a pill). Same guard as DMConversation.
+  const isNearBottomRef = useRef(true);
+  const hasInitialScrolled = useRef(false);
+  const lastPendingCount = useRef(0);
+  const lastMessageCount = useRef(0);
+  const [showScrollButton, setShowScrollButton] = useState(false);
+  const [newWhileAway, setNewWhileAway] = useState(false);
+  const handleScroll = useCallback(() => {
+    const el = scrollRef.current;
+    if (!el) return;
+    const nearBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 80;
+    isNearBottomRef.current = nearBottom;
+    setShowScrollButton(!nearBottom);
+    if (nearBottom) setNewWhileAway(false);
+  }, []);
+  const scrollToBottom = useCallback(() => {
+    scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: "smooth" });
+  }, []);
   // Media and embeds settle their size after render: stay on the newest
   // message while the reader is there.
-  useStickToBottom(scrollRef, contentRef, { active: hasMessages });
+  useStickToBottom(scrollRef, contentRef, { active: hasMessages, nearBottomRef: isNearBottomRef });
 
   // Reply jump navigation state
   const [highlightedEventId, setHighlightedEventId] = useState<string | null>(null);
@@ -163,21 +182,53 @@ export function ChatView() {
     ? messages.findIndex((m) => m.event.created_at > dividerTimestamp)
     : -1;
 
-  // Scroll to unread divider on first render, or to bottom if no unreads
+  // First paint of a channel: the unread divider when there is one, else the
+  // bottom. After that a new message follows the reader only while they are
+  // near the bottom; someone reading history keeps their place and gets the
+  // "new messages" pill instead (audit 2026-06-10 #52). An own send always
+  // jumps down.
   useEffect(() => {
-    if (!scrollRef.current) return;
+    const el = scrollRef.current;
+    if (!el) return;
+    const ownSend = pendingMessages.length > lastPendingCount.current;
+    const arrived = messages.length > lastMessageCount.current;
+    lastPendingCount.current = pendingMessages.length;
+    lastMessageCount.current = messages.length;
 
-    if (dividerRef.current && !hasScrolledToUnread.current && unreadStartIndex > 0) {
-      hasScrolledToUnread.current = true;
-      dividerRef.current.scrollIntoView({ block: "center" });
-    } else {
-      scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
+    if (!hasInitialScrolled.current) {
+      if (!hasMessages) return;
+      if (dividerRef.current && unreadStartIndex > 0) {
+        hasScrolledToUnread.current = true;
+        dividerRef.current.scrollIntoView({ block: "center" });
+      } else {
+        el.scrollTop = el.scrollHeight;
+      }
+      hasInitialScrolled.current = true;
+      return;
     }
-  }, [messages.length, pendingMessages.length, unreadStartIndex]);
+
+    // The divider fading (unreadStartIndex → -1) and deletions re-run this
+    // effect too; neither is a reason to move the reader or show the pill.
+    if (!ownSend && !arrived) return;
+    if (ownSend || isNearBottomRef.current) {
+      el.scrollTop = el.scrollHeight;
+      isNearBottomRef.current = true;
+      setShowScrollButton(false);
+      setNewWhileAway(false);
+    } else {
+      setNewWhileAway(true);
+    }
+  }, [messages.length, pendingMessages.length, unreadStartIndex, hasMessages]);
 
   // Reset scroll tracking when channel changes
   useEffect(() => {
     hasScrolledToUnread.current = false;
+    hasInitialScrolled.current = false;
+    isNearBottomRef.current = true;
+    lastPendingCount.current = 0;
+    lastMessageCount.current = 0;
+    setShowScrollButton(false);
+    setNewWhileAway(false);
   }, [activeChannelId]);
 
   const handleDividerFaded = useCallback(() => {
@@ -198,7 +249,7 @@ export function ChatView() {
         </div>
       )}
 
-      <div ref={scrollRef} className={`flex-1 overflow-y-auto py-2 ${scrollPaddingClass}`}>
+      <div ref={scrollRef} onScroll={handleScroll} className={`flex-1 overflow-y-auto py-2 ${scrollPaddingClass}`}>
         {messages.length === 0 && pendingMessages.length === 0 ? (
           <div className="flex h-full items-center justify-center">
             <p className="text-sm text-muted">
@@ -268,6 +319,22 @@ export function ChatView() {
           </div>
         )}
       </div>
+
+      {/* Back to the newest message; labelled when messages arrived while reading history */}
+      {showScrollButton && !jumpBackEventId && (
+        <button
+          onClick={scrollToBottom}
+          className={`absolute right-4 bottom-20 z-10 flex items-center gap-1.5 rounded-full border border-border bg-surface shadow-lg text-xs font-medium transition-all animate-fade-in-up ${
+            newWhileAway
+              ? "px-3 py-1.5 text-heading hover:bg-surface-hover"
+              : "h-9 w-9 justify-center text-muted hover:text-heading hover:bg-surface-hover"
+          }`}
+          title="Scroll to bottom"
+        >
+          <ArrowDown size={newWhileAway ? 12 : 16} />
+          {newWhileAway && "New messages"}
+        </button>
+      )}
 
       {/* Jump back button */}
       {jumpBackEventId && (

@@ -235,12 +235,14 @@ describe("planNotifications", () => {
   });
 
   it("kind 9: a space mention deep-links to the channel and names the space", () => {
-    const chat = ev({ kind: 9, tags: [["h", "s1"], ["channel", "general"], ["p", ME]], content: "yo" });
+    const chat = ev({ kind: 9, tags: [["h", "s1"], ["channel", "general"], ["p", ME]], content: "the secret plan" });
     const [c] = planNotifications(chat, own, deps());
+    // Content-free: private-space chat must not transit the push providers.
+    expect(c.body).not.toContain("secret");
     expect(c).toMatchObject({
       type: "chat",
       title: "alice in neon",
-      body: "yo",
+      body: "mentioned you",
       url: "soot://space/s1/channel/general",
       collapseKey: `space:s1:${ME}`,
     });

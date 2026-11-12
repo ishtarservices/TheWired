@@ -15,7 +15,7 @@ import {
 import { useRelativeTime } from "@/hooks/useRelativeTime";
 import type { AIConversation } from "@/types/ai";
 import {
-  createConversation,
+  startNewChat,
   deleteConversationEverywhere,
   renameConversationEverywhere,
 } from "./conversationActions";
@@ -29,7 +29,7 @@ export function AISidebar() {
   const [query, setQuery] = useState("");
 
   const newChat = () => {
-    createConversation();
+    startNewChat();
     navigate("/");
   };
 

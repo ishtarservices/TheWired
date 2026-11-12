@@ -383,12 +383,8 @@ pub async fn query_events(pool: &PgPool, filter: &Filter, authed_pubkey: Option<
 
 /// Query events matching a filter under a full read context.
 pub async fn query_events_ctx(pool: &PgPool, filter: &Filter, ctx: &ReadCtx<'_>) -> anyhow::Result<Vec<Event>> {
-    // Delegate NIP-50 full-text search to the dedicated handler
     if let Some(ref search_query) = filter.search {
-        // Clamp to MAX_LIMIT so a search REQ can't tie up a DB connection (strfry
-        // caps at 500). See RELAY_OPTIMIZATIONS §1.
-        let limit = filter.limit.unwrap_or(100).clamp(0, MAX_QUERY_LIMIT);
-        return crate::protocol::nip50::search_events_ctx(pool, search_query, limit, ctx).await;
+        return search_events_ctx(pool, filter, search_query, ctx).await;
     }
 
     let start = std::time::Instant::now();
@@ -415,6 +411,48 @@ pub async fn query_events_ctx(pool: &PgPool, filter: &Filter, ctx: &ReadCtx<'_>)
     }
 
     Ok(events
+        .into_iter()
+        .map(|r| Event {
+            id: r.id,
+            pubkey: r.pubkey,
+            created_at: r.created_at,
+            kind: r.kind,
+            tags: serde_json::from_value(r.tags).unwrap_or_default(),
+            content: r.content,
+            sig: r.sig,
+        })
+        .collect())
+}
+
+/// NIP-50 full-text search under the FULL filter — `kinds`, `authors`, `#h`,
+/// `since`/`until`, tag filters — and the same read gates as a plain REQ.
+/// Before, only the query and the limit reached the search, so a search
+/// scoped to one space or one author answered from the whole relay (audit
+/// 2026-09-18 C-01). Gift wraps and reports are never searchable whatever
+/// the role: their content is ciphertext / the reporter's note. The limit is
+/// clamped like every REQ so a search can't tie up a connection (strfry caps
+/// at 500; RELAY_OPTIMIZATIONS §1).
+pub async fn search_events_ctx(
+    pool: &PgPool,
+    filter: &Filter,
+    query: &str,
+    ctx: &ReadCtx<'_>,
+) -> anyhow::Result<Vec<Event>> {
+    let (mut conditions, mut binds) = build_conditions(filter, ctx);
+    binds.push(BindValue::Str(query.to_string()));
+    let q_param = binds.len();
+    conditions.push(format!("search_tsv @@ plainto_tsquery('english', ${q_param})"));
+    conditions.push(format!("kind <> {KIND_GIFT_WRAP}"));
+    conditions.push(format!("kind <> {KIND_REPORT}"));
+    let where_clause = where_clause(&conditions);
+    let limit = filter.limit.unwrap_or(100).clamp(0, MAX_QUERY_LIMIT);
+    let sql = format!(
+        "SELECT id, pubkey, created_at, kind, tags, content, sig FROM relay.events {where_clause} \
+         ORDER BY ts_rank(search_tsv, plainto_tsquery('english', ${q_param})) DESC LIMIT {limit}"
+    );
+    let query = bind_all!(sqlx::query_as::<Postgres, EventRow>(&sql), binds);
+    let rows: Vec<EventRow> = query.fetch_all(pool).await?;
+    Ok(rows
         .into_iter()
         .map(|r| Event {
             id: r.id,
