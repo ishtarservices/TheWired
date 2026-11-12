@@ -89,6 +89,9 @@ describe("useModeration kick/ban dual-write", () => {
         subscriptions: {},
         channels: {},
         channelsLoading: {},
+        categories: {},
+        layoutRevision: {},
+        layoutSupported: {},
         pendingInvites: [],
       },
       spaceConfig: {
@@ -131,6 +134,9 @@ describe("useModeration kick/ban dual-write", () => {
         subscriptions: {},
         channels: {},
         channelsLoading: {},
+        categories: {},
+        layoutRevision: {},
+        layoutSupported: {},
         pendingInvites: [],
       },
       spaceConfig: {
@@ -174,6 +180,9 @@ describe("useModeration kick/ban dual-write", () => {
         subscriptions: {},
         channels: {},
         channelsLoading: {},
+        categories: {},
+        layoutRevision: {},
+        layoutSupported: {},
         pendingInvites: [],
       },
       spaceConfig: {
@@ -222,7 +231,7 @@ describe("useModeration kick/ban dual-write", () => {
           groupRef: { host: "wss://relay.test.com", groupId: "space-1" } as any,
         })],
         activeSpaceId: null, activeChannelId: null, subscriptions: {},
-        channels: {}, channelsLoading: {}, pendingInvites: [],
+        channels: {}, categories: {}, layoutRevision: {}, layoutSupported: {}, channelsLoading: {}, pendingInvites: [],
       },
       spaceConfig: {
         roles: {}, members: { "space-1": [makeMember({ pubkey: "pk-admin" }), makeMember({ pubkey: "pk-victim" })] },

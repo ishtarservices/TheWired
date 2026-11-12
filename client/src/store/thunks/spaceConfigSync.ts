@@ -11,19 +11,18 @@
  */
 import type { AppDispatch, RootState } from "../index";
 import type { NostrEvent } from "../../types/nostr";
-import { updateSpace, setChannels, updateSpaceFeedSources } from "../slices/spacesSlice";
+import { updateSpace, updateSpaceFeedSources } from "../slices/spacesSlice";
 import { setRoles, setBans, setMutes, setMyPermissions, setMyChannelOverrides } from "../slices/spaceConfigSlice";
 import { addNotification } from "../slices/notificationSlice";
 import { getSpace, fetchFeedSources } from "../../lib/api/spaces";
-import { fetchChannels } from "../../lib/api/channels";
 import { fetchRoles, fetchMyChannelPermissions } from "../../lib/api/roles";
 import { fetchBans, fetchMutes } from "../../lib/api/moderation";
 import { updateSpaceInStore } from "../../lib/db/spaceStore";
-import { saveChannels } from "../../lib/db/channelStore";
 import { isBackendBacked } from "../../features/spaces/spaceType";
 import { cleanupSpaceState } from "../../features/spaces/spaceCleanup";
 import { resubscribeActiveChannel } from "../../features/spaces/resubscribeActiveChannel";
 import { syncSpaceMembers } from "./spaceMembers";
+import { loadChannelLayout } from "./channelLayout";
 import type { SpaceRole, Ban, Mute } from "../../types/space";
 
 export const SPACE_CHANGE_KINDS = ["meta", "channels", "roles", "members", "moderation", "feed", "deleted"] as const;
@@ -84,13 +83,8 @@ export function syncSpaceConfig(spaceId: string, changes: readonly SpaceChange[]
     }
 
     if (wants.has("channels")) {
-      jobs.push(
-        fetchChannels(spaceId).then((channels) => {
-          const normalized = channels.map((c) => (c.feedMode ? c : { ...c, feedMode: "all" as const }));
-          dispatch(setChannels({ spaceId, channels: normalized }));
-          void saveChannels(spaceId, normalized).catch(() => {});
-        }),
-      );
+      // Channels + subfolders + revision in one fetch (flat list on an older backend).
+      jobs.push(dispatch(loadChannelLayout(spaceId)));
     }
 
     if (wants.has("roles")) {

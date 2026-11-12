@@ -6,7 +6,7 @@ import type { Space } from "@/types/space";
 
 vi.mock("@/lib/api/spaces", () => ({ getSpace: vi.fn(), fetchFeedSources: vi.fn() }));
 vi.mock("@/lib/nostr/groupSubscriptions", () => ({ switchSpaceChannel: vi.fn() }));
-vi.mock("@/lib/api/channels", () => ({ fetchChannels: vi.fn() }));
+vi.mock("@/lib/api/channels", () => ({ fetchChannels: vi.fn(), fetchLayout: vi.fn() }));
 vi.mock("@/lib/api/roles", () => ({
   fetchRoles: vi.fn(),
   fetchMyChannelPermissions: vi.fn(),
@@ -29,10 +29,12 @@ import {
   CONFIG_SYNC_DEBOUNCE_MS,
 } from "../spaceConfigSync";
 import { _resetInFlight } from "../spaceMembers";
+import { ApiRequestError } from "@/lib/api/client";
 
 const getSpace = vi.mocked(spacesApi.getSpace);
 const fetchFeedSources = vi.mocked(spacesApi.fetchFeedSources);
 const fetchChannels = vi.mocked(channelsApi.fetchChannels);
+const fetchLayout = vi.mocked(channelsApi.fetchLayout);
 const fetchRoles = vi.mocked(rolesApi.fetchRoles);
 const fetchMyChannelPermissions = vi.mocked(rolesApi.fetchMyChannelPermissions);
 const fetchAllMemberRoles = vi.mocked(rolesApi.fetchAllMemberRoles);
@@ -76,6 +78,9 @@ function storeWith(space: Space | null, active?: { channelId: string; channels: 
       subscriptions: {},
       channels: active && space ? { [space.id]: active.channels as never } : {},
       channelsLoading: {},
+      categories: {},
+      layoutRevision: {},
+      layoutSupported: {},
       pendingInvites: [],
     },
   });
@@ -108,9 +113,13 @@ describe("syncSpaceConfig", () => {
     getSpace.mockResolvedValue({
       data: { id: "space-1", name: "New name", about: "fresh", picture: null } as never,
     });
-    fetchChannels.mockResolvedValue([
-      { id: "c1", spaceId: "space-1", type: "chat", label: "#general", position: 0, isDefault: true, adminOnly: false, slowModeSeconds: 0 } as never,
-    ]);
+    fetchLayout.mockResolvedValue({
+      revision: 3,
+      categories: [{ id: "Dev", spaceId: "space-1", name: "Development", position: 0 }],
+      channels: [
+        { id: "c1", spaceId: "space-1", type: "chat", label: "#general", categoryId: "Dev", position: 0, isDefault: true, adminOnly: false, slowModeSeconds: 0 } as never,
+      ],
+    });
     await store.dispatch(syncSpaceConfig("space-1", ["meta", "channels"]) as never);
     const space = store.getState().spaces.list[0];
     expect(space.name).toBe("New name");
@@ -118,7 +127,23 @@ describe("syncSpaceConfig", () => {
     expect(space.picture).toBeUndefined();
     expect(store.getState().spaces.channels["space-1"]).toHaveLength(1);
     expect(store.getState().spaces.channels["space-1"][0].feedMode).toBe("all");
+    expect(store.getState().spaces.categories["space-1"].map((c) => c.name)).toEqual(["Development"]);
+    expect(store.getState().spaces.layoutRevision["space-1"]).toBe(3);
+    expect(store.getState().spaces.layoutSupported["space-1"]).toBe(true);
+    expect(fetchChannels).not.toHaveBeenCalled();
     expect(fetchRoles).not.toHaveBeenCalled();
+  });
+
+  it("falls back to the flat channel list when the backend predates subfolders (404)", async () => {
+    const store = storeWith(makeSpace());
+    fetchLayout.mockRejectedValue(new ApiRequestError(404, undefined as never, "Not Found"));
+    fetchChannels.mockResolvedValue([
+      { id: "c1", spaceId: "space-1", type: "chat", label: "#general", categoryId: "Dev", position: 0, isDefault: true, adminOnly: false, slowModeSeconds: 0 } as never,
+    ]);
+    await store.dispatch(syncSpaceConfig("space-1", ["channels"]) as never);
+    expect(store.getState().spaces.channels["space-1"]).toHaveLength(1);
+    expect(store.getState().spaces.layoutSupported["space-1"]).toBe(false);
+    expect(store.getState().spaces.categories["space-1"]).toBeUndefined();
   });
 
   it("refetches roles, members and my permissions on 'roles' / 'members'; one failure doesn't block the rest", async () => {
@@ -179,6 +204,7 @@ describe("syncSpaceConfig", () => {
     const store = storeWith(makeSpace({ spaceType: "nip29-native" }));
     await store.dispatch(syncSpaceConfig("space-1", ["channels"]) as never);
     await store.dispatch(syncSpaceConfig("nope", ["channels"]) as never);
+    expect(fetchLayout).not.toHaveBeenCalled();
     expect(fetchChannels).not.toHaveBeenCalled();
   });
 });
@@ -188,14 +214,14 @@ describe("scheduleSpaceConfigSync", () => {
     vi.useFakeTimers();
     try {
       const store = storeWith(makeSpace());
-      fetchChannels.mockResolvedValue([]);
+      fetchLayout.mockResolvedValue({ revision: 0, categories: [], channels: [] });
       fetchRoles.mockResolvedValue([]);
       scheduleSpaceConfigSync("space-1", ["channels"], store.dispatch as never);
       scheduleSpaceConfigSync("space-1", ["roles"], store.dispatch as never);
       scheduleSpaceConfigSync("space-1", ["channels"], store.dispatch as never);
-      expect(fetchChannels).not.toHaveBeenCalled();
+      expect(fetchLayout).not.toHaveBeenCalled();
       await vi.advanceTimersByTimeAsync(CONFIG_SYNC_DEBOUNCE_MS + 1);
-      expect(fetchChannels).toHaveBeenCalledTimes(1);
+      expect(fetchLayout).toHaveBeenCalledTimes(1);
       expect(fetchRoles).toHaveBeenCalledTimes(1);
     } finally {
       vi.useRealTimers();

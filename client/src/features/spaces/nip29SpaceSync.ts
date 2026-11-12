@@ -2,13 +2,19 @@ import type { NostrEvent } from "../../types/nostr";
 import { EVENT_KINDS } from "../../types/nostr";
 import type { Space } from "../../types/space";
 import { store } from "../../store";
-import { updateSpace, setChannels } from "../../store/slices/spacesSlice";
+import { updateSpace, setChannelLayout } from "../../store/slices/spacesSlice";
 import { setMembers, setRoles } from "../../store/slices/spaceConfigSlice";
 import { updateSpaceInStore } from "../../lib/db/spaceStore";
-import { saveChannels } from "../../lib/db/channelStore";
-import { isNip29Native, relayUrlToHost } from "./spaceType";
+import { saveChannels, saveCategories } from "../../lib/db/channelStore";
+import { isNip29Native } from "./spaceType";
 import { synthesizeNip29Members, synthesizeNip29Roles } from "./synthesizeNip29Roles";
-import { parseLayoutEvent } from "./channelLayout";
+import {
+  pickLayout,
+  obeliskLayoutDTags,
+  wiredLayoutDTag,
+  authorizedLayoutAuthors,
+  defaultNativeChannels,
+} from "./channelLayout";
 import { parseRelaySetEvent, wiredRelaysDTag } from "./relaySet";
 
 /**
@@ -57,6 +63,11 @@ export function applyNativeGroupEvent(event: NostrEvent): boolean {
       const updated: Space = { ...space, adminPubkeys: admins };
       persist(updated);
       resynthesize(updated);
+      // Who may author the layout changed: re-pick among the layouts already
+      // seen (one may have arrived before the admin list) and let the layout
+      // subscription re-filter by the new authors.
+      repickLayout(updated);
+      for (const listener of adminListeners) listener(updated);
       return true;
     }
     case EVENT_KINDS.GROUP_MEMBERS: {
@@ -71,12 +82,71 @@ export function applyNativeGroupEvent(event: NostrEvent): boolean {
   }
 }
 
+/** Layout events seen per native space, latest per (author, d-tag). Bounded.
+ *  Kept for the session (not dropped when switching spaces): the relay's
+ *  re-delivery on re-entry is deduplicated by the pipeline and would never
+ *  repopulate it. Dropped when the space itself is removed. */
+const layoutCandidates = new Map<string, Map<string, NostrEvent>>();
+/** Spaces whose layout subscription has delivered what the relay holds. */
+const layoutLoaded = new Set<string>();
+/** The event id currently applied per space, and its created_at. */
+const appliedLayout = new Map<string, { id: string; createdAt: number }>();
+const MAX_LAYOUT_CANDIDATES = 32;
+
+type AdminsListener = (space: Space) => void;
+const adminListeners = new Set<AdminsListener>();
+
+/** Run `listener` whenever a native space's admin list (layout authors) changes. */
+export function onNativeAdminsChanged(listener: AdminsListener): () => void {
+  adminListeners.add(listener);
+  return () => adminListeners.delete(listener);
+}
+
+/** created_at of the layout currently applied to a space (a new one must be later). */
+export function appliedLayoutCreatedAt(spaceId: string): number | undefined {
+  return appliedLayout.get(spaceId)?.createdAt;
+}
+
+/** Forget a space's layout candidates (the space was removed). */
+export function forgetNativeLayout(spaceId: string): void {
+  layoutCandidates.delete(spaceId);
+  appliedLayout.delete(spaceId);
+  layoutLoaded.delete(spaceId);
+}
+
+/** Whether the layout subscription has caught up — writes before that could
+ *  publish over a layout this client hasn't seen yet. */
+export function setNativeLayoutLoaded(spaceId: string, loaded: boolean): void {
+  if (loaded) layoutLoaded.add(spaceId);
+  else layoutLoaded.delete(spaceId);
+}
+
+export function isNativeLayoutLoaded(spaceId: string): boolean {
+  return layoutLoaded.has(spaceId);
+}
+
+/** Newest created_at among a space's authorized layouts (a new one must be
+ *  later). Strangers' events don't count: they must not push our dates. */
+export function newestLayoutCreatedAt(spaceId: string): number | undefined {
+  const space = store.getState().spaces.list.find((s) => s.id === spaceId);
+  const authors = new Set(space ? authorizedLayoutAuthors(space) : []);
+  const dates = [...(layoutCandidates.get(spaceId)?.values() ?? [])]
+    .filter((e) => authors.has(e.pubkey))
+    .map((e) => e.created_at);
+  const applied = appliedLayout.get(spaceId)?.createdAt;
+  if (applied !== undefined) dates.push(applied);
+  return dates.length > 0 ? Math.max(...dates) : undefined;
+}
+
 /**
- * Apply a kind:30078 channel-layout overlay (M4) to a native space. The layout
- * is authored by an admin/creator/relay (NOT relay-only like 39000-2), and may
+ * Apply a kind:30078 channel-layout overlay to a native space. The layout is
+ * authored by an admin/creator/relay (NOT relay-only like 39000-2), and may
  * follow our `wired:layout:<groupId>` convention or Obelisk's
- * `obelisk:layout:<relayUrl>`. Returns true when handled as a layout for a
- * native space (so the pipeline doesn't treat it as anything else).
+ * `obelisk:layout:<relayUrl>`. Every event is kept as a candidate and the
+ * binding one is re-picked (newest authorized; ours over Obelisk's), so arrival
+ * order — relays return newest first — can't let an older layout win, and a
+ * layout that arrives before the admin list isn't lost. Returns true when
+ * handled as a layout for a native space.
  */
 export function applyNativeLayoutEvent(event: NostrEvent): boolean {
   const d = event.tags.find((t) => t[0] === "d")?.[1];
@@ -86,24 +156,65 @@ export function applyNativeLayoutEvent(event: NostrEvent): boolean {
   let space: Space | undefined;
   if (d.startsWith("wired:layout:")) {
     const groupId = d.slice("wired:layout:".length);
-    space = list.find((s) => s.id === groupId);
+    space = list.find((s) => s.id === groupId && wiredLayoutDTag(s.id) === d);
   } else if (d.startsWith("obelisk:layout:")) {
     // Obelisk keys layout by relay URL — match a native space on that host.
-    space = list.find((s) => isNip29Native(s) && d.includes(relayUrlToHost(s.hostRelay)));
+    space = list.find((s) => isNip29Native(s) && obeliskLayoutDTags(s).includes(d));
   } else {
     return false; // not a layout d-tag (e.g. DM read-state) — leave for others
   }
   if (!space || !isNip29Native(space)) return false;
 
-  const channels = parseLayoutEvent(event, space); // null if unauthorized/empty
-  if (!channels) return true;
-
-  store.dispatch(setChannels({ spaceId: space.id, channels }));
-  void saveChannels(space.id, channels).catch(() => {});
-  if (space.channelSource !== "layout-event") {
-    persist({ ...space, channelSource: "layout-event" });
+  let bucket = layoutCandidates.get(space.id);
+  if (!bucket) layoutCandidates.set(space.id, (bucket = new Map()));
+  const key = `${event.pubkey}|${d}`;
+  const prev = bucket.get(key);
+  if (!prev || event.created_at > prev.created_at || (event.created_at === prev.created_at && event.id < prev.id)) {
+    bucket.set(key, event);
   }
+  if (bucket.size > MAX_LAYOUT_CANDIDATES) {
+    // Evict strangers' events first, then the oldest — never the applied one.
+    const authors = new Set(authorizedLayoutAuthors(space));
+    const appliedId = appliedLayout.get(space.id)?.id;
+    const victims = [...bucket.entries()]
+      .filter(([, e]) => e.id !== appliedId)
+      .sort(
+        (a, b) =>
+          Number(authors.has(a[1].pubkey)) - Number(authors.has(b[1].pubkey)) || a[1].created_at - b[1].created_at,
+      );
+    for (const [k] of victims.slice(0, bucket.size - MAX_LAYOUT_CANDIDATES)) bucket.delete(k);
+  }
+  repickLayout(space);
   return true;
+}
+
+/** Apply the binding layout among a space's candidates, if it changed. */
+function repickLayout(space: Space): void {
+  const bucket = layoutCandidates.get(space.id);
+  if (!bucket || !isNip29Native(space)) return;
+  const picked = pickLayout([...bucket.values()], space);
+  if (!picked) {
+    // The layout we showed is no longer authorized (its author was removed as
+    // an admin): back to the plain single chat until an admin publishes one.
+    if (appliedLayout.has(space.id)) {
+      appliedLayout.delete(space.id);
+      const channels = defaultNativeChannels(space.id);
+      store.dispatch(setChannelLayout({ spaceId: space.id, channels, categories: [] }));
+      void saveChannels(space.id, channels).catch(() => {});
+      void saveCategories(space.id, { categories: [] }).catch(() => {});
+    }
+    return;
+  }
+  if (appliedLayout.get(space.id)?.id === picked.event.id) return;
+  appliedLayout.set(space.id, { id: picked.event.id, createdAt: picked.event.created_at });
+
+  const { channels, categories, convention } = picked.layout;
+  store.dispatch(setChannelLayout({ spaceId: space.id, channels, categories }));
+  void saveChannels(space.id, channels).catch(() => {});
+  void saveCategories(space.id, { categories }).catch(() => {});
+  if (space.channelSource !== "layout-event" || space.layoutConvention !== convention) {
+    persist({ ...space, channelSource: "layout-event", layoutConvention: convention });
+  }
 }
 
 /**

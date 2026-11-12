@@ -1,5 +1,5 @@
 import { createSlice, type PayloadAction } from "@reduxjs/toolkit";
-import type { Space, SpaceChannel } from "../../types/space";
+import type { Space, SpaceChannel, SpaceChannelCategory } from "../../types/space";
 import { spaceLocalKey } from "../../features/spaces/spaceType";
 
 export interface PendingInvite {
@@ -15,6 +15,12 @@ interface SpacesState {
   activeChannelId: string | null;
   subscriptions: Record<string, string>; // channelId -> subId
   channels: Record<string, SpaceChannel[]>; // spaceId -> channels
+  /** spaceId -> subfolders. Absent = unknown (legacy grouping by categoryId string). */
+  categories: Record<string, SpaceChannelCategory[]>;
+  /** spaceId -> backend layout revision (the PUT's optimistic lock). */
+  layoutRevision: Record<string, number>;
+  /** spaceId -> false when the backend has no layout API (management hidden). */
+  layoutSupported: Record<string, boolean>;
   channelsLoading: Record<string, boolean>;
   pendingInvites: PendingInvite[];
 }
@@ -25,6 +31,9 @@ const initialState: SpacesState = {
   activeChannelId: null,
   subscriptions: {},
   channels: {},
+  categories: {},
+  layoutRevision: {},
+  layoutSupported: {},
   channelsLoading: {},
   pendingInvites: [],
 };
@@ -86,6 +95,9 @@ export const spacesSlice = createSlice({
         state.activeChannelId = null;
       }
       delete state.channels[action.payload];
+      delete state.categories[action.payload];
+      delete state.layoutRevision[action.payload];
+      delete state.layoutSupported[action.payload];
       delete state.channelsLoading[action.payload];
     },
     updateSpace(state, action: PayloadAction<Space>) {
@@ -97,6 +109,25 @@ export const spacesSlice = createSlice({
     // Channel management
     setChannels(state, action: PayloadAction<{ spaceId: string; channels: SpaceChannel[] }>) {
       state.channels[action.payload.spaceId] = action.payload.channels;
+    },
+    /** Replace a space's whole layout (channels + subfolders [+ revision]) at once,
+     *  so the sidebar never renders channels against another layout's categories. */
+    setChannelLayout(
+      state,
+      action: PayloadAction<{
+        spaceId: string;
+        channels: SpaceChannel[];
+        categories: SpaceChannelCategory[];
+        revision?: number;
+      }>,
+    ) {
+      const { spaceId, channels, categories, revision } = action.payload;
+      state.channels[spaceId] = channels;
+      state.categories[spaceId] = categories;
+      if (revision !== undefined) state.layoutRevision[spaceId] = revision;
+    },
+    setLayoutSupported(state, action: PayloadAction<{ spaceId: string; supported: boolean }>) {
+      state.layoutSupported[action.payload.spaceId] = action.payload.supported;
     },
     addChannelToList(state, action: PayloadAction<SpaceChannel>) {
       const channels = state.channels[action.payload.spaceId];
@@ -158,6 +189,8 @@ export const {
   removeSpace,
   updateSpace,
   setChannels,
+  setChannelLayout,
+  setLayoutSupported,
   addChannelToList,
   updateChannelInList,
   removeChannelFromList,

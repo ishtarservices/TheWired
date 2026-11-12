@@ -19,6 +19,8 @@ const {
   clearSpacePendingInvites,
   updateSpaceFeedSources,
   updateSpaceMembers,
+  setChannelLayout,
+  setLayoutSupported,
 } = spacesSlice.actions;
 
 function makeSpace(overrides: Partial<Space> = {}): Space {
@@ -260,5 +262,34 @@ describe("spacesSlice", () => {
       updateSpaceMembers({ spaceId: "space-1", members: ["pk1"] }),
     );
     expect(store.getState().spaces.list[0].memberPubkeys).toEqual(["pk1"]);
+  });
+});
+
+describe("channel layout state", () => {
+  const channel = { id: "c1", spaceId: "space-1", type: "chat", label: "#c1", categoryId: "T", position: 0, isDefault: true, adminOnly: false, slowModeSeconds: 0, feedMode: "all" } as const;
+  const category = { id: "T", spaceId: "space-1", name: "Text", position: 0 };
+
+  it("setChannelLayout replaces channels + categories together, revision only when given", () => {
+    const store = createTestStore();
+    store.dispatch(setChannelLayout({ spaceId: "space-1", channels: [channel], categories: [category], revision: 3 }));
+    expect(store.getState().spaces.channels["space-1"]).toEqual([channel]);
+    expect(store.getState().spaces.categories["space-1"]).toEqual([category]);
+    expect(store.getState().spaces.layoutRevision["space-1"]).toBe(3);
+    store.dispatch(setChannelLayout({ spaceId: "space-1", channels: [], categories: [] }));
+    expect(store.getState().spaces.layoutRevision["space-1"]).toBe(3);
+    expect(store.getState().spaces.categories["space-1"]).toEqual([]);
+  });
+
+  it("removeSpace clears the layout state too", () => {
+    const store = createTestStore();
+    store.dispatch(setSpaces([makeSpace()]));
+    store.dispatch(setChannelLayout({ spaceId: "space-1", channels: [channel], categories: [category], revision: 1 }));
+    store.dispatch(setLayoutSupported({ spaceId: "space-1", supported: true }));
+    store.dispatch(removeSpace("space-1"));
+    const s = store.getState().spaces;
+    expect(s.channels["space-1"]).toBeUndefined();
+    expect(s.categories["space-1"]).toBeUndefined();
+    expect(s.layoutRevision["space-1"]).toBeUndefined();
+    expect(s.layoutSupported["space-1"]).toBeUndefined();
   });
 });

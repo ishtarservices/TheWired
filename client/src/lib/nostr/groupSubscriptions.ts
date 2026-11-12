@@ -8,8 +8,8 @@ import { EVENT_KINDS } from "../../types/nostr";
 import type { NostrFilter } from "../../types/nostr";
 import type { Space } from "../../types/space";
 import { isNip29Native } from "../../features/spaces/spaceType";
-import { seedNativeSpaceConfig } from "../../features/spaces/nip29SpaceSync";
-import { layoutDTags } from "../../features/spaces/channelLayout";
+import { seedNativeSpaceConfig, onNativeAdminsChanged, setNativeLayoutLoaded } from "../../features/spaces/nip29SpaceSync";
+import { wiredLayoutDTag, obeliskLayoutDTags, authorizedLayoutAuthors } from "../../features/spaces/channelLayout";
 import { wiredRelaysDTag, resolveRelaySet } from "../../features/spaces/relaySet";
 import { store } from "../../store";
 import { setChannelSubscription, removeChannelSubscription } from "../../store/slices/spacesSlice";
@@ -167,13 +167,78 @@ const spaceMetaSubs = new Map<string, string>();
 /** Active kind:30078 channel-layout subscriptions per native space (M4). */
 const spaceLayoutSubs = new Map<string, string>();
 
+/** Where each native space's layout sub reads from (to re-open it when admins change). */
+const spaceLayoutRelays = new Map<string, string>();
+
+/**
+ * kind:30078 filters for a native space: our layout (h-scoped and pinned to the
+ * current layout authors, so strangers can't crowd it out of a `limit`),
+ * Obelisk's, and the mirror relay set (M9) — each its own filter so one can't
+ * starve another. `parseLayoutEvent` / `parseRelaySetEvent` still check authors.
+ */
+function layoutFilters(groupId: string, relayUrl: string): NostrFilter[] {
+  const space = store.getState().spaces.list.find((s) => s.id === groupId);
+  const authors = space ? authorizedLayoutAuthors(space) : [];
+  const ours: NostrFilter = {
+    kinds: [EVENT_KINDS.APP_SPECIFIC_DATA],
+    "#d": [wiredLayoutDTag(groupId)],
+    "#h": [groupId],
+    limit: 20,
+  };
+  const obelisk: NostrFilter = {
+    kinds: [EVENT_KINDS.APP_SPECIFIC_DATA],
+    "#d": obeliskLayoutDTags({ hostRelay: relayUrl }),
+    limit: 10,
+  };
+  if (authors.length > 0) {
+    ours.authors = authors;
+    obelisk.authors = authors;
+  }
+  const relaySet: NostrFilter = {
+    kinds: [EVENT_KINDS.APP_SPECIFIC_DATA],
+    "#d": [wiredRelaysDTag(groupId)],
+    limit: 6,
+  };
+  return [ours, obelisk, relaySet];
+}
+
+/** Grace after EOSE for the pipeline's async signature checks to land the
+ *  delivered layouts before edits are allowed. */
+const LAYOUT_SETTLE_MS = 500;
+
+function openLayoutSub(groupId: string, relayUrl: string): void {
+  const prev = spaceLayoutSubs.get(groupId);
+  if (prev) subscriptionManager.close(prev);
+  setNativeLayoutLoaded(groupId, false);
+  const subId: string = subscriptionManager.subscribe({
+    filters: layoutFilters(groupId, relayUrl),
+    relayUrls: [relayUrl],
+    onEOSE: ({ reason }) => {
+      // A timeout still lets edits through (live events keep arriving and the
+      // newest layout wins); with no relay there's nothing to publish to.
+      if (reason === "no-relays") return;
+      setTimeout(() => {
+        if (spaceLayoutSubs.get(groupId) === subId) setNativeLayoutLoaded(groupId, true);
+      }, LAYOUT_SETTLE_MS);
+    },
+  });
+  spaceLayoutSubs.set(groupId, subId);
+  spaceLayoutRelays.set(groupId, relayUrl);
+}
+
+// Layout authors are the group's admins: re-filter when 39001 changes them.
+onNativeAdminsChanged((space) => {
+  const relayUrl = spaceLayoutRelays.get(space.id);
+  if (relayUrl && spaceLayoutSubs.has(space.id)) openLayoutSub(space.id, relayUrl);
+});
+
 /** Enter a space: fetch group metadata (kind:39000/39001/39002) + channel layout
- *  (kind:30078, ours + Obelisk's).
+ *  (kind:30078, ours + Obelisk's) + its mirror relay set.
  *  SECURITY: when the relay's signing pubkey is known, pin it as the filter
  *  `authors` so forged group state (any pubkey reusing the group's d-tag) is
  *  never delivered. `applyNativeGroupEvent` enforces the same check again. The
- *  layout sub can't author-pin (admins are dynamic) — `parseLayoutEvent` checks
- *  authorization instead. */
+ *  layout filters pin the currently known layout authors and are re-opened
+ *  when the admin list changes; `parseLayoutEvent` checks authorization too. */
 export function enterSpace(groupId: string, relayUrl: string, relayPubkey?: string): void {
   if (spaceMetaSubs.has(groupId)) return;
 
@@ -195,21 +260,8 @@ export function enterSpace(groupId: string, relayUrl: string, relayPubkey?: stri
   spaceMetaSubs.set(groupId, subId);
 
   // One kind:30078 sub covers both overlays (routed by d-tag in the pipeline):
-  // the channel layout (M4) and the mirror relay set (M9).
-  const layoutSub = subscriptionManager.subscribe({
-    filters: [
-      {
-        kinds: [EVENT_KINDS.APP_SPECIFIC_DATA],
-        "#d": [
-          ...layoutDTags({ id: groupId, hostRelay: relayUrl }),
-          wiredRelaysDTag(groupId),
-        ],
-        limit: 6,
-      },
-    ],
-    relayUrls: [relayUrl],
-  });
-  spaceLayoutSubs.set(groupId, layoutSub);
+  // the channel layout and the mirror relay set (M9).
+  openLayoutSub(groupId, relayUrl);
 }
 
 /** Close every channel subscription whose Redux key starts with `prefix` and
@@ -242,6 +294,10 @@ export function leaveSpace(groupId: string): void {
     subscriptionManager.close(layoutSub);
     spaceLayoutSubs.delete(groupId);
   }
+  spaceLayoutRelays.delete(groupId);
+  // Edits wait for the next entry's subscription to catch up; the layouts
+  // seen so far are kept (re-delivery would be deduplicated).
+  setNativeLayoutLoaded(groupId, false);
 
   closeSpaceChannelSubs(groupId + ":");
 }

@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback, memo, useMemo } from "react";
 import { useNavigate, useLocation } from "react-router-dom";
 import { cn } from "@/lib/utils";
-import { MessageSquare, FileText, Image, BookOpen, Music, Plus, BellOff, Headphones, Video, Users, ChevronRight } from "lucide-react";
+import { MessageSquare, FileText, Image, BookOpen, Music, Plus, BellOff, Headphones, Video, Users, ChevronRight, FolderPlus } from "lucide-react";
 import { useSpace } from "./useSpace";
 import { useSpaceChannels } from "./useSpaceChannels";
 import { useAppSelector } from "../../store/hooks";
@@ -10,7 +10,22 @@ import { parseChannelIdPart } from "./spaceSelectors";
 import { getLastChannel } from "../../lib/db/lastChannelCache";
 import { useChannelUnread, useChannelMentions, useChannelMuted } from "../notifications/useNotifications";
 import { CreateChannelModal } from "./CreateChannelModal";
+import { EditChannelModal } from "./EditChannelModal";
+import { CategoryModal } from "./CategoryModal";
 import { ChannelContextMenu } from "./ChannelContextMenu";
+import { CategoryContextMenu } from "./CategoryContextMenu";
+import { ChannelTreeDnd, type DragHandle } from "./ChannelTreeDnd";
+import {
+  buildChannelTree,
+  filterTree,
+  flattenTree,
+  moveCategory,
+  moveChannel,
+  removeCategory,
+  visibleToFullIndex,
+} from "./channelTree";
+import { isNip29Native } from "./spaceType";
+import { ConfirmDialog } from "../../components/ui/ConfirmDialog";
 import { VoiceChannelPreview } from "../voice/VoiceChannelPreview";
 import { useVoiceRoomPresence } from "../voice/useVoiceRoomPresence";
 import { selectIsInChannel, selectVoiceParticipantCount, selectChannelPresence } from "../voice/voiceSelectors";
@@ -29,16 +44,27 @@ const CHANNEL_ICONS: Record<SpaceChannelType, typeof MessageSquare> = {
 
 export function ChannelList() {
   const { activeSpace, activeChannelId, selectChannel } = useSpace();
-  const { channels: backendChannels } = useSpaceChannels(
-    activeSpace?.id && activeSpace.id !== FRIENDS_FEED_ID ? activeSpace.id : null,
-  );
+  const spaceIdForChannels = activeSpace?.id && activeSpace.id !== FRIENDS_FEED_ID ? activeSpace.id : null;
+  const {
+    channels: backendChannels,
+    tree: backendTree,
+    layoutManageable,
+    applyOp,
+    deleteChannel,
+  } = useSpaceChannels(spaceIdForChannels);
   const navigate = useNavigate();
   const location = useLocation();
   const currentPubkey = useAppSelector((s) => s.identity.pubkey);
   const activeSpaceId = useAppSelector((s) => s.spaces.activeSpaceId);
   const { can, channelOverrides } = usePermissions(activeSpace?.id ?? null);
-  const [createModalOpen, setCreateModalOpen] = useState(false);
+  const [createModal, setCreateModal] = useState<{ categoryId: string | null } | null>(null);
+  const [categoryModal, setCategoryModal] = useState<{ categoryId: string | null } | null>(null);
+  const [editChannelId, setEditChannelId] = useState<string | null>(null);
+  const [deleteChannelId, setDeleteChannelId] = useState<string | null>(null);
+  const [deleteCategoryId, setDeleteCategoryId] = useState<string | null>(null);
   const [ctxMenu, setCtxMenu] = useState<{ channelId: string; x: number; y: number } | null>(null);
+  const [catMenu, setCatMenu] = useState<{ categoryId: string; x: number; y: number } | null>(null);
+  const [moveError, setMoveError] = useState<string | null>(null);
 
   // Per-account localStorage key prefix
   const keyPrefix = currentPubkey ? `${currentPubkey}:` : "";
@@ -53,12 +79,14 @@ export function ChannelList() {
   const toggleChannels = useCallback(() => {
     setChannelsCollapsed((prev) => {
       const next = !prev;
-      localStorage.setItem(channelsCollapseKey, String(next));
+      try { localStorage.setItem(channelsCollapseKey, String(next)); } catch { /* storage unavailable */ }
       return next;
     });
   }, [channelsCollapseKey]);
 
-  // Track collapsed categories in localStorage (per-account + per-space)
+  // Collapsed subfolders in localStorage (per-account + per-space), keyed by the
+  // category's stable id (pre-existing subfolders kept their name as their id,
+  // so collapse state saved before subfolders were editable still applies).
   const categoryKey = activeSpaceId ? `${keyPrefix}collapsed_categories:${activeSpaceId}` : null;
   const [collapsedCategories, setCollapsedCategories] = useState<Set<string>>(() => {
     if (!categoryKey) return new Set();
@@ -90,7 +118,7 @@ export function ChannelList() {
         next.add(categoryId);
       }
       if (categoryKey) {
-        localStorage.setItem(categoryKey, JSON.stringify([...next]));
+        try { localStorage.setItem(categoryKey, JSON.stringify([...next])); } catch { /* storage unavailable */ }
       }
       return next;
     });
@@ -99,9 +127,18 @@ export function ChannelList() {
   // Use Friends Feed channels for virtual space
   const isFriendsFeed = activeSpaceId === FRIENDS_FEED_ID;
   const channels: SpaceChannel[] = isFriendsFeed ? FRIENDS_FEED_CHANNELS : backendChannels;
+  const fullTree = useMemo(
+    () => (isFriendsFeed ? buildChannelTree(FRIENDS_FEED_CHANNELS, []) : backendTree),
+    [isFriendsFeed, backendTree],
+  );
 
   // Poll backend for voice room presence (visible to all space members)
   useVoiceRoomPresence(activeSpace?.id && !isFriendsFeed ? activeSpace.id : null);
+
+  // Check if onboarding is pending for this space (limits to default channels)
+  const onboardingPending = useAppSelector(
+    (s) => !isFriendsFeed && activeSpace ? s.spaceConfig.onboardingPending[activeSpace.id] ?? false : false,
+  );
 
   const handleChannelContextMenu = useCallback((e: React.MouseEvent, channelId: string) => {
     e.preventDefault();
@@ -140,14 +177,49 @@ export function ChannelList() {
     }
   }, [activeSpace, activeChannelId, channels, selectChannel, isFriendsFeed]);
 
+  // Use backend permissions if available, fall back to local admin check
+  const isAdmin = !isFriendsFeed && !!activeSpace && (
+    can("MANAGE_CHANNELS") || (!!currentPubkey && activeSpace.adminPubkeys.includes(currentPubkey))
+  );
+  const canArrange = isAdmin && layoutManageable;
+
+  // Filter channels: read-only hides chat, VIEW_CHANNEL hides channels with explicit deny overrides.
+  // When onboarding is pending, only show default channels.
+  const visibleTree = useMemo(
+    () =>
+      filterTree(fullTree, (ch) => {
+        if (isFriendsFeed) return true;
+        if (ch.type === "chat" && activeSpace?.mode === "read") return false;
+        if (onboardingPending && !ch.isDefault && !isAdmin) return false;
+        const ov = channelOverrides[ch.id];
+        if (ov?.deny.includes("VIEW_CHANNEL") && !isAdmin) return false;
+        return true;
+      }),
+    [fullTree, isFriendsFeed, activeSpace?.mode, onboardingPending, isAdmin, channelOverrides],
+  );
+  const visibleChannels = useMemo(() => flattenTree(visibleTree), [visibleTree]);
+
+  const moveTargets = useMemo(
+    () => [
+      { id: null as string | null, name: "No subfolder" },
+      ...fullTree.categories.map((n) => ({ id: n.category.id as string | null, name: n.category.name })),
+    ],
+    [fullTree],
+  );
+
+  const runMove = useCallback(
+    (op: Parameters<typeof applyOp>[0]) => {
+      setMoveError(null);
+      applyOp(op).catch((err: unknown) => {
+        setMoveError(err instanceof Error ? err.message : "Couldn't move that");
+      });
+    },
+    [applyOp],
+  );
+
   if (!activeSpace && !isFriendsFeed) return null;
 
   const spaceId = isFriendsFeed ? FRIENDS_FEED_ID : activeSpace!.id;
-
-  // Use backend permissions if available, fall back to local admin check
-  const isAdmin = !isFriendsFeed && (
-    can("MANAGE_CHANNELS") || (!!currentPubkey && activeSpace!.adminPubkeys.includes(currentPubkey))
-  );
 
   const handleSelectChannel = (channelId: string) => {
     selectChannel(channelId);
@@ -156,42 +228,13 @@ export function ChannelList() {
     }
   };
 
-  const sortedChannels = [...channels].sort((a, b) => a.position - b.position);
-
-  // Check if onboarding is pending for this space (limits to default channels)
-  const onboardingPending = useAppSelector(
-    (s) => !isFriendsFeed && activeSpace ? s.spaceConfig.onboardingPending[activeSpace.id] ?? false : false,
-  );
-
-  // Filter channels: read-only hides chat, VIEW_CHANNEL hides channels with explicit deny overrides.
-  // When onboarding is pending, only show default channels.
-  const visibleChannels = sortedChannels.filter((ch) => {
-    if (isFriendsFeed) return true;
-    if (ch.type === "chat" && activeSpace?.mode === "read") return false;
-    if (onboardingPending && !ch.isDefault && !isAdmin) return false;
-    const ov = channelOverrides[ch.id];
-    if (ov?.deny.includes("VIEW_CHANNEL") && !isAdmin) return false;
-    return true;
-  });
-
-  // Group channels by categoryId
-  const groupedChannels = useMemo(() => {
-    const groups: { categoryId: string | null; channels: SpaceChannel[] }[] = [];
-    const categoryMap = new Map<string | null, SpaceChannel[]>();
-
-    for (const ch of visibleChannels) {
-      const cat = ch.categoryId ?? null;
-      if (!categoryMap.has(cat)) {
-        categoryMap.set(cat, []);
-        groups.push({ categoryId: cat, channels: categoryMap.get(cat)! });
-      }
-      categoryMap.get(cat)!.push(ch);
-    }
-
-    return groups;
-  }, [visibleChannels]);
-
-  const hasCategories = groupedChannels.some((g) => g.categoryId !== null);
+  const ctxChannel = ctxMenu ? channels.find((c) => `${spaceId}:${c.id}` === ctxMenu.channelId) : undefined;
+  const deleteTarget = deleteChannelId ? channels.find((c) => c.id === deleteChannelId) : undefined;
+  const deleteCategory = deleteCategoryId
+    ? fullTree.categories.find((n) => n.category.id === deleteCategoryId)
+    : undefined;
+  const catMenuNode = catMenu ? fullTree.categories.find((n) => n.category.id === catMenu.categoryId) : undefined;
+  const nativeSpace = !!activeSpace && isNip29Native(activeSpace);
 
   return (
     <div className="p-3 space-y-1">
@@ -215,76 +258,114 @@ export function ChannelList() {
           )}
         </button>
         {isAdmin && (
-          <button
-            onClick={() => setCreateModalOpen(true)}
-            className="rounded p-0.5 text-muted hover:bg-card/50 hover:text-heading transition-colors"
-            title="Create channel"
-          >
-            <Plus size={14} />
-          </button>
+          <div className="flex items-center gap-0.5">
+            {layoutManageable && (
+              <button
+                onClick={() => setCategoryModal({ categoryId: null })}
+                className="rounded p-0.5 text-muted hover:bg-card/50 hover:text-heading transition-colors"
+                title="New subfolder"
+                aria-label="New subfolder"
+              >
+                <FolderPlus size={14} />
+              </button>
+            )}
+            <button
+              onClick={() => setCreateModal({ categoryId: null })}
+              className="rounded p-0.5 text-muted hover:bg-card/50 hover:text-heading transition-colors"
+              title="Create channel"
+              aria-label="Create channel"
+            >
+              <Plus size={14} />
+            </button>
+          </div>
         )}
       </div>
 
       {!channelsCollapsed && onboardingPending && (
-        <div className="mx-2 mb-1 rounded-lg bg-primary/5 border border-primary/10 px-2.5 py-1.5">
+        <div className="mx-2 mb-1 rounded-lg bg-primary/5 border border-primary/10 px-2 py-1.5">
           <p className="text-[10px] text-primary leading-snug">
             Complete onboarding to unlock all channels
           </p>
         </div>
       )}
 
-      {!channelsCollapsed && (
-        hasCategories ? (
-          groupedChannels.map((group) => {
-            const isCollapsed = group.categoryId ? collapsedCategories.has(group.categoryId) : false;
+      {moveError && (
+        <p className="mx-2 rounded-lg bg-red-500/10 px-2 py-1 text-[10px] text-red-400" role="alert">
+          {moveError}
+        </p>
+      )}
 
-            return (
-              <div key={group.categoryId ?? "__ungrouped__"}>
-                {group.categoryId && (
-                  <CategoryHeader
-                    categoryId={group.categoryId}
-                    spaceId={spaceId}
-                    channels={group.channels}
-                    isCollapsed={isCollapsed}
-                    onToggle={() => toggleCategory(group.categoryId!)}
-                  />
-                )}
-                {!isCollapsed && group.channels.map((ch) => (
-                  <ChannelItem
-                    key={ch.id}
-                    ch={ch}
-                    spaceId={spaceId}
-                    activeChannelId={activeChannelId}
-                    isFriendsFeed={isFriendsFeed}
-                    onSelect={handleSelectChannel}
-                    onContextMenu={handleChannelContextMenu}
-                  />
-                ))}
-              </div>
-            );
-          })
-        ) : (
-          visibleChannels.map((ch) => (
+      {!channelsCollapsed && (
+        <ChannelTreeDnd
+          tree={visibleTree}
+          enabled={canArrange}
+          collapsed={collapsedCategories}
+          // Members only see subfolders that hold a channel they can see.
+          showCategory={(node) => isAdmin || node.channels.length > 0}
+          onMoveChannel={(channelId, toCategoryId, index) =>
+            runMove(
+              moveChannel(
+                channelId,
+                toCategoryId,
+                visibleToFullIndex(fullTree, visibleTree, channelId, toCategoryId, index),
+              ),
+            )
+          }
+          onMoveCategory={(categoryId, index) => runMove(moveCategory(categoryId, index))}
+          emptyCategoryHint={
+            <p className="px-3 py-1.5 text-[10px] italic text-muted">Drag channels here</p>
+          }
+          renderCategoryHeader={(node, ctx) => (
+            <CategoryHeader
+              name={node.category.name}
+              spaceId={spaceId}
+              channels={node.channels}
+              isCollapsed={collapsedCategories.has(node.category.id)}
+              onToggle={() => toggleCategory(node.category.id)}
+              onAdd={isAdmin ? () => setCreateModal({ categoryId: node.category.id }) : undefined}
+              onContextMenu={(e) => {
+                e.preventDefault();
+                setCatMenu({ categoryId: node.category.id, x: e.clientX, y: e.clientY });
+              }}
+              dragHandle={ctx.handle}
+              dropTarget={ctx.dropTarget}
+              overlay={ctx.overlay}
+            />
+          )}
+          renderChannel={(ch, ctx) => (
             <ChannelItem
-              key={ch.id}
               ch={ch}
               spaceId={spaceId}
               activeChannelId={activeChannelId}
               isFriendsFeed={isFriendsFeed}
               onSelect={handleSelectChannel}
               onContextMenu={handleChannelContextMenu}
+              dragHandle={ctx.handle}
+              overlay={ctx.overlay}
             />
-          ))
-        )
+          )}
+        />
       )}
 
       {!isFriendsFeed && (
         <>
           <CreateChannelModal
-            open={createModalOpen}
-            onClose={() => setCreateModalOpen(false)}
+            open={!!createModal}
+            onClose={() => setCreateModal(null)}
             spaceId={spaceId}
-            existingChannels={channels}
+            defaultCategoryId={createModal?.categoryId ?? null}
+          />
+          <CategoryModal
+            open={!!categoryModal}
+            onClose={() => setCategoryModal(null)}
+            spaceId={spaceId}
+            categoryId={categoryModal?.categoryId}
+          />
+          <EditChannelModal
+            open={!!editChannelId}
+            onClose={() => setEditChannelId(null)}
+            spaceId={spaceId}
+            channelId={editChannelId}
           />
           {ctxMenu && (
             <ChannelContextMenu
@@ -292,47 +373,127 @@ export function ChannelList() {
               onClose={() => setCtxMenu(null)}
               channelId={ctxMenu.channelId}
               position={{ x: ctxMenu.x, y: ctxMenu.y }}
+              admin={
+                isAdmin && ctxChannel
+                  ? {
+                      onEdit: () => setEditChannelId(ctxChannel.id),
+                      onDelete:
+                        nativeSpace && (ctxChannel.isDefault || ctxChannel.id === "chat")
+                          ? undefined
+                          : () => setDeleteChannelId(ctxChannel.id),
+                      moveTargets: layoutManageable ? moveTargets : [],
+                      currentCategoryId: ctxChannel.categoryId ?? null,
+                      onMove: (categoryId) =>
+                        runMove(moveChannel(ctxChannel.id, categoryId, Number.POSITIVE_INFINITY)),
+                    }
+                  : undefined
+              }
             />
           )}
+          {catMenu && catMenuNode && (
+            <CategoryContextMenu
+              position={{ x: catMenu.x, y: catMenu.y }}
+              collapsed={collapsedCategories.has(catMenu.categoryId)}
+              onToggleCollapsed={() => toggleCategory(catMenu.categoryId)}
+              onNewChannel={isAdmin ? () => setCreateModal({ categoryId: catMenu.categoryId }) : undefined}
+              onEdit={canArrange ? () => setCategoryModal({ categoryId: catMenu.categoryId }) : undefined}
+              onDelete={canArrange ? () => setDeleteCategoryId(catMenu.categoryId) : undefined}
+              onClose={() => setCatMenu(null)}
+            />
+          )}
+          <ConfirmDialog
+            open={!!deleteTarget}
+            title={`Delete ${deleteTarget?.label ?? "channel"}?`}
+            body="The channel is removed for everyone. Its messages stay on the relay but won't be shown here."
+            confirmLabel="Delete channel"
+            danger
+            onConfirm={() => (deleteTarget ? deleteChannel(deleteTarget.id) : undefined)}
+            onClose={() => setDeleteChannelId(null)}
+          />
+          <ConfirmDialog
+            open={!!deleteCategory}
+            title={`Delete "${deleteCategory?.category.name ?? ""}"?`}
+            body={
+              deleteCategory && deleteCategory.channels.length > 0
+                ? `Its ${deleteCategory.channels.length} channel${deleteCategory.channels.length === 1 ? "" : "s"} will move out of the subfolder. No channels are deleted.`
+                : "It has no channels."
+            }
+            confirmLabel="Delete subfolder"
+            danger
+            onConfirm={() => (deleteCategory ? applyOp(removeCategory(deleteCategory.category.id)) : undefined)}
+            onClose={() => setDeleteCategoryId(null)}
+          />
         </>
       )}
     </div>
   );
 }
 
-/** Collapsible category header with aggregated unread */
+/** Collapsible subfolder header with aggregated unread (+ quick "new channel here" for admins) */
 function CategoryHeader({
-  categoryId,
+  name,
   spaceId,
   channels,
   isCollapsed,
   onToggle,
+  onAdd,
+  onContextMenu,
+  dragHandle,
+  dropTarget,
+  overlay,
 }: {
-  categoryId: string;
+  name: string;
   spaceId: string;
   channels: SpaceChannel[];
   isCollapsed: boolean;
   onToggle: () => void;
+  onAdd?: () => void;
+  onContextMenu?: (e: React.MouseEvent) => void;
+  dragHandle?: DragHandle;
+  dropTarget?: boolean;
+  overlay?: boolean;
 }) {
   return (
-    <button
-      onClick={onToggle}
-      className="flex w-full items-center gap-1 px-2 pt-2.5 pb-0.5 group"
-    >
-      <ChevronRight
-        size={10}
-        className={cn(
-          "text-muted transition-transform duration-150",
-          !isCollapsed && "rotate-90",
-        )}
-      />
-      <span className="text-[10px] font-semibold uppercase tracking-[0.12em] text-muted group-hover:text-heading transition-colors">
-        {categoryId}
-      </span>
-      {isCollapsed && (
-        <CollapsedUnreadBadge spaceId={spaceId} channels={channels} />
+    <div
+      ref={dragHandle?.ref}
+      {...(dragHandle?.listeners ?? {})}
+      onContextMenu={onContextMenu}
+      className={cn(
+        "group flex w-full items-center gap-1 px-2 pt-2.5 pb-0.5",
+        overlay && "rounded-lg bg-surface shadow-lg",
+        dropTarget && "text-heading",
       )}
-    </button>
+    >
+      <button
+        onClick={onToggle}
+        aria-expanded={!isCollapsed}
+        className="flex min-w-0 flex-1 items-center gap-1"
+      >
+        <ChevronRight
+          size={10}
+          className={cn(
+            "shrink-0 text-muted transition-transform duration-150",
+            !isCollapsed && "rotate-90",
+          )}
+        />
+        <span className="truncate text-[10px] font-semibold uppercase tracking-[0.12em] text-muted group-hover:text-heading transition-colors">
+          {name}
+        </span>
+        {isCollapsed && (
+          <CollapsedUnreadBadge spaceId={spaceId} channels={channels} />
+        )}
+      </button>
+      {onAdd && (
+        <button
+          onClick={onAdd}
+          className="shrink-0 rounded p-0.5 text-muted opacity-0 group-hover:opacity-100 focus:opacity-100 hover:text-heading transition-opacity"
+          title={`Create channel in ${name}`}
+          aria-label={`Create channel in ${name}`}
+        >
+          <Plus size={12} />
+        </button>
+      )}
+    </div>
   );
 }
 
@@ -371,6 +532,8 @@ function ChannelItem({
   isFriendsFeed,
   onSelect,
   onContextMenu,
+  dragHandle,
+  overlay,
 }: {
   ch: SpaceChannel;
   spaceId: string;
@@ -378,6 +541,9 @@ function ChannelItem({
   isFriendsFeed: boolean;
   onSelect: (channelId: string) => void;
   onContextMenu: (e: React.MouseEvent, channelId: string) => void;
+  /** The whole row starts a drag (pointer only, after a short move — clicks still select). */
+  dragHandle?: DragHandle;
+  overlay?: boolean;
 }) {
   const channelActiveId = `${spaceId}:${ch.id}`;
   const isActive = channelActiveId === activeChannelId;
@@ -385,7 +551,11 @@ function ChannelItem({
   const isVoice = ch.type === "voice" || ch.type === "video";
 
   return (
-    <div>
+    <div
+      ref={dragHandle?.ref}
+      {...(dragHandle?.listeners ?? {})}
+      className={cn(overlay && "rounded-xl bg-surface shadow-lg")}
+    >
       <ChannelButton
         channelId={channelActiveId}
         spaceId={spaceId}
@@ -398,7 +568,7 @@ function ChannelItem({
         onClick={() => onSelect(ch.id)}
         onContextMenu={isFriendsFeed ? undefined : (e) => onContextMenu(e, channelActiveId)}
       />
-      {isVoice && !isFriendsFeed && (
+      {isVoice && !isFriendsFeed && !overlay && (
         <VoiceChannelPreview spaceId={spaceId} channelId={ch.id} />
       )}
     </div>

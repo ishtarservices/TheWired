@@ -27,3 +27,15 @@ export const channelOverrides = appSchema.table("channel_overrides", {
 }, (t) => [
   primaryKey({ columns: [t.roleId, t.channelId, t.permission] }),
 ]);
+
+/** Category permission templates, copied onto the category's synced channels.
+ *  Permission checks only ever read channel_overrides. */
+export const categoryOverrides = appSchema.table("category_overrides", {
+  roleId: text("role_id").notNull(),
+  spaceId: text("space_id").notNull(),
+  categoryId: text("category_id").notNull(),
+  permission: text("permission").notNull(),
+  effect: text("effect").notNull(), // 'allow' | 'deny'
+}, (t) => [
+  primaryKey({ columns: [t.roleId, t.categoryId, t.permission] }),
+]);
