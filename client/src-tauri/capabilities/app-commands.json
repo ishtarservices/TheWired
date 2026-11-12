@@ -1,0 +1,41 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "app-commands",
+  "description": "Grants the app's own commands (keystore, embedded relay, tunnel) to the main window, on the dev origin and on exactly the production asset origin. Tauri checks the ACL for every command invoked from the production origin, so a command missing here is refused in built apps. Keep in step with src/app_commands.rs.",
+  "local": true,
+  "remote": {
+    "urls": ["http://localhost:14420"]
+  },
+  "windows": [
+    "main"
+  ],
+  "permissions": [
+    "allow-keystore-get-public-key",
+    "allow-keystore-sign-event",
+    "allow-keystore-has-key",
+    "allow-keystore-get-secret-key",
+    "allow-keystore-delete-key",
+    "allow-keystore-import-key",
+    "allow-keystore-list-accounts",
+    "allow-keystore-switch-account",
+    "allow-keystore-generate-key",
+    "allow-keystore-clear-active",
+    "allow-keystore-nip44-encrypt",
+    "allow-keystore-nip44-decrypt",
+    "allow-keystore-set-secret",
+    "allow-keystore-get-secret",
+    "allow-keystore-delete-secret",
+    "allow-keystore-backup-status",
+    "allow-keystore-mark-backed-up",
+    "allow-relay-start",
+    "allow-relay-stop",
+    "allow-relay-status",
+    "allow-relay-stats",
+    "allow-relay-reset",
+    "allow-tunnel-start",
+    "allow-tunnel-stop",
+    "allow-tunnel-status",
+    "allow-tunnel-named-identity",
+    "allow-tunnel-set-custom"
+  ]
+}

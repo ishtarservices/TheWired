@@ -119,13 +119,14 @@ jobs:
       # against an empty one, the web build is not under test here. The second
       # check builds the release configuration (`tauri build` turns on
       # custom-protocol), which compiles the `cfg(not(dev))` code paths.
-      - name: Check and run NIP-44 tests
+      - name: Check, and run the NIP-44 and IPC permission tests
         working-directory: client/src-tauri
         run: |
           mkdir -p ../dist
           cargo check --locked --all-targets
           cargo check --locked --features tauri/custom-protocol
           cargo test --locked --lib nip44::
+          cargo test --locked --lib ipc_acl_tests::
 
   # ── Backend Tests (Vitest + PostgreSQL) ─────────
   backend:
